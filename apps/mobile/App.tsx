@@ -6,6 +6,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Archive, ArrowUp, Check, ChevronDown, ImagePlus, LogOut, Menu, Pencil, RefreshCw, Square, Terminal, Trash2, X } from 'lucide-react-native';
 import { mergeLiveTurn } from '../../packages/client-shared/src/activity';
+import { buildDirectoryRows } from '../../packages/client-shared/src/directory';
 import { effortLabel, modelLabel } from '../../packages/client-shared/src/models';
 import { MAX_IMAGES, MAX_IMAGE_BYTES } from '../../packages/protocol/src/index';
 import type { HistoryTurn, RemoteCommand } from '../../packages/protocol/src/index';
@@ -14,7 +15,6 @@ import { ImageViewer } from './src/image-viewer';
 import { historyKey, relay } from './src/relay';
 import { c, s } from './src/styles';
 import { Directory } from './src/directory';
-import type { DirectoryRow } from './src/directory';
 import { confirmAction, defaultRelayUrl } from './src/runtime';
 import { ComposerInput } from './src/composer';
 
@@ -96,26 +96,7 @@ function AppContent() {
     for (const live of thread?.turns ?? []) { const index = result.findIndex(item => item.id === live.id); if (index < 0) result.push(live); else result[index] = mergeLiveTurn(result[index]!, live); }
     return result;
   }, [history?.turns, thread?.turns]);
-  const rows = useMemo<DirectoryRow[]>(() => {
-    if (!catalog) return [];
-    const query = search.trim().toLowerCase();
-    const available = catalog.threads.filter(item => !item.archived);
-    const projects = [...catalog.projects].sort((a, b) => a.position - b.position);
-    const groups = [...projects.map(item => ({ id: item.id, name: item.name })), { id: 'unassigned', name: '未归类会话' }];
-    const result: DirectoryRow[] = [{ type: 'section', id: 'projects', title: '项目' }];
-    for (const group of groups) {
-      const members = available.filter(item => (item.projectId ?? 'unassigned') === group.id && (!query || `${item.title} ${group.name} ${item.cwd ?? ''}`.toLowerCase().includes(query))).sort((a, b) => b.updatedAt - a.updatedAt);
-      if (!members.length && (query || group.id === 'unassigned')) continue;
-      const expanded = expandedProjects.includes(`${deviceId}:${group.id}`) || !!query;
-      result.push({ type: 'project', id: group.id, name: group.name, count: members.length, expanded });
-      if (expanded) for (const item of members) result.push({ type: 'thread', id: item.id, title: item.title || '未命名会话', active: snapshot?.threads[item.id]?.status === 'active', nested: true });
-    }
-    const matches = available.filter(item => !query || `${item.title} ${item.cwd ?? ''}`.toLowerCase().includes(query)).sort((a, b) => b.updatedAt - a.updatedAt);
-    const recent = query ? matches : matches.slice(0, 30);
-    if (recent.length) result.push({ type: 'section', id: 'recent', title: query ? '匹配会话' : '最近' });
-    for (const item of recent) result.push({ type: 'thread', id: item.id, title: item.title || '未命名会话', active: snapshot?.threads[item.id]?.status === 'active', nested: false });
-    return result;
-  }, [catalog, deviceId, expandedProjects, search, snapshot]);
+  const rows = useMemo(() => buildDirectoryRows({catalog, snapshot, deviceId, expandedProjects, search}), [catalog, deviceId, expandedProjects, search, snapshot]);
 
   const connect = async (url: string, username: string, password: string) => { setLoginBusy(true); try { await relay.connect(url, username, password, true); } catch { /* Error appears in the login view. */ } finally { setLoginBusy(false); } };
   const selectThread = (id: string) => { setThreadId(id); setDraft(''); setImages([]); setDrawerOpen(false); };

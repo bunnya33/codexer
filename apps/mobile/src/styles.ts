@@ -1,11 +1,12 @@
 import { Platform, StyleSheet } from 'react-native';
 
 export const c = { bg: '#ffffff', surface: '#ffffff', text: '#191d1e', muted: '#687275', line: '#e8e9e9', accent: '#147bb5', soft: '#eef4f7', danger: '#b33942', code: '#f4f5f5' };
+export const directoryThreadHeight = 36;
 
 export const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: c.bg }, page: { flex: 1 }, center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   appLayout: { flex: 1, flexDirection: 'row' }, sidebar: { width: 300, maxWidth: 300, borderRightWidth: 1, borderColor: c.line, backgroundColor: '#f8f9f9' },
-  threadSelect: { flex: 1, minWidth: 0, minHeight: 43, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  threadSelect: { flex: 1, minWidth: 0, height: directoryThreadHeight, flexDirection: 'row', alignItems: 'center', gap: 8 },
   desktopContent: { width: '100%', maxWidth: 900, alignSelf: 'center' },
   login: { flex: 1, justifyContent: 'center', alignSelf: 'center', width: '100%', maxWidth: 500, paddingHorizontal: 28 },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 36 },
@@ -25,12 +26,15 @@ export const s = StyleSheet.create({
   dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#a8b3b3' }, dotOnline: { backgroundColor: '#24a66b' },
   search: { height: 42, marginHorizontal: 18, marginBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, borderRadius: 8, backgroundColor: '#f2f3f3' },
   searchInput: { flex: 1, color: c.text, fontSize: 14, paddingVertical: 0 }, list: { flex: 1 }, listContent: { paddingBottom: 22 },
-  project: { minHeight: 48, marginHorizontal: 10, paddingHorizontal: 11, flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 7 },
-  projectToggle: { flex: 1, minWidth: 0, minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  projectName: { flex: 1, color: c.text, fontWeight: '500', fontSize: 14 }, count: { color: c.muted, fontSize: 12 },
-  threadRow: { minHeight: 43, marginHorizontal: 10, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 7 },
+  project: { height: 40, marginHorizontal: 10, paddingHorizontal: 11, flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 7 },
+  projectToggle: { flex: 1, minWidth: 0, height: 40, flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 7 },
+  projectName: { flex: 1, color: c.text, fontWeight: '500', fontSize: 14 }, projectAction: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center', borderRadius: 5 },
+  projectBody: { overflow: 'hidden' }, projectThreads: { flexGrow: 0, flexShrink: 0 },
+  projectEmpty: { height: directoryThreadHeight, justifyContent: 'center', paddingLeft: 42 }, projectEmptyText: { color: '#b2b8ba', fontSize: 13 },
+  runningIndicator: { width: 14, height: 14, alignItems: 'center', justifyContent: 'center' }, runningRing: { width: 12, height: 12, borderRadius: 6, borderWidth: 1.5, borderColor: '#d2d7d9', borderTopColor: c.muted },
+  threadRow: { height: directoryThreadHeight, marginHorizontal: 10, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 7 },
   threadNested: { paddingLeft: 32 }, threadRowSelected: { backgroundColor: c.soft },
-  threadName: { flex: 1, color: c.text, fontSize: 14 }, activeDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: c.accent },
+  threadName: { flex: 1, color: c.text, fontSize: 14 },
   empty: { color: c.muted, textAlign: 'center', fontSize: 14, padding: 30 },
   chatEmpty: { flex: 1, minHeight: 300, alignItems: 'center', justifyContent: 'center', gap: 9 },
   chatEmptyTitle: { color: c.text, fontSize: 19, fontWeight: '600' }, chatEmptySub: { color: c.muted, fontSize: 13 },
