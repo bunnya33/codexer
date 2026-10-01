@@ -1,6 +1,6 @@
-import { memo, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { Check, ChevronDown, ChevronUp, Clock3, Copy, Folder, Pencil, Sparkles, Terminal } from 'lucide-react-native';
+import { memo, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Animated, Easing, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Check, ChevronDown, ChevronRight, ChevronUp, Clock3, Copy, Folder, Pencil, Sparkles, Terminal } from 'lucide-react-native';
 import { activityLabel, activitySections, buildActivityBlocks, executionItemLabel, formatDuration, itemDuration, messageRole } from '../../../packages/client-shared/src/activity';
 import type { ExecutionSection } from '../../../packages/client-shared/src/activity';
 import type { HistoryTurn, InteractiveRequest, RemoteCommand, RemoteItem } from '../../../packages/protocol/src/index';
@@ -46,13 +46,28 @@ function Message({ item, running = false, deviceId, threadId, onImage }: { item:
 
 function ExecutionGroup({ section, deviceId, threadId, onImage }: { section: ExecutionSection; deviceId: string; threadId: string; onImage: ImageViewer }) {
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [contentHeight, setContentHeight] = useState(0);
+  const height = useRef(new Animated.Value(0)).current;
+  const rotation = useRef(new Animated.Value(0)).current;
+  const listHeight = Math.min(contentHeight || 260, 260);
+  useEffect(() => {
+    const animation = Animated.timing(rotation, {toValue: open ? 1 : 0, duration: 240, easing: Easing.inOut(Easing.cubic), useNativeDriver: Platform.OS !== 'web'});
+    animation.start();
+    return () => animation.stop();
+  }, [open, rotation]);
+  useEffect(() => {
+    if (open) setMounted(true);
+    const animation = Animated.timing(height, {toValue: open ? Math.min(contentHeight, 260) : 0, duration: 240, easing: Easing.inOut(Easing.cubic), useNativeDriver: false});
+    animation.start(({finished}) => { if (finished && !open) setMounted(false); });
+    return () => animation.stop();
+  }, [open, contentHeight, height]);
   const latest = section.items.at(-1);
   const title = executionItemLabel(latest, section.running);
-  const ToggleIcon = open ? ChevronUp : ChevronDown;
   const preview = latest?.type === 'reasoning' ? '' : latest?.command?.split('\n')[0] ?? latest?.files?.join(' · ') ?? latest?.text?.split('\n')[0] ?? '';
   return <View style={s.executionGroup}>
-    <Pressable accessibilityRole="button" aria-expanded={open} accessibilityLabel={`${title}，${open ? '收起' : '展开'}处理记录`} onPress={() => setOpen(value => !value)} style={s.executionHead}><ExecutionIcon item={latest} /><Text style={s.executionTitle}>{title}</Text>{!!preview && <Text style={s.executionPreview} numberOfLines={1}>{preview}</Text>}<ToggleIcon size={14} color={c.muted} /></Pressable>
-    {open && <ScrollView nestedScrollEnabled style={s.executionList} contentContainerStyle={s.executionListContent}>{section.items.map((item, index) => <Message key={item.id} item={item} running={section.running && index === section.items.length - 1} deviceId={deviceId} threadId={threadId} onImage={onImage} />)}{!section.items.length && <Text style={s.executionWaiting}>等待新的处理记录…</Text>}</ScrollView>}
+    <Pressable accessibilityRole="button" aria-expanded={open} accessibilityLabel={`${title}，${open ? '收起' : '展开'}处理记录`} onPress={() => setOpen(value => !value)} style={s.executionHead}><ExecutionIcon item={latest} /><Text style={s.executionTitle}>{title}</Text>{!!preview && <Text style={s.executionPreview} numberOfLines={1}>{preview}</Text>}<Animated.View testID={`execution-arrow-${section.id}`} style={[s.executionArrow, {transform: [{rotate: rotation.interpolate({inputRange: [0, 1], outputRange: ['0deg', '90deg']})}]}]}><ChevronRight size={14} color={c.muted} /></Animated.View></Pressable>
+    {mounted && <Animated.View testID={`execution-body-${section.id}`} pointerEvents={open ? 'auto' : 'none'} aria-hidden={!open} accessibilityElementsHidden={!open} importantForAccessibility={open ? 'auto' : 'no-hide-descendants'} style={[s.executionBody, {height}]}><ScrollView nestedScrollEnabled style={[s.executionList, {height: listHeight}]} contentContainerStyle={s.executionListContent} onContentSizeChange={(_width, measuredHeight) => setContentHeight(Math.ceil(measuredHeight))}>{section.items.map((item, index) => <Message key={item.id} item={item} running={section.running && index === section.items.length - 1} deviceId={deviceId} threadId={threadId} onImage={onImage} />)}{!section.items.length && <Text style={s.executionWaiting}>等待新的处理记录…</Text>}</ScrollView></Animated.View>}
   </View>;
 }
 
