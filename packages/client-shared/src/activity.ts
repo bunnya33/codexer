@@ -9,6 +9,39 @@ export type ActivityBlock = {
   durationMs?: number;
 };
 export type ConversationBlock = { kind: "message"; item: RemoteItem } | ActivityBlock;
+export type ExecutionSection = { kind: "execution"; id: string; items: RemoteItem[]; running: boolean };
+export type ActivitySection = { kind: "message"; item: RemoteItem } | ExecutionSection;
+
+/** Keep prose visible and collapse consecutive execution records between messages.
+ * IDs follow the preceding message, so appending streamed steps retains expansion state.
+ */
+export function activitySections(block: ActivityBlock): ActivitySection[] {
+  const sections: ActivitySection[] = [];
+  let boundary = 'start', group: ExecutionSection | undefined;
+  for (const item of block.items) {
+    if (messageRole(item)) {
+      sections.push({kind: 'message', item}); boundary = item.id; group = undefined;
+    } else {
+      if (!group) { group = {kind: 'execution', id: `${block.id}:after:${boundary}`, items: [], running: false}; sections.push(group); }
+      group.items.push(item);
+    }
+  }
+  if (block.state === 'running') {
+    const last = sections.at(-1);
+    if (last?.kind === 'execution') last.running = true;
+    else if (!last || last.item.phase !== 'final_answer') sections.push({kind: 'execution', id: `${block.id}:after:${boundary}`, items: [], running: true});
+  }
+  return sections;
+}
+
+export function executionItemLabel(item: RemoteItem | undefined, running: boolean): string {
+  if (!item) return '正在思考';
+  const active = running && item.completedAtMs === undefined && item.durationMs === undefined && !['completed', 'failed', 'interrupted', 'cancelled', 'declined'].includes(item.status ?? '');
+  if (item.type === 'reasoning') return active ? '正在思考' : '已思考';
+  if (item.command || item.type === 'commandExecution') return active ? '正在运行命令' : '已运行命令';
+  if (item.files?.length || item.type === 'fileChange') return active ? '正在修改文件' : '已修改文件';
+  return `${active ? '正在调用' : '已调用'}${item.tool || '工具'}`;
+}
 
 export function completedTurnBlocks(turn: HistoryTurn): ConversationBlock[] {
   return buildActivityBlocks(turn, false);

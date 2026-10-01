@@ -1,7 +1,8 @@
 import { memo, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
-import { Check, ChevronDown, Clock3, Copy, Folder, Terminal } from 'lucide-react-native';
-import { activityLabel, buildActivityBlocks, formatDuration, itemDuration, messageRole } from '../../../packages/client-shared/src/activity';
+import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Check, ChevronDown, ChevronUp, Clock3, Copy, Folder, Pencil, Sparkles, Terminal } from 'lucide-react-native';
+import { activityLabel, activitySections, buildActivityBlocks, executionItemLabel, formatDuration, itemDuration, messageRole } from '../../../packages/client-shared/src/activity';
+import type { ExecutionSection } from '../../../packages/client-shared/src/activity';
 import type { HistoryTurn, InteractiveRequest, RemoteCommand, RemoteItem } from '../../../packages/protocol/src/index';
 import { userPresentation } from '../../../packages/protocol/src/user-presentation';
 import { relay } from './relay';
@@ -14,7 +15,12 @@ import { c, s } from './styles';
 type ImageSource = { uri: string; headers?: Record<string, string> };
 type ImageViewer = (source: ImageSource, name: string) => void;
 
-function Message({ item, deviceId, threadId, onImage }: { item: RemoteItem; deviceId: string; threadId: string; onImage: ImageViewer }) {
+function ExecutionIcon({ item }: { item?: RemoteItem }) {
+  const Icon = !item || item.type === 'reasoning' ? Sparkles : item.files?.length || item.type === 'fileChange' ? Pencil : Terminal;
+  return <Icon size={14} color={c.muted} />;
+}
+
+function Message({ item, running = false, deviceId, threadId, onImage }: { item: RemoteItem; running?: boolean; deviceId: string; threadId: string; onImage: ImageViewer }) {
   const role = messageRole(item);
   const [open, setOpen] = useState(false);
   const images = item.images ?? [];
@@ -29,27 +35,37 @@ function Message({ item, deviceId, threadId, onImage }: { item: RemoteItem; devi
       {!!display && <Pressable accessibilityRole="button" accessibilityLabel="复制消息" style={[s.iconButton, { alignSelf: role === 'user' ? 'flex-end' : 'flex-start', width: 30, height: 28 }]} onPress={() => void copyText(display).catch(() => relay.showNotice('复制失败，请选择文字手动复制'))}><Copy size={14} color={c.muted} /></Pressable>}
     </View>;
   }
-  const title = item.command ? '运行命令' : item.files?.length ? '修改文件' : item.type === 'reasoning' ? '思考' : item.tool || '工具调用';
-  const preview = item.command?.split('\n')[0] ?? item.text?.split('\n')[0] ?? '';
+  const title = executionItemLabel(item, running);
+  const ToggleIcon = open ? ChevronUp : ChevronDown;
+  const preview = item.command?.split('\n')[0] ?? item.files?.join(' · ') ?? item.text?.split('\n')[0] ?? '';
   return <View style={s.tool}>
-    <Pressable accessibilityRole="button" accessibilityLabel={`${title}，${open ? '收起' : '展开'}`} onPress={() => setOpen(!open)} style={s.toolHead}><Terminal size={15} color={c.muted} /><Text style={s.toolTitle}>{title}</Text><Text style={s.toolPreview} numberOfLines={1}>{preview}</Text>{itemDuration(item) !== undefined && <Text style={s.toolTime}>{formatDuration(itemDuration(item)!)}</Text>}<ChevronDown size={15} color={c.muted} style={open ? s.rotated : undefined} /></Pressable>
+    <Pressable accessibilityRole="button" aria-expanded={open} accessibilityLabel={`${title}，${open ? '收起' : '展开'}详情`} onPress={() => setOpen(!open)} style={s.toolHead}><ExecutionIcon item={item} /><Text style={s.toolTitle}>{title}</Text><Text style={s.toolPreview} numberOfLines={1}>{preview}</Text>{itemDuration(item) !== undefined && <Text style={s.toolTime}>{formatDuration(itemDuration(item)!)}</Text>}<ToggleIcon size={13} color={c.muted} /></Pressable>
     {open && <View style={s.toolBody}>{!!item.text && <Markdown>{item.text}</Markdown>}{!!item.command && <CodeBlock language="命令">{item.command}</CodeBlock>}{!!item.output && <CodeBlock language="输出">{item.output}</CodeBlock>}{!!item.files?.length && <Text style={s.fileNames}>{item.files.join('\n')}</Text>}</View>}
+  </View>;
+}
+
+function ExecutionGroup({ section, deviceId, threadId, onImage }: { section: ExecutionSection; deviceId: string; threadId: string; onImage: ImageViewer }) {
+  const [open, setOpen] = useState(false);
+  const latest = section.items.at(-1);
+  const title = executionItemLabel(latest, section.running);
+  const ToggleIcon = open ? ChevronUp : ChevronDown;
+  const preview = latest?.type === 'reasoning' ? '' : latest?.command?.split('\n')[0] ?? latest?.files?.join(' · ') ?? latest?.text?.split('\n')[0] ?? '';
+  return <View style={s.executionGroup}>
+    <Pressable accessibilityRole="button" aria-expanded={open} accessibilityLabel={`${title}，${open ? '收起' : '展开'}处理记录`} onPress={() => setOpen(value => !value)} style={s.executionHead}><ExecutionIcon item={latest} /><Text style={s.executionTitle}>{title}</Text>{!!preview && <Text style={s.executionPreview} numberOfLines={1}>{preview}</Text>}<ToggleIcon size={14} color={c.muted} /></Pressable>
+    {open && <ScrollView nestedScrollEnabled style={s.executionList} contentContainerStyle={s.executionListContent}>{section.items.map((item, index) => <Message key={item.id} item={item} running={section.running && index === section.items.length - 1} deviceId={deviceId} threadId={threadId} onImage={onImage} />)}{!section.items.length && <Text style={s.executionWaiting}>等待新的处理记录…</Text>}</ScrollView>}
   </View>;
 }
 
 type ActivityBlock = Extract<ReturnType<typeof buildActivityBlocks>[number], { kind: 'activity' }>;
 function Activity({ block, deviceId, threadId, onImage }: { block: ActivityBlock; deviceId: string; threadId: string; onImage: ImageViewer }) {
-  const [open, setOpen] = useState(block.state === 'running');
   const [now, setNow] = useState(Date.now());
-  useEffect(() => { if (block.state !== 'running') setOpen(false); }, [block.state]);
   useEffect(() => { if (block.state !== 'running') return; const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, [block.state]);
-  const count = block.items.filter(item => item.command || item.output || item.tool || item.files?.length).length;
   return <View style={s.activity}>
-    <Pressable accessibilityRole="button" accessibilityLabel={`${activityLabel(block, now)}，${open ? '收起' : '展开'}处理记录`} onPress={() => setOpen(!open)} style={s.activityHead}>{block.state === 'running' ? <ActivityIndicator size="small" color={c.accent} /> : <Clock3 size={16} color={c.accent} />}<Text style={s.activityText}>{activityLabel(block, now)}</Text><Text style={s.activityCount}>{count ? `${count} 条执行` : ''}</Text><ChevronDown size={17} color={c.muted} style={open ? s.rotated : undefined} /></Pressable>
+    <View style={s.activityHead}>{block.state === 'running' ? <ActivityIndicator size="small" color={c.accent} /> : <Clock3 size={14} color={c.muted} />}<Text style={s.activityText}>{activityLabel(block, now)}</Text></View>
     <View style={s.line} />
-    {block.items.map(item => {
-      const visible = messageRole(item) === 'user' || messageRole(item) === 'assistant' && item.phase === 'final_answer';
-      if (!open && !visible) return null;
+    {activitySections(block).map(section => {
+      if (section.kind === 'execution') return <ExecutionGroup key={section.id} section={section} deviceId={deviceId} threadId={threadId} onImage={onImage} />;
+      const item = section.item;
       if (messageRole(item) === 'assistant' && item.phase !== 'final_answer') return <View key={item.id} style={s.commentary}><Markdown>{item.text ?? ''}</Markdown></View>;
       return <Message key={item.id} item={item} deviceId={deviceId} threadId={threadId} onImage={onImage} />;
     })}

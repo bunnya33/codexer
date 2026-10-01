@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activityLabel, buildActivityBlocks, completedTurnBlocks, formatDuration, itemDuration, mergeLiveTurn } from "../packages/client-shared/src/activity.js";
+import { activityLabel, activitySections, buildActivityBlocks, completedTurnBlocks, executionItemLabel, formatDuration, itemDuration, mergeLiveTurn } from "../packages/client-shared/src/activity.js";
 import type { ActivityBlock } from "../packages/client-shared/src/activity.js";
 import { desktopTurns, normalizeHistoryTurn, normalizeThread, withItemTimings } from "../packages/codex-adapter/src/normalize.js";
 import { historyTurnSchema, threadSchema } from "../packages/protocol/src/index.js";
@@ -10,6 +10,49 @@ import { rawThread } from "./helpers.js";
 const item = (id: string, type: string, rest: Partial<RemoteItem> = {}): RemoteItem => ({ id, type, truncated: false, ...rest });
 const turn = (items: RemoteItem[], rest: Partial<HistoryTurn> = {}): HistoryTurn => ({ id: "turn", status: "completed", items, truncated: false, ...rest });
 const groups = (value: HistoryTurn, active = false) => buildActivityBlocks(value, active).filter((block): block is ActivityBlock => block.kind === "activity");
+
+describe('collapsed execution records', () => {
+  it('groups consecutive reasoning and tools while keeping progress and final replies in order', () => {
+    const value = turn([
+      item('user', 'userMessage'), item('progress-1', 'agentMessage', {phase: 'commentary', text: 'Checking'}),
+      item('reason-1', 'reasoning'), item('command', 'commandExecution', {command: 'npm test'}),
+      item('progress-2', 'agentMessage', {phase: 'commentary', text: 'Updating'}),
+      item('edit', 'fileChange', {files: ['src/example.ts']}), item('reason-2', 'reasoning'),
+      item('answer', 'agentMessage', {phase: 'final_answer', text: 'Done'}),
+    ]);
+    const sections = activitySections(groups(value)[0]!);
+    expect(sections.map(section => section.kind === 'message' ? section.item.id : section.items.map(item => item.id)))
+      .toEqual(['progress-1', ['reason-1', 'command'], 'progress-2', ['edit', 'reason-2'], 'answer']);
+    expect(sections.filter(section => section.kind === 'execution').every(section => !section.running)).toBe(true);
+  });
+
+  it('uses only the newest execution for the collapsed summary and retains group IDs while streaming', () => {
+    const progress = item('progress', 'agentMessage', {phase: 'commentary', text: 'Checking'});
+    const block = groups(turn([progress, item('command', 'commandExecution', {command: 'npm test', status: 'completed'})], {status: 'inProgress'}), true)[0]!;
+    const first = activitySections(block).at(-1)!;
+    const updated = activitySections({...block, items: [...block.items, item('current', 'reasoning')]}).at(-1)!;
+    expect(updated).toMatchObject({id: first.kind === 'execution' ? first.id : '', running: true});
+    if (updated.kind === 'execution') expect(executionItemLabel(updated.items.at(-1), updated.running)).toBe('正在思考');
+    expect(executionItemLabel(item('command', 'commandExecution', {status: 'completed'}), true)).toBe('已运行命令');
+  });
+
+  it('shows thinking after a new progress message and reuses the placeholder when a tool starts', () => {
+    const block = groups(turn([item('old', 'commandExecution'), item('progress', 'agentMessage', {phase: 'commentary'})], {status: 'inProgress'}), true)[0]!;
+    const sections = activitySections(block), waiting = sections.at(-1)!;
+    expect(sections[0]).toMatchObject({kind: 'execution', running: false});
+    expect(waiting).toMatchObject({kind: 'execution', running: true, items: []});
+    const next = activitySections({...block, items: [...block.items, item('new', 'commandExecution')]}).at(-1)!;
+    expect(next.kind === 'execution' && waiting.kind === 'execution' && next.id === waiting.id).toBe(true);
+    if (waiting.kind === 'execution') expect(executionItemLabel(waiting.items.at(-1), waiting.running)).toBe('正在思考');
+  });
+
+  it('preserves steering messages and never adds thinking below a final reply or stopped turn', () => {
+    const block = groups(turn([item('before', 'reasoning'), item('steer', 'steeringUserMessage'), item('after', 'commandExecution'), item('answer', 'agentMessage', {phase: 'final_answer'})], {status: 'inProgress'}), true)[0]!;
+    const sections = activitySections(block);
+    expect(sections.map(section => section.kind === 'message' ? section.item.id : section.items.map(item => item.id))).toEqual([['before'], 'steer', ['after'], 'answer']);
+    expect(activitySections({...block, state: 'interrupted'}).some(section => section.kind === 'execution' && section.running)).toBe(false);
+  });
+});
 
 describe("official timing normalization", () => {
   it("converts seconds only on app-server turn boundaries and joins lifecycle timing by ID", () => {
