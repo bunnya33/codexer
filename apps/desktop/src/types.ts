@@ -1,5 +1,5 @@
 export type Settings = { relayUrl: string; username: string; deviceName: string; installationId: string; codexHome: string; codexBinary: string; runtime: 'auto' | 'desktop' | 'headless'; autoConnect: boolean; openAtLogin: boolean; minimizeToTray: boolean; allowHttp: boolean };
-export type AgentStatus = { relayConnected: boolean; paused: boolean; sessionValid: boolean; desktopConnected: boolean; runtime: string; runtimeConnected: boolean; activeTasks: number; threads: number; updatedAt: number };
+export type AgentStatus = { relayConnected: boolean; paused: boolean; sessionValid: boolean; relayError?: string | null; desktopConnected: boolean; runtime: string; runtimeConnected: boolean; activeTasks: number; threads: number; updatedAt: number };
 export type LogEntry = { at: number; code: string };
 export type ViewState = { settings: Settings; loggedIn: boolean; busy: boolean; secureStorage: boolean; phase: 'signed-out' | 'disconnected' | 'connecting' | 'connected' | 'reconnecting'; status: AgentStatus | null; logs: LogEntry[]; error: string; expiresAt: number | null; version: string };
 export type WindowState = { maximized: boolean; focused: boolean };

@@ -55,6 +55,14 @@ it('cancels a pending login on disconnect and revokes a late response instead of
   expect(vi.mocked(fetch).mock.calls.map(([url]) => (url as URL).pathname)).toEqual(['/v1/agents/login','/v1/auth/logout']);
 });
 it('logs only safe diagnostic codes', () => { expect(safeCode('https://relay.example.com bearer-secret')).toBe('diagnostic-redacted'); expect(safeCode('relay-connected')).toBe('relay-connected'); });
+it('shows protocol rejection as paused while retaining the account and resumes without restarting local tasks', async () => {
+  const {controller, worker, vault} = fixture(); await controller.login('member', 'password');
+  controller.update({...idle, relayConnected: false, paused: true, activeTasks: 1, relayError: 'relay-rejected-invalid-message'});
+  expect(controller.state()).toMatchObject({phase: 'disconnected', loggedIn: true});
+  expect(controller.state().error).toContain('已暂停自动重连'); expect(vault.clear).toHaveBeenCalledTimes(1);
+  await controller.reconnect(); controller.update({...idle, relayConnected: true, relayError: null});
+  expect(controller.state()).toMatchObject({phase: 'connected', error: ''}); expect(worker.stop).not.toHaveBeenCalled(); expect(worker.reconnect).toHaveBeenCalled();
+});
 it('does not reconnect if disconnected while writing the final login settings', async () => {
   const { controller, persist, worker, read } = fixture(); let release!: () => void;
   persist.mockImplementationOnce(async () => { await new Promise<void>(resolve => { release = resolve; }); });

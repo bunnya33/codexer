@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { hashPassword, verifyPassword } from "../../../packages/shared/src/accounts.js";
+import { jsonForStorage } from "../../../packages/shared/src/json.js";
 import { mkdir } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
 import { Pool } from "pg";
@@ -149,20 +150,21 @@ export class RelayStore {
     return rows[0] ? rows[0].payload as DeviceCatalog : null;
   }
   async saveCatalog(catalog: DeviceCatalog): Promise<void> {
-    await this.sql.query("INSERT INTO catalogs(device_id,payload) VALUES($1,$2::jsonb) ON CONFLICT(device_id) DO UPDATE SET payload=EXCLUDED.payload", [catalog.deviceId, JSON.stringify(catalog)]);
+    await this.sql.query("INSERT INTO catalogs(device_id,payload) VALUES($1,$2::jsonb) ON CONFLICT(device_id) DO UPDATE SET payload=EXCLUDED.payload", [catalog.deviceId, jsonForStorage(catalog)]);
   }
   async saveSnapshot(snapshot: DeviceSnapshot): Promise<void> {
     const existing = await this.snapshot(snapshot.deviceId);
     if (existing?.epoch === snapshot.epoch && existing.lastSeq > snapshot.lastSeq) throw new Error("stale-snapshot");
-    await this.sql.query("INSERT INTO snapshots(device_id,epoch,seq,payload) VALUES($1,$2,$3,$4::jsonb) ON CONFLICT(device_id) DO UPDATE SET epoch=EXCLUDED.epoch,seq=EXCLUDED.seq,payload=EXCLUDED.payload", [snapshot.deviceId, snapshot.epoch, snapshot.lastSeq, JSON.stringify(snapshot)]);
+    await this.sql.query("INSERT INTO snapshots(device_id,epoch,seq,payload) VALUES($1,$2,$3,$4::jsonb) ON CONFLICT(device_id) DO UPDATE SET epoch=EXCLUDED.epoch,seq=EXCLUDED.seq,payload=EXCLUDED.payload", [snapshot.deviceId, snapshot.epoch, snapshot.lastSeq, jsonForStorage(snapshot)]);
   }
   async saveEvent(event: RemoteEvent): Promise<DeviceSnapshot> {
     return this.transaction(async sql => {
       const { rows } = await sql.query("SELECT payload FROM snapshots WHERE device_id=$1 FOR UPDATE", [event.deviceId]);
       if (!rows[0]) throw new Error("snapshot-required");
+      event = JSON.parse(jsonForStorage(event)) as RemoteEvent;
       const snapshot = reduceEvent(rows[0].payload as DeviceSnapshot, event);
-      await sql.query("INSERT INTO events(device_id,epoch,seq,payload,created_at) VALUES($1,$2,$3,$4::jsonb,$5)", [event.deviceId, event.epoch, event.seq, JSON.stringify(event), Date.now()]);
-      await sql.query("UPDATE snapshots SET seq=$2,payload=$3::jsonb WHERE device_id=$1", [event.deviceId, event.seq, JSON.stringify(snapshot)]);
+      await sql.query("INSERT INTO events(device_id,epoch,seq,payload,created_at) VALUES($1,$2,$3,$4::jsonb,$5)", [event.deviceId, event.epoch, event.seq, jsonForStorage(event), Date.now()]);
+      await sql.query("UPDATE snapshots SET seq=$2,payload=$3::jsonb WHERE device_id=$1", [event.deviceId, event.seq, jsonForStorage(snapshot)]);
       return snapshot;
     });
   }
@@ -186,13 +188,13 @@ export class RelayStore {
     const bytes = Buffer.byteLength(image.base64, "base64");
     const total = (await this.sql.query("SELECT COALESCE(SUM(bytes),0) AS total FROM images WHERE device_id=$1 AND NOT (thread_id=$2 AND id=$3)", [deviceId, threadId, id])).rows[0]?.total;
     if (Number(total) + bytes > 128 * 1024 * 1024) throw new Error("image-storage-full");
-    await this.sql.query("INSERT INTO images(device_id,thread_id,id,payload,bytes,uploaded,expires_at,created_at) VALUES($1,$2,$3,$4::jsonb,$5,$6,$7,$8) ON CONFLICT(device_id,thread_id,id) DO UPDATE SET payload=EXCLUDED.payload,expires_at=CASE WHEN images.expires_at IS NULL THEN NULL ELSE EXCLUDED.expires_at END", [deviceId, threadId, id, JSON.stringify(image), bytes, uploaded, Date.now() + (uploaded ? 86400000 : 7 * 86400000), Date.now()]);
+    await this.sql.query("INSERT INTO images(device_id,thread_id,id,payload,bytes,uploaded,expires_at,created_at) VALUES($1,$2,$3,$4::jsonb,$5,$6,$7,$8) ON CONFLICT(device_id,thread_id,id) DO UPDATE SET payload=EXCLUDED.payload,expires_at=CASE WHEN images.expires_at IS NULL THEN NULL ELSE EXCLUDED.expires_at END", [deviceId, threadId, id, jsonForStorage(image), bytes, uploaded, Date.now() + (uploaded ? 86400000 : 7 * 86400000), Date.now()]);
   }
   async retainImages(deviceId: string, threadId: string, ids: string[]): Promise<void> {
     for (const id of ids) await this.sql.query("UPDATE images SET expires_at=$4 WHERE device_id=$1 AND thread_id=$2 AND id=$3 AND uploaded=TRUE", [deviceId, threadId, id, Date.now() + 7 * 86400000]);
   }
   async finishCommand(result: CommandResult): Promise<boolean> {
-    return (await this.sql.query("UPDATE commands SET status=$3,result=$4::jsonb WHERE device_id=$1 AND id=$2 AND status='pending' RETURNING id", [result.deviceId, result.commandId, result.status, JSON.stringify(result)])).rows.length === 1;
+    return (await this.sql.query("UPDATE commands SET status=$3,result=$4::jsonb WHERE device_id=$1 AND id=$2 AND status='pending' RETURNING id", [result.deviceId, result.commandId, result.status, jsonForStorage(result)])).rows.length === 1;
   }
   async expireCommands(): Promise<CommandResult[]> {
     const { rows } = await this.sql.query("UPDATE commands SET status='unknown',result=jsonb_build_object('commandId',id,'deviceId',device_id,'status','unknown','code','command-outcome-unconfirmed') WHERE status='pending' AND expires_at<$1 RETURNING result", [Date.now() - 5000]);

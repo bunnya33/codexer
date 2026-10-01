@@ -1,6 +1,6 @@
 # 验证范围
 
-本次开发环境：Windows x64，Node 24，Electron 44.5.1。仅使用本地临时 Relay、合成账号和 FakeDesktop 做自动测试，未修改真实服务器，也未执行 GitHub 上传。
+本次开发环境：Windows x64，Node 24，Electron 44.5.1。自动测试使用本地临时 Relay、合成账号和 FakeDesktop。另以只读桌面观测在隔离 Relay 中复现并验证含 NUL 的任务输出，未发送真实控制命令或修改真实服务器。
 
 ## 已验证的行为
 
@@ -13,7 +13,7 @@
 
 ## 构建与界面检查
 
-本地检查已通过：根/React Admin/Electron/React Native 类型检查，完整行为测试（新增登录写入取消测试后合计 160 项），Web/Admin/Electron 构建，iOS/Android JS 导出，26 份文档的链接/索引/示例 IPv4 检查，Git Bash 的安装脚本语法检查与 Compose 配置解析。
+本地检查已通过：根/React Admin/Electron/React Native 类型检查，完整行为测试（连接修复后合计 165 项、27 个文件），Web/Admin/Electron 构建，iOS/Android JS 导出，26 份文档的链接/索引/示例 IPv4 检查，Git Bash 的安装脚本语法检查与 Compose 配置解析。
 
 Windows x64 已生成 NSIS 安装包和便携版。Electron 实际窗口使用隔离配置验证登录、设置/重启恢复、诊断和窄窗布局；真实 utilityProcess + 本地 Relay + FakeDesktop 验证账号登录、DPAPI 加密文件、连接/断开/重连/退出账号以及任务保留。React Admin 浏览器验收覆盖普通用户拒绝、创建账号、重置密码、禁用、刷新恢复、退出、390px 布局和不请求设备/控制 socket。
 
@@ -24,6 +24,8 @@ Windows x64 已生成 NSIS 安装包和便携版。Electron 实际窗口使用�
 目录清理后复核账号登录 CLI、安装器配置参数和独立服务器编译范围；旧配对入口、源码启动器、历史 JSON 和移动端后台样式已清除。服务器编译产物只包含 Relay 及安装/运维脚本的依赖，不包含测试、Electron、PC Agent 或开发验收程序，详见 [清理说明](cleanup.md)。
 
 生产 Web 登录页已移除服务器地址输入，自动使用当前站点。浏览器验收覆盖仅账号/密码字段、错误密码后重试、同源 REST/WebSocket、刷新恢复登录、清除旧版本保存的其他服务器会话及 390px 布局；React Native 类型检查和 Web 构建通过。移动 App 仍保留地址配置。
+
+连接修复验证：PostgreSQL/PGlite JSONB 不接受实际 NUL，旧版本会将 SQLSTATE `22P05` 误报为设备状态错误并循环 `1008`。回归覆盖快照、事件、目录中的 NUL/不完整 UTF-16，保留字面量转义和合法 Unicode，广播与持久状态一致；协议拒绝暂停重连、保留账号与活动任务，未知关闭原因不进入日志，短连接失败指数退避。Windows `0.1.1` 的真实打包 worker 在不含系统 Node 的 PATH 下连接未修复的 Relay，成功同步含 NUL 的合成命令输出，并通过登录/DPAPI/断开/重连/退出及任务保留验收。Mac 的同类实机验收仍未执行。
 
 ## 平台与生产验收
 

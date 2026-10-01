@@ -46,6 +46,7 @@ export class PcAgent extends EventEmitter {
   private heartbeatTimer?: NodeJS.Timeout;
   private stopped = false;
   private reconnectAttempt = 0;
+  private relayError: string | null = null;
   private scanning = false;
   private statusWriting = false;
   private catalogReading = false;
@@ -112,7 +113,7 @@ export class PcAgent extends EventEmitter {
   private adapterForThread(threadId: string): DesktopAdapter | HeadlessAdapter { return this.headlessThreads.has(threadId) && this.headless ? this.headless : this.activeAdapter; }
   private log(code: string): void { this.emit("diagnostic", { code }); console.log(JSON.stringify({ type: "agent.diagnostic", code })); }
   status() {
-    return { relayConnected: !this.remotePaused && this.socket?.readyState === WebSocket.OPEN, paused: this.remotePaused, sessionValid: this.relayAllowed,
+    return { relayConnected: !this.remotePaused && this.socket?.readyState === WebSocket.OPEN, paused: this.remotePaused, sessionValid: this.relayAllowed, relayError: this.relayError,
       desktopConnected: this.adapter.connected, runtime: this.state.runtime.kind, runtimeConnected: this.state.runtime.connected,
       activeTasks: Math.max(this.remoteOperations, this.headless?.hasActiveTurn() ? 1 : 0, Object.values({ ...this.state.threads, ...Object.fromEntries(this.pendingThreads) }).filter(thread => thread.status === "active").length),
       threads: Object.values(this.state.threads).length, updatedAt: Date.now() };
@@ -127,7 +128,7 @@ export class PcAgent extends EventEmitter {
   }
   reconnect(): void {
     if (this.stopped || !this.relayAllowed) return;
-    this.disconnect(); this.remotePaused = false;
+    this.disconnect(); this.remotePaused = false; this.relayError = null; this.reconnectAttempt = 0;
     this.connectRelay();
   }
   async start(): Promise<void> {
@@ -386,10 +387,11 @@ export class PcAgent extends EventEmitter {
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     const socket = new WebSocket(url, { headers: { authorization: `Bearer ${this.credentials.session}`, "x-device-id": this.credentials.deviceId }, maxPayload: MAX_MESSAGE_BYTES, perMessageDeflate: false });
     this.socket = socket;
+    let openedAt = 0;
     const current = () => !this.stopped && !this.remotePaused && this.socket === socket;
     socket.on("open", () => {
       if (!current()) { socket.close(); return; }
-      this.reconnectAttempt = 0;
+      openedAt = Date.now();
       this.send({ type: "device.snapshot", snapshot: this.state });
       void this.writeStatus();
       let lastPong = Date.now();
@@ -412,7 +414,9 @@ export class PcAgent extends EventEmitter {
       let message: { type?: string; command?: unknown; requestId?: unknown; threadId?: unknown; cursor?: unknown; features?: unknown };
       try { message = JSON.parse(bytes.toString()) as typeof message; } catch { socket.close(1008, "invalid-message"); return; }
       if (message.type === "device.welcome") {
+        this.relayError = null;
         this.log("relay-connected");
+        void this.writeStatus();
         this.catalogSupported = Array.isArray(message.features) && message.features.includes("catalog");
         if (this.catalogSupported && this.catalog) this.send({ type: "device.catalog", catalog: this.catalog });
         for (const thread of Object.values(this.state.threads)) if (thread.status === "idle") void this.drainQueue(thread.id);
@@ -489,16 +493,29 @@ export class PcAgent extends EventEmitter {
         } finally { this.remoteOperations--; void this.writeStatus(); }
       }).catch(() => this.log("command-journal-failed"));
     });
-    socket.on("close", code => {
+    socket.on("close", (code, bytes) => {
       if (this.socket !== socket) return;
       clearInterval(this.heartbeatTimer);
       this.socket = null;
       if (code === 4001 || code === 4003) {
         this.relayAllowed = false;
         this.log(code === 4001 ? "agent-connection-replaced" : "account-session-ended-login-again");
-      } else if (!this.stopped) this.log(`relay-disconnected-${code}`);
+      } else if (!this.stopped && !this.remotePaused && [1002, 1003, 1007, 1008, 1009].includes(code)) {
+        // Policy/protocol rejection will not recover by replaying the same state.
+        // Keep credentials and local tasks; allow an explicit reconnect after repair.
+        const reason = bytes.toString();
+        const allowed = ['invalid-message', 'invalid-device-state', 'device-mismatch', 'stale-snapshot', 'invalid-history-request', 'invalid-image-request', 'invalid-command'];
+        this.relayError = allowed.includes(reason) ? `relay-rejected-${reason}` : 'relay-rejected-policy';
+        this.remotePaused = true;
+        this.log(this.relayError);
+      } else if (!this.stopped) {
+        if (code === 1011 && bytes.toString() === 'storage-error') { this.relayError = 'relay-storage-error'; this.log(this.relayError); }
+        else this.log(`relay-disconnected-${code}`);
+      }
       void this.writeStatus();
       if (!this.stopped && !this.remotePaused && this.relayAllowed) {
+        // A successful handshake followed by immediate failure is not a recovered connection.
+        if (openedAt && Date.now() - openedAt >= 30000) this.reconnectAttempt = 0;
         const delay = Math.min(30000, 1000 * 2 ** Math.min(5, this.reconnectAttempt++)) + Math.random() * 500;
         this.reconnectTimer = setTimeout(() => this.connectRelay(), delay);
       }

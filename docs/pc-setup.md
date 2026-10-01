@@ -2,7 +2,7 @@
 
 ## 普通用户安装
 
-Windows x64 使用 `Codexer Setup 0.1.0.exe` 安装，或运行 `Codexer 0.1.0.exe` 便携版。产物位于 `apps/desktop/release`。无需安装 Node、npm、Git 或下载项目源码。安装包未配置商业代码签名；发行前签名流程见 [发布文档](release.md)。
+Windows x64 使用 `Codexer Setup 0.1.1.exe` 安装，或运行 `Codexer 0.1.1.exe` 便携版。产物位于 `apps/desktop/release`。无需安装 Node、npm、Git 或下载项目源码。安装包未配置商业代码签名；发行前签名流程见 [发布文档](release.md)。
 
 本机必须已安装并登录官方 Codex，任务使用该电脑原有的模型、账号/密钥、工作目录和权限。连接器不代替官方 Codex。macOS 安装和验证见 [macOS 文档](mac.md)。
 
@@ -33,6 +33,8 @@ Windows x64 使用 `Codexer Setup 0.1.0.exe` 安装，或运行 `Codexer 0.1.0.e
 
 网络故障会指数退避重连，最长约 30 秒。手动断开不会因网络恢复自动连接；“启动后自动连接”只在下次启动且会话有效时生效。401、会话撤销或连接被替换会停止重试并要求重新登录。
 
+协议/策略拒绝（如 `1008`）会显示脱敏原因并暂停自动重连，保留账号会话和本机任务。修复或更新后点击“重连”，无需因为协议错误重新登录。服务器保存状态失败（`1011 storage-error`）会指数退避重试；短暂握手成功不会重置退避。
+
 ## 设置
 
 - **服务器与设备名称**：修改后需要重新登录，重新连接采用新配置。
@@ -51,6 +53,6 @@ Windows x64 使用 `Codexer Setup 0.1.0.exe` 安装，或运行 `Codexer 0.1.0.e
 
 “诊断日志”展示安全存储、登录、Relay、本机 Codex 的检查结果；导出仅含版本、平台、连接状态和诊断代码。不会导出服务器地址、账号、密码、会话、任务内容或本地目录。磁盘日志超过约 1 MiB 轮换一份。
 
-本地数据位于系统应用数据目录下 `Codexer`：Windows 通常 `%APPDATA%\Codexer`，macOS 通常 `~/Library/Application Support/Codexer`。`settings.json` 保存非敏感设置，`session.enc` 保存加密会话，`agent/<deviceId>` 保存本机命令/用量数据库。卸载前先退出登录；诊断或导出时不分享整个应用数据目录。
+本地数据位于系统应用数据目录下 `@codexer/desktop`：Windows 通常 `%APPDATA%\@codexer\desktop`，macOS 通常 `~/Library/Application Support/@codexer/desktop`。`settings.json` 保存地址、账号名等设置，`session.enc` 保存加密会话，`agent/<deviceId>` 保存本机命令/用量数据库。卸载前先退出登录；诊断或导出时不分享整个应用数据目录。
 
 “已连接”只说明远程通道可用；本机运行环境若仍在等待，查看诊断、确认官方 Codex 已登录、程序和数据路径正确。完整排查见 [运维](operations.md)。源码开发入口见 [开发文档](development.md)。

@@ -11,6 +11,7 @@ import { clientMessageSchema, commandSchema, deviceMessageSchema, imageIdSchema,
 import type { HistoryPage, ImagePayload, RemoteCommand } from "../../../packages/protocol/src/index.js";
 import { decodeImage } from "../../../packages/shared/src/images.js";
 import { SerialQueue } from "../../../packages/shared/src/queue.js";
+import { jsonForStorage } from "../../../packages/shared/src/json.js";
 import { hash, RelayStore } from "./store.js";
 import type { Principal } from "./store.js";
 
@@ -314,7 +315,9 @@ export async function createRelay(options: { store: RelayStore; allowedOrigins?:
     socket.on("message", (bytes, binary) => {
       if (binary) { socket.close(1003, "text-required"); return; }
       let message: z.infer<typeof deviceMessageSchema>;
-      try { message = deviceMessageSchema.parse(JSON.parse(bytes.toString())); }
+      // Normalize observation text before validation, broadcasting and JSONB persistence.
+      // Control commands sent to the PC are not changed by this path.
+      try { message = deviceMessageSchema.parse(JSON.parse(jsonForStorage(JSON.parse(bytes.toString())))); }
       catch { socket.close(1008, "invalid-message"); return; }
       void queue.run(async () => {
         if (agents.get(deviceId) !== connection) return;
@@ -351,7 +354,16 @@ export async function createRelay(options: { store: RelayStore; allowedOrigins?:
           if (message.result.deviceId !== deviceId) throw new Error("device-mismatch");
           if (await store.finishCommand(message.result)) broadcast(deviceId, message);
         }
-      }).catch(() => socket.close(1008, "invalid-device-state"));
+      }).catch(error => {
+        const reason = error instanceof Error ? error.message : '';
+        if (reason === 'device-mismatch' || reason === 'stale-snapshot') socket.close(1008, reason);
+        else {
+          // Do not log SQL statements, payloads, identifiers or raw exception messages.
+          const sqlState = typeof error?.code === 'string' && /^[0-9A-Z]{5}$/.test(error.code) ? error.code : undefined;
+          console.warn(JSON.stringify({ type: 'relay.diagnostic', code: 'relay-storage-error', ...(sqlState ? { sqlState } : {}) }));
+          socket.close(1011, "storage-error");
+        }
+      });
     });
     socket.on("close", () => { void queue.run(async () => {
       if (agents.get(deviceId) !== connection) return;

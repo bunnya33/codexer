@@ -27,8 +27,11 @@ export class ConnectorController extends EventEmitter {
   private publish(patch: Partial<ViewState> = {}) { this.view = { ...this.view, ...patch }; this.emit('state', this.state()); }
   log(code: string) { this.publish({ logs: [...this.view.logs.slice(-199), { at: Date.now(), code: safeCode(code) }] }); }
   update(status: AgentStatus) {
-    const phase = !this.credentials ? 'signed-out' : this.paused ? 'disconnected' : status.relayConnected ? 'connected' : 'reconnecting';
-    this.publish({ status, phase });
+    const phase = !this.credentials ? 'signed-out' : this.paused || status.paused ? 'disconnected' : status.relayConnected ? 'connected' : 'reconnecting';
+    const error = status.relayError === 'relay-storage-error' ? '服务器无法保存设备状态，正在退避重试；请检查服务器诊断日志。'
+      : status.relayError?.startsWith('relay-rejected-') ? '服务器拒绝设备消息，已暂停自动重连；请更新服务器和连接器，查看诊断原因后点击“重连”。本机任务会继续运行。'
+      : status.relayConnected ? '' : this.view.error;
+    this.publish({ status, phase, error });
     if (!status.sessionValid && this.credentials) { this.paused = true; this.credentials = null; this.credentialClearing = this.vault.clear().catch(() => this.log('credential-clear-failed')); this.publish({ loggedIn: false, phase: 'signed-out', expiresAt: null, error: '登录已失效，请重新登录；本机任务会继续运行。' }); }
   }
   workerExited() { this.workerStarted = false; this.paused = true; this.publish({ phase: this.credentials ? 'disconnected' : 'signed-out', status: null, error: '本机服务已退出，请查看诊断并重新连接。' }); this.log('worker-exited'); }

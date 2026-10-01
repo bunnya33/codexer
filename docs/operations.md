@@ -66,9 +66,13 @@ docker compose --env-file infra/.env -f infra/compose.yaml exec -T postgres pg_d
 | PC 远程已连接、本机等待 | 官方 Codex 是否安装/登录；数据/程序路径；运行方式；诊断代码 |
 | 手动断开后未自动恢复 | 预期行为，点击连接；启动自动连接只作用于下次启动 |
 | 登录失败或 HTTP 被拒 | HTTPS 根地址、账号密码、会话/账号状态；内网测试可明确允许 HTTP |
+| PC 连上即断开，反复 `1008` | 老版本可能无法保存含 NUL 的命令输出；更新 Relay 或连接器。新版本显示拒绝原因并暂停无效重试，保留账号与本机任务 |
+| `relay-storage-error` / `1011` | 检查 Relay 脱敏诊断 `sqlState`、数据库状态及磁盘；连接器会退避重试。不要删除数据库或会话来修复存储错误 |
 | browser origin denied | 正确的 HTTPS/开发来源加入 `RELAY_ALLOWED_ORIGINS`，不可带路径 |
 | unknown/超时结果 | 操作可能已执行，先看真实会话，避免立即重复发送 |
 | Mac 找不到 Codex | GUI PATH 不同，手动选程序；检查 App Server 和 IPC 的实机兼容性 |
 | 端口冲突/安装中止 | 确认监听进程，不让安装器覆盖其他服务；使用新端口或正确迁移 |
 
 PC 导出脱敏诊断即可，勿分享 `settings.json`、`session.enc`、完整数据目录或真实地址。系统 journal/代理日志可能包含操作环境信息，分享前同样检查。运行时原理见 [架构](architecture.md) / [Relay](relay.md)。
+
+Relay 在校验、广播和 JSONB 保存设备观测消息前，将实际 NUL 和不完整 UTF-16 字符替换成 `�`。命令输出、历史或标题中的普通文字及字面量 `\u0000` 不变；发给 PC 的控制命令不经过该转换。兼容未更新的连接器，无需迁移或清空数据库。

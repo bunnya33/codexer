@@ -18,7 +18,8 @@ export function modelSettings(state: RecordValue): ModelSettings | undefined {
   return parsed.success ? parsed.data : undefined;
 }
 function array(value: unknown): unknown[] { return Array.isArray(value) ? value : []; }
-function text(value: unknown, max: number): string { return typeof value === "string" ? value.slice(0, max) : ""; }
+function displayText(value: string): string { return value.toWellFormed().replaceAll('\0', '\uFFFD'); }
+function text(value: unknown, max: number): string { return typeof value === "string" ? displayText(value.slice(0, max)) : ""; }
 function milliseconds(value: unknown): number | undefined {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 }
@@ -87,9 +88,9 @@ function normalizeItem(value: unknown, turn: RecordValue, textLimit = 4096, outp
     ...(startedAtMs !== undefined ? { startedAtMs } : {}),
     ...(completedAtMs !== undefined ? { completedAtMs } : {}),
     ...(durationMs !== undefined ? { durationMs } : {}),
-    ...(body ? { text: body.slice(0, textLimit) } : {}),
+    ...(body ? { text: text(body, textLimit) } : {}),
     ...(typeof item.command === "string" ? { command: text(item.command, textLimit === 4096 ? 4096 : 8192) } : {}),
-    ...(output ? { output: output.slice(-outputLimit) } : {}),
+    ...(output ? { output: displayText(output.slice(-outputLimit)) } : {}),
     ...(typeof item.tool === "string" ? { tool: text(item.tool, 300) } : {}),
     ...(files.length ? { files } : {}),
     ...(imageRefs.length ? { images: imageRefs } : {}),
@@ -124,7 +125,7 @@ function fileChanges(items: unknown[]): HistoryTurn["fileChanges"] {
       const combined = [previous?.diff, diff].filter(Boolean).join("\n");
       changes.set(path, { path, additions: (previous?.additions ?? 0) + additions,
         deletions: (previous?.deletions ?? 0) + deletions,
-        diff: combined.slice(0, 8192), truncated: Boolean(previous?.truncated || combined.length > 8192) });
+        diff: text(combined, 8192), truncated: Boolean(previous?.truncated || combined.length > 8192) });
     }
   }
   return changes.size ? [...changes.values()] : undefined;
@@ -188,7 +189,7 @@ export function normalizeThread(state: RecordValue, revision: number, images?: I
         ...(items.length > 20 ? { itemsTruncatedBefore: true } : {}),
         ...(preceding ? { previousMessage: preceding } : {}),
         items: visibleTurnItems(items, 20).map(item => normalizeItem(item, turn, 4096, 8192, images, String(state.id))), plan: steps.slice(0, 60).map(step => ({ step: text(record(step).step, 2000), status: text(record(step).status, 80) })),
-        diff: diff.slice(0, 16384), truncated: items.length > 20 || diff.length > 16384 || steps.length > 60,
+        diff: text(diff, 16384), truncated: items.length > 20 || diff.length > 16384 || steps.length > 60,
       };
     }),
     requests: normalizeRequests(state), tokenUsage: state.latestTokenUsageInfo && jsonBytes(state.latestTokenUsageInfo) <= 4096 ? record(state.latestTokenUsageInfo) : null,
