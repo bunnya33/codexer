@@ -1,0 +1,16 @@
+node_modules
+dist
+apps/web/dist
+apps/mobile/dist
+apps/admin/dist
+apps/desktop/dist
+apps/desktop/release
+release
+output
+.local
+.env
+.env.*
+coverage
+.git
+docs
+tests

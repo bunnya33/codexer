@@ -1,0 +1,14 @@
+node_modules/
+dist/
+apps/web/dist/
+apps/admin/dist/
+apps/desktop/dist/
+apps/desktop/release/
+.vite/
+.env
+.env.*
+!.env.example
+.local/
+coverage/
+output/
+release/

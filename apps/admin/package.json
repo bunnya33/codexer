@@ -1,0 +1,9 @@
+{
+  "name": "@codexer/admin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "vite --host 127.0.0.1", "build": "vite build", "typecheck": "tsc --noEmit" },
+  "dependencies": { "react": "19.2.3", "react-dom": "19.2.3", "lucide-react": "^1.49.0" },
+  "devDependencies": { "@types/react": "~19.2.2", "@types/react-dom": "~19.2.0" }
+}

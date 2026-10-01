@@ -1,0 +1,43 @@
+{
+  "name": "@codexer/mobile",
+  "version": "0.1.0",
+  "main": "index.ts",
+  "dependencies": {
+    "@expo/metro-runtime": "~57.0.16",
+    "expo": "~57.0.26",
+    "expo-clipboard": "~57.0.2",
+    "expo-crypto": "~57.0.1",
+    "expo-image-manipulator": "~57.0.20",
+    "expo-image-picker": "~57.0.1",
+    "expo-secure-store": "~57.0.1",
+    "expo-status-bar": "~57.0.1",
+    "fast-text-encoding": "^1.0.6",
+    "lucide-react-native": "^1.49.0",
+    "markdown-it": "^15.0.2",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-gesture-handler": "~2.32.0",
+    "react-native-reanimated": "4.5.1",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-svg": "15.15.4",
+    "react-native-web": "^0.21.2",
+    "react-native-worklets": "0.10.1",
+    "react-native-zoom-toolkit": "^5.1.1"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "^14.2.0",
+    "@types/react": "~19.2.2",
+    "typescript": "~6.0.3"
+  },
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "typecheck": "tsc --noEmit",
+    "export": "expo export --platform ios && expo export --platform android",
+    "export:web": "expo export --platform web --output-dir ../web/dist"
+  },
+  "private": true
+}

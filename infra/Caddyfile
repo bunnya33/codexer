@@ -1,0 +1,3 @@
+{$REMOTE_DOMAIN} {
+    reverse_proxy relay:8787
+}

@@ -1,0 +1,24 @@
+{
+  "name": "@codexer/desktop",
+  "version": "0.1.0",
+  "description": "Codexer Windows and macOS PC connector",
+  "author": "Codexer contributors",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.cjs",
+  "scripts": { "start": "electron .", "typecheck": "tsc --noEmit", "package": "electron-builder --publish never", "package:win": "electron-builder --win --x64 --publish never", "package:mac": "electron-builder --mac --arm64 --x64 --publish never" },
+  "devDependencies": { "react": "19.2.3", "react-dom": "19.2.3", "lucide-react": "^1.49.0", "@types/react": "~19.2.2", "@types/react-dom": "~19.2.0" },
+  "build": {
+    "appId": "com.codexer.connector",
+    "productName": "Codexer",
+    "electronVersion": "44.5.1",
+    "directories": { "output": "release" },
+    "files": ["dist/**/*", "package.json"],
+    "asar": true,
+    "npmRebuild": false,
+    "win": { "target": ["nsis", "portable"], "icon": "assets/icon.ico", "signExecutable": false },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "createStartMenuShortcut": true },
+    "mac": { "target": ["dmg", "zip"], "category": "public.app-category.developer-tools", "icon": "assets/icon.icns", "hardenedRuntime": true, "entitlements": "assets/entitlements.mac.plist", "entitlementsInherit": "assets/entitlements.mac.plist" },
+    "dmg": { "title": "Codexer" }
+  }
+}
