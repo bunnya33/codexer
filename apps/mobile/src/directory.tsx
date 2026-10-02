@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, FlatList, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { FolderClosed, FolderOpen, Monitor, MoreHorizontal, RefreshCw, Search, Settings2, SquarePen, X } from 'lucide-react-native';
+import { Animated, Easing, FlatList, Platform, Pressable, Text, TextInput, View } from 'react-native';
+import { FolderClosed, FolderOpen, MoreHorizontal, RefreshCw, Search, Settings2, SquarePen, X } from 'lucide-react-native';
 import type { DirectoryProject, DirectoryRow, DirectoryThread } from '../../../packages/client-shared/src/directory';
 import type { RelayView } from './relay';
 import { c, directoryThreadHeight, s } from './styles';
+import { DevicePicker } from './device-picker';
 type Props = { view: RelayView; deviceId: string; threadId: string; rows: DirectoryRow[]; search: string; wide: boolean; managing: boolean; paddingTop: number; paddingBottom: number; setSearch: (value: string) => void; selectDevice: (id: string) => void; selectThread: (id: string) => void; toggleProject: (id: string) => void; createThread: (id: string) => void; threadActions: (thread: { id: string; title: string }) => void; close: () => void; settings: () => void; refresh: () => void };
 
 function RunningIndicator({label}: {label: string}) {
@@ -48,12 +49,12 @@ function ProjectRow({project, props}: {project: DirectoryProject; props: Props})
 }
 
 export function Directory(props: Props) {
-  const { view, deviceId, threadId, rows, wide } = props;
+  const { view, deviceId, rows, wide } = props;
   return <View style={[s.drawer, wide && s.sidebar, { paddingTop: props.paddingTop, paddingBottom: props.paddingBottom }]}>
     <View style={s.drawerHeader}><Text style={s.brand}>Codexer</Text>{!wide && <Pressable accessibilityRole="button" accessibilityLabel="关闭会话列表" onPress={props.close} style={s.iconButton}><X size={20} color={c.text} /></Pressable>}</View>
     <View style={s.search}><Search size={17} color={c.muted} /><TextInput accessibilityLabel="搜索会话" style={s.searchInput} value={props.search} onChangeText={props.setSearch} placeholder="搜索会话" placeholderTextColor={c.muted} /></View>
     <Text style={s.section}>同账号的 PC Agent</Text>
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.deviceStrip} contentContainerStyle={s.deviceStripContent}>{view.devices.map(item => <Pressable key={item.id} accessibilityRole="button" onPress={() => props.selectDevice(item.id)} style={[s.deviceTab, deviceId === item.id && s.deviceSelected]}><Monitor size={16} color={deviceId === item.id ? c.accent : c.muted} /><Text style={[s.deviceText, deviceId === item.id && s.deviceTextSelected]} numberOfLines={1}>{item.name}</Text><View style={[s.dot, item.online && s.dotOnline]} /></Pressable>)}</ScrollView>
+    <DevicePicker devices={view.devices} deviceId={deviceId} selectDevice={props.selectDevice} />
     <FlatList data={rows} keyExtractor={row => `${row.type}:${row.id}`} style={s.list} contentContainerStyle={s.listContent} renderItem={({item}) => item.type === 'section' ? <Text style={s.drawerSection}>{item.title}</Text> : item.type === 'project' ? <ProjectRow project={item} props={props} /> : <ThreadRow item={item} props={props} />} ListEmptyComponent={<Text style={s.empty}>{view.catalogs[deviceId] ? '没有匹配的会话' : '正在读取项目与会话'}</Text>} />
     <View style={s.drawerFooter}><Text style={s.drawerStatus}>{view.phase === 'connected' ? `${view.devices.length} 台 PC Agent` : '正在重新连接'}</Text><Pressable accessibilityRole="button" accessibilityLabel="刷新设备" onPress={props.refresh} style={s.iconButton}><RefreshCw size={19} color={c.text} /></Pressable><Pressable accessibilityRole="button" accessibilityLabel="连接设置" onPress={props.settings} style={s.iconButton}><Settings2 size={19} color={c.text} /></Pressable></View>
   </View>;
