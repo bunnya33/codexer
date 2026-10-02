@@ -17,6 +17,8 @@ Linux WSL x64 + 官方校验的 Node 22.14，使用实际 `0.2.0` 服务器包�
 
 ## 构建与界面检查
 
+图片翻页更新：完整回归 207 项、33 个文件，以及根/后台/Electron/React Native 类型检查和 Web/iOS/Android JS 构建通过。使用实际 Web 图片查看器组件及隔离 Relay 的认证图片请求，验证打开位置、左右滑动、按钮/键盘、首尾/单张边界、缩放/拖动/切换复位、双指缩放后单指移动不翻页、纵向/取消手势、加载失败后仍可翻页、Blob 地址和关闭监听清理。组件验收模拟原生 UI 基础组件及 pointer capture，不代替浏览器排版/真实触摸；本轮浏览器工具无可用环境，Web 视觉排版及 iOS/Android 真机手势仍需验收。
+
 本地检查已通过：根/React Admin/Electron/React Native 类型检查，完整行为测试（消息提问修复后合计 194 项、30 个文件），Web/Admin/Electron 构建，iOS/Android JS 导出，文档链接/索引/示例 IPv4 检查，Git Bash 的安装脚本语法检查与 Compose 配置解析。
 
 Windows x64 已生成 NSIS 安装包和便携版。Electron 实际窗口使用隔离配置验证登录、设置/重启恢复、诊断和窄窗布局；真实 utilityProcess + 本地 Relay + FakeDesktop 验证账号登录、DPAPI 加密文件、连接/断开/重连/退出账号以及任务保留。React Admin 浏览器验收覆盖普通用户拒绝、创建账号、重置密码、禁用、刷新恢复、退出、390px 布局和不请求设备/控制 socket。

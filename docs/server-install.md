@@ -37,10 +37,10 @@ sudo env CODEXER_PUBLIC_URL=http://203.0.113.10:8899 bash install.sh
 curl -fsSL https://raw.githubusercontent.com/bunnya33/codexer/main/bootstrap.sh | sudo env CODEXER_REPO_URL=https://github.com/bunnya33/codexer.git CODEXER_REF=main bash
 ```
 
-服务器发布包目前保留在本地；将包与校验文件发布到 GitHub Release 后，可使用下面的方式。`v0.1.0` 下载地址是预定的发布位置，尚未发布时不可使用；SHA256 必须填写对应实际文件的校验值。
+服务器发布包目前保留在本地；将包与校验文件发布到 GitHub Release 后，可使用下面的方式。`v0.2.0` 下载地址是预定的发布位置，尚未发布时不可使用；SHA256 必须填写对应实际文件的校验值。
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bunnya33/codexer/main/bootstrap.sh | sudo env CODEXER_ARCHIVE_URL=https://github.com/bunnya33/codexer/releases/download/v0.1.0/codexer-server-0.2.0.tar.gz CODEXER_ARCHIVE_SHA256=替换为64位校验值 bash
+curl -fsSL https://raw.githubusercontent.com/bunnya33/codexer/main/bootstrap.sh | sudo env CODEXER_ARCHIVE_URL=https://github.com/bunnya33/codexer/releases/download/v0.2.0/codexer-server-0.2.0.tar.gz CODEXER_ARCHIVE_SHA256=替换为64位校验值 bash
 ```
 
 需要无人值守时再传 `CODEXER_PUBLIC_URL`。bootstrap 必须明确提供 `CODEXER_ARCHIVE_URL` 或 `CODEXER_REPO_URL`。私有仓库建议使用本地上传发布包，不把访问凭据写入公开命令。

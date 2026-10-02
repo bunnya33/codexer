@@ -109,4 +109,6 @@ export const s = StyleSheet.create({
   menuText: { flex: 1, color: c.text, fontSize: 14 }, dangerText: { flex: 1, color: c.danger, fontSize: 14 }, optionList: { flexGrow: 0 },
   viewer: { flex: 1, backgroundColor: '#101616' }, viewerHeader: { minHeight: 65, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, viewerTitle: { flex: 1, color: '#fff', fontSize: 14 },
   viewerClose: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }, viewerImagePress: { flex: 1, overflow: 'hidden' },
+  viewerNavigation: { minHeight: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 24, paddingBottom: 8 },
+  viewerPosition: { color: '#c6cccc', fontSize: 13, minWidth: 60, textAlign: 'center', fontVariant: ['tabular-nums'] },
 });

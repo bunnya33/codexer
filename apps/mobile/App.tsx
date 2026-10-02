@@ -6,6 +6,8 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Archive, ArrowDown, ArrowUp, Check, ChevronDown, ImagePlus, Info, ListChecks, LogOut, Menu, Pencil, RefreshCw, Square, Terminal, Trash2, X } from 'lucide-react-native';
 import { mergeLiveTurn } from '../../packages/client-shared/src/activity';
+import { conversationImages } from '../../packages/client-shared/src/images';
+import type { ImageDirection, ImageGallery, ImagePreview } from '../../packages/client-shared/src/images';
 import { buildDirectoryRows } from '../../packages/client-shared/src/directory';
 import { effortLabel, modelLabel } from '../../packages/client-shared/src/models';
 import { MAX_IMAGES, MAX_IMAGE_BYTES } from '../../packages/protocol/src/index';
@@ -62,7 +64,7 @@ function AppContent() {
   const [renaming, setRenaming] = useState(false);
   const [newName, setNewName] = useState('');
   const [managing, setManaging] = useState(false);
-  const [preview, setPreview] = useState<{ source: { uri: string; headers?: Record<string, string> }; name: string } | null>(null);
+  const [preview, setPreview] = useState<ImageGallery | null>(null);
   const listRef = useRef<FlatList<HistoryTurn>>(null);
   const streamKey = historyKey(deviceId, threadId);
   const currentStreamKey = useRef(streamKey);
@@ -89,7 +91,11 @@ function AppContent() {
     });
   }, []);
   const nextImageKey = useRef(0);
-  const openImage = useCallback((source: { uri: string; headers?: Record<string, string> }, name: string) => setPreview({ source, name }), []);
+  const moveImage = useCallback((direction: ImageDirection) => setPreview(current => {
+    if (!current) return null;
+    const index = current.index + direction;
+    return index >= 0 && index < current.images.length ? { ...current, index } : current;
+  }), []);
   const edgeSwipe = useRef(PanResponder.create({
     onMoveShouldSetPanResponder: (_, gesture) => gesture.x0 <= 28 && gesture.dx > 16 && gesture.dx > Math.abs(gesture.dy) * 1.5,
     onPanResponderRelease: (_, gesture) => { if (gesture.dx > 65 && Math.abs(gesture.dy) < gesture.dx) setDrawerOpen(true); },
@@ -118,6 +124,7 @@ function AppContent() {
     if (entries?.length && !threadId) setThreadId(entries[0]!.id);
   }, [deviceId, threadId, view.catalogs]);
   useEffect(() => {
+    setPreview(null);
     olderAnchor.current = null;
     scrollMetrics.current = {height: 0, offset: 0};
     scrollToBottom();
@@ -141,6 +148,15 @@ function AppContent() {
     for (const live of thread?.turns ?? []) { const index = result.findIndex(item => item.id === live.id); if (index < 0) result.push(live); else result[index] = mergeLiveTurn(result[index]!, live); }
     return result;
   }, [history?.turns, thread?.turns]);
+  const galleryContext = useRef({ turns, deviceId, threadId });
+  galleryContext.current = { turns, deviceId, threadId };
+  const openImage = useCallback((source: ImagePreview['source'], name: string) => {
+    const context = galleryContext.current;
+    const entries: ImagePreview[] = conversationImages(context.turns).map(image => ({ source: relay.imageSource(context.deviceId, context.threadId, image.id), name: image.name }));
+    let index = entries.findIndex(image => image.source.uri === source.uri);
+    if (index < 0) { index = entries.length; entries.push({ source, name }); }
+    setPreview({ images: entries, index });
+  }, []);
   const changedTurn = thread?.status === 'active' ? turns.find(turn => turn.id === thread.activeTurnId && !!turn.fileChanges?.length) : undefined;
   const hasTruncatedContent = turns.some(turn => turn.truncated || turn.items.some(item => item.truncated));
   const rows = useMemo(() => buildDirectoryRows({catalog, snapshot, deviceId, expandedProjects, search}), [catalog, deviceId, expandedProjects, search, snapshot]);
@@ -317,7 +333,7 @@ function AppContent() {
       </Pressable>
     </Modal>
     <Modal visible={menu !== 'none'} transparent animationType="fade" onRequestClose={() => setMenu('none')}><Pressable style={s.backdrop} onPress={() => setMenu('none')}><Pressable style={[s.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]} onPress={event => event.stopPropagation()}><View style={s.modalHeader}><Text style={s.modalTitle}>{menu === 'settings' ? '连接' : menu === 'model' ? '选择模型' : menu === 'mode' ? '工作模式' : '推理强度'}</Text><IconButton icon={X} label="关闭" onPress={() => setMenu('none')} /></View>{menu === 'settings' ? <><Text style={s.sub}>{view.url}</Text><Pressable style={s.menuOption} onPress={() => { setMenu('none'); void relay.logout().catch(() => undefined); }}><LogOut size={18} color={c.danger} /><Text style={s.dangerText}>退出登录</Text></Pressable></> : menu === 'mode' ? <View><Pressable style={s.menuOption} onPress={() => changeMode('default')}><View style={{flex: 1}}><Text style={s.menuText}>默认模式</Text><Text style={s.sub}>按请求执行任务</Text></View>{settings?.collaborationMode === 'default' && <Check size={18} color={c.accent} />}</Pressable><Pressable style={s.menuOption} onPress={() => changeMode('plan')}><View style={{flex: 1}}><Text style={s.menuText}>Plan Mode</Text><Text style={s.sub}>先讨论和形成计划，再切换默认模式执行</Text></View>{settings?.collaborationMode === 'plan' && <Check size={18} color={c.accent} />}</Pressable></View> : menu === 'model' ? <ScrollView style={s.optionList}>{[...new Set([settings?.model, ...(catalog?.models?.map(option => option.model) ?? [])].filter((value): value is string => !!value))].map(name => <Pressable key={name} style={s.menuOption} onPress={() => changeModel(name)}><Text style={s.menuText}>{modelLabel(name, catalog?.models)}</Text>{settings?.model === name && <Check size={18} color={c.accent} />}</Pressable>)}</ScrollView> : <ScrollView style={s.optionList}>{model?.supportedReasoningEfforts.map(effort => <Pressable key={effort} style={s.menuOption} onPress={() => changeEffort(effort)}><Text style={s.menuText}>{effortLabel(effort)}</Text>{settings?.reasoningEffort === effort && <Check size={18} color={c.accent} />}</Pressable>)}</ScrollView>}</Pressable></Pressable></Modal>
-    <ImageViewer preview={preview} onClose={() => setPreview(null)} />
+    <ImageViewer preview={preview} onClose={() => setPreview(null)} onNavigate={moveImage} />
   </SafeAreaView>;
 }
 
