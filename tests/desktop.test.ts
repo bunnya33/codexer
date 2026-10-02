@@ -83,7 +83,7 @@ describe("official desktop compatibility boundary", () => {
     desktop.publishSnapshot(); await waitFor(() => adapter.getThread('thread-test')?.requests.length === 1);
     const payload = {type: 'input.respond' as const, threadId: 'thread-test', turnId: 'turn-A', requestId: 'async:call-question', answers: {'0': {answers: ['B']}, '1': {answers: ['Custom constraints']}}};
     await expect(adapter.execute(command({...payload, turnId: 'other-turn'}))).rejects.toMatchObject({code: 'stale-request'});
-    await expect(adapter.execute(command({...payload, answers: {'0': {answers: ['B']}}}))).rejects.toMatchObject({code: 'invalid-answer-set'});
+    await expect(adapter.execute(command({...payload, answers: {'unknown': {answers: ['B']}}}))).rejects.toMatchObject({code: 'invalid-answer-set'});
     await expect(adapter.execute(command(payload))).resolves.toMatchObject({turnId: 'turn-A', acknowledgedByDesktop: true});
     const sent = desktop.received.find(message => message.method === 'thread-follower-steer-turn')!;
     expect(sent.version).toBe(1);

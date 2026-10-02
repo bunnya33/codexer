@@ -39,6 +39,8 @@ Windows x64 已生成 NSIS 安装包和便携版。Electron 实际窗口使用�
 
 ## 平台与生产验收
 
+点击即发与回答样式更新：194 项测试通过，根/后台/Electron/React Native 类型检查、服务器/Web 构建和 iOS/Android JS 导出通过。真实 Agent + DesktopAdapter + FakeDesktop + 临时 Relay 的生产 Web 在桌面及 390px 验收单题选项点击即发、异步多题按题发送及剩余原始下标、自定义选项等待提交、无选项文字提交、失败后选项保留与重新点击重试、同步 RPC 多题选完自动发送及文字题完整提交。气泡内问题浅灰 `#808581`、答案正常深色 `#191d1e`，截图和计算样式复核通过；普通文字仍保留 Markdown，复制使用完整可读文字。Windows `0.1.4` 打包 worker 使用内置 Node 完成逐题回传、剩余问题及结构化展示字段同步、断开/重连任务保留验收。未向真实官方任务发送回答；macOS 和原生手机仍需实机验收。
+
 消息提问修复：只读观测官方桌面正在运行的会话，确认真实提问位于 `agentMessage.questions`，不在 RPC 请求列表；只读核对官方 bundle 的问题 ID、回答包装及引导接口。合成数据通过真实 PcAgent + DesktopAdapter + FakeDesktop + 临时 Relay 同步到生产 Web 构建。桌面及 390px 浏览器验收覆盖可点击选项/勾选状态、自定义回答、无选项输入、多问题完整性、提交失败保留输入和重试、成功后移除卡片、过期移除、可读回答、无原始包装泄漏、无横向溢出或页面错误。单元回归另覆盖回答后附加文字、长包装先解码再截断、部分回答与待接受/已接受状态。
 
 Windows `0.1.3` 的打包 `app.asar` worker 在 Electron 44.5.1 的真实 utilityProcess 内完成消息提问识别、选项/文字完整回答、原始问题 ID/owner/version/trigger 检查、结果同步及可读回复；worker PATH 仅含 Windows System32，使用内置 Node 24.21.0。断开/重连保留活动任务。没有向真实官方任务提交回答；官方生产模型的回答处理及 macOS/原生手机仍需实机验收。本次 Windows 安装包使用本机已安装的官方 Electron 分发目录打包，绕过重复下载超时。

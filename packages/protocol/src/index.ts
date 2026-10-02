@@ -81,6 +81,10 @@ const itemSchema = z.object({
   status: z.string().max(80).optional(),
   phase: z.enum(["commentary", "final_answer"]).optional(),
   questionRequestId: idSchema.optional(),
+  userMessageParts: z.array(z.discriminatedUnion('type', [
+    z.object({type: z.literal('text'), text: z.string().max(32000)}),
+    z.object({type: z.literal('questionAnswer'), question: z.string().max(8192), answer: z.string().max(8192)}),
+  ])).max(40).optional(),
   ...timingFields,
   text: z.string().max(4096).optional(),
   command: z.string().max(4096).optional(),

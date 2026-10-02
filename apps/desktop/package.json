@@ -1,6 +1,6 @@
 {
   "name": "@codexer/desktop",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Codexer Windows and macOS PC connector",
   "author": "Codexer contributors",
   "private": true,

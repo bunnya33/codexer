@@ -47,9 +47,11 @@ export function asyncInputRequests(turns: Raw[]): InteractiveRequest[] {
 
 export function asyncQuestionAnswer(request: InteractiveRequest, answers: Record<string, { answers: string[] }>): string | null {
   const questions = Array.isArray(request.details.questions) ? request.details.questions.map(record) : [];
-  if (!questions.length || Object.keys(answers).length !== questions.length) return null;
+  const ids = Object.keys(answers);
+  if (!questions.length || !ids.length || ids.some(id => !questions.some(question => question.id === id))) return null;
   const replies = [];
   for (const question of questions) {
+    if (!Object.hasOwn(answers, String(question.id))) continue;
     const answer = Object.hasOwn(answers, String(question.id)) ? answers[String(question.id)]?.answers : undefined;
     if (!answer || answer.length !== 1 || !answer[0]?.trim() || answer[0].length > 8192) return null;
     replies.push({ questionItemId: JSON.stringify(['request_user_input_async', request.details.sourceItemId, Number(question.id)]), question: question.question, answer: answer[0] });

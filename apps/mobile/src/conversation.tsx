@@ -26,12 +26,16 @@ function Message({ item, running = false, deviceId, threadId, onImage }: { item:
   const role = messageRole(item);
   const [open, setOpen] = useState(false);
   const images = item.images ?? [];
-  const body = role === 'user' ? userPresentation(item.text ?? '').body : item.text ?? '';
+  const presentation = role === 'user' ? userPresentation(item.text ?? '') : null;
+  const body = presentation?.body ?? item.text ?? '';
+  const parts = role === 'user' ? item.userMessageParts ?? presentation?.parts : undefined;
   const display = images.some(image => image.source) ? body.replace(/!\[[^\]]*\]\([^)]*\)/g, '') : body;
   if (role) {
     if (!body && !images.length && !item.files?.length) return null;
     return <View style={[s.message, role === 'user' ? s.userMessage : s.agentMessage]}>
-      {!!display && <Markdown>{display}</Markdown>}
+      {parts?.length ? <View style={s.replyParts}>{parts.map((part, index) => part.type === 'questionAnswer'
+        ? <View key={index} style={s.replyPair}><Text selectable style={s.replyQuestion}>{part.question}</Text><Text selectable style={s.replyAnswer}>{part.answer}</Text></View>
+        : <Markdown key={index}>{images.some(image => image.source) ? part.text.replace(/!\[[^\]]*\]\([^)]*\)/g, '') : part.text}</Markdown>)}</View> : !!display && <Markdown>{display}</Markdown>}
       {!!images.length && <View style={s.imageRow}>{images.map(image => <Pressable key={image.id} accessibilityRole="button" accessibilityLabel={`查看图片 ${image.name}`} onPress={() => onImage(relay.imageSource(deviceId, threadId, image.id), image.name)}><RelayImage source={relay.imageSource(deviceId, threadId, image.id)} resizeMode="cover" style={s.image} /></Pressable>)}</View>}
       {!!item.files?.length && <Text style={s.fileNames}>{item.files.join(' · ')}</Text>}
       {!!display && <Pressable accessibilityRole="button" accessibilityLabel="复制消息" style={[s.iconButton, { alignSelf: role === 'user' ? 'flex-end' : 'flex-start', width: 30, height: 28 }]} onPress={() => void copyText(display).catch(() => relay.showNotice('复制失败，请选择文字手动复制'))}><Copy size={14} color={c.muted} /></Pressable>}
@@ -110,35 +114,56 @@ export function RequestPanel({ request, threadId, send, enabled }: { request: In
   const [choices, setChoices] = useState<Record<string, number>>({});
   const [pending, setPending] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [submittedQuestions, setSubmittedQuestions] = useState<string[]>([]);
   const [error, setError] = useState('');
   const sending = useRef(false);
   const questions = inputQuestions(request.details);
+  const perQuestion = request.details.source === 'asyncMessage';
   const approval = request.kind === 'commandApproval' || request.kind === 'fileApproval';
   const canAnswer = enabled && request.respondable && !!request.turnId && !pending && !submitted && (approval || request.kind === 'userInput' && questions.length > 0);
-  const answerFor = (id: string) => {
+  const answerFor = (id: string, selected = choices) => {
     const question = questions.find(item => item.id === id)!;
-    const choice = choices[id];
+    const choice = selected[id];
     return choice !== undefined && choice >= 0 ? question.options[choice]?.label ?? '' : answers[id] ?? '';
   };
   const submit = async (payload: RemoteCommand['payload']) => {
     if (!canAnswer || sending.current) return;
     sending.current = true; setPending(true); setError('');
-    try { await send(payload); setSubmitted(true); setAnswers({}); }
+    try {
+      await send(payload);
+      if (perQuestion && payload.type === 'input.respond') {
+        const ids = Object.keys(payload.answers);
+        setSubmittedQuestions(value => [...new Set([...value, ...ids])]);
+        setAnswers(value => Object.fromEntries(Object.entries(value).filter(([id]) => !ids.includes(id))));
+      } else { setSubmitted(true); setAnswers({}); }
+    }
     catch (failure) { setError(failure instanceof Error ? failure.message : '提交失败，请重试'); }
     finally { sending.current = false; setPending(false); }
   };
+  const sendAnswers = (ids: string[], selected = choices) => submit({type: 'input.respond', threadId, turnId: request.turnId!, requestId: request.id,
+    answers: Object.fromEntries(ids.map(id => [id, {answers: [answerFor(id, selected)]}]))});
+  const manualAnswer = (question: typeof questions[number], selected = choices) => !question.options.length || selected[question.id] === -1;
+  const selectOption = (id: string, option: number) => {
+    const selected = {...choices, [id]: option}; setChoices(selected);
+    if (perQuestion) void sendAnswers([id], selected);
+    else if (questions.every(question => !manualAnswer(question, selected) && answerFor(question.id, selected).trim())) void sendAnswers(questions.map(question => question.id), selected);
+  };
+  const remainingQuestions = questions.filter(question => !submittedQuestions.includes(question.id));
+  const hasManualAnswer = questions.some(question => manualAnswer(question));
   const allowed = Array.isArray(request.details.availableDecisions) ? request.details.availableDecisions : ['accept', 'decline', 'cancel'];
   return <View style={[s.request, request.kind === 'userInput' && s.questionCard]}>
     <View style={s.requestHeading}><HelpCircle size={16} color={c.muted} /><Text style={s.requestTitle}>{request.kind === 'userInput' ? '回答问题' : '待处理请求'}</Text>{request.kind === 'userInput' && request.details.isBlocking === false && <Text style={s.sub}>任务可继续执行</Text>}</View>
     {!!request.reason && <Text style={s.requestText}>{request.reason}</Text>}{!!request.command && <Text style={s.code}>{request.command}</Text>}
-    {request.kind === 'userInput' && !submitted && questions.map((question, index) => <View key={question.id} style={s.question}>
+    {request.kind === 'userInput' && !submitted && remainingQuestions.map((question, index) => <View key={question.id} style={s.question}>
       {!!question.header && <Text style={s.questionHeader}>{questions.length > 1 ? `${index + 1}/${questions.length} · ` : ''}{question.header}</Text>}
       <Text style={s.questionText}>{question.question}</Text>
-      {question.options.map((option, optionIndex) => <Pressable key={option.label} accessibilityRole="radio" aria-checked={choices[question.id] === optionIndex} aria-disabled={!canAnswer} disabled={!canAnswer} onPress={() => setChoices(value => ({...value, [question.id]: optionIndex}))} style={[s.option, choices[question.id] === optionIndex && s.optionSelected]}><View style={s.optionBody}><Text style={s.requestText}>{option.label}</Text>{!!option.description && <Text style={s.optionDescription}>{option.description}</Text>}</View>{choices[question.id] === optionIndex ? <Check size={17} color={c.accent} /> : <View style={s.optionCircle} />}</Pressable>)}
+      {question.options.map((option, optionIndex) => <Pressable key={option.label} accessibilityRole="radio" aria-checked={choices[question.id] === optionIndex} aria-disabled={!canAnswer} disabled={!canAnswer} onPress={() => selectOption(question.id, optionIndex)} style={[s.option, choices[question.id] === optionIndex && s.optionSelected]}><View style={s.optionBody}><Text style={s.requestText}>{option.label}</Text>{!!option.description && <Text style={s.optionDescription}>{option.description}</Text>}</View>{choices[question.id] === optionIndex ? <Check size={17} color={c.accent} /> : <View style={s.optionCircle} />}</Pressable>)}
       {!!question.options.length && question.isOther && <Pressable accessibilityRole="radio" accessibilityLabel={`自定义回答：${question.header || question.question}`} aria-checked={choices[question.id] === -1} aria-disabled={!canAnswer} disabled={!canAnswer} onPress={() => setChoices(value => ({...value, [question.id]: -1}))} style={[s.option, choices[question.id] === -1 && s.optionSelected]}><Text style={s.requestText}>自定义回答</Text>{choices[question.id] === -1 ? <Check size={17} color={c.accent} /> : <View style={s.optionCircle} />}</Pressable>}
       {(!question.options.length || question.isOther && choices[question.id] === -1) && <TextInput accessibilityLabel={`回答：${question.header || question.question}`} style={s.answerInput} value={answers[question.id] ?? ''} onChangeText={value => setAnswers(current => ({...current, [question.id]: value}))} editable={canAnswer} placeholder="输入你的回答" placeholderTextColor={c.muted} multiline={!question.isSecret} secureTextEntry={question.isSecret} autoCorrect={!question.isSecret} autoComplete="off" maxLength={8192} />}
+      {perQuestion && manualAnswer(question) && <Pressable accessibilityRole="button" accessibilityLabel={`提交回答：${question.question}`} style={[s.smallPrimary, (!canAnswer || !answerFor(question.id).trim()) && s.disabled]} disabled={!canAnswer || !answerFor(question.id).trim()} onPress={() => void sendAnswers([question.id])}>{pending ? <ActivityIndicator color="#fff" size="small" /> : <Text style={s.primaryText}>提交回答</Text>}</Pressable>}
     </View>)}
-    {submitted ? <Text style={s.sub}>回答已提交，等待 Codex 更新…</Text> : request.kind === 'userInput' && questions.length > 0 ? <Pressable accessibilityRole="button" accessibilityLabel="提交回答" style={[s.smallPrimary, (!canAnswer || questions.some(question => !answerFor(question.id).trim())) && s.disabled]} disabled={!canAnswer || questions.some(question => !answerFor(question.id).trim())} onPress={() => void submit({type: 'input.respond', threadId, turnId: request.turnId!, requestId: request.id, answers: Object.fromEntries(questions.map(question => [question.id, {answers: [answerFor(question.id)]}]))})}>{pending ? <ActivityIndicator color="#fff" size="small" /> : <Text style={s.primaryText}>提交回答</Text>}</Pressable> : approval ? <View style={s.decisionRow}>{(['accept', 'decline', 'cancel'] as const).filter(decision => allowed.includes(decision)).map(decision => <Pressable accessibilityRole="button" key={decision} disabled={!canAnswer} onPress={() => void submit({type: 'approval.respond', threadId, turnId: request.turnId!, requestId: request.id, decision})} style={[s.decision, decision === 'accept' && s.decisionAccept, !canAnswer && s.disabled]}><Text style={decision === 'accept' ? s.primaryText : s.requestText}>{decision === 'accept' ? '允许' : decision === 'decline' ? '拒绝' : '取消'}</Text></Pressable>)}</View> : null}
+    {submitted || perQuestion && !remainingQuestions.length ? <Text style={s.sub}>回答已提交，等待 Codex 更新…</Text> : request.kind === 'userInput' && !perQuestion && questions.length > 0 && hasManualAnswer ? <Pressable accessibilityRole="button" accessibilityLabel="提交回答" style={[s.smallPrimary, (!canAnswer || questions.some(question => !answerFor(question.id).trim())) && s.disabled]} disabled={!canAnswer || questions.some(question => !answerFor(question.id).trim())} onPress={() => void sendAnswers(questions.map(question => question.id))}>{pending ? <ActivityIndicator color="#fff" size="small" /> : <Text style={s.primaryText}>提交回答</Text>}</Pressable> : approval ? <View style={s.decisionRow}>{(['accept', 'decline', 'cancel'] as const).filter(decision => allowed.includes(decision)).map(decision => <Pressable accessibilityRole="button" key={decision} disabled={!canAnswer} onPress={() => void submit({type: 'approval.respond', threadId, turnId: request.turnId!, requestId: request.id, decision})} style={[s.decision, decision === 'accept' && s.decisionAccept, !canAnswer && s.disabled]}><Text style={decision === 'accept' ? s.primaryText : s.requestText}>{decision === 'accept' ? '允许' : decision === 'decline' ? '拒绝' : '取消'}</Text></Pressable>)}</View> : null}
+    {pending && request.kind === 'userInput' && <Text accessibilityLiveRegion="polite" style={s.sub}>正在发送回答…</Text>}
     {(!request.respondable || !request.turnId || request.kind === 'userInput' && !questions.length || !approval && request.kind !== 'userInput') && <Text style={s.sub}>此请求暂不能在远程回答，请在 PC 的 Codex 中处理。</Text>}
     {!!error && <Text accessibilityRole="alert" style={s.error}>{error}</Text>}
   </View>;

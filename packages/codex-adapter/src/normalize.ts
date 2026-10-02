@@ -1,6 +1,7 @@
 import type { HistoryPage, HistoryTurn, InteractiveRequest, ModelSettings, RemoteItem, RemoteThread } from "../../protocol/src/index.js";
 import { jsonBytes, MAX_CATALOG_BYTES, MAX_THREAD_BYTES, modelSettingsSchema } from "../../protocol/src/index.js";
 import { userPresentation } from "../../protocol/src/user-presentation.js";
+import type { UserMessagePart } from '../../protocol/src/user-presentation.js';
 import type { ImageRegistry } from "./images.js";
 import { asyncInputRequests, asyncQuestionRequestId } from './async-input.js';
 
@@ -23,6 +24,21 @@ export function modelSettings(state: RecordValue): ModelSettings | undefined {
 function array(value: unknown): unknown[] { return Array.isArray(value) ? value : []; }
 function displayText(value: string): string { return value.toWellFormed().replaceAll('\0', '\uFFFD'); }
 function text(value: unknown, max: number): string { return typeof value === "string" ? displayText(value.slice(0, max)) : ""; }
+function boundedMessageParts(parts: UserMessagePart[], limit: number): UserMessagePart[] {
+  const bounded: UserMessagePart[] = [];
+  for (const part of parts) {
+    if (limit <= 0 || bounded.length >= 40) break;
+    if (part.type === 'text') {
+      const value = text(part.text, limit); limit -= value.length;
+      if (value.trim()) bounded.push({type: 'text', text: value});
+    } else {
+      const question = text(part.question, limit); limit -= question.length;
+      const answer = text(part.answer, limit); limit -= answer.length;
+      bounded.push({type: 'questionAnswer', question, answer});
+    }
+  }
+  return bounded;
+}
 function milliseconds(value: unknown): number | undefined {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 }
@@ -73,7 +89,7 @@ function normalizeItem(value: unknown, turn: RecordValue, textLimit = 4096, outp
   const content = parts.map(part => typeof part.text === 'string' ? part.text : '').filter(Boolean).join("\n");
   const summary = array(item.summary).filter((part): part is string => typeof part === "string").join("\n\n");
   const rawBody = item.type === "reasoning" ? summary : typeof item.text === "string" ? item.text : content;
-  const presentation = ["userMessage", "steeringUserMessage"].includes(String(item.type)) ? userPresentation(rawBody) : { body: rawBody, files: [] };
+  const presentation: ReturnType<typeof userPresentation> = ["userMessage", "steeringUserMessage"].includes(String(item.type)) ? userPresentation(rawBody) : { body: rawBody, files: [] };
   const body = presentation.body;
   const output = typeof item.aggregatedOutput === "string" ? item.aggregatedOutput : "";
   const paths = Array.isArray(item.changes) ? item.changes.map(change => String(record(change).path ?? "")).filter(Boolean) : Object.keys(record(item.changes));
@@ -91,6 +107,7 @@ function normalizeItem(value: unknown, turn: RecordValue, textLimit = 4096, outp
     ...(typeof item.status === "string" ? { status: text(item.status, 80) } : {}),
     ...(item.phase === "commentary" || item.phase === "final_answer" ? { phase: item.phase } : {}),
     ...(questionRequestId ? { questionRequestId } : {}),
+    ...(presentation.parts ? {userMessageParts: boundedMessageParts(presentation.parts, textLimit)} : {}),
     ...(startedAtMs !== undefined ? { startedAtMs } : {}),
     ...(completedAtMs !== undefined ? { completedAtMs } : {}),
     ...(durationMs !== undefined ? { durationMs } : {}),

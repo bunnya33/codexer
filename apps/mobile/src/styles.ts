@@ -49,6 +49,7 @@ export const s = StyleSheet.create({
   stream: { flex: 1 }, streamContent: { paddingHorizontal: 18, paddingTop: 22, paddingBottom: 25, gap: 22 }, turn: { gap: 15 },
   message: { maxWidth: '100%' },
   userMessage: { alignSelf: 'flex-end', maxWidth: '88%', paddingHorizontal: 15, paddingTop: 11, paddingBottom: 4, borderRadius: 18, backgroundColor: '#f1f2f2' },
+  replyParts: { gap: 10 }, replyPair: { gap: 4 }, replyQuestion: { color: '#808581', fontSize: 14, lineHeight: 21 }, replyAnswer: { color: c.text, fontSize: 14, lineHeight: 21 },
   agentMessage: { alignSelf: 'stretch', paddingVertical: 2 },
   fileNames: { color: c.muted, fontSize: 12, marginBottom: 8 }, imageRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginBottom: 8 },
   image: { width: 116, height: 90, borderRadius: 4, backgroundColor: c.code },
