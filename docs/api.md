@@ -177,6 +177,8 @@ Agent 在自身 SQLite `usage.sqlite` 中按 `threadId + turnId` 保存逐轮统
 | `approval.respond` | `threadId,turnId,requestId,decision` | `decision` 为 `accept`、`decline` 或 `cancel` 且该请求允许 |
 | `input.respond` | `threadId,turnId,requestId,answers` | `answers` 覆盖当前每个问题 ID；值形如 `{answers:["选项"]}` |
 
+`input.respond` 同时处理 RPC 提问及消息中的异步提问。消息提问的 `requestId` 以 `async:` 开头，`details.source` 为 `asyncMessage`，问题 ID 为原始下标字符串；客户端使用收到的 ID 原样提交。Agent 校验仍有效的来源轮次及完整问题集，再用官方结构化回答引导当前轮次。消息提问在来源轮次完成后失效；RPC 非阻塞请求可在原始轮次结束后继续回答。详见 [会话交互](conversation.md)。
+
 初始响应可能是 `{type:"command.accepted",commandId}`，终态是 `{type:"command.result",result:{commandId,deviceId,status,code}}`。`status` 是 `succeeded`、`failed` 或 `unknown`。`succeeded` 仅表示本机运行时确认操作，模型回复需继续观察事件。结果可以通过命令查询接口恢复。原命令内容不变时可用相同 `commandId` 重试传输；`unknown` 不应自动换 ID 重发。
 
 ## 静态页面

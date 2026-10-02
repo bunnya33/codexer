@@ -129,6 +129,7 @@ function AppContent() {
   const catalog = view.catalogs[deviceId];
   const snapshot = view.snapshots[deviceId];
   const thread = snapshot?.threads[threadId];
+  const questionRequestIds = useMemo(() => thread?.requests.filter(request => request.details.source === 'asyncMessage').map(request => request.id) ?? [], [thread?.requests]);
   const summary = catalog?.threads.find(item => item.id === threadId);
   const project = catalog?.projects.find(item => item.id === summary?.projectId);
   const history = view.histories[historyKey(deviceId, threadId)];
@@ -282,7 +283,7 @@ function AppContent() {
           scrollMetrics.current.height = height;
         }} refreshing={!!history?.nextCursor && !!history.loading}
         onRefresh={Platform.OS !== 'web' && history?.nextCursor ? loadEarlier : undefined}
-        renderItem={({ item }) => <TurnView turn={item} active={item.id === thread?.activeTurnId && thread?.status === 'active'} deviceId={deviceId} threadId={threadId} onImage={openImage} />}
+        renderItem={({ item }) => <TurnView turn={item} active={item.id === thread?.activeTurnId && thread?.status === 'active'} deviceId={deviceId} threadId={threadId} onImage={openImage} questionRequestIds={questionRequestIds} />}
         ListHeaderComponent={history?.nextCursor ? <Pressable accessibilityRole="button" accessibilityLabel="加载更早消息" disabled={history.loading} onPress={loadEarlier} style={s.earlier}>{history.loading ? <ActivityIndicator size="small" color={c.accent} /> : <Text style={s.earlierText}>{Platform.OS === 'web' ? '加载更早消息' : '下拉加载更早消息'}</Text>}</Pressable> : null}
         ListEmptyComponent={<View style={s.chatEmpty}><Terminal size={30} color={c.accent} /><Text style={s.chatEmptyTitle}>{threadId ? history?.loading ? '正在读取会话' : '开始对话' : view.devices.length ? '选择 PC Agent 和会话' : '等待 PC Agent 登录'}</Text><Text style={s.chatEmptySub}>{threadId ? '消息将在这里显示' : view.devices.length ? '从左侧选择要控制的 PC Agent' : '在 PC 上使用同一账号登录，即可在这里选择控制端'}</Text></View>}
         ListFooterComponent={<View>{!!history?.error && <Text style={s.error}>{history.error}</Text>}{thread?.requests.map(request => <RequestPanel key={request.id} request={request} threadId={threadId} enabled={ready && !busy} send={async payload => { const result = await relay.sendCommand(deviceId, payload); if (result.status !== 'succeeded') throw new Error(result.code); }} />)}</View>} /></ConversationViewport>

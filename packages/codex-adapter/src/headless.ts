@@ -12,6 +12,7 @@ import { isDeepStrictEqual } from "node:util";
 import { catalogSchema, historyPageSchema } from "../../protocol/src/index.js";
 import type { DeviceCatalog, HistoryPage, ModelOption, RemoteCommand, RemoteThread } from "../../protocol/src/index.js";
 import { boundHistoryPage, modelSettings, normalizeHistoryTurn, normalizeThread, record, withItemTimings } from "./normalize.js";
+import { asyncQuestionAnswer } from './async-input.js';
 import type { RecordValue } from "./normalize.js";
 import { AdapterError } from "./desktop.js";
 import { collaborationOverride } from "./collaboration.js";
@@ -482,6 +483,14 @@ export class HeadlessAdapter extends EventEmitter {
       this.settings.set(payload.threadId, { ...record(this.settings.get(payload.threadId)), model, ...(override.effort ? { effort: override.effort } : {}), ...(collaborationMode ? { collaborationMode } : {}) });
       await this.follow(payload.threadId);
       return { ...(payload.type === "thread.model.update" ? { model } : payload.type === "thread.effort.update" ? { effort: payload.effort } : { mode: payload.mode }), acknowledgedByAppServer: true };
+    }
+    if (payload.type === 'input.respond' && payload.requestId.startsWith('async:')) {
+      const request = thread.requests.find(request => request.id === payload.requestId && request.turnId === payload.turnId && request.details.source === 'asyncMessage' && request.respondable);
+      if (!request) throw new AdapterError('stale-request');
+      if (thread.activeTurnId !== payload.turnId) throw new AdapterError('stale-turn');
+      const text = asyncQuestionAnswer(request, payload.answers);
+      if (!text) throw new AdapterError('invalid-answer-set');
+      return this.execute({ ...command, payload: { type: 'turn.steer', threadId: payload.threadId, turnId: payload.turnId, text } });
     }
     if (payload.type === "turn.start") {
       if (thread.status !== "idle") throw new AdapterError("thread-not-idle");

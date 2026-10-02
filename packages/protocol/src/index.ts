@@ -80,6 +80,7 @@ const itemSchema = z.object({
   type: z.string().max(100),
   status: z.string().max(80).optional(),
   phase: z.enum(["commentary", "final_answer"]).optional(),
+  questionRequestId: idSchema.optional(),
   ...timingFields,
   text: z.string().max(4096).optional(),
   command: z.string().max(4096).optional(),

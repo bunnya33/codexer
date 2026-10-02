@@ -13,7 +13,7 @@
 
 ## 构建与界面检查
 
-本地检查已通过：根/React Admin/Electron/React Native 类型检查，完整行为测试（会话交互更新后合计 189 项、30 个文件），Web/Admin/Electron 构建，iOS/Android JS 导出，文档链接/索引/示例 IPv4 检查，Git Bash 的安装脚本语法检查与 Compose 配置解析。
+本地检查已通过：根/React Admin/Electron/React Native 类型检查，完整行为测试（消息提问修复后合计 194 项、30 个文件），Web/Admin/Electron 构建，iOS/Android JS 导出，文档链接/索引/示例 IPv4 检查，Git Bash 的安装脚本语法检查与 Compose 配置解析。
 
 Windows x64 已生成 NSIS 安装包和便携版。Electron 实际窗口使用隔离配置验证登录、设置/重启恢复、诊断和窄窗布局；真实 utilityProcess + 本地 Relay + FakeDesktop 验证账号登录、DPAPI 加密文件、连接/断开/重连/退出账号以及任务保留。React Admin 浏览器验收覆盖普通用户拒绝、创建账号、重置密码、禁用、刷新恢复、退出、390px 布局和不请求设备/控制 socket。
 
@@ -38,6 +38,10 @@ Windows x64 已生成 NSIS 安装包和便携版。Electron 实际窗口使用�
 连接修复验证：PostgreSQL/PGlite JSONB 不接受实际 NUL，旧版本会将 SQLSTATE `22P05` 误报为设备状态错误并循环 `1008`。回归覆盖快照、事件、目录中的 NUL/不完整 UTF-16，保留字面量转义和合法 Unicode，广播与持久状态一致；协议拒绝暂停重连、保留账号与活动任务，未知关闭原因不进入日志，短连接失败指数退避。Windows `0.1.1` 的真实打包 worker 在不含系统 Node 的 PATH 下连接未修复的 Relay，成功同步含 NUL 的合成命令输出，并通过登录/DPAPI/断开/重连/退出及任务保留验收。Mac 的同类实机验收仍未执行。
 
 ## 平台与生产验收
+
+消息提问修复：只读观测官方桌面正在运行的会话，确认真实提问位于 `agentMessage.questions`，不在 RPC 请求列表；只读核对官方 bundle 的问题 ID、回答包装及引导接口。合成数据通过真实 PcAgent + DesktopAdapter + FakeDesktop + 临时 Relay 同步到生产 Web 构建。桌面及 390px 浏览器验收覆盖可点击选项/勾选状态、自定义回答、无选项输入、多问题完整性、提交失败保留输入和重试、成功后移除卡片、过期移除、可读回答、无原始包装泄漏、无横向溢出或页面错误。单元回归另覆盖回答后附加文字、长包装先解码再截断、部分回答与待接受/已接受状态。
+
+Windows `0.1.3` 的打包 `app.asar` worker 在 Electron 44.5.1 的真实 utilityProcess 内完成消息提问识别、选项/文字完整回答、原始问题 ID/owner/version/trigger 检查、结果同步及可读回复；worker PATH 仅含 Windows System32，使用内置 Node 24.21.0。断开/重连保留活动任务。没有向真实官方任务提交回答；官方生产模型的回答处理及 macOS/原生手机仍需实机验收。本次 Windows 安装包使用本机已安装的官方 Electron 分发目录打包，绕过重复下载超时。
 
 会话交互更新：桌面宽度与 390px Web 验收通过进入/切换缓存会话到底部、向上阅读时保留位置、下箭头回到底部、加载更早记录、执行中文件统计固定在编辑框外部和结束后恢复回复下方旧面板、展开差异、扫光动画和减少动态效果设置、通用截断提示移到会话信息、无页面异常或横向溢出。提问覆盖选项描述、自定义输入、无选项输入、多问题完整提交、失败后保留输入及重试、异步请求在原轮次结束后回答。Plan Mode 覆盖桌面 owner 和独立 Agent 的真实设置接口、过期设置拒绝、新建空会话模式保留至首轮、切回默认模式和模型/权限保留。
 

@@ -2,7 +2,7 @@
 
 ## 普通用户安装
 
-Windows x64 使用 `Codexer Setup 0.1.2.exe` 安装，或运行 `Codexer 0.1.2.exe` 便携版。产物位于 `apps/desktop/release`。无需安装 Node、npm、Git 或下载项目源码。安装包未配置商业代码签名；发行前签名流程见 [发布文档](release.md)。
+Windows x64 使用 `Codexer Setup 0.1.3.exe` 安装，或运行 `Codexer 0.1.3.exe` 便携版。产物位于 `apps/desktop/release`。无需安装 Node、npm、Git 或下载项目源码。安装包未配置商业代码签名；发行前签名流程见 [发布文档](release.md)。
 
 本机必须已安装并登录官方 Codex，任务使用该电脑原有的模型、账号/密钥、工作目录和权限。连接器不代替官方 Codex。macOS 安装和验证见 [macOS 文档](mac.md)。
 

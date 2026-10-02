@@ -2,6 +2,7 @@ import type { HistoryPage, HistoryTurn, InteractiveRequest, ModelSettings, Remot
 import { jsonBytes, MAX_CATALOG_BYTES, MAX_THREAD_BYTES, modelSettingsSchema } from "../../protocol/src/index.js";
 import { userPresentation } from "../../protocol/src/user-presentation.js";
 import type { ImageRegistry } from "./images.js";
+import { asyncInputRequests, asyncQuestionRequestId } from './async-input.js';
 
 export type RecordValue = Record<string, unknown>;
 export function record(value: unknown): RecordValue {
@@ -68,7 +69,8 @@ function normalizeItem(value: unknown, turn: RecordValue, textLimit = 4096, outp
   const item = record(value);
   const parts = array(item.content ?? item.input).map(record);
   const imageRefs = images?.references(threadId, item) ?? [];
-  const content = parts.map(part => text(part.text, textLimit)).filter(Boolean).join("\n");
+  // Decode internal reply envelopes before applying the visible text limit.
+  const content = parts.map(part => typeof part.text === 'string' ? part.text : '').filter(Boolean).join("\n");
   const summary = array(item.summary).filter((part): part is string => typeof part === "string").join("\n\n");
   const rawBody = item.type === "reasoning" ? summary : typeof item.text === "string" ? item.text : content;
   const presentation = ["userMessage", "steeringUserMessage"].includes(String(item.type)) ? userPresentation(rawBody) : { body: rawBody, files: [] };
@@ -82,11 +84,13 @@ function normalizeItem(value: unknown, turn: RecordValue, textLimit = 4096, outp
     ?? milliseconds(record(turn.commandExecutionStartedAtMsById)[String(item.id)]);
   const durationMs = milliseconds(item.durationMs);
   const completedAtMs = milliseconds(timing.completedAtMs) ?? milliseconds(item.completedAtMs);
+  const questionRequestId = asyncQuestionRequestId(item);
   return {
     id: text(item.id, 160) || "unknown",
     type: text(item.type, 100) || "unknown",
     ...(typeof item.status === "string" ? { status: text(item.status, 80) } : {}),
     ...(item.phase === "commentary" || item.phase === "final_answer" ? { phase: item.phase } : {}),
+    ...(questionRequestId ? { questionRequestId } : {}),
     ...(startedAtMs !== undefined ? { startedAtMs } : {}),
     ...(completedAtMs !== undefined ? { completedAtMs } : {}),
     ...(durationMs !== undefined ? { durationMs } : {}),
@@ -147,7 +151,7 @@ export function normalizeHistoryTurn(value: unknown, images?: ImageRegistry, thr
   };
 }
 export function normalizeRequests(state: RecordValue): InteractiveRequest[] {
-  return array(state.requests).filter(value => record(value).completed !== true).slice(0, 40).map(value => {
+  const requests: InteractiveRequest[] = array(state.requests).filter(value => record(value).completed !== true).slice(0, 40).map(value => {
     const request = record(value);
     const params = record(request.params);
     const method = String(request.method);
@@ -160,6 +164,7 @@ export function normalizeRequests(state: RecordValue): InteractiveRequest[] {
     if (detailsTruncated) details = {};
     return { id: String(request.id).slice(0, 160), kind, turnId: typeof params.turnId === "string" ? params.turnId : null, ...(typeof params.command === "string" ? { command: text(params.command, 16384) } : {}), ...(typeof params.reason === "string" ? { reason: text(params.reason, 8192) } : {}), details, detailsTruncated, respondable: !detailsTruncated && ["commandApproval", "fileApproval", "userInput"].includes(kind) };
   });
+  return [...requests, ...asyncInputRequests(desktopTurns(state))].slice(0, 40);
 }
 export function normalizeThread(state: RecordValue, revision: number, images?: ImageRegistry): RemoteThread {
   const settings = modelSettings(state);

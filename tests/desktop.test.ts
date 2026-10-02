@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DesktopAdapter } from "../packages/codex-adapter/src/desktop.js";
 import { record } from "../packages/codex-adapter/src/normalize.js";
 import { command, FakeDesktop, rawThread, waitFor } from "./helpers.js";
+import { parseQuestionReplies } from '../packages/protocol/src/user-presentation.js';
 
 describe("official desktop compatibility boundary", () => {
   let desktop: FakeDesktop, adapter: DesktopAdapter;
@@ -75,6 +76,28 @@ describe("official desktop compatibility boundary", () => {
     const request = desktop.received.find(value => value.method === "thread-follower-interrupt-turn")!;
     expect(request.version).toBe(4);
     expect(request.params).toEqual({ conversationId: "thread-test", mode: "user-stop", expectedTurnId: "turn-A" });
+  });
+  it('answers async message questions through the official steer protocol, then rejects duplicates and expired questions', async () => {
+    const turn = record(record(record(desktop.state.turnHistory).history).entitiesByKey)['turn-key'] as Record<string, unknown>;
+    turn.items = [{type: 'agentMessage', id: 'call-question', text: 'Question', delivery: 'async', questions: [{title: 'Pick an approach', options: ['A', 'B']}, {title: 'Any constraints?', options: null}]}];
+    desktop.publishSnapshot(); await waitFor(() => adapter.getThread('thread-test')?.requests.length === 1);
+    const payload = {type: 'input.respond' as const, threadId: 'thread-test', turnId: 'turn-A', requestId: 'async:call-question', answers: {'0': {answers: ['B']}, '1': {answers: ['Custom constraints']}}};
+    await expect(adapter.execute(command({...payload, turnId: 'other-turn'}))).rejects.toMatchObject({code: 'stale-request'});
+    await expect(adapter.execute(command({...payload, answers: {'0': {answers: ['B']}}}))).rejects.toMatchObject({code: 'invalid-answer-set'});
+    await expect(adapter.execute(command(payload))).resolves.toMatchObject({turnId: 'turn-A', acknowledgedByDesktop: true});
+    const sent = desktop.received.find(message => message.method === 'thread-follower-steer-turn')!;
+    expect(sent.version).toBe(1);
+    expect(sent.targetClientId).toBe(desktop.ownerId);
+    const input = record(sent.params).input as {type: string; text: string}[];
+    expect(parseQuestionReplies(input[0]!.text)).toMatchObject([{questionItemId: JSON.stringify(['request_user_input_async', 'call-question', 0]), answer: 'B'}, {questionItemId: JSON.stringify(['request_user_input_async', 'call-question', 1]), answer: 'Custom constraints'}]);
+    expect(record(record(record(sent.params).restoreMessage).context).turnTrigger).toBe('send_user_message_async_question');
+    expect(desktop.received.some(message => message.method === 'thread-follower-submit-user-input')).toBe(false);
+    (turn.items as unknown[]).push({type: 'steeringUserMessage', id: 'reply', status: 'accepted', input});
+    desktop.publishSnapshot(); await waitFor(() => adapter.getThread('thread-test')?.requests.length === 0);
+    await expect(adapter.execute(command(payload))).rejects.toMatchObject({code: 'stale-request'});
+    (turn.items as unknown[]).pop(); turn.status = 'completed';
+    desktop.publishSnapshot(); await waitFor(() => adapter.getThread('thread-test')?.requests.length === 0);
+    await expect(adapter.execute(command(payload))).rejects.toMatchObject({code: 'stale-request'});
   });
   it("treats a turn changing between observation and Stop delivery as stale", async () => {
     desktop.response = () => ({ ok: true, interruptedTurnId: null });

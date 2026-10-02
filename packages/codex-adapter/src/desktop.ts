@@ -16,6 +16,8 @@ import type { RecordValue } from "./normalize.js";
 import { modelOverride, supportsEffort } from "./models.js";
 import { ImageRegistry } from "./images.js";
 import type { UserInput } from "../../codex-generated/src/v2/UserInput.js";
+import { asyncQuestionAnswer } from './async-input.js';
+import { parseQuestionReplies } from '../../protocol/src/user-presentation.js';
 
 enablePatches();
 const versions: Record<string, number> = {
@@ -210,6 +212,14 @@ export class DesktopAdapter extends EventEmitter {
     if (Date.now() >= command.expiresAt) throw new AdapterError("command-expired");
     let method: string;
     let params: unknown;
+    if (payload.type === 'input.respond' && payload.requestId.startsWith('async:')) {
+      const request = normalized.requests.find(request => request.id === payload.requestId && request.turnId === payload.turnId && request.details.source === 'asyncMessage' && request.respondable);
+      if (!request) throw new AdapterError('stale-request');
+      if (normalized.activeTurnId !== payload.turnId) throw new AdapterError('stale-turn');
+      const text = asyncQuestionAnswer(request, payload.answers);
+      if (!text) throw new AdapterError('invalid-answer-set');
+      return this.execute({ ...command, payload: { type: 'turn.steer', threadId: payload.threadId, turnId: payload.turnId, text } });
+    }
     if (payload.type === "turn.start") {
       if (normalized.status !== "idle") throw new AdapterError("thread-not-idle");
       if ((payload.images?.length ?? 0) !== imageInputs.length) throw new AdapterError("images-not-ready");
@@ -226,9 +236,11 @@ export class DesktopAdapter extends EventEmitter {
       if (normalized.activeTurnId !== payload.turnId) throw new AdapterError("stale-turn");
       if ((payload.images?.length ?? 0) !== imageInputs.length) throw new AdapterError("images-not-ready");
       const input: UserInput[] = [...(payload.text.trim() ? [{ type: "text", text: payload.text, text_elements: [] } as UserInput] : []), ...imageInputs];
+      const replies = parseQuestionReplies(payload.text);
+      const prompt = replies ? replies.map(reply => reply.answer).join('\n\n') : payload.text;
       method = "thread-follower-steer-turn";
       params = { conversationId: payload.threadId, input, clientUserMessageId: command.commandId,
-        restoreMessage: { id: command.commandId, text: payload.text, context: { prompt: payload.text, messageThreadId: payload.threadId, turnTrigger: "user", addedFiles: [], fileAttachments: [], ideContext: null, imageAttachments: [], workspaceRoots: normalized.cwd ? [normalized.cwd] : [] }, cwd: normalized.cwd, createdAt: Date.now() },
+        restoreMessage: { id: command.commandId, text: prompt, context: { prompt, messageThreadId: payload.threadId, turnTrigger: replies ? 'send_user_message_async_question' : 'user', addedFiles: [], fileAttachments: [], ideContext: null, imageAttachments: [], workspaceRoots: normalized.cwd ? [normalized.cwd] : [] }, cwd: normalized.cwd, createdAt: Date.now() },
         attachments: [], serviceTier: null, additionalContext: null, toolOutput: null };
     } else if (payload.type === "thread.model.update" || payload.type === "thread.effort.update" || payload.type === "thread.mode.update") {
       if (normalized.status !== "idle") throw new AdapterError("thread-not-idle");

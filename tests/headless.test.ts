@@ -5,12 +5,29 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { HeadlessAdapter, matchesSettings, savedSettings } from "../packages/codex-adapter/src/headless.js";
 import { normalizeThread, record } from "../packages/codex-adapter/src/normalize.js";
 import { command } from "./helpers.js";
+import { parseQuestionReplies } from '../packages/protocol/src/user-presentation.js';
 
 const directories: string[] = [];
 const sessionMeta = (id: string) => JSON.stringify({ type: "session_meta", payload: { id } }) + "\n";
 afterEach(async () => { for (const path of directories.splice(0)) await rm(path, { recursive: true, force: true }); });
 
 describe("headless thread settings", () => {
+  it('steers structured replies for message questions instead of answering a nonexistent RPC', async () => {
+    const adapter = new HeadlessAdapter();
+    const request = vi.fn().mockResolvedValue({turnId: 'turn-A'}), respond = vi.fn();
+    Object.assign(adapter, {connected: true, rpc: {request, respond, stop: async () => {}}});
+    vi.spyOn(adapter, 'follow').mockResolvedValue(true);
+    adapter.watched.set('thread-test', normalizeThread({id: 'thread-test', threadRuntimeStatus: {type: 'active'}, turns: [{id: 'turn-A', status: 'inProgress', items: [{id: 'call-question', type: 'agentMessage', questions: [{title: 'Any requirements?', options: null}]}]}]}, 0));
+    const payload = {type: 'input.respond' as const, threadId: 'thread-test', turnId: 'turn-A', requestId: 'async:call-question', answers: {'0': {answers: ['Keep the current layout']}}};
+    try {
+      await expect(adapter.execute(command(payload))).resolves.toMatchObject({acknowledgedByAppServer: true, turnId: 'turn-A'});
+      expect(request).toHaveBeenCalledWith('turn/steer', expect.objectContaining({threadId: 'thread-test', expectedTurnId: 'turn-A'}), 30000);
+      expect(parseQuestionReplies(request.mock.calls[0]![1].input[0].text)).toMatchObject([{questionItemId: JSON.stringify(['request_user_input_async', 'call-question', 0]), answer: 'Keep the current layout'}]);
+      expect(respond).not.toHaveBeenCalled();
+      adapter.watched.get('thread-test')!.requests = [];
+      await expect(adapter.execute(command(payload))).rejects.toMatchObject({code: 'stale-request'});
+    } finally { await adapter.stop(); }
+  });
   it("responds to a pending async question after its originating turn and rejects stale/foreign requests", async () => {
     const adapter = new HeadlessAdapter();
     const request = {id: 42, method: "item/tool/requestUserInput", params: {threadId: "test-thread", turnId: "earlier-turn", isBlocking: false, questions: [{id: "answer", question: "Your constraints?", options: null}]}};
