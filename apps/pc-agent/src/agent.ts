@@ -68,7 +68,7 @@ export class PcAgent extends EventEmitter {
     this.journal = new CommandJournal(join(directory, "commands.sqlite"));
     this.usageJournal = new UsageJournal(join(directory, "usage.sqlite"));
     if (!["win32", "linux", "darwin"].includes(process.platform)) throw new Error("unsupported-platform");
-    this.state = { protocolVersion: PROTOCOL_VERSION, deviceId: credentials.deviceId, epoch: randomUUID(), lastSeq: 0, generatedAt: Date.now(), hostname: hostname(), platform: process.platform as DeviceSnapshot["platform"], runtime: { kind: "official-desktop-ipc", connected: false, experimental: true, capabilities: { observe: true, startTurn: true, interrupt: true, approvals: true, userInput: true, modelUpdate: true, effortUpdate: true, images: true } }, threads: {} };
+    this.state = { protocolVersion: PROTOCOL_VERSION, deviceId: credentials.deviceId, epoch: randomUUID(), lastSeq: 0, generatedAt: Date.now(), hostname: hostname(), platform: process.platform as DeviceSnapshot["platform"], runtime: { kind: "official-desktop-ipc", connected: false, experimental: true, capabilities: { observe: true, startTurn: true, interrupt: true, approvals: true, userInput: true, modelUpdate: true, effortUpdate: true, collaborationModeUpdate: true, images: true } }, threads: {} };
     const onThread = (source: DesktopAdapter | HeadlessAdapter, thread: RemoteThread | null) => {
       if (!thread) return;
       if (source !== this.adapterForThread(thread.id)) return;

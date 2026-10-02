@@ -11,6 +11,7 @@
 | [macOS](mac.md) | 安装、菜单栏、Keychain、程序查找、平台验收 |
 | [移动与 Web 客户端](mobile.md) | React Native 共用结构、App 构建、浏览器入口、平台适配 |
 | [控制功能](usage.md) | 设备/项目/会话、发送/队列/引导/停止、模型、审批、图片 |
+| [会话界面与交互](conversation.md) | 自动滚动、文件面板、扫光、交互提问、Plan Mode 和支持范围 |
 | [管理后台](admin.md) | 创建账号、密码重置、禁用、管理与控制会话隔离 |
 | [Relay](relay.md) | Fastify 服务职责、配置、存储、连接和错误处理 |
 | [运维与故障排查](operations.md) | HTTPS、备份、账号恢复、服务状态、常见问题 |

@@ -11,6 +11,23 @@ const sessionMeta = (id: string) => JSON.stringify({ type: "session_meta", paylo
 afterEach(async () => { for (const path of directories.splice(0)) await rm(path, { recursive: true, force: true }); });
 
 describe("headless thread settings", () => {
+  it("responds to a pending async question after its originating turn and rejects stale/foreign requests", async () => {
+    const adapter = new HeadlessAdapter();
+    const request = {id: 42, method: "item/tool/requestUserInput", params: {threadId: "test-thread", turnId: "earlier-turn", isBlocking: false, questions: [{id: "answer", question: "Your constraints?", options: null}]}};
+    const requests = new Map([["42", request]]);
+    const respond = vi.fn();
+    Object.assign(adapter, {connected: true, rpc: {respond, stop: async () => {}}, requests});
+    vi.spyOn(adapter, "follow").mockResolvedValue(true);
+    adapter.watched.set("test-thread", normalizeThread({id: "test-thread", threadRuntimeStatus: {type: "idle"}, turns: [], requests: [request]}, 0));
+    const payload = {type: "input.respond" as const, threadId: "test-thread", turnId: "earlier-turn", requestId: "42", answers: {answer: {answers: ["Custom constraints"]}}};
+    try {
+      await expect(adapter.execute(command({...payload, turnId: "foreign-turn"}))).rejects.toMatchObject({code: "stale-request"});
+      await expect(adapter.execute(command({...payload, answers: {other: {answers: ["A"]}}}))).rejects.toMatchObject({code: "invalid-answer-set"});
+      await expect(adapter.execute(command(payload))).resolves.toMatchObject({acknowledgedByAppServer: true});
+      expect(respond).toHaveBeenCalledExactlyOnceWith(42, {answers: {answer: {answers: ["Custom constraints"]}}});
+      await expect(adapter.execute(command(payload))).rejects.toMatchObject({code: "stale-request"});
+    } finally { await adapter.stop(); }
+  });
   it("uses the latest persisted turn context and rejects a broader resumed sandbox", async () => {
     const home = await mkdtemp(join(tmpdir(), "codex-remote-settings-"));
     directories.push(home);

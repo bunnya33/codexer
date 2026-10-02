@@ -72,15 +72,21 @@ Remote v1 的实时和历史 turn/item 增加可选字段，旧记录仍可读�
 
 运行中的轮次在一个时间块内按官方 item 顺序显示正文、插话、公开思考摘要和工具调用。结束后过程内容默认收起，用户插话与最终答复仍留在原来的事件位置；展开后可检查完整顺序。完成态耗时取官方整轮 `durationMs` 或完整起止时间，缺失时不估算。历史每轮保留最近 80 项，并优先保留用户消息，前方省略时标记 `itemsTruncatedBefore`。
 
-turn 的可选 `fileChanges` 是最多 40 项的 `{path,additions,deletions,diff,truncated}`。它从官方成功的 `fileChange` 记录提取，按路径汇总，单个差异最多 8192 字符。增删行数是记录补丁的累计值，不等于 Git 工作区最终净差异；命令写文件但运行时未产生 `fileChange` 时没有此列表。Web 默认列出前三个文件，可展开更多文件和逐文件差异。整体预算超限时先移除差异正文并标记 `truncated`。
+turn 的可选 `fileChanges` 是最多 40 项的 `{path,additions,deletions,diff,truncated}`。它从官方成功的 `fileChange` 记录提取，按路径汇总，单个差异最多 8192 字符。增删行数是记录补丁的累计值，不等于 Git 工作区最终净差异；命令写文件但运行时未产生 `fileChange` 时没有此列表。执行中统计固定在编辑框上方，结束后使用回复下方原来的面板；点击展开逐文件差异。整体预算超限时先移除差异正文并标记 `truncated`。
 
-实时 thread 和目录 thread 的可选 `settings` 为 `{model,modelProvider,reasoningEffort}`，字段均可为 `null`。它表示后续轮次的当前配置，不是逐轮的最终模型路由记录。目录值来自官方 `thread/list`；实时桌面设置来自 `latestThreadSettings`，独立运行时来自 `thread/read` 和 `thread/settings/updated`。实时值优先于目录缓存。
+实时 thread 和目录 thread 的可选 `settings` 为 `{model,modelProvider,reasoningEffort,collaborationMode?}`，字段可为 `null`，`collaborationMode` 为 `default`/`plan`。它表示后续轮次的当前配置，不是逐轮最终模型记录。目录值来自官方 `thread/list`；实时桌面设置来自 `latestThreadSettings`，独立运行时来自 `thread/read`、已核对的本机 turn context 和 `thread/settings/updated`。实时值优先于目录缓存。
 
 目录的可选 `models` 来自官方分页 `model/list`，每项是 `{model,displayName,supportedReasoningEfforts,defaultReasoningEffort}`，至多 200 项，不含隐藏模型。模型查询失败时省略该字段，项目和会话列表仍可用。自定义 API 提供方可能支持列表外名称，Web 可输入模型名；真实可用性由该提供方处理请求时决定。
 
 `snapshot.runtime.capabilities.modelUpdate:true` 表示 Agent 支持 `thread.model.update`。修改仅作用于后续轮次，通过桌面 owner 的 `thread-follower-update-thread-settings` v2 或独立 app-server 的 `thread/settings/update` 执行。会话必须已被实时观察、owner 可用且 `idle`；`expectedModel` 必须匹配当前设置。原提供方、权限、工作区和协作模式保留，协作模式内的模型同步更新。当前推理强度若不在新模型支持列表中，使用新模型默认强度。
 
 `runtime.capabilities.effortUpdate:true` 表示可提交 `thread.effort.update`。payload 为 `{type,threadId,effort,expectedModel,expectedEffort}`，其中 `expectedEffort` 可以为 `null`，目标档位必须存在于当前模型 `supportedReasoningEfforts` 中。模型或档位不再匹配时分别返回 `stale-model`、`stale-effort`；不支持的目标返回 `unsupported-effort`。桌面 owner 对模型和档位作条件更新；独立运行时恢复并核对原权限，更新协作模式内的 `reasoning_effort`。重置按钮使用当前模型 `defaultReasoningEffort`。
+
+### 模式与交互输入
+
+`runtime.capabilities.collaborationModeUpdate:true` 支持 `thread.mode.update`，payload 为 `{type,threadId,mode,expectedMode,expectedModel,expectedEffort}`。模式只允许 `default`/`plan`，预期模式/档位允许为 `null`；会话必须空闲。模式和档位的过期组合返回 `stale-settings`。切换使用官方内置模式指令，保留模型和权限。见 [会话交互与模式](conversation.md)。
+
+有效用户输入请求的 `details.questions` 保留问题 ID、标题、问题、选项描述、`isOther` 和 `isSecret`；答案是 `{answers:{问题ID:{answers:["回答"]}}}`。`isBlocking:false` 的请求只要仍有效，允许在原轮次结束后回答；普通阻塞提问与审批仍校验当前轮次。已完成请求不展示，已移除请求返回 `stale-request`。本机倒计时准确截止时间未通过 follower IPC 同步，控制端不模拟默认操作。
 
 ### 图片
 
@@ -166,6 +172,7 @@ Agent 在自身 SQLite `usage.sqlite` 中按 `threadId + turnId` 保存逐轮统
 | `turn.queue.remove` | `threadId,queueId` | 删除仍待发送或结果未确认的队列项 |
 | `thread.model.update` | `threadId,model,expectedModel` | 会话 `idle`、owner 可用，当前模型匹配 `expectedModel`；模型名称至多 200 字符，不含空白或控制字符 |
 | `thread.effort.update` | `threadId,effort,expectedModel,expectedEffort` | 会话 `idle`，当前模型和档位匹配，目标档位在支持列表中 |
+| `thread.mode.update` | `threadId,mode,expectedMode,expectedModel,expectedEffort` | 会话 `idle`，模型/档位/模式匹配；目标模式为 `default` 或 `plan` |
 | `turn.interrupt` | `threadId,turnId` | 当前活动 turn ID 完全匹配 |
 | `approval.respond` | `threadId,turnId,requestId,decision` | `decision` 为 `accept`、`decline` 或 `cancel` 且该请求允许 |
 | `input.respond` | `threadId,turnId,requestId,answers` | `answers` 覆盖当前每个问题 ID；值形如 `{answers:["选项"]}` |

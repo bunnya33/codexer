@@ -1,0 +1,9 @@
+/* Browser anchoring to a streaming footer can move a reader away from old text. */
+.codexer-conversation-viewport [data-testid="conversation-stream"] {
+  overflow-anchor: none;
+}
+.codexer-conversation-viewport textarea:focus,
+.codexer-conversation-viewport input:focus {
+  outline: none;
+  box-shadow: none;
+}

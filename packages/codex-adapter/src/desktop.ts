@@ -8,6 +8,7 @@ import { applyPatches, enablePatches } from "immer";
 import type { Patch } from "immer";
 import type { TurnStartParams } from "../../codex-generated/src/v2/TurnStartParams.js";
 import type { ToolRequestUserInputResponse } from "../../codex-generated/src/v2/ToolRequestUserInputResponse.js";
+import { collaborationOverride } from "./collaboration.js";
 import type { ModelOption, RemoteCommand, RemoteThread } from "../../protocol/src/index.js";
 import { FrameDecoder, encodeFrame } from "./framing.js";
 import { normalizeThread, record } from "./normalize.js";
@@ -229,23 +230,25 @@ export class DesktopAdapter extends EventEmitter {
       params = { conversationId: payload.threadId, input, clientUserMessageId: command.commandId,
         restoreMessage: { id: command.commandId, text: payload.text, context: { prompt: payload.text, messageThreadId: payload.threadId, turnTrigger: "user", addedFiles: [], fileAttachments: [], ideContext: null, imageAttachments: [], workspaceRoots: normalized.cwd ? [normalized.cwd] : [] }, cwd: normalized.cwd, createdAt: Date.now() },
         attachments: [], serviceTier: null, additionalContext: null, toolOutput: null };
-    } else if (payload.type === "thread.model.update" || payload.type === "thread.effort.update") {
+    } else if (payload.type === "thread.model.update" || payload.type === "thread.effort.update" || payload.type === "thread.mode.update") {
       if (normalized.status !== "idle") throw new AdapterError("thread-not-idle");
       if (normalized.settings?.model !== payload.expectedModel) throw new AdapterError("stale-model");
       if (payload.type === "thread.effort.update" && normalized.settings.reasoningEffort !== payload.expectedEffort) throw new AdapterError("stale-effort");
       if (payload.type === "thread.effort.update" && !supportsEffort(payload.expectedModel, payload.effort, this.models)) throw new AdapterError("unsupported-effort");
+      if (payload.type === "thread.mode.update" && ((normalized.settings.collaborationMode ?? null) !== payload.expectedMode || normalized.settings.reasoningEffort !== payload.expectedEffort)) throw new AdapterError("stale-settings");
       method = "thread-follower-update-thread-settings";
-      params = { conversationId: payload.threadId, threadSettings: payload.type === "thread.model.update" ? modelOverride(payload.model, normalized.settings.reasoningEffort, this.models) : { effort: payload.effort },
+      params = { conversationId: payload.threadId, threadSettings: payload.type === "thread.model.update" ? modelOverride(payload.model, normalized.settings.reasoningEffort, this.models) : payload.type === "thread.effort.update" ? { effort: payload.effort } : { collaborationMode: collaborationOverride(payload.mode, payload.expectedModel, payload.expectedEffort) },
         condition: { ifModelEquals: payload.expectedModel, ifEffortEquals: normalized.settings.reasoningEffort } };
     } else if (payload.type === "turn.interrupt") {
       if (normalized.activeTurnId !== payload.turnId) throw new AdapterError("stale-turn");
       method = "thread-follower-interrupt-turn";
       params = { conversationId: payload.threadId, mode: "user-stop", expectedTurnId: payload.turnId };
     } else if (payload.type === "approval.respond" || payload.type === "input.respond") {
-      if (normalized.activeTurnId !== payload.turnId) throw new AdapterError("stale-turn");
+      if (payload.type === "approval.respond" && normalized.activeTurnId !== payload.turnId) throw new AdapterError("stale-turn");
       const requests = Array.isArray(watched.raw.requests) ? watched.raw.requests.map(record) : [];
       const request = requests.find(item => String(item.id) === payload.requestId && record(item.params).turnId === payload.turnId);
       if (!request) throw new AdapterError("stale-request");
+      if (payload.type === "input.respond" && normalized.activeTurnId !== payload.turnId && record(request.params).isBlocking !== false) throw new AdapterError("stale-turn");
       if (!normalized.requests.find(item => item.id === payload.requestId)?.respondable) throw new AdapterError("unsupported-request-kind");
       if (payload.type === "approval.respond") {
         method = request.method === "item/commandExecution/requestApproval" ? "thread-follower-command-approval-decision" : request.method === "item/fileChange/requestApproval" ? "thread-follower-file-approval-decision" : "";
@@ -265,10 +268,10 @@ export class DesktopAdapter extends EventEmitter {
     } else throw new AdapterError("unsupported-command");
     const response = await this.request(method, params, watched.ownerId);
     if (response.handledByClientId !== watched.ownerId) throw new AdapterError("desktop-owner-mismatch", true);
-    if (payload.type === "thread.model.update" || payload.type === "thread.effort.update") {
+    if (payload.type === "thread.model.update" || payload.type === "thread.effort.update" || payload.type === "thread.mode.update") {
       if (response.result.applied === false) throw new AdapterError("stale-model");
       if (response.result.applied !== true) throw new AdapterError("incompatible-desktop-response", true);
-      return { ...(payload.type === "thread.model.update" ? { model: payload.model } : { effort: payload.effort }), acknowledgedByDesktop: true };
+      return { ...(payload.type === "thread.model.update" ? { model: payload.model } : payload.type === "thread.effort.update" ? { effort: payload.effort } : { mode: payload.mode }), acknowledgedByDesktop: true };
     }
     if (payload.type === "turn.steer") {
       const steered = record(response.result.result);

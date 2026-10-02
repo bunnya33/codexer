@@ -44,6 +44,7 @@ export const modelSettingsSchema = z.object({
   model: z.string().min(1).max(200).nullable(),
   modelProvider: z.string().max(200).nullable(),
   reasoningEffort: z.string().max(80).nullable(),
+  collaborationMode: z.enum(["default", "plan"]).nullable().optional(),
 });
 export type ModelSettings = z.infer<typeof modelSettingsSchema>;
 export const modelOptionSchema = z.object({
@@ -147,7 +148,7 @@ export const snapshotSchema = z.object({
     kind: z.enum(["official-desktop-ipc", "official-app-server"]),
     connected: z.boolean(),
     experimental: z.literal(true),
-    capabilities: z.object({ observe: z.boolean(), startTurn: z.boolean(), interrupt: z.boolean(), approvals: z.boolean(), userInput: z.boolean(), modelUpdate: z.boolean().optional(), effortUpdate: z.boolean().optional(), images: z.boolean().optional() }),
+    capabilities: z.object({ observe: z.boolean(), startTurn: z.boolean(), interrupt: z.boolean(), approvals: z.boolean(), userInput: z.boolean(), modelUpdate: z.boolean().optional(), effortUpdate: z.boolean().optional(), collaborationModeUpdate: z.boolean().optional(), images: z.boolean().optional() }),
   }),
   threads: z.record(idSchema, threadSchema).refine(threads => Object.keys(threads).length <= MAX_THREADS && Object.entries(threads).every(([id, thread]) => id === thread.id)),
 });
@@ -185,6 +186,7 @@ export const commandSchema = z.object({
     z.object({ type: z.literal("turn.steer"), threadId: idSchema, turnId: idSchema, text: z.string().max(32000), images: z.array(imageIdSchema).max(MAX_IMAGES).optional() }).refine(value => value.text.trim().length > 0 || Boolean(value.images?.length), "empty-input"),
     z.object({ type: z.literal("thread.model.update"), threadId: idSchema, model: z.string().trim().min(1).max(200).refine(value => !/[\s\x00-\x1f]/.test(value), "invalid-model"), expectedModel: z.string().min(1).max(200) }),
     z.object({ type: z.literal("thread.effort.update"), threadId: idSchema, effort: z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]), expectedModel: z.string().min(1).max(200), expectedEffort: z.string().max(80).nullable() }),
+    z.object({ type: z.literal("thread.mode.update"), threadId: idSchema, mode: z.enum(["default", "plan"]), expectedMode: z.enum(["default", "plan"]).nullable(), expectedModel: z.string().min(1).max(200), expectedEffort: z.string().max(80).nullable() }),
     z.object({ type: z.literal("turn.interrupt"), threadId: idSchema, turnId: idSchema }),
     z.object({ type: z.literal("approval.respond"), threadId: idSchema, turnId: idSchema, requestId: idSchema, decision: z.enum(["accept", "decline", "cancel"]) }),
     z.object({ type: z.literal("input.respond"), threadId: idSchema, turnId: idSchema, requestId: idSchema, answers: z.record(z.string().max(200), z.object({ answers: z.array(z.string().max(8192)).max(20) })).refine(answers => Object.keys(answers).length <= 20) }),

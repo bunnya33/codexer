@@ -9,11 +9,13 @@ export function record(value: unknown): RecordValue {
 }
 export function modelSettings(state: RecordValue): ModelSettings | undefined {
   const settings = record(state.latestThreadSettings);
-  const mode = record(record(settings.collaborationMode ?? state.latestCollaborationMode).settings);
+  const collaboration = record(settings.collaborationMode ?? state.latestCollaborationMode);
+  const mode = record(collaboration.settings);
   const parsed = modelSettingsSchema.safeParse({
     model: settings.model ?? state.latestModel ?? state.model ?? mode.model ?? null,
     modelProvider: settings.modelProvider ?? state.modelProvider ?? null,
     reasoningEffort: settings.effort ?? state.latestReasoningEffort ?? state.reasoningEffort ?? mode.reasoning_effort ?? null,
+    collaborationMode: collaboration.mode === "plan" || collaboration.mode === "default" ? collaboration.mode : null,
   });
   return parsed.success ? parsed.data : undefined;
 }
@@ -145,13 +147,13 @@ export function normalizeHistoryTurn(value: unknown, images?: ImageRegistry, thr
   };
 }
 export function normalizeRequests(state: RecordValue): InteractiveRequest[] {
-  return array(state.requests).slice(0, 40).map(value => {
+  return array(state.requests).filter(value => record(value).completed !== true).slice(0, 40).map(value => {
     const request = record(value);
     const params = record(request.params);
     const method = String(request.method);
     const kind: InteractiveRequest["kind"] = method === "item/commandExecution/requestApproval" ? "commandApproval" : method === "item/fileChange/requestApproval" ? "fileApproval" : method === "item/permissions/requestApproval" ? "permissionsApproval" : method === "item/tool/requestUserInput" ? "userInput" : method === "mcpServer/elicitation/request" ? "mcpElicitation" : "unsupported";
     let details: RecordValue = {};
-    for (const key of ["questions", "changes", "permissions", "availableDecisions", "networkApprovalContext", "requestedSchema", "message", "mode", "kind", "cwd", "commandActions", "additionalPermissions", "grantRoot", "approvalId", "environmentId"]) {
+    for (const key of ["questions", "isBlocking", "autoResolutionMs", "changes", "permissions", "availableDecisions", "networkApprovalContext", "requestedSchema", "message", "mode", "kind", "cwd", "commandActions", "additionalPermissions", "grantRoot", "approvalId", "environmentId"]) {
       if (params[key] !== undefined) details[key] = params[key];
     }
     const detailsTruncated = jsonBytes(details) > 16384 || typeof params.command === "string" && params.command.length > 16384 || typeof params.reason === "string" && params.reason.length > 8192;

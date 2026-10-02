@@ -7,7 +7,7 @@ import { command, rawThread } from "./helpers.js";
 describe("model options and protocol", () => {
   it("takes current official settings before the last persisted turn model", () => {
     const thread = normalizeThread({ ...rawThread(), latestModel: "old-model", latestThreadSettings: { model: "new-model", modelProvider: "provider", effort: "high" } }, 1);
-    expect(thread.settings).toEqual({ model: "new-model", modelProvider: "provider", reasoningEffort: "high" });
+    expect(thread.settings).toEqual({ model: "new-model", modelProvider: "provider", reasoningEffort: "high", collaborationMode: null });
   });
   it("filters hidden and malformed models and changes only an unsupported effort", () => {
     const model = { model: "new", displayName: "New", supportedReasoningEfforts: [{ reasoningEffort: "high" }], defaultReasoningEffort: "high" };

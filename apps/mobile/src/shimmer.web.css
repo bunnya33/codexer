@@ -1,0 +1,19 @@
+.codexer-shimmer {
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: #9aa1a3;
+  background: linear-gradient(100deg, #9aa1a3 35%, #56676d 50%, #9aa1a3 65%);
+  background-size: 250% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: codexer-thinking-sweep 2s linear infinite;
+}
+@keyframes codexer-thinking-sweep {
+  from { background-position: 150% 0; }
+  to { background-position: -100% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .codexer-shimmer { animation: none; background: none; -webkit-text-fill-color: #9aa1a3; }
+}

@@ -101,6 +101,38 @@ describe("official desktop compatibility boundary", () => {
     await expect(adapter.execute(command({ type: "approval.respond", threadId: "thread-test", turnId: "turn-A", requestId: "43", decision: "accept" }))).rejects.toMatchObject({ code: "decision-not-available" });
     expect(desktop.received.some(value => value.method === "thread-follower-command-approval-decision")).toBe(false);
   });
+  it("answers a still-pending nonblocking question from an earlier turn and refuses a resolved request", async () => {
+    desktop.state.requests = [{id: 44, method: "item/tool/requestUserInput", params: {turnId: "earlier-turn", isBlocking: false, questions: [{id: "choice", question: "Choose", options: [{label: "A", description: "First"}], isOther: true}]}}];
+    desktop.publishSnapshot(); await waitFor(() => adapter.getThread("thread-test")?.requests.length === 1);
+    const input = command({type: "input.respond", threadId: "thread-test", turnId: "earlier-turn", requestId: "44", answers: {choice: {answers: ["Custom answer"]}}});
+    await expect(adapter.execute(input)).resolves.toMatchObject({acknowledgedByDesktop: true});
+    expect(desktop.received.find(value => value.method === "thread-follower-submit-user-input")?.params).toEqual({conversationId: "thread-test", requestId: 44, response: {answers: {choice: {answers: ["Custom answer"]}}}});
+    desktop.state.requests = []; desktop.publishSnapshot(); await waitFor(() => adapter.getThread("thread-test")?.requests.length === 0);
+    await expect(adapter.execute(input)).rejects.toMatchObject({code: "stale-request"});
+  });
+  it("does not send completed or blocking questions from a prior turn", async () => {
+    desktop.state.requests = [{id: 45, method: "item/tool/requestUserInput", params: {turnId: "earlier-turn", isBlocking: true, questions: [{id: "choice"}]}}];
+    desktop.publishSnapshot(); await waitFor(() => adapter.getThread("thread-test")?.requests.length === 1);
+    const input = command({type: "input.respond", threadId: "thread-test", turnId: "earlier-turn", requestId: "45", answers: {choice: {answers: ["A"]}}});
+    await expect(adapter.execute(input)).rejects.toMatchObject({code: "stale-turn"});
+    desktop.state.requests = [{id: 45, completed: true, method: "item/tool/requestUserInput", params: {turnId: "earlier-turn", isBlocking: false, questions: [{id: "choice"}]}}];
+    desktop.publishSnapshot(); await waitFor(() => adapter.getThread("thread-test")?.requests.length === 0);
+    await expect(adapter.execute(input)).rejects.toMatchObject({code: "unsupported-request-kind"});
+    expect(desktop.received.some(value => value.method === "thread-follower-submit-user-input")).toBe(false);
+  });
+  it("switches the official collaboration mode and keeps the current model, effort and permissions", async () => {
+    desktop.state = {...rawThread("idle"), latestThreadSettings: {model: "model-a", effort: "high", collaborationMode: {mode: "default", settings: {model: "model-a", reasoning_effort: "high", developer_instructions: "default-only"}}, approvalPolicy: "on-request", sandboxPolicy: {type: "readOnly"}}};
+    desktop.response = () => ({applied: true}); desktop.publishSnapshot();
+    await waitFor(() => adapter.getThread("thread-test")?.settings?.collaborationMode === "default");
+    const payload = {type: "thread.mode.update" as const, threadId: "thread-test", mode: "plan" as const, expectedMode: "default" as const, expectedModel: "model-a", expectedEffort: "high"};
+    await expect(adapter.execute(command(payload))).resolves.toEqual({mode: "plan", acknowledgedByDesktop: true});
+    expect(desktop.received.find(value => value.method === "thread-follower-update-thread-settings")?.params).toEqual({conversationId: "thread-test", threadSettings: {collaborationMode: {mode: "plan", settings: {model: "model-a", reasoning_effort: "high", developer_instructions: null}}}, condition: {ifModelEquals: "model-a", ifEffortEquals: "high"}});
+    await expect(adapter.execute(command({...payload, expectedMode: "plan"}))).rejects.toMatchObject({code: "stale-settings"});
+    await expect(adapter.execute(command({...payload, expectedEffort: "low"}))).rejects.toMatchObject({code: "stale-settings"});
+    desktop.state.threadRuntimeStatus = {type: "active"}; desktop.publishSnapshot();
+    await waitFor(() => adapter.getThread("thread-test")?.status === "active");
+    await expect(adapter.execute(command(payload))).rejects.toMatchObject({code: "thread-not-idle"});
+  });
   it("applies ordered Immer patches and refetches a snapshot after a gap", async () => {
     desktop.publishPatches([{ op: "replace", path: ["title"], value: "Updated" }]);
     await waitFor(() => adapter.getThread("thread-test")?.title === "Updated");

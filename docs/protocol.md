@@ -18,7 +18,7 @@ All authenticated endpoints use the session returned by account login. Health an
 | POST | `/v1/devices/:deviceId/commands` | Submit a validated remote command |
 | GET | `/v1/devices/:deviceId/commands/:commandId` | Query a durable result |
 
-All endpoints use account login. POST /v1/auth/login accepts username/password; POST /v1/agents/login also registers the PC installation under that account and returns its scoped session. Sessions expire after 7 days; password reset and account disable revoke client and PC sessions. Admin privileges only apply to account management. See api.md for the current route table.
+All endpoints use account login. POST /v1/auth/login accepts username/password; POST /v1/agents/login also registers the PC installation under that account and returns its scoped session. Client sessions follow the configurable idle timeout; PC sessions expire after 7 days. Password reset and account disable revoke client and PC sessions. Admin privileges only apply to account management. See api.md for the current route table.
 
 ## Device WebSocket
 
@@ -84,8 +84,11 @@ Use a real expiry within the next 5 minutes. Other payloads:
 - `turn.queue.remove`: `threadId`, `queueId`; removes a queued or unconfirmed message.
 - `thread.model.update`: `threadId`, `model`, `expectedModel`; requires an observed idle chat and a matching current model. Capability is advertised as `runtime.capabilities.modelUpdate`.
 - `thread.effort.update`: `threadId`, `effort`, `expectedModel`, `expectedEffort`; requires supported effort and matching idle-chat settings. Capability is `runtime.capabilities.effortUpdate`.
+- `thread.mode.update`: `threadId`, `mode` (`default`/`plan`), `expectedMode` (nullable), `expectedModel`, `expectedEffort`; idle chat only. Capability is `runtime.capabilities.collaborationModeUpdate`; thread settings expose optional nullable `collaborationMode`.
 - `approval.respond`: `threadId`, `turnId`, `requestId`, `decision` (`accept`, `decline`, `cancel`).
 - `input.respond`: `threadId`, `turnId`, `requestId`, `answers` mapping every current question ID to `{answers:["value"]}`.
+
+User-input requests preserve `questions`, `isBlocking` and deprecated `autoResolutionMs` in bounded details. A still-pending nonblocking request (`isBlocking:false`) may be answered after its originating turn; blocking input and approvals require the current turn. Request ID, originating turn and exact question IDs must match. Completed/removed requests are not answerable. This IPC does not provide the desktop auto-resolution deadline; clients must not derive a countdown from the deprecated duration. See [conversation interaction](conversation.md).
 
 Send with REST or `{type:"client.command",command}` over an authenticated client socket. Initial response is `command.accepted`; terminal response is `command.result`. The latter has status `succeeded`, `failed`, or `unknown`, and a bounded diagnostic code. Results are broadcast to clients subscribed to that device.
 
@@ -101,4 +104,4 @@ Optional turn `fileChanges` summarizes successful recorded file edits and bounde
 
 Model settings/options and per-turn usage are optional additive v1 fields. Thread `settings` contains the configured model, provider and reasoning effort; the catalog optionally includes `models`. Turn `tokenUsage` contains normalized input/output/cache counters and `state:running|complete|partial`, recorded by the Agent before event coalescing and persisted in its own SQLite store. Missing historical records are omitted. The legacy thread-level raw `tokenUsage.last` is a single model call, never a whole-turn counter. See [api.md](api.md) for schemas and coverage rules.
 
-TLS is required outside loopback. The Relay currently has one trusted owner; no per-device user ACLs or client account sessions exist. Browser origins are explicitly allowlisted. Payloads are cached in the Relay database without end-to-end encryption. HTTP requests and client messages are rate limited; snapshots/messages and outgoing socket buffers are bounded. Logs contain metadata, not payloads. Run a single Relay instance until distributed routing/ownership is implemented.
+Remote HTTP requires explicit opt-in; production deployments should use TLS. Devices, commands and client sessions are scoped to their owning account. Browser origins are explicitly allowlisted. Payloads are cached in the Relay database without end-to-end encryption. HTTP requests and client messages are rate limited; snapshots/messages and outgoing socket buffers are bounded. Logs contain metadata, not payloads. Run a single Relay instance until distributed routing/ownership is implemented.

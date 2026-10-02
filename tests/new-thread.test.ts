@@ -27,6 +27,7 @@ function newThreadRpc(cwd: string) {
     }
     if (method === "turn/start") { materialized = true; return { turn: { id: "first-turn" } }; }
     if (method === "thread/name/set") { thread.name = String(params.name); return {}; }
+    if (method === "thread/settings/update") return {};
     if (method === "thread/delete") return {};
     throw new Error(`Unexpected app-server request: ${method}`);
   });
@@ -49,6 +50,27 @@ it("reads empty history and sends the first turn through the app-server that cre
     expect(fake.rpc.request.mock.calls.find(([method]) => method === "turn/start")?.[1]).toEqual({ threadId: "new-thread", input: [{ type: "text", text: "Hello", text_elements: [] }], clientUserMessageId: expect.any(String), effort: "high" });
     expect(fake.rpc.request.mock.calls.some(([method]) => method === "thread/resume")).toBe(false);
     expect(await adapter.history("new-thread", null)).toMatchObject({ turns: [{ id: "first-turn" }] });
+  } finally { await adapter.stop(); }
+});
+
+it("selects Plan Mode before the first message, keeps it for the turn, and returns to default mode", async () => {
+  const adapter = new HeadlessAdapter();
+  const fake = newThreadRpc(process.cwd());
+  Object.assign(adapter, {connected: true, rpc: fake.rpc});
+  try {
+    await adapter.manage({type: "thread.create", projectId: "project-test"}, [process.cwd()]);
+    const payload = {type: "thread.mode.update" as const, threadId: "new-thread", mode: "plan" as const, expectedMode: null, expectedModel: "test-model", expectedEffort: "high"};
+    await expect(adapter.execute(command(payload))).resolves.toMatchObject({mode: "plan", acknowledgedByAppServer: true});
+    expect(adapter.getThread("new-thread")?.settings?.collaborationMode).toBe("plan");
+    const mode = {mode: "plan", settings: {model: "test-model", reasoning_effort: "high", developer_instructions: null}};
+    expect(fake.rpc.request.mock.calls.find(([method]) => method === "thread/settings/update")?.[1]).toEqual({threadId: "new-thread", collaborationMode: mode});
+    await expect(adapter.execute(command({...payload, expectedMode: "default"}))).rejects.toMatchObject({code: "stale-settings"});
+    await adapter.execute(command({...payload, mode: "default", expectedMode: "plan"}));
+    expect(adapter.getThread("new-thread")?.settings?.collaborationMode).toBe("default");
+    await adapter.execute(command({...payload, expectedMode: "default"}));
+    await adapter.execute(command({type: "turn.start", threadId: "new-thread", text: "Discuss the plan"}));
+    expect(fake.rpc.request.mock.calls.find(([method]) => method === "turn/start")?.[1]).toMatchObject({collaborationMode: mode, effort: "high"});
+    expect(fake.rpc.request.mock.calls.some(([method]) => method === "thread/resume")).toBe(false);
   } finally { await adapter.stop(); }
 });
 
