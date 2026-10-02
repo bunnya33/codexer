@@ -18,6 +18,7 @@ export type RelayView = {
 };
 
 const emptyView = (): RelayView => ({ phase: 'locked', url: '', role: null, devices: [], catalogs: {}, snapshots: {}, histories: {}, syncing: {}, notice: '' });
+class ApiError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 export const historyKey = (deviceId: string, threadId: string) => `${deviceId}:${threadId}`;
 
 export function normalizeRelayUrl(value: string): string {
@@ -34,6 +35,8 @@ export class RelayClient {
   private generation = 0;
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   private refreshTimer?: ReturnType<typeof setInterval>;
+  private foreground = true;
+  private initializingGeneration?: number;
   private historyLoading = new Set<string>();
   private catalogLoading = new Set<string>();
   private watched = new Map<string, number>();
@@ -54,9 +57,13 @@ export class RelayClient {
       if (!saved) return false;
       const value = JSON.parse(saved) as { url?: string; session?: string };
       if (!value.url || !value.session) { await clearSavedCredentials(); return false; }
+      normalizeRelayUrl(value.url);
       await this.resume(value.url, value.session, false);
-      return true;
-    } catch { await clearSavedCredentials().catch(() => undefined); return false; }
+      return this.view.phase !== 'locked';
+    } catch (error) {
+      if (!(error instanceof ApiError)) await clearSavedCredentials().catch(() => undefined);
+      return false;
+    }
   }
 
   async connect(rawUrl: string, username: string, password: string, remember = true): Promise<void> {
@@ -78,24 +85,59 @@ export class RelayClient {
     this.token = session;
     this.set({ ...emptyView(), phase: 'connecting', url });
     const generation = this.generation;
+    await this.initializeSession(generation, remember);
+  }
+
+  private async initializeSession(generation: number, remember: boolean): Promise<void> {
+    if (generation !== this.generation || this.initializingGeneration === generation) return;
+    this.initializingGeneration = generation;
     try {
       const me = await this.api<{ role: 'admin' | 'user' }>('/v1/me');
       if (generation !== this.generation) return;
       this.set({ role: me.role });
       if (remember) {
-        try { await saveCredentials(JSON.stringify({ url, session: this.token })); }
+        try { await saveCredentials(JSON.stringify({ url: this.view.url, session: this.token })); }
         catch { this.notice('登录已完成，但当前环境无法保存登录状态'); }
       }
+      if (generation !== this.generation) return;
+      if (this.foreground) await this.touchLogin();
       if (generation !== this.generation) return;
       await this.refreshDevices();
       if (generation !== this.generation) return;
       await this.openSocket(generation);
       if (generation !== this.generation) return;
-      this.refreshTimer = setInterval(() => { void this.refreshDevices().catch(error => { if (generation === this.generation) this.notice(String(error)); }); }, 30000);
+      if (this.refreshTimer) clearInterval(this.refreshTimer);
+      this.refreshTimer = setInterval(() => {
+        if (!this.foreground) return;
+        void this.touchLogin().then(() => this.refreshDevices()).catch(() => undefined);
+      }, 30000);
     } catch (error) {
-      if (generation === this.generation) { this.disconnect(true); this.notice(error instanceof Error ? error.message : '连接失败'); }
-      throw error;
-    }
+      if (generation !== this.generation) return;
+      if (this.view.phase === 'locked') throw error;
+      this.set({phase: 'reconnecting', notice: '网络暂不可用，正在恢复连接'});
+      if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = setTimeout(() => { void this.initializeSession(generation, remember).catch(() => undefined); }, 3000);
+    } finally { if (this.initializingGeneration === generation) this.initializingGeneration = undefined; }
+  }
+
+  private async touchLogin(): Promise<void> {
+    try { await this.api('/v1/auth/active', undefined, 'POST', true); }
+    catch (error) { if (!(error instanceof ApiError && error.status === 404)) throw error; }
+  }
+
+  setForeground(active: boolean): void {
+    const previous = this.foreground;
+    this.foreground = active;
+    if (!this.token || this.view.phase === 'locked' || previous === active) return;
+    if (!active) { void this.touchLogin().catch(() => undefined); return; }
+    // A suspended browser can retain a socket that looks open but no longer receives data.
+    const oldSocket = this.socket;
+    this.socket = null;
+    oldSocket?.close();
+    this.subscribed.clear(); this.resyncing.clear();
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.set({phase: 'reconnecting'});
+    void this.initializeSession(this.generation, false).catch(() => undefined);
   }
 
   async logout(): Promise<void> {
@@ -116,7 +158,7 @@ export class RelayClient {
     this.set(emptyView());
   }
 
-  private async api<T>(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<T> {
+  private async api<T>(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST', keepalive = false): Promise<T> {
     const generation = this.generation;
     if (!this.view.url || !this.token) throw new Error('连接已断开');
     const controller = new AbortController();
@@ -124,12 +166,12 @@ export class RelayClient {
     try {
       const response = await fetch(`${this.view.url}${path}`, {
         method, headers: { authorization: `Bearer ${this.token}`, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: controller.signal,
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: controller.signal, ...(keepalive ? {keepalive: true} : {}),
       });
       if (!response.ok) {
         const result = await response.json().catch(() => ({})) as { error?: string };
         if (response.status === 401 && generation === this.generation) { this.disconnect(true); this.notice('登录已过期，请重新登录'); }
-        throw new Error(result.error ?? `HTTP ${response.status}`);
+        throw new ApiError(response.status, result.error ?? `HTTP ${response.status}`);
       }
       return response.json() as Promise<T>;
     } finally { clearTimeout(timer); }

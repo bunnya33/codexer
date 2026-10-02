@@ -1,5 +1,18 @@
-import { expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { clearWebCredentials, randomId, readWebCredentials, saveWebCredentials } from "../packages/client-shared/src/browser.js";
+afterEach(() => vi.unstubAllGlobals());
+
+it('persists browser logins across tab replacement, migrates temporary sessions and clears both stores on logout', () => {
+  const persistent = new Map<string,string>(), temporary = new Map<string,string>();
+  const store = (values: Map<string,string>) => ({getItem: (key: string) => values.get(key) ?? null, setItem: (key: string,value: string) => values.set(key,value), removeItem: (key: string) => values.delete(key)});
+  vi.stubGlobal('localStorage', store(persistent));vi.stubGlobal('sessionStorage', store(temporary));
+  temporary.set('codexer.web.relay.v1control','saved-session');
+  expect(readWebCredentials()).toBe('saved-session');expect(temporary.size).toBe(0);
+  temporary.clear();expect(readWebCredentials()).toBe('saved-session');
+  saveWebCredentials('another-session');expect(persistent.get('codexer.web.relay.v1control')).toBe('another-session');
+  temporary.set('codexer.web.relay.v1control','old-session');clearWebCredentials();
+  expect(persistent.size).toBe(0);expect(temporary.size).toBe(0);
+});
 
 it("keeps administrator and control logins separate across navigation and logout", () => {
   const values = new Map<string, string>();

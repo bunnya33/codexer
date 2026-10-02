@@ -19,7 +19,7 @@ npm run mobile:start
 
 Web 开发服务默认 5173，读取 `.local/services.json` 中本机 Relay 地址；`EXPO_PUBLIC_RELAY_URL` 可覆盖，`CODEXER_WEB_PORT` 可调整 Web 开发端口。手机访问开发 Relay 必须使用手机可达的局域网地址，不能填手机自身的 127.0.0.1。开发的跨域浏览器来源加入 `RELAY_ALLOWED_ORIGINS`。
 
-共享代码包括 `App.tsx`、目录、会话显示、RelayClient、协议和活动历史合并。平台文件处理差异：Web Markdown/clipboard/paste/drop/sessionStorage，原生 Markdown/图片/手势/SecureStore。业务控制流程共用，不维护独立旧 Web 控制页。
+共享代码包括 `App.tsx`、目录、会话显示、RelayClient、协议和活动历史合并。平台文件处理差异：Web Markdown/clipboard/paste/drop/localStorage，原生 Markdown/图片/手势/SecureStore。业务控制流程共用，不维护独立旧 Web 控制页。
 
 ## 构建
 
@@ -35,4 +35,4 @@ Android 内测 APK：在 `apps/mobile` 执行 `npx eas-cli build --platform andr
 
 ## 网络和平台范围
 
-当前 App 配置允许用户指定 HTTP 地址以兼容内网部署；公网使用 HTTPS。Web 登录会话使用标签页 sessionStorage，原生使用 SecureStore。图片上传/查看、历史分页、队列/引导/停止、模型修改、审批、账号改密失效均需按 [验证范围](validation.md) 做真实 iOS/Android 设备验收。Windows 开发机上的 JS 导出不代替手势、系统后台和安装包测试。
+当前 App 配置允许用户指定 HTTP 地址以兼容内网部署；公网使用 HTTPS。Web 登录会话使用站点 localStorage（自动迁移旧 sessionStorage），原生使用 SecureStore。前台续期、离开前台停止周期续期，回到前台重新检查登录并重连。有效时长由管理员在后台设置，网络错误保留登录并重试。图片上传/查看、历史分页、队列/引导/停止、模型修改、审批、账号改密失效及系统后台/前台切换均需按 [验证范围](validation.md) 做真实 iOS/Android 设备验收。Windows 开发机上的 JS 导出不代替手势、系统后台和安装包测试。

@@ -32,7 +32,7 @@ PC 连接器由主进程、隔离的 React 窗口、受限 preload、utilityProc
 2. PC 连接器：Electron 内置 Node，Agent 和依赖打进包；Windows 安装/便携，macOS DMG/ZIP。
 3. 统一服务器：Relay 加两套独立前端静态产物，一个进程/端口。`/` 是控制端，`/admin/` 是 React 后台，`/v1/*` 是 API。
 
-Admin 使用 React 而非 React Native：它面向浏览器管理员，与跨平台控制端职责不同。两者独立构建、独立 sessionStorage key；这不产生第二套控制逻辑。
+Admin 使用 React 而非 React Native：它面向浏览器管理员，与跨平台控制端职责不同。两者独立构建、独立 localStorage key；这不产生第二套控制逻辑。
 
 ## 代码地图
 

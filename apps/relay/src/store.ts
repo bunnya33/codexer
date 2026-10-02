@@ -1,6 +1,8 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { hashPassword, verifyPassword } from "../../../packages/shared/src/accounts.js";
 import { jsonForStorage } from "../../../packages/shared/src/json.js";
+import { authSettingsSchema, DEFAULT_IDLE_TIMEOUT_MINUTES } from "../../../packages/shared/src/session-policy.js";
+import type { AuthSettings } from "../../../packages/shared/src/session-policy.js";
 import { mkdir } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
 import { Pool } from "pg";
@@ -52,8 +54,13 @@ export class RelayStore {
       "CREATE UNIQUE INDEX IF NOT EXISTS account_login ON users(lower(name)) WHERE password_hash IS NOT NULL",
       "CREATE UNIQUE INDEX IF NOT EXISTS account_installation ON devices(owner_user_id,installation_id) WHERE installation_id IS NOT NULL",
       "CREATE TABLE IF NOT EXISTS sessions (hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), device_id TEXT REFERENCES devices(id), expires_at BIGINT NOT NULL)",
+      "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_active_at BIGINT",
+      "UPDATE sessions SET last_active_at=GREATEST(0,expires_at-604800000) WHERE last_active_at IS NULL",
+      "ALTER TABLE sessions ALTER COLUMN last_active_at SET NOT NULL",
+      "CREATE TABLE IF NOT EXISTS auth_settings (id INTEGER PRIMARY KEY CHECK(id=1), idle_timeout_minutes INTEGER NOT NULL)",
       "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS session_hash TEXT",
     ]) await this.sql.query(sql);
+    await this.sql.query("INSERT INTO auth_settings(id,idle_timeout_minutes) VALUES(1,$1) ON CONFLICT(id) DO NOTHING", [DEFAULT_IDLE_TIMEOUT_MINUTES]);
     await this.sql.query("UPDATE commands SET status='unknown', result=jsonb_build_object('commandId',id,'deviceId',device_id,'status','unknown','code','relay-restarted') WHERE status='pending'");
   }
   async createUser(name: string, password: string, role: "admin" | "user" = "user"): Promise<{ id: string; name: string; role: string }> {
@@ -78,9 +85,30 @@ export class RelayStore {
     return (await this.sql.query("SELECT id FROM users WHERE id=$1 AND revoked_at IS NULL AND password_hash IS NOT NULL", [id])).rows.length === 1;
   }
   async createSession(userId: string, deviceId: string | null = null): Promise<{ session: string; expiresAt: number }> {
-    const session = randomBytes(32).toString("base64url"), expiresAt = Date.now() + 7 * 86400000;
-    await this.sql.query("INSERT INTO sessions(hash,user_id,device_id,expires_at) SELECT $1,id,$3,$4 FROM users WHERE id=$2 AND revoked_at IS NULL AND password_hash IS NOT NULL", [hash(session), userId, deviceId, expiresAt]);
+    const now = Date.now(), timeout = deviceId === null ? (await this.authSettings()).idleTimeoutMinutes * 60000 : 7 * 86400000;
+    const session = randomBytes(32).toString("base64url"), expiresAt = now + timeout;
+    await this.sql.query("INSERT INTO sessions(hash,user_id,device_id,expires_at,last_active_at) SELECT $1,id,$3,$4,$5 FROM users WHERE id=$2 AND revoked_at IS NULL AND password_hash IS NOT NULL", [hash(session), userId, deviceId, expiresAt, now]);
     return { session, expiresAt };
+  }
+  async authSettings(): Promise<AuthSettings> {
+    const row = (await this.sql.query("SELECT idle_timeout_minutes FROM auth_settings WHERE id=1")).rows[0]!;
+    return {idleTimeoutMinutes: Number(row.idle_timeout_minutes)};
+  }
+  async setAuthSettings(value: AuthSettings): Promise<AuthSettings> {
+    const settings = authSettingsSchema.parse(value), now = Date.now();
+    await this.transaction(async sql => {
+      // Extending the policy must never revive an already expired login.
+      await sql.query("DELETE FROM sessions WHERE device_id IS NULL AND expires_at<=$1", [now]);
+      await sql.query("UPDATE auth_settings SET idle_timeout_minutes=$1 WHERE id=1", [settings.idleTimeoutMinutes]);
+      await sql.query("UPDATE sessions SET expires_at=last_active_at+$1 WHERE device_id IS NULL", [settings.idleTimeoutMinutes * 60000]);
+      await sql.query("DELETE FROM tickets WHERE session_hash IS NOT NULL AND NOT EXISTS(SELECT 1 FROM sessions WHERE hash=tickets.session_hash)");
+    });
+    return settings;
+  }
+  async touchSession(sessionHash: string): Promise<{expiresAt: number; idleTimeoutMinutes: number} | null> {
+    const now = Date.now();
+    const row = (await this.sql.query("UPDATE sessions SET last_active_at=$2,expires_at=$2+(SELECT idle_timeout_minutes::bigint*60000 FROM auth_settings WHERE id=1) WHERE hash=$1 AND device_id IS NULL AND expires_at>$2 AND EXISTS(SELECT 1 FROM users WHERE id=sessions.user_id AND revoked_at IS NULL AND password_hash IS NOT NULL) RETURNING expires_at,(SELECT idle_timeout_minutes FROM auth_settings WHERE id=1) AS timeout", [sessionHash, now])).rows[0];
+    return row ? {expiresAt: Number(row.expires_at), idleTimeoutMinutes: Number(row.timeout)} : null;
   }
   async sessionPrincipal(session: string, deviceId: string | null = null): Promise<Principal | null> {
     return this.sessionForHash(hash(session), deviceId);

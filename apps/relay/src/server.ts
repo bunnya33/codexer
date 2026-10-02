@@ -12,6 +12,7 @@ import type { HistoryPage, ImagePayload, RemoteCommand } from "../../../packages
 import { decodeImage } from "../../../packages/shared/src/images.js";
 import { SerialQueue } from "../../../packages/shared/src/queue.js";
 import { jsonForStorage } from "../../../packages/shared/src/json.js";
+import { authSettingsSchema } from "../../../packages/shared/src/session-policy.js";
 import { hash, RelayStore } from "./store.js";
 import type { Principal } from "./store.js";
 
@@ -168,6 +169,16 @@ export async function createRelay(options: { store: RelayStore; allowedOrigins?:
   app.get("/v1/me", { preHandler: member }, async request => {
     const principal = principals.get(request)!;
     return { role: principal.kind, userId: principal.id };
+  });
+  app.post("/v1/auth/active", { preHandler: member }, async request => queue.run(async () => {
+    const result = await store.touchSession(principals.get(request)!.sessionHash!);
+    if (!result) throw new HttpError(401, "unauthorized");
+    return result;
+  }));
+  app.get("/v1/admin/auth-settings", { preHandler: admin }, async () => store.authSettings());
+  app.put("/v1/admin/auth-settings", { preHandler: admin }, async request => {
+    const settings = authSettingsSchema.parse(request.body);
+    return queue.run(() => store.setAuthSettings(settings));
   });
   app.post("/v1/users", { preHandler: admin }, async request => {
     const { username, password } = loginSchema.extend({ password: z.string().min(12).max(128) }).parse(request.body);

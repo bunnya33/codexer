@@ -6,7 +6,7 @@ Base URL 是 Relay 的 HTTP 或 HTTPS 地址；本机开发默认为 `http://127
 
 Web、App 和 PC Agent 均通过账号密码登录。除健康与登录接口外，接口使用登录后程序自动保存的 `Authorization: Bearer <session>` 会话凭据，用户无需复制令牌。每个账号只能访问同账号登录的 PC；管理员的账号管理页只管理账号，管理员身份不能跨账号访问 PC。跨账号设备请求返回 404。
 
-密码使用加盐 scrypt 哈希。会话有效期 7 天，改密和禁用账号会撤销该账号所有会话；退出撤销当前会话。客户端和 Agent 会话相互隔离，Agent 会话只允许访问其 PC。WebSocket 使用绑定当前会话的 60 秒一次性 ticket，连接后 5 秒内发送 client.authenticate。PC WebSocket 使用 Agent 登录会话和 X-Device-Id。登录接口有 IP 与账号尝试限速，公网必须使用 HTTPS/WSS。
+密码使用加盐 scrypt 哈希。控制端/后台登录按前台续期计算空闲超时，管理员可设为 1–43200 分钟，默认 10080 分钟（7 天）；Agent 仍为 7 天固定有效期。改密和禁用账号会撤销该账号所有会话；退出撤销当前会话。客户端和 Agent 会话相互隔离，Agent 会话只允许访问其 PC。WebSocket 使用绑定当前会话的 60 秒一次性 ticket，连接后 5 秒内发送 client.authenticate。PC WebSocket 使用 Agent 登录会话和 X-Device-Id。登录接口有 IP 与账号尝试限速，公网必须使用 HTTPS/WSS。
 
 HTTP 错误体是 `{ "error": "code" }`。常见状态：`400 invalid-request`、`401 unauthorized`、`403 origin-denied`、`404 device-not-found|snapshot-not-found|command-not-found`、`409 device-offline|stale-device-epoch|command-id-reused`、`429 rate-limited`。WebSocket 协议错误会返回 `{ "type":"error", "code":"..." }` 或关闭连接。调用方不能把命令接受当作 Codex 回答完成。
 
@@ -18,7 +18,10 @@ HTTP 错误体是 `{ "error": "code" }`。常见状态：`400 invalid-request`�
 | POST | `/v1/auth/login` | `{username,password}` | `{session,expiresAt,role,userId,username}` |
 | POST | `/v1/agents/login` | `{username,password,installationId,name,platform}` | `{session,expiresAt,deviceId,userId}`；自动归属登录账号 |
 | POST | `/v1/auth/logout` | 当前客户端会话 | `{loggedOut:true}` |
+| POST | `/v1/auth/active` | 当前控制端/后台会话，前台时每 30 秒及离开时调用 | `{expiresAt,idleTimeoutMinutes}`；已过期不续期，Agent 会话不可使用 |
 | GET | `/v1/me` | 客户端会话 | `{role,userId}` |
+| GET | `/v1/admin/auth-settings` | 管理员 | `{idleTimeoutMinutes}` |
+| PUT | `/v1/admin/auth-settings` | 管理员，`{idleTimeoutMinutes}`，1–43200 整数 | 保存并返回设置；按最后前台时间更新现有控制端/后台登录，已过期的不恢复 |
 | POST | `/v1/users` | `{username,password}`，管理员 | `{id,name,role}` |
 | GET | `/v1/users` | 管理员 | `{users:[{id,name,role,created_at,revoked_at,login_enabled}]}` |
 | PUT | `/v1/users/:userId/password` | `{password}`，管理员 | `{reset:true}`；旧会话失效 |
@@ -34,6 +37,8 @@ HTTP 错误体是 `{ "error": "code" }`。常见状态：`400 invalid-request`�
 | GET | `/v1/devices/:deviceId/commands/:commandId` | 无 | `{status,result}` |
 
 账号名称忽略大小写且唯一；密码为 12–128 字符。installationId 为 PC 本地 UUID，同一账号下重新登录保持 deviceId，并撤销该安装的旧会话。配对、令牌重置、设备分配接口已移除。旧用户和内容保留，旧账号需要管理员设置密码后重新登录；无账号归属的历史设备不开放给任何客户端。
+
+登录响应的 `expiresAt` 为当次到期时间；调用 `/v1/auth/active` 后更新。其他 REST 请求、设备数据、WebSocket ping/pong 和票据申请只检查有效性，不续期。设置持久化于 Relay 数据库；旧会话升级时从原有到期时间减去 7 天推算最后活动时间，随后由前台续期更新。缩短超时后，已到期的连接由后续请求/心跳检查关闭。
 
 ## 项目目录和历史
 
@@ -169,6 +174,6 @@ Agent 在自身 SQLite `usage.sqlite` 中按 `threadId + turnId` 保存逐轮统
 
 ## 静态页面
 
-Relay 启动时若 `RELAY_WEB_DIR` 存在，在根路径提供 Web UI。Web/App 用账号密码登录；网页在当前标签页 sessionStorage 中保存会话，App 使用系统安全存储。各账号进入同账号 PC Agent 列表与会话，管理员另有独立账号管理入口。
+Relay 启动时若 `RELAY_WEB_DIR` 存在，在根路径提供 Web UI。Web/App 用账号密码登录；网页在当前站点 localStorage 中保存会话，App 使用系统安全存储。前台续期、回到前台重连，短暂网络故障保留会话；过期或被撤销后重新登录。各账号进入同账号 PC Agent 列表与会话，管理员另有独立账号管理入口。
 
 管理后台与远程控制端使用独立入口：`/admin` 只做账号管理；`/` 和 App 只做同账号 PC Agent 的选择与远程控制，不提供账号管理菜单。两个网页入口分别保存登录状态，后台不加载 PC 列表、会话或控制 WebSocket。

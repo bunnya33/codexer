@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { ActivityIndicator, FlatList, Image, KeyboardAvoidingView, Modal, PanResponder, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, AppState, FlatList, Image, KeyboardAvoidingView, Modal, PanResponder, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
@@ -72,6 +72,20 @@ function AppContent() {
   })).current;
 
   useEffect(() => { void relay.restore().finally(() => setRestoring(false)); return () => relay.disconnect(); }, []);
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      const visible = () => relay.setForeground(document.visibilityState === 'visible');
+      const leaving = () => relay.setForeground(false);
+      visible();
+      document.addEventListener('visibilitychange', visible);
+      window.addEventListener('pageshow', visible);
+      window.addEventListener('pagehide', leaving);
+      return () => { document.removeEventListener('visibilitychange', visible); window.removeEventListener('pageshow', visible); window.removeEventListener('pagehide', leaving); };
+    }
+    relay.setForeground(AppState.currentState === 'active');
+    const listener = AppState.addEventListener('change', state => relay.setForeground(state === 'active'));
+    return () => listener.remove();
+  }, []);
   useEffect(() => { if (view.phase === 'locked') { setThreadId(''); setDeviceId(''); setDraft(''); setImages([]); setDrawerOpen(false); setActionThread(null); setPreview(null); setMenu('none'); } }, [view.phase]);
   useEffect(() => { if (!view.devices.some(device => device.id === deviceId)) setDeviceId(view.devices[0]?.id ?? ''); }, [view.devices, deviceId]);
   useEffect(() => { if (view.phase === 'connected' && deviceId && !view.catalogs[deviceId]) void relay.loadCatalog(deviceId); }, [deviceId, view.catalogs, view.phase]);

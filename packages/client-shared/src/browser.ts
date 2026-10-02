@@ -5,20 +5,26 @@ const CREDENTIAL_KEY = "codexer.web.relay.v1";
 
 export function readWebCredentials(store?: SessionStore, scope = 'control'): string | null {
   try {
-    const storage = store ?? sessionStorage;
-    return storage.getItem(CREDENTIAL_KEY + scope);
+    const storage = store ?? localStorage;
+    const saved = storage.getItem(CREDENTIAL_KEY + scope);
+    if (saved || store) return saved;
+    const previous = sessionStorage.getItem(CREDENTIAL_KEY + scope);
+    if (previous) { storage.setItem(CREDENTIAL_KEY + scope, previous); sessionStorage.removeItem(CREDENTIAL_KEY + scope); }
+    return previous;
   } catch { return null; }
 }
 
 export function saveWebCredentials(value: string, store?: SessionStore, scope = 'control'): void {
-  const storage = store ?? sessionStorage;
+  const storage = store ?? localStorage;
   storage.setItem(CREDENTIAL_KEY + scope, value);
   clearLegacyCredentials(storage);
+  if (!store) { try { sessionStorage.removeItem(CREDENTIAL_KEY + scope); clearLegacyCredentials(sessionStorage); } catch { /* Persistent storage already succeeded. */ } }
 }
 
 export function clearWebCredentials(store?: SessionStore, scope = 'control'): void {
-  try { const storage = store ?? sessionStorage; storage.removeItem(CREDENTIAL_KEY + scope); clearLegacyCredentials(storage); }
+  try { const storage = store ?? localStorage; storage.removeItem(CREDENTIAL_KEY + scope); clearLegacyCredentials(storage); }
   catch { /* Logout still works when browser storage is blocked. */ }
+  if (!store) { try { sessionStorage.removeItem(CREDENTIAL_KEY + scope); clearLegacyCredentials(sessionStorage); } catch { /* Storage is optional. */ } }
 }
 
 function clearLegacyCredentials(store: SessionStore): void {

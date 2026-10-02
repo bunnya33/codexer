@@ -32,6 +32,7 @@ beforeEach(() => {
     if (path === '/v1/auth/login') return response({ session: 'a'.repeat(40) });
     if (path === '/v1/auth/logout') return response({ loggedOut: true });
     if (path === '/v1/me') return response({ role: 'user' });
+    if (path === '/v1/auth/active') return response({ expiresAt: Date.now() + 604800000, idleTimeoutMinutes: 10080 });
     if (path === '/v1/devices') return response({ devices: [{ id: 'device-test', name: 'Test Mac', platform: 'darwin', online: true }] });
     if (path === '/v1/devices/device-test/catalog') return response({ catalog: { protocolVersion: 1, deviceId: 'device-test', generatedAt: 1, projects: [], threads: [] } });
     if (path === '/v1/devices/device-test/snapshot') return response({ online: true, snapshot: snapshot() });
@@ -109,6 +110,48 @@ it('does not fail an authenticated login when credential storage is unavailable'
   FakeSocket.last.open();
   FakeSocket.last.message({ type: 'client.authenticated' });
   expect(client.getSnapshot().phase).toBe('connected');
+});
+
+it('keeps a saved login through an offline restore and retries without requesting a password', async () => {
+  vi.useFakeTimers();
+  vi.mocked(readCredentials).mockResolvedValueOnce(JSON.stringify({url: 'http://relay.example', session: 'saved-account-session'}));
+  vi.mocked(fetch).mockRejectedValueOnce(new TypeError('network-unavailable'));
+  expect(await client.restore()).toBe(true);
+  expect(client.getSnapshot().phase).toBe('reconnecting');
+  expect(clearCredentials).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(3000);
+  FakeSocket.last.open(); FakeSocket.last.message({type: 'client.authenticated'});
+  expect(client.getSnapshot().phase).toBe('connected');
+  expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith('/v1/auth/login'))).toBe(false);
+});
+
+it('only renews while in the foreground and reconnects a suspended socket on return', async () => {
+  const original = await connectedSocket();
+  vi.useFakeTimers();
+  client.setForeground(false);
+  await vi.advanceTimersByTimeAsync(0);
+  vi.mocked(fetch).mockClear();
+  await vi.advanceTimersByTimeAsync(90000);
+  expect(fetch).not.toHaveBeenCalled();
+  client.setForeground(true);
+  await vi.advanceTimersByTimeAsync(0);
+  const resumed = FakeSocket.last;
+  expect(resumed).not.toBe(original);
+  resumed.open(); resumed.message({type: 'client.authenticated'});
+  expect(client.getSnapshot().phase).toBe('connected');
+  expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith('/v1/auth/active'))).toBe(true);
+  vi.mocked(fetch).mockClear();
+  await vi.advanceTimersByTimeAsync(30000);
+  expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith('/v1/auth/active'))).toBe(true);
+});
+
+it('requires login after the server rejects an expired session on foreground return', async () => {
+  await connectedSocket(); client.setForeground(false);
+  await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+  vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', {status: 401})));
+  client.setForeground(true);
+  await vi.waitFor(() => expect(client.getSnapshot().phase).toBe('locked'));
+  expect(clearCredentials).toHaveBeenCalledOnce();
 });
 
 it('does not request catalogs or history after logging out', async () => {
