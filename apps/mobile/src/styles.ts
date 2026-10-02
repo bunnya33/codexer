@@ -87,7 +87,7 @@ export const s = StyleSheet.create({
   notice: { color: c.danger, fontSize: 12, marginBottom: 4 }, hint: { color: c.muted, fontSize: 11, marginBottom: 4 },
   composerInput: { minHeight: 42, paddingHorizontal: 8, paddingVertical: 7, borderWidth: 0, color: c.text, fontSize: 16, lineHeight: 23 },
   toolbar: { minHeight: 39, flexDirection: 'row', alignItems: 'center', gap: 4 }, pill: { flexShrink: 1, maxWidth: 116, height: 31, paddingHorizontal: 5, flexDirection: 'row', alignItems: 'center', gap: 3 }, pillText: { flexShrink: 1, color: c.muted, fontSize: 11, fontWeight: '600' }, spacer: { flex: 1, minWidth: 0 },
-  send: { width: 34, height: 34, borderRadius: 17, backgroundColor: c.text, alignItems: 'center', justifyContent: 'center' }, stop: { backgroundColor: c.accent },
+  send: { width: 34, height: 34, borderRadius: 17, backgroundColor: c.text, alignItems: 'center', justifyContent: 'center' }, stop: { backgroundColor: c.text },
   draftStrip: { flexGrow: 0, maxHeight: 78 }, draftImage: { flexDirection: 'row', alignItems: 'center', gap: 5, marginRight: 12 }, thumbnail: { width: 56, height: 56, borderRadius: 4 },
   backdrop: { flex: 1, backgroundColor: '#0007', justifyContent: 'flex-end' },
   drawerOverlay: { flex: 1, flexDirection: 'row', backgroundColor: '#0005' },
