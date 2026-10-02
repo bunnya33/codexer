@@ -51,7 +51,8 @@ export class RelayStore {
       "ALTER TABLE users ALTER COLUMN token_hash DROP NOT NULL",
       "ALTER TABLE devices ALTER COLUMN token_hash DROP NOT NULL",
       "ALTER TABLE devices ADD COLUMN IF NOT EXISTS installation_id TEXT",
-      "CREATE UNIQUE INDEX IF NOT EXISTS account_login ON users(lower(name)) WHERE password_hash IS NOT NULL",
+      "CREATE UNIQUE INDEX IF NOT EXISTS account_role_login ON users(role,lower(name)) WHERE password_hash IS NOT NULL",
+      "DROP INDEX IF EXISTS account_login",
       "CREATE UNIQUE INDEX IF NOT EXISTS account_installation ON devices(owner_user_id,installation_id) WHERE installation_id IS NOT NULL",
       "CREATE TABLE IF NOT EXISTS sessions (hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), device_id TEXT REFERENCES devices(id), expires_at BIGINT NOT NULL)",
       "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_active_at BIGINT",
@@ -73,11 +74,11 @@ export class RelayStore {
   async hasAdmin(): Promise<boolean> {
     return (await this.sql.query("SELECT id FROM users WHERE role='admin' AND password_hash IS NOT NULL AND revoked_at IS NULL")).rows.length > 0;
   }
-  async listUsers(): Promise<Row[]> {
-    return (await this.sql.query("SELECT id,name,role,created_at,revoked_at,(password_hash IS NOT NULL) AS login_enabled FROM users ORDER BY created_at")).rows;
+  async listUsers(role?: "admin" | "user"): Promise<Row[]> {
+    return (await this.sql.query("SELECT id,name,role,created_at,revoked_at,(password_hash IS NOT NULL) AS login_enabled FROM users WHERE ($1::text IS NULL OR role=$1) ORDER BY created_at", [role ?? null])).rows;
   }
-  async checkPassword(name: string, password: string): Promise<{ id: string; kind: "admin" | "user" } | null> {
-    const row = (await this.sql.query("SELECT id,role,password_hash FROM users WHERE lower(name)=lower($1) AND password_hash IS NOT NULL AND revoked_at IS NULL", [name.trim()])).rows[0];
+  async checkPassword(name: string, password: string, role: "admin" | "user" = "user"): Promise<{ id: string; kind: "admin" | "user" } | null> {
+    const row = (await this.sql.query("SELECT id,role,password_hash FROM users WHERE lower(name)=lower($1) AND role=$2 AND password_hash IS NOT NULL AND revoked_at IS NULL", [name.trim(), role])).rows[0];
     if (!await verifyPassword(password, row ? String(row.password_hash) : null)) return null;
     return { id: String(row!.id), kind: row!.role === "admin" ? "admin" : "user" };
   }
@@ -121,19 +122,23 @@ export class RelayStore {
     await this.sql.query("DELETE FROM sessions WHERE hash=$1", [sessionHash]);
     await this.sql.query("DELETE FROM tickets WHERE session_hash=$1", [sessionHash]);
   }
-  async revokeUser(id: string): Promise<boolean> {
+  async revokeUser(id: string, role: "admin" | "user" = "user", actorId?: string): Promise<boolean> {
     return this.transaction(async sql => {
-      const rows = (await sql.query("UPDATE users SET revoked_at=$2 WHERE id=$1 AND role<>'admin' AND revoked_at IS NULL RETURNING id", [id, Date.now()])).rows;
+      if (role === "admin") {
+        const admins = (await sql.query("SELECT id FROM users WHERE role='admin' AND revoked_at IS NULL AND password_hash IS NOT NULL FOR UPDATE")).rows;
+        if (actorId === id || admins.length <= 1) throw new Error("admin-disable-protected");
+      }
+      const rows = (await sql.query("UPDATE users SET revoked_at=$2 WHERE id=$1 AND role=$3 AND revoked_at IS NULL RETURNING id", [id, Date.now(), role])).rows;
       if (!rows.length) return false;
       await sql.query("DELETE FROM sessions WHERE user_id=$1", [id]);
       await sql.query("DELETE FROM tickets WHERE owner_user_id=$1", [id]);
       return true;
     });
   }
-  async resetPassword(id: string, password: string): Promise<boolean> {
+  async resetPassword(id: string, password: string, role: "admin" | "user" = "user"): Promise<boolean> {
     const encoded = await hashPassword(password);
     return this.transaction(async sql => {
-      if (!(await sql.query("UPDATE users SET password_hash=$2,token_hash=NULL WHERE id=$1 AND revoked_at IS NULL RETURNING id", [id, encoded])).rows.length) return false;
+      if (!(await sql.query("UPDATE users SET password_hash=$2,token_hash=NULL WHERE id=$1 AND role=$3 AND revoked_at IS NULL RETURNING id", [id, encoded, role])).rows.length) return false;
       await sql.query("DELETE FROM sessions WHERE user_id=$1", [id]);
       await sql.query("DELETE FROM tickets WHERE owner_user_id=$1", [id]);
       return true;
@@ -148,9 +153,10 @@ export class RelayStore {
     });
   }
   async authorizeDevice(id: string, session: string): Promise<boolean> {
-    return Boolean(await this.sessionPrincipal(session, id));
+    return (await this.sessionPrincipal(session, id))?.kind === "user";
   }
   async ownsDevice(id: string, principal: Principal): Promise<boolean> {
+    if (principal.kind !== "user") return false;
     if (principal.sessionHash && !await this.sessionForHash(principal.sessionHash)) return false;
     return (await this.sql.query("SELECT d.id FROM devices d JOIN users u ON u.id=d.owner_user_id WHERE d.id=$1 AND d.owner_user_id=$2 AND d.revoked_at IS NULL AND u.revoked_at IS NULL", [id, principal.id])).rows.length === 1;
   }
@@ -160,6 +166,7 @@ export class RelayStore {
   async revoke(id: string): Promise<boolean> { return (await this.sql.query("UPDATE devices SET revoked_at=$2 WHERE id=$1 AND revoked_at IS NULL RETURNING id", [id, Date.now()])).rows.length === 1; }
   async touch(id: string): Promise<void> { await this.sql.query("UPDATE devices SET last_seen_at=$2 WHERE id=$1", [id, Date.now()]); }
   async ticket(principal: Principal): Promise<{ ticket: string; expiresAt: number }> {
+    if (principal.kind !== "user") throw new Error("control-account-required");
     if (!principal.sessionHash || !await this.sessionForHash(principal.sessionHash)) throw new Error("session-expired");
     const ticket = randomBytes(32).toString("base64url"), expiresAt = Date.now() + 60000;
     await this.sql.query("INSERT INTO tickets(hash,expires_at,owner_user_id,session_hash) VALUES($1,$2,$3,$4)", [hash(ticket), expiresAt, principal.id, principal.sessionHash]);
@@ -167,7 +174,8 @@ export class RelayStore {
   }
   async consumeTicket(ticket: string): Promise<Principal | null> {
     const row = (await this.sql.query("DELETE FROM tickets WHERE hash=$1 AND expires_at>$2 RETURNING session_hash", [hash(ticket), Date.now()])).rows[0];
-    return row?.session_hash ? this.sessionForHash(String(row.session_hash)) : null;
+    const principal = row?.session_hash ? await this.sessionForHash(String(row.session_hash)) : null;
+    return principal?.kind === "user" ? principal : null;
   }
   async snapshot(id: string): Promise<DeviceSnapshot | null> {
     const { rows } = await this.sql.query("SELECT payload FROM snapshots WHERE device_id=$1 AND EXISTS(SELECT 1 FROM devices WHERE id=$1 AND revoked_at IS NULL)", [id]);

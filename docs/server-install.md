@@ -4,11 +4,11 @@ Relay、React Native Web 控制端和 React 管理后台同时安装。生产只
 
 ## 现在可用：本地发布包
 
-开发机执行 `npm run build:server` 和 `npm run package:server`，得到 `release/codexer-server-0.1.0.tar.gz` 及 `.sha256`。把两份文件上传到自己的 Linux 服务器，在文件所在目录运行：
+开发机执行 `npm run build:server` 和 `npm run package:server`，得到 `release/codexer-server-0.2.0.tar.gz` 及 `.sha256`。把两份文件上传到自己的 Linux 服务器，在文件所在目录运行：
 
 ```bash
-sha256sum -c codexer-server-0.1.0.tar.gz.sha256
-tar -xzf codexer-server-0.1.0.tar.gz
+sha256sum -c codexer-server-0.2.0.tar.gz.sha256
+tar -xzf codexer-server-0.2.0.tar.gz
 cd codexer
 sudo bash install.sh
 ```
@@ -40,7 +40,7 @@ curl -fsSL https://raw.githubusercontent.com/bunnya33/codexer/main/bootstrap.sh 
 服务器发布包目前保留在本地；将包与校验文件发布到 GitHub Release 后，可使用下面的方式。`v0.1.0` 下载地址是预定的发布位置，尚未发布时不可使用；SHA256 必须填写对应实际文件的校验值。
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bunnya33/codexer/main/bootstrap.sh | sudo env CODEXER_ARCHIVE_URL=https://github.com/bunnya33/codexer/releases/download/v0.1.0/codexer-server-0.1.0.tar.gz CODEXER_ARCHIVE_SHA256=替换为64位校验值 bash
+curl -fsSL https://raw.githubusercontent.com/bunnya33/codexer/main/bootstrap.sh | sudo env CODEXER_ARCHIVE_URL=https://github.com/bunnya33/codexer/releases/download/v0.1.0/codexer-server-0.2.0.tar.gz CODEXER_ARCHIVE_SHA256=替换为64位校验值 bash
 ```
 
 需要无人值守时再传 `CODEXER_PUBLIC_URL`。bootstrap 必须明确提供 `CODEXER_ARCHIVE_URL` 或 `CODEXER_REPO_URL`。私有仓库建议使用本地上传发布包，不把访问凭据写入公开命令。
@@ -76,7 +76,7 @@ sudo codexer info
 
 ## 更新与回退
 
-更新使用新发布包/源码，再运行 `sudo bash install.sh`，保留配置和数据。更新前按 [运维文档](operations.md) 停服备份；保留至少一个旧 release。
+已有服务器先使用 `0.2.0` 发布包/源码运行一次 `sudo bash install.sh`，保留配置和数据，并部署 `codexer-updater.service` 与 timer。之后可以从后台版本入口一键更新或开启自动安装，见 [服务器更新](server-update.md)。Docker/源码运行的服务使用外部更新流程。更新前按 [运维文档](operations.md) 停服备份；保留至少一个旧 release。
 
 验收失败时安装器自动恢复程序与配置。手动回退先停服，把 current 指回**实际存在**的旧版本，再启动并检查：
 

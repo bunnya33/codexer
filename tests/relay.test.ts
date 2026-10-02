@@ -25,8 +25,8 @@ it("allows browser REST preflight only for configured origins and still requires
     const denied = await relay.inject({ method: "OPTIONS", url: "/v1/me", headers: { origin: "http://unknown.example" } });
     expect(denied.statusCode).toBe(403);
     expect(denied.headers["access-control-allow-origin"]).toBeUndefined();
-    expect((await relay.inject({ method: "POST", url: "/v1/auth/login", headers: { host: "relay.example:8787", origin: "http://relay.example:8787" }, payload: { username: "admin", password: testPassword } })).statusCode).toBe(200);
-    expect((await relay.inject({ method: "POST", url: "/v1/auth/login", headers: { host: "relay.example:8787", origin: "http://unknown.example" }, payload: { username: "admin", password: testPassword } })).statusCode).toBe(403);
+    expect((await relay.inject({ method: "POST", url: "/v1/admin/auth/login", headers: { host: "relay.example:8787", origin: "http://relay.example:8787" }, payload: { username: "admin", password: testPassword } })).statusCode).toBe(200);
+    expect((await relay.inject({ method: "POST", url: "/v1/admin/auth/login", headers: { host: "relay.example:8787", origin: "http://unknown.example" }, payload: { username: "admin", password: testPassword } })).statusCode).toBe(403);
   } finally { await relay.close(); }
 });
 

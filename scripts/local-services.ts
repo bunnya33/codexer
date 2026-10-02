@@ -86,7 +86,7 @@ if (action === "start") {
   let account = await readSecret<AdminAccount>(accountPath).catch(() => null);
   if (!account) {
     account = { username: "local-pc", password: randomBytes(18).toString("base64url") };
-    const adminSession = await loginAccount(services.relayUrl, await readAdminAccount(adminPath));
+    const adminSession = await loginAccount(services.relayUrl, await readAdminAccount(adminPath), "admin");
     try {
       const created = await fetch(services.relayUrl + "/v1/users", { method: "POST", headers: { authorization: "Bearer " + adminSession, "content-type": "application/json" }, body: JSON.stringify(account) });
       if (!created.ok) throw new Error("local-account-create-failed");

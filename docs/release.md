@@ -1,6 +1,6 @@
 # 本地发布与打包
 
-打包只生成本地文件。Electron 命令固定 `--publish never`，不会自动上传到 GitHub，也没有内置更新服务器。
+本地打包命令只生成文件，Electron 固定 `--publish never`。服务器新增 GitHub Release 更新功能；维护者推送版本标签才会触发发布，普通 main 提交不触发发布。
 
 ## Windows
 
@@ -30,7 +30,7 @@ npm run build:server
 npm run package:server
 ```
 
-输出 `release/codexer-server-0.1.0.tar.gz` 和 `.sha256`，包含 Relay 编译产物、控制端/后台静态文件、锁定依赖清单、安装器和文档。不含 node_modules、真实配置、旧 Git 历史或 Electron 二进制。服务器安装时自动装 Node/生产依赖，看到 bundle 标记后直接使用已构建网页。
+输出 `release/codexer-server-0.2.0.tar.gz` 和 `.sha256`，包含 Relay 编译产物、控制端/后台静态文件、更新器、锁定依赖清单、安装器和文档。不含 node_modules、真实配置、旧 Git 历史或 Electron 二进制。服务器安装时自动装 Node/生产依赖，看到 bundle 标记后直接使用已构建网页。
 
 同一个包同时升级 Admin 和 Relay，避免接口与 UI 不一致。安装、校验、回退见 [服务器安装](server-install.md)。源码的 Dockerfile 独立执行完整服务器构建，也跳过 Electron 下载。
 
@@ -40,8 +40,8 @@ Web 随统一服务包发布。iOS/Android 由 Expo/EAS 或原生工具构建和
 
 ## 版本与升级
 
-PC 连接器与服务端可独立升级版本；同步对应 package 和锁文件的 workspace 版本，移动 App 发布时同步移动配置版本；先运行类型、行为、文档与平台检查，记录 [验证范围](validation.md)。Windows 安装新版替换程序，应用数据保留；便携版使用固定路径替换。Mac 替换 Applications 中的应用。当前没有自动下载更新功能。
+PC 连接器与服务端可独立升级版本；同步对应 package 和锁文件的 workspace 版本，移动 App 发布时同步移动配置版本；先运行类型、行为、文档与平台检查，记录 [验证范围](validation.md)。PC 连接器仍需手动升级。服务器 `0.2.0` 支持从稳定 Release 更新统一服务器包，见 [服务器更新](server-update.md)。
 
 `0.1.4` 支持点击选项即发、异步消息按题回答、自定义文字手动提交及气泡内浅色问题/深色答案。需要同时更新 PC 连接器及服务器 Web 资源，旧 Agent 不支持按题回传或结构化展示字段；单独刷新浏览器不能解决。服务器升级按 [安装文档](server-install.md) 操作。
 
-源码使用 `https://github.com/bunnya33/codexer` 的 `main` 分支。安装包与服务器包仍在本地；将这些文件上传到 Release 是独立发布步骤，构建命令不会自动执行上传。
+源码使用 `https://github.com/bunnya33/codexer` 的 `main` 分支。服务器稳定标签 `vX.Y.Z` 触发 `.github/workflows/release-server.yml`，测试和构建成功后上传统一包及校验文件；版本必须匹配根 package.json。桌面包仍需独立发布。当前只生成本地 `0.2.0` 服务器包，未发布版本标签或 Release。

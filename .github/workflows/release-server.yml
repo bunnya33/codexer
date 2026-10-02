@@ -1,0 +1,31 @@
+name: Publish server release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Validate stable release version
+        run: |
+          node --input-type=module -e 'import fs from "node:fs"; const v=JSON.parse(fs.readFileSync("package.json")).version; if (!/^\d+\.\d+\.\d+$/.test(v) || process.env.GITHUB_REF_NAME !== "v"+v) process.exit(1)'
+      - run: npm ci
+      - run: bash -n install.sh bootstrap.sh
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run check:docs
+      - run: npm run build:server
+      - run: npm run package:server
+      - name: Publish unified server bundle and checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" release/codexer-server-*.tar.gz release/codexer-server-*.tar.gz.sha256 --verify-tag --generate-notes --title "Codexer $GITHUB_REF_NAME"

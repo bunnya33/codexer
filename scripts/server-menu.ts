@@ -14,6 +14,7 @@ const configPath = "/etc/codexer/relay.env";
 const versionPath = "/opt/codexer/current/VERSION";
 type Config = Record<string, string | undefined>;
 type Ask = (question: string, secret?: boolean) => Promise<string>;
+let promptedAdmin: AdminAccount | undefined;
 
 async function run(command: string, args: string[], inherit = false): Promise<{ code: number; output: string }> {
   return new Promise((resolveRun, reject) => {
@@ -60,11 +61,16 @@ async function active(): Promise<boolean> {
 async function healthy(port: number, account: AdminAccount): Promise<boolean> {
   for (let attempt = 0; attempt < 30; attempt++) {
     try {
-      const response = await fetch(`http://127.0.0.1:${port}/v1/auth/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(account), signal: AbortSignal.timeout(1500) });
+      const response = await fetch(`http://127.0.0.1:${port}/v1/admin/auth/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(account), signal: AbortSignal.timeout(1500) });
       if (response.ok) {
         const session = await response.json() as { role?: string; session: string };
         await fetch(`http://127.0.0.1:${port}/v1/auth/logout`, { method: "POST", headers: { authorization: `Bearer ${session.session}` }, signal: AbortSignal.timeout(1500) });
         if (session.role === "admin") return true;
+      }
+      // A password changed in the dashboard does not rewrite root-owned bootstrap config.
+      if (response.status === 401) {
+        const health = await fetch(`http://127.0.0.1:${port}/health`, {signal: AbortSignal.timeout(1500)});
+        if (health.ok && (await health.json() as {ok?: boolean}).ok) return true;
       }
     } catch { /* Service may still be starting. */ }
     await new Promise(resolveWait => setTimeout(resolveWait, 500));
@@ -74,7 +80,15 @@ async function healthy(port: number, account: AdminAccount): Promise<boolean> {
 
 async function api<T>(path: string, method = "GET", body?: unknown): Promise<T> {
   const { values } = await config();
-  const token = await loginAccount(`http://127.0.0.1:${required(values.RELAY_PORT, "RELAY_PORT")}`, adminAccount(values));
+  const base = `http://127.0.0.1:${required(values.RELAY_PORT, "RELAY_PORT")}`;
+  let token: string;
+  const configuredAccount = adminAccount(values);
+  try { token = await loginAccount(base, promptedAdmin?.username === configuredAccount.username ? promptedAdmin : configuredAccount, "admin"); }
+  catch (error) {
+    if (!(error instanceof Error) || !error.message.includes('HTTP 401')) throw error;
+    promptedAdmin = {...configuredAccount, password: await promptPassword("当前管理员密码（后台改密后需重新输入）：")};
+    token = await loginAccount(base, promptedAdmin, "admin");
+  }
   try {
   const response = await fetch(`http://127.0.0.1:${required(values.RELAY_PORT, "RELAY_PORT")}${path}`, {
     method, headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
@@ -153,8 +167,9 @@ async function resetAdminPassword(ask?: Ask): Promise<void> {
   const account = { ...adminAccount(values), password: ask ? await ask("新管理员密码：", true) : await promptPassword("新管理员密码：") };
   const configured = configureInstalledEnv(source, await address(), account);
   const me = await api<{ userId: string }>("/v1/me");
-  await api('/v1/users/' + me.userId + '/password', "PUT", { password: account.password });
+  await api('/v1/admin/accounts/' + me.userId + '/password', "PUT", { password: account.password });
   await saveConfig(configured.content);
+  promptedAdmin = account;
   console.log("管理员密码已更新，旧登录已失效。");
 }
 
@@ -180,7 +195,7 @@ async function status(): Promise<void> {
   if (await active()) {
     const { values } = await config();
     const ok = await healthy(Number(required(values.RELAY_PORT, "RELAY_PORT")), adminAccount(values));
-    console.log(`HTTP/管理员认证：${ok ? "正常" : "不可用"}`);
+    console.log(`HTTP/服务检查：${ok ? "正常" : "不可用"}`);
 
   }
 }

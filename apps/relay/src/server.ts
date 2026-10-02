@@ -15,6 +15,7 @@ import { jsonForStorage } from "../../../packages/shared/src/json.js";
 import { authSettingsSchema } from "../../../packages/shared/src/session-policy.js";
 import { hash, RelayStore } from "./store.js";
 import type { Principal } from "./store.js";
+import type { ServerUpdates } from "./updates.js";
 
 class HttpError extends Error { constructor(readonly statusCode: number, readonly code: string) { super(code); } }
 function bearer(request: FastifyRequest): string { const value = request.headers.authorization; return value?.startsWith("Bearer ") ? value.slice(7) : ""; }
@@ -23,7 +24,7 @@ type ClientConnection = { socket: WebSocket; principal: Principal | null; device
 type PendingHistory = { deviceId: string; threadId: string; resolve: (page: HistoryPage) => void; reject: (error: Error) => void; timer: NodeJS.Timeout };
 type PendingImage = { deviceId: string; threadId: string; imageId: string; resolve: (image: ImagePayload) => void; reject: (error: Error) => void; timer: NodeJS.Timeout };
 
-export async function createRelay(options: { store: RelayStore; allowedOrigins?: string[]; heartbeatMs?: number; webRoot?: string; adminRoot?: string }) {
+export async function createRelay(options: { store: RelayStore; allowedOrigins?: string[]; heartbeatMs?: number; webRoot?: string; adminRoot?: string; updates?: ServerUpdates; version?: string }) {
   const app = Fastify({ logger: false, bodyLimit: MAX_MESSAGE_BYTES });
   await app.register(websocket, { options: { maxPayload: MAX_MESSAGE_BYTES, perMessageDeflate: false } });
   await app.register(rateLimit, { max: 120, timeWindow: "1 minute" });
@@ -61,6 +62,11 @@ export async function createRelay(options: { store: RelayStore; allowedOrigins?:
     return principal;
   };
   const member = async (request: FastifyRequest) => { principals.set(request, await authenticate(request)); };
+  const control = async (request: FastifyRequest) => {
+    const principal = await authenticate(request);
+    if (principal.kind !== "user") throw new HttpError(403, "control-account-required");
+    principals.set(request, principal);
+  };
   const admin = async (request: FastifyRequest) => {
     const principal = await authenticate(request);
     if (principal.kind !== "admin") throw new HttpError(403, "admin-required");
@@ -116,14 +122,14 @@ export async function createRelay(options: { store: RelayStore; allowedOrigins?:
     const statusCode = error instanceof HttpError ? error.statusCode : error instanceof z.ZodError ? 400 : error !== null && typeof error === "object" && "statusCode" in error && typeof error.statusCode === "number" && error.statusCode >= 400 && error.statusCode <= 599 ? error.statusCode : 500;
     void reply.code(statusCode).send({ error: error instanceof HttpError ? error.code : statusCode === 400 ? "invalid-request" : statusCode === 413 ? "request-too-large" : statusCode === 429 ? "rate-limited" : "server-error" });
   });
-  app.get("/health", async () => ({ ok: true, protocolVersion: PROTOCOL_VERSION }));
+  app.get("/health", async () => ({ ok: true, protocolVersion: PROTOCOL_VERSION, version: options.version ?? "development" }));
   const loginSchema = z.object({ username: z.string().trim().min(1).max(100), password: z.string().min(1).max(128) });
   const failures = new Map<string, { count: number; until: number }>();
-  async function login(username: string, password: string) {
-    const key = username.toLowerCase(), now = Date.now();
+  async function login(username: string, password: string, role: "admin" | "user" = "user") {
+    const key = role + ":" + username.toLowerCase(), now = Date.now();
     for (const [name, entry] of failures) if (entry.until <= now) failures.delete(name);
     if ((failures.get(key)?.count ?? 0) >= 10) throw new HttpError(429, "login-rate-limited");
-    const account = await store.checkPassword(username, password);
+    const account = await store.checkPassword(username, password, role);
     if (!account) {
       const entry = failures.get(key) ?? { count: 0, until: now + 15 * 60000 };
       entry.count++; failures.set(key, entry);
@@ -134,6 +140,14 @@ export async function createRelay(options: { store: RelayStore; allowedOrigins?:
     return account;
   }
   const loginOptions = { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } };
+  app.post("/v1/admin/auth/login", loginOptions, async request => {
+    if (!originAllowed(request)) throw new HttpError(403, "origin-denied");
+    const { username, password } = loginSchema.parse(request.body);
+    return queue.run(async () => {
+      const account = await login(username, password, "admin");
+      return { ...await store.createSession(account.id), role: account.kind, userId: account.id, username };
+    });
+  });
   app.post("/v1/auth/login", loginOptions, async request => {
     if (!originAllowed(request)) throw new HttpError(403, "origin-denied");
     const { username, password } = loginSchema.parse(request.body);
@@ -185,7 +199,49 @@ export async function createRelay(options: { store: RelayStore; allowedOrigins?:
     try { return await queue.run(() => store.createUser(username, password)); }
     catch (error) { if ((error as { code?: string }).code === "23505") throw new HttpError(409, "account-name-taken"); throw error; }
   });
-  app.get("/v1/users", { preHandler: admin }, async () => ({ users: await store.listUsers() }));
+  app.get("/v1/users", { preHandler: admin }, async () => ({ users: await store.listUsers("user") }));
+  app.get("/v1/admin/accounts", { preHandler: admin }, async request => ({ users: await store.listUsers("admin"), currentUserId: principals.get(request)!.id }));
+  app.post("/v1/admin/accounts", { preHandler: admin }, async request => {
+    const { username, password } = loginSchema.extend({ password: z.string().min(12).max(128) }).parse(request.body);
+    try { return await queue.run(() => store.createUser(username, password, "admin")); }
+    catch (error) { if ((error as { code?: string }).code === "23505") throw new HttpError(409, "account-name-taken"); throw error; }
+  });
+  app.put<{Params: {userId: string}}>("/v1/admin/accounts/:userId/password", { preHandler: admin }, async request => {
+    const { password } = z.object({ password: z.string().min(12).max(128) }).parse(request.body);
+    return queue.run(async () => {
+      if (!await store.resetPassword(request.params.userId, password, "admin")) throw new HttpError(404, "admin-not-found");
+      closeSessions(value => value.id === request.params.userId, "password-reset");
+      return {reset: true};
+    });
+  });
+  app.delete<{Params: {userId: string}}>("/v1/admin/accounts/:userId", { preHandler: admin }, async request => queue.run(async () => {
+    try {
+      if (!await store.revokeUser(request.params.userId, "admin", principals.get(request)!.id)) throw new HttpError(404, "admin-not-found");
+    } catch (error) { if (error instanceof Error && error.message === "admin-disable-protected") throw new HttpError(409, "admin-disable-protected"); throw error; }
+    closeSessions(value => value.id === request.params.userId, "account-disabled");
+    return {revoked: true};
+  }));
+  app.get("/v1/admin/overview", {preHandler: admin}, async () => {
+    const users = await store.listUsers("user"), admins = await store.listUsers("admin");
+    const enabled = (rows: typeof users) => rows.filter(u => !u.revoked_at && u.login_enabled).length;
+    return {users: users.length, enabledUsers: enabled(users), admins: admins.length, enabledAdmins: enabled(admins), onlineDevices: agents.size, onlineClients: [...clients].filter(c => c.principal).length, uptime: Math.floor(process.uptime())};
+  });
+  app.get("/v1/admin/system/version", {preHandler: admin}, async request => {
+    if (!options.updates) throw new HttpError(503, "updates-unavailable");
+    return options.updates.info((request.query as {force?: string}).force === "true");
+  });
+  app.post("/v1/admin/system/update", {preHandler: admin}, async request => {
+    if (!options.updates) throw new HttpError(503, "updates-unavailable");
+    const {tag} = z.object({tag: z.string().regex(/^v\d+\.\d+\.\d+$/)}).parse(request.body);
+    try { return await options.updates.request(tag); }
+    catch (error) { throw new HttpError(409, error instanceof Error ? error.message : "update-unavailable"); }
+  });
+  app.put("/v1/admin/system/update-settings", {preHandler: admin}, async request => {
+    if (!options.updates) throw new HttpError(503, "updates-unavailable");
+    const {autoInstall} = z.object({autoInstall: z.boolean()}).parse(request.body);
+    try { return await options.updates.setAutoInstall(autoInstall); }
+    catch { throw new HttpError(409, "updater-not-installed"); }
+  });
   app.delete<{ Params: { userId: string } }>("/v1/users/:userId", { preHandler: admin }, async request => queue.run(async () => {
     if (!await store.revokeUser(request.params.userId)) throw new HttpError(404, "user-not-found-or-admin");
     closeSessions(value => value.id === request.params.userId, "account-disabled");
@@ -199,7 +255,7 @@ export async function createRelay(options: { store: RelayStore; allowedOrigins?:
       return { reset: true };
     });
   });
-  app.get("/v1/devices", { preHandler: member }, async request => { const principal = principals.get(request)!; return { devices: (await store.listDevices(principal)).map(device => ({ ...device, online: agents.has(String(device.id)) })) }; });
+  app.get("/v1/devices", { preHandler: control }, async request => { const principal = principals.get(request)!; return { devices: (await store.listDevices(principal)).map(device => ({ ...device, online: agents.has(String(device.id)) })) }; });
   app.delete<{ Params: { deviceId: string } }>("/v1/devices/:deviceId", { preHandler: deviceAccess }, async request => queue.run(async () => {
     if (!await store.ownsDevice(request.params.deviceId, principals.get(request)!)) throw new HttpError(404, "device-not-found");
     if (!await store.revoke(request.params.deviceId)) throw new HttpError(404, "device-not-found");
@@ -237,7 +293,7 @@ export async function createRelay(options: { store: RelayStore; allowedOrigins?:
       }
     });
   });
-  app.post("/v1/ws/tickets", { preHandler: member }, async request => queue.run(async () => {
+  app.post("/v1/ws/tickets", { preHandler: control }, async request => queue.run(async () => {
     const principal = principals.get(request)!;
     if (!await store.sessionForHash(principal.sessionHash!)) throw new HttpError(401, "unauthorized");
     return store.ticket(principal);
@@ -305,7 +361,7 @@ export async function createRelay(options: { store: RelayStore; allowedOrigins?:
       if (!originAllowed(request)) throw new HttpError(403, "origin-denied");
       const id = request.headers["x-device-id"];
       const principal = typeof id === "string" ? await store.sessionPrincipal(bearer(request), id) : null;
-      if (!principal) throw new HttpError(401, "unauthorized");
+      if (!principal || principal.kind !== "user") throw new HttpError(401, "unauthorized");
       principals.set(request, principal);
     },
   }, (socket, request) => {

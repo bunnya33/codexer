@@ -9,7 +9,7 @@ let env: Record<string, string | undefined> = {};
 try { env = parseEnv(await readFile(resolve("infra/.env"), "utf8")); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
 const account = accountFromEnv(env) ?? await readAdminAccount();
 const base = "http://127.0.0.1:" + (env.RELAY_PORT ?? process.env.RELAY_PORT ?? "8787");
-const session = await loginAccount(base, account);
+const session = await loginAccount(base, account, "admin");
 let path = "/v1/users", method = "GET", body: unknown;
 if (action === "create") { path = "/v1/users"; method = "POST"; body = { username: args.join(" "), password: await promptPassword() }; }
 if (action === "password") { path += "/" + encodeURIComponent(args[0] ?? "") + "/password"; method = "PUT"; body = { password: await promptPassword("新密码：") }; }

@@ -7,7 +7,7 @@ for(const path of ['dist/apps/relay/src/main.js','apps/web/dist/index.html','app
 const staging=resolve('.local/server-package');
 await rm(staging,{recursive:true,force:true}); await mkdir(resolve(staging,'codexer'),{recursive:true});
 // Explicit allowlist: no Git history, local configuration, server addresses or credentials.
-const serverScripts=['install-config','install-health','print-service-unit','server-config','server-menu','server-service'];
+const serverScripts=['install-config','install-health','print-service-unit','server-config','server-menu','server-service','server-updater'];
 const paths=['package.json','package-lock.json','install.sh','bootstrap.sh','README.md','docs','dist/apps/relay','dist/packages/protocol','dist/packages/shared',...serverScripts.map(name=>`dist/scripts/${name}.js`),'infra/Dockerfile','infra/compose.yaml','infra/Caddyfile','infra/.env.example','apps/web/dist','apps/admin/dist','apps/admin/package.json','apps/mobile/package.json','apps/desktop/package.json',...['web','admin','mobile','desktop','pc-agent','relay'].map(name=>`apps/${name}/README.md`)];
 for(const path of paths)await cp(resolve(path),resolve(staging,'codexer',path),{recursive:true,filter: source => !source.replaceAll('\\','/').includes('/docs/') || source.endsWith('.md')});
 await writeFile(resolve(staging,'codexer/server-bundle.json'),JSON.stringify({version,kind:'codexer-server-bundle',builtAt:new Date().toISOString()}));

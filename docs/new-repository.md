@@ -7,7 +7,7 @@ npm run check:docs
 npm run export:source
 ```
 
-脚本在 `release/codexer-source-0.1.0` 创建干净目录，并生成源码 tar.gz/校验文件。明确导出应用/包/测试/脚本/文档及配置模板；排除 `.git`、`.local`、node_modules、各 dist/release、真实 `.env`、旧 JSON 验证数据。脚本不初始化 Git、不建立远端、不上传。
+脚本在 `release/codexer-source-0.2.0` 创建干净目录，并生成源码 tar.gz/校验文件。明确导出应用/包/测试/脚本/文档及配置模板；排除 `.git`、`.local`、node_modules、各 dist/release、真实 `.env`、旧 JSON 验证数据。脚本不初始化 Git、不建立远端、不上传。
 
 打开导出目录检查文件，尤其新增配置或样例；构建和测试的新结果见 [验证范围](validation.md)。当前源码仓库是 `https://github.com/bunnya33/codexer.git`，默认分支 `main`。bootstrap 通过 `CODEXER_REPO_URL`/`CODEXER_REF` 或 `CODEXER_ARCHIVE_URL` 读取地址；源码安装命令见 [服务器安装](server-install.md)。
 

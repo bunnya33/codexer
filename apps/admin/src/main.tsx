@@ -1,73 +1,110 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Clock3, LogOut, RefreshCw, ShieldCheck, UserRoundPlus, Users, X } from 'lucide-react';
+import { Activity, ArrowRight, Check, ChevronRight, Clock3, Download, ExternalLink, LayoutDashboard, LogOut, Menu, Monitor, RefreshCw, Search, Settings, ShieldCheck, UserRoundPlus, Users, X } from 'lucide-react';
 import { MAX_IDLE_TIMEOUT_MINUTES } from '../../../packages/shared/src/session-policy';
 import * as api from './api';
-import type { Account } from './api';
+import type { Account, Role, VersionInfo } from './api';
 import './style.css';
 
+type Page = 'overview' | 'users' | 'admins' | 'settings';
+const pages = [
+  {id:'overview' as const, title:'仪表盘', subtitle:'系统概览与服务状态', icon:LayoutDashboard},
+  {id:'users' as const, title:'控制端账号', subtitle:'管理 Web、App 与 PC Agent 的登录账号', icon:Users},
+  {id:'admins' as const, title:'后台管理员', subtitle:'独立管理后台访问权限', icon:ShieldCheck},
+  {id:'settings' as const, title:'系统设置', subtitle:'登录策略与服务器更新', icon:Settings},
+];
+const phases: Record<string,string> = {queued:'已加入更新队列，更新服务将在约 30 秒内开始',downloading:'正在下载服务器更新包…',verifying:'正在校验更新包…',installing:'正在安装运行依赖…',restarting:'正在重启服务器，连接将短暂中断…',succeeded:'服务器更新完成',failed:'更新失败，请检查更新服务日志','rolled-back':'更新未通过检查，已恢复之前的版本'};
+const warnings: Record<string,string> = {'no-published-release':'GitHub 暂无可安装的服务器 Release','release-assets-missing':'最新 Release 缺少服务器包或校验文件','github-rate-limited':'GitHub 请求额度已用完，请稍后重试'};
+const running = (v: VersionInfo | null) => Boolean(v?.job && !['succeeded','failed','rolled-back'].includes(v.job.phase));
+
+function Modal({title, close, children}: {title: string; close: () => void; children: ReactNode}) {
+  const ref = useRef<HTMLDivElement>(null), closeRef = useRef(close); closeRef.current = close;
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    ref.current?.querySelector<HTMLElement>('input,button')?.focus();
+    const key = (e: KeyboardEvent) => {
+      if(e.key==='Escape') closeRef.current();
+      if(e.key!=='Tab') return;
+      const items = ref.current?.querySelectorAll<HTMLElement>('input:not(:disabled),button:not(:disabled),select:not(:disabled)');
+      if(!items?.length) return;
+      if(e.shiftKey && document.activeElement===items[0]) {e.preventDefault();items[items.length-1]?.focus();}
+      if(!e.shiftKey && document.activeElement===items[items.length-1]) {e.preventDefault();items[0]?.focus();}
+    };
+    document.addEventListener('keydown',key);return () => {document.removeEventListener('keydown',key);previous?.focus();};
+  },[]);
+  return <div className="modal-backdrop" onClick={e => {if(e.target===e.currentTarget) close();}}><div className="modal" ref={ref} role="dialog" aria-modal="true" aria-label={title}><div className="modal-head"><h2>{title}</h2><button className="icon-button" aria-label="关闭" onClick={close}><X size={19}/></button></div>{children}</div></div>;
+}
+function VersionPopover({version, checking, busy, close, check, update}: {version: VersionInfo | null; checking: boolean; busy: boolean; close: () => void; check: () => void; update: () => void}) {
+  useEffect(() => {const key=(e: KeyboardEvent) => {if(e.key==='Escape') close();};document.addEventListener('keydown',key);return () => document.removeEventListener('keydown',key);},[close]);
+  return <><button className="popover-scrim" aria-label="关闭版本信息" onClick={close}/><section className="version-popover" role="dialog" aria-label="服务器版本"><div className="popover-head"><span>当前版本</span><button className="icon-button" aria-label="重新检查更新" disabled={checking || running(version)} onClick={check}><RefreshCw size={19} className={checking?'spinning':''}/></button></div><div className="version-body"><strong className="large-version">v{version?.currentVersion || '…'}</strong><p className="muted">最新版本：{version?.latestVersion?'v'+version.latestVersion:'暂未获取'}</p>
+    {version?.hasUpdate && <div className="update-callout"><span><Download size={23}/></span><div><strong>有新版本可用！</strong><p>v{version.latestVersion}</p></div></div>}
+    {!version?.hasUpdate && !version?.warning && version && <div className="up-to-date"><Check size={18}/>已是最新版本</div>}
+    {version?.warning && <p className="update-warning" role="status">{warnings[version.warning] || '检查更新失败，请重试。之前的版本信息仅供参考。'}</p>}
+    {version?.job && <p className={'job-status '+(['failed','rolled-back'].includes(version.job.phase)?'error':'')} role="status">{phases[version.job.phase]}{version.job.code && <small>错误代码：{version.job.code}</small>}</p>}
+    {version?.hasUpdate && <button className="primary update-now" disabled={busy || checking || running(version) || !version.supported || Boolean(version.warning)} onClick={update}><Download size={19}/>{running(version)?'正在更新…':'立即更新'}</button>}
+    {version && !version.supported && <p className="muted">此部署需通过安装器或 Docker 在服务器上更新。</p>}
+    {version?.release && <a className="changelog-link" href={version.release.url} target="_blank" rel="noreferrer">查看更新日志<ExternalLink size={14}/></a>}
+    {version?.release?.notes && <details className="release-notes"><summary>发布说明</summary><pre>{version.release.notes}</pre></details>}
+    <p className="check-time">{checking?'正在检查…':version?.checkedAt?'上次检查 '+new Date(version.checkedAt).toLocaleTimeString('zh-CN'):'等待版本检查'}</p></div></section></>;
+}
 function App() {
-  const [loggedIn, setLoggedIn] = useState(false), [restoring, setRestoring] = useState(true);
-  const [username, setUsername] = useState(''), [password, setPassword] = useState('');
-  const [accounts, setAccounts] = useState<Account[]>([]), [busy, setBusy] = useState(false), [notice, setNotice] = useState('');
-  const [editing, setEditing] = useState<Account | 'new' | null>(null), [newName, setNewName] = useState(''), [newPassword, setNewPassword] = useState('');
-  const [disabling, setDisabling] = useState<Account | null>(null);
-  const [timeout, setTimeoutValue] = useState('7'), [timeoutUnit, setTimeoutUnit] = useState(1440), [settingsLoaded, setSettingsLoaded] = useState(false);
-  const showTimeout = (minutes: number) => {
-    const unit = minutes % 1440 === 0 ? 1440 : minutes % 60 === 0 ? 60 : 1;
-    setTimeoutUnit(unit); setTimeoutValue(String(minutes / unit)); setSettingsLoaded(true);
-  };
-  const refresh = async () => setAccounts(await api.listAccounts());
+  const [loggedIn,setLoggedIn]=useState(false), [restoring,setRestoring]=useState(true);
+  const [username,setUsername]=useState(''), [password,setPassword]=useState('');
+  const [page,setPage]=useState<Page>('overview'), [sidebar,setSidebar]=useState(false), [search,setSearch]=useState('');
+  const [accounts,setAccounts]=useState<Account[]>([]), [admins,setAdmins]=useState<Account[]>([]), [currentId,setCurrentId]=useState('');
+  const [stats,setStats]=useState<api.Overview | null>(null), [version,setVersion]=useState<VersionInfo | null>(null);
+  const [busy,setBusy]=useState(false), [notice,setNotice]=useState(''), [versionOpen,setVersionOpen]=useState(false), [checking,setChecking]=useState(false), [updateConfirm,setUpdateConfirm]=useState(false);
+  const [editing,setEditing]=useState<{account: Account | null; role: Role} | null>(null), [newName,setNewName]=useState(''), [newPassword,setNewPassword]=useState(''), [disabling,setDisabling]=useState<Account | null>(null);
+  const [timeout,setTimeoutValue]=useState('7'), [timeoutUnit,setTimeoutUnit]=useState(1440), [settingsLoaded,setSettingsLoaded]=useState(false), [savedMinutes,setSavedMinutes]=useState(10080);
+  const showTimeout = (minutes: number) => {const unit=minutes%1440===0?1440:minutes%60===0?60:1;setTimeoutUnit(unit);setTimeoutValue(String(minutes/unit));setSavedMinutes(minutes);setSettingsLoaded(true);};
+  const refresh = async () => {const [users,administrators,overview]=await Promise.all([api.listAccounts(),api.listAdmins(),api.overview()]);setAccounts(users);setAdmins(administrators.users);setCurrentId(administrators.currentUserId);setStats(overview);};
   const loadSettings = async () => showTimeout((await api.authSettings()).idleTimeoutMinutes);
+  const checkVersion = async (force=false) => {setChecking(true);try{setVersion(await api.versionInfo(force));}catch(error){setNotice(error instanceof Error?error.message:'检查更新失败');if(error instanceof api.ApiError && error.status===401) setLoggedIn(false);}finally{setChecking(false);}};
   useEffect(() => {
-    let cancelled = false, timer: ReturnType<typeof setTimeout>;
-    const restore = async () => {
-      try {
-        const valid = await api.restore();
-        if (cancelled) return;
-        if (valid) { if (document.visibilityState === 'visible') await api.touchLogin(); await Promise.all([refresh(), loadSettings()]); }
-        if (!cancelled) { setLoggedIn(valid); setNotice(''); setRestoring(false); }
-      } catch (error) {
-        if (cancelled) return;
-        if (error instanceof api.ApiError && error.status === 401 || !api.hasSession()) { setLoggedIn(false); setRestoring(false); }
-        else { setNotice('网络暂不可用，正在恢复登录…'); timer = setTimeout(() => void restore(), 3000); }
-      }
-    };
-    void restore(); return () => { cancelled = true; clearTimeout(timer); };
-  }, []);
+    let cancelled=false, timer: ReturnType<typeof setTimeout>;
+    const restore=async () => {try{const valid=await api.restore();if(cancelled) return;if(valid){if(document.visibilityState==='visible') await api.touchLogin();await Promise.all([refresh(),loadSettings()]);}if(!cancelled){setLoggedIn(valid);setNotice('');setRestoring(false);}}catch(error){if(cancelled) return;if(error instanceof api.ApiError && error.status===401 || !api.hasSession()){setLoggedIn(false);setRestoring(false);}else{setNotice('网络暂不可用，正在恢复登录…');timer=setTimeout(() => void restore(),3000);}}};
+    void restore();return () => {cancelled=true;clearTimeout(timer);};
+  },[]);
   useEffect(() => {
-    if (!loggedIn) return;
-    const active = async () => {
-      try { if (document.visibilityState !== 'visible') return; await api.touchLogin(); await refresh(); }
-      catch (error) { if (error instanceof api.ApiError && error.status === 401) setLoggedIn(false); }
-    };
-    const changed = () => { if (document.visibilityState === 'visible') void active(); else void api.touchLogin().catch(() => undefined); };
-    const leaving = () => { void api.touchLogin().catch(() => undefined); };
-    document.addEventListener('visibilitychange', changed); window.addEventListener('pageshow', changed); window.addEventListener('pagehide', leaving);
-    const timer = setInterval(() => void active(), 30000);
-    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', changed); window.removeEventListener('pageshow', changed); window.removeEventListener('pagehide', leaving); };
-  }, [loggedIn]);
-  const run = async (action: () => Promise<void>) => { if (busy) return; setBusy(true); setNotice(''); try { await action(); } catch (error) { setNotice(error instanceof Error ? error.message : '操作失败'); if (error instanceof api.ApiError && error.status === 401) setLoggedIn(false); } finally { setBusy(false); } };
-  if (restoring) return <main className="login-shell"><p role="status">{notice || '正在检查登录状态…'}</p></main>;
-  if (!loggedIn) return <main className="login-shell"><form className="login-panel" onSubmit={event => { event.preventDefault(); const submitted = password; setPassword(''); void run(async () => { await api.login(username.trim(), submitted); setLoggedIn(true); await Promise.all([refresh(), loadSettings()]); }); }}>
-    <div className="brand"><span className="brand-mark"><ShieldCheck size={24}/></span>Codexer<span className="muted">管理后台</span></div><h1>管理员登录</h1><p className="muted">管理账号及访问权限。</p>
-    <label>账号<input value={username} onChange={event => setUsername(event.target.value)} autoComplete="username" required maxLength={100}/></label><label>密码<input type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" required maxLength={128}/></label>
-    {notice && <p role="alert" className="error">{notice}</p>}<button className="primary" disabled={busy || !username.trim() || !password}>{busy ? '正在登录…' : '登录'}</button>
-  </form></main>;
-  return <div className="admin-app"><header><div className="brand"><span className="brand-mark"><ShieldCheck size={22}/></span>Codexer<span className="muted">账号管理后台</span></div><button onClick={() => void run(async () => { await api.logout(); setLoggedIn(false); setAccounts([]); })}><LogOut size={16}/>退出登录</button></header><main>
-    <div className="page-head"><div><h1>账号管理</h1><p className="muted">Web、App 和 PC Agent 使用同一账号登录。</p></div><div className="actions"><button disabled={busy} onClick={() => void run(refresh)}><RefreshCw size={16}/>刷新</button><button className="primary" onClick={() => { setEditing('new'); setNewName(''); setNewPassword(''); }}><UserRoundPlus size={16}/>创建账号</button></div></div>
-    {notice && <p className="notice" role="status">{notice}</p>}
-    <div className="account-list" aria-label="账号列表"><div className="list-heading"><Users size={17}/>账号<span className="muted">{accounts.length} 个</span></div>{accounts.map(account => <article className="account-row" key={account.id}><div><strong>{account.name}</strong><span className="muted">{account.role === 'admin' ? '管理员' : '普通账号'}</span></div><span className={'badge ' + (account.revoked_at ? 'disabled' : '')}>{account.revoked_at ? '已禁用' : account.login_enabled ? '有效' : '待设置密码'}</span><div className="actions">{account.role !== 'admin' && !account.revoked_at && <><button disabled={busy} onClick={() => { setEditing(account); setNewPassword(''); }}>重置密码</button><button className="danger" disabled={busy} onClick={() => setDisabling(account)}>禁用</button></>}</div></article>)}{!accounts.length && <p className="empty">暂无账号</p>}</div>
-    <p className="footnote"><ShieldCheck size={15}/>管理员密码通过服务器命令 <code>sudo codexer password</code> 修改。</p>
-    <form className="login-settings" aria-label="登录超时设置" onSubmit={event => {
-      event.preventDefault();
-      const idleTimeoutMinutes = Number(timeout) * timeoutUnit;
-      if (!Number.isInteger(idleTimeoutMinutes) || idleTimeoutMinutes < 1 || idleTimeoutMinutes > MAX_IDLE_TIMEOUT_MINUTES) { setNotice('登录超时须为 1 分钟至 30 天。'); return; }
-      void run(async () => { showTimeout((await api.saveAuthSettings({idleTimeoutMinutes})).idleTimeoutMinutes); setNotice('登录超时已保存，对已有登录立即生效。'); });
-    }}><h2><Clock3 size={19}/>登录超时</h2><p className="muted">离开页面或 App 超过此时长后，需要重新登录。前台使用时自动续期，手机浏览器回收页面后也可恢复登录。</p><div className="timeout-fields"><label>超时时长<input type="number" min={1} max={MAX_IDLE_TIMEOUT_MINUTES / timeoutUnit} step={1} value={timeout} onChange={event => setTimeoutValue(event.target.value)} disabled={!settingsLoaded || busy} required/></label><label>单位<select aria-label="单位" value={timeoutUnit} onChange={event => setTimeoutUnit(Number(event.target.value))} disabled={!settingsLoaded || busy}><option value={1}>分钟</option><option value={60}>小时</option><option value={1440}>天</option></select></label><button className="primary" disabled={!settingsLoaded || busy}>保存超时设置</button></div><p className="muted">范围 1 分钟至 30 天，默认 7 天。适用于控制端及管理后台；修改会按最后在线时间重新计算现有登录。退出登录、改密或禁用账号仍立即失效。PC Agent 登录不受此设置影响。</p></form>
-  </main>
-  {editing && <div className="modal-backdrop"><form className="modal" role="dialog" aria-modal="true" aria-label={editing === 'new' ? '创建账号' : '重置密码'} onSubmit={event => { event.preventDefault(); const target = editing, name = newName.trim(), secret = newPassword; setNewPassword(''); void run(async () => { if (target === 'new') await api.createAccount(name, secret); else await api.resetPassword(target.id, secret); setEditing(null); await refresh(); setNotice(target === 'new' ? '账号已创建' : '密码已重置，该账号需要重新登录。'); }); }}><div className="modal-head"><h2>{editing === 'new' ? '创建账号' : `重置 ${editing.name} 的密码`}</h2><button type="button" aria-label="关闭" onClick={() => setEditing(null)}><X size={18}/></button></div>{editing === 'new' && <label>账号名称<input autoFocus value={newName} onChange={event => setNewName(event.target.value)} required maxLength={100}/></label>}<label>新密码<input type="password" autoFocus={editing !== 'new'} value={newPassword} onChange={event => setNewPassword(event.target.value)} minLength={12} maxLength={128} required autoComplete="new-password"/></label><p className="muted">密码为 12 至 128 个字符。重置密码会撤销该账号当前所有登录。</p>{notice && <p role="alert" className="error">{notice}</p>}<div className="actions"><button type="button" onClick={() => setEditing(null)}>取消</button><button className="primary" disabled={busy || newPassword.length < 12 || (editing === 'new' && !newName.trim())}>保存</button></div></form></div>}
-  {disabling && <div className="modal-backdrop"><div className="modal" role="dialog" aria-modal="true" aria-label="禁用账号"><h2>禁用 {disabling.name}？</h2><p>该账号的客户端和 PC Agent 将退出登录，现有数据保留。</p><div className="actions"><button onClick={() => setDisabling(null)}>取消</button><button className="danger" disabled={busy} onClick={() => { const target=disabling; void run(async () => { await api.disableAccount(target.id); setDisabling(null); await refresh(); setNotice('账号已禁用。'); }); }}>确认禁用</button></div></div></div>}
+    if(!loggedIn) return;void checkVersion();
+    const active=async () => {try{if(document.visibilityState!=='visible') return;await api.touchLogin();await refresh();}catch(error){if(error instanceof api.ApiError && error.status===401) setLoggedIn(false);}};
+    const changed=() => {if(document.visibilityState==='visible'){void active();void checkVersion();}else void api.touchLogin().catch(() => undefined);};
+    const leaving=() => {void api.touchLogin().catch(() => undefined);};
+    document.addEventListener('visibilitychange',changed);window.addEventListener('pageshow',changed);window.addEventListener('pagehide',leaving);
+    const timer=setInterval(() => void active(),30000), versionTimer=setInterval(() => {if(document.visibilityState==='visible') void checkVersion();},20*60000);
+    return () => {clearInterval(timer);clearInterval(versionTimer);document.removeEventListener('visibilitychange',changed);window.removeEventListener('pageshow',changed);window.removeEventListener('pagehide',leaving);};
+  },[loggedIn]);
+  useEffect(() => {if(!running(version) || !loggedIn) return;const timer=setInterval(() => {void api.versionInfo().then(setVersion).catch(() => undefined);},2500);return () => clearInterval(timer);},[version?.job?.phase,loggedIn]);
+  const run=async (action: () => Promise<void>) => {if(busy) return;setBusy(true);setNotice('');try{await action();}catch(error){setNotice(error instanceof Error?error.message:'操作失败');if(error instanceof api.ApiError && error.status===401) setLoggedIn(false);}finally{setBusy(false);}};
+  const navigate=(id: Page) => {setPage(id);setSidebar(false);setSearch('');setNotice('');};
+  const openCreate=(role: Role) => {setEditing({account:null,role});setNewName('');setNewPassword('');setNotice('');};
+  const me=admins.find(a => a.id===currentId), selected=pages.find(p => p.id===page)!;
+  const rows=(page==='admins'?admins:accounts).filter(a => a.name.toLowerCase().includes(search.toLowerCase()));
+  if(restoring) return <main className="login-shell"><p role="status">{notice || '正在检查登录状态…'}</p></main>;
+  if(!loggedIn) return <main className="login-shell"><form className="login-panel" onSubmit={e => {e.preventDefault();const submitted=password;setPassword('');void run(async () => {await api.login(username.trim(),submitted);await Promise.all([refresh(),loadSettings()]);setLoggedIn(true);});}}><div className="brand"><span className="brand-mark"><ShieldCheck size={25}/></span><strong>Codexer</strong></div><h1>管理员登录</h1><p className="muted">使用独立的后台管理员账号登录。</p><label>管理员账号<input autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} required maxLength={100}/></label><label>密码<input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required maxLength={128}/></label>{notice && <p className="error" role="alert">{notice}</p>}<button className="primary" disabled={busy || !username.trim() || !password}>{busy?'正在登录…':'登录管理后台'}</button><p className="login-footnote">控制端账号请在 <a href="/">Web 控制端</a> 登录</p></form></main>;
+  return <div className="admin-app">
+    {sidebar && <button className="sidebar-scrim" aria-label="关闭导航" onClick={() => setSidebar(false)}/>}
+    <aside className={'sidebar '+(sidebar?'open':'')}><div className="brand-area"><span className="brand-mark"><ShieldCheck size={27}/></span><div><strong>Codexer</strong><button className={'version-badge '+(version?.warning || !version?'unknown':version.hasUpdate?'available':'current')} aria-label="服务器版本与更新" aria-expanded={versionOpen} onClick={() => {setVersionOpen(!versionOpen);if(!version) void checkVersion();}}>v{version?.currentVersion || '…'}<span className="version-dot"/></button></div></div><nav aria-label="管理导航"><div className="nav-caption">管理控制台</div>{pages.map(p => <button key={p.id} className={page===p.id?'active':''} onClick={() => navigate(p.id)}><p.icon size={20}/>{p.title}{page===p.id && <ChevronRight size={15}/>}</button>)}</nav><div className="sidebar-bottom"><span className="tiny-dot"/>Relay &amp; Web<span className="muted">统一服务</span></div></aside>
+    <div className="workspace"><header className="topbar"><button className="icon-button mobile-menu" aria-label="打开导航" onClick={() => setSidebar(true)}><Menu size={22}/></button><div className="topbar-title"><h1>{selected.title==='仪表盘'?'管理控制台':selected.title}</h1><span className="muted">{selected.subtitle}</span></div><div className="admin-profile"><span className="avatar">{(me?.name || 'A').slice(0,2).toUpperCase()}</span><div><strong>{me?.name || '管理员'}</strong><span className="muted">后台管理员</span></div><button className="icon-button" aria-label="退出登录" title="退出登录" disabled={busy} onClick={() => void run(async () => {await api.logout();setLoggedIn(false);setVersion(null);setAccounts([]);})}><LogOut size={18}/></button></div></header>
+    <main className="content">{notice && <div className="notice" role="status">{notice}<button className="icon-button" aria-label="关闭提示" onClick={() => setNotice('')}><X size={16}/></button></div>}{running(version) && <div className="notice updating" role="status"><RefreshCw size={17} className="spinning"/>{phases[version!.job!.phase]}</div>}
+    {page==='overview' && <><div className="stats-grid">{[
+      {label:'控制端账号',value:stats?.users,detail:`${stats?.enabledUsers ?? '—'} 个启用`,icon:Users,color:'blue'},
+      {label:'后台管理员',value:stats?.admins,detail:`${stats?.enabledAdmins ?? '—'} 个启用`,icon:ShieldCheck,color:'purple'},
+      {label:'在线 PC',value:stats?.onlineDevices,detail:'当前连接的 PC Agent',icon:Monitor,color:'green'},
+      {label:'在线控制连接',value:stats?.onlineClients,detail:'当前 WebSocket 连接',icon:Activity,color:'amber'},
+    ].map(item => <article className="stat-card" key={item.label}><span className={'stat-icon '+item.color}><item.icon size={24}/></span><div><span className="muted">{item.label}</span><strong>{item.value ?? '—'}</strong><small>{item.detail}</small></div></article>)}</div><section className="card"><h2>快捷操作</h2><div className="quick-grid">{[
+      {page:'users' as const,title:'控制端账号管理',text:'创建账号，连接自己的设备',icon:UserRoundPlus,color:'blue'},
+      {page:'admins' as const,title:'后台访问权限',text:'管理员与控制端独立登录',icon:ShieldCheck,color:'purple'},
+      {page:'settings' as const,title:'检查服务器更新',text:'从 GitHub Release 更新统一服务',icon:Download,color:'green'},
+    ].map(item => <button key={item.page} onClick={() => {navigate(item.page);if(item.page==='settings') setVersionOpen(true);}}><span className={'stat-icon '+item.color}><item.icon size={22}/></span><div><strong>{item.title}</strong><span className="muted">{item.text}</span></div><ArrowRight size={18}/></button>)}</div></section><div className="details-grid"><section className="card"><h2>服务状态</h2><dl><div><dt>Relay 服务</dt><dd className="positive"><span className="tiny-dot"/>运行中</dd></div><div><dt>当前版本</dt><dd>v{version?.currentVersion || '…'}</dd></div><div><dt>运行时长</dt><dd>{stats?`${Math.floor(stats.uptime/3600)} 小时 ${Math.floor(stats.uptime/60)%60} 分钟`:'—'}</dd></div><div><dt>服务器更新方式</dt><dd>{version?.supported?'后台一键更新':'外部部署更新'}</dd></div></dl></section><section className="card"><h2>登录与权限</h2><dl><div><dt>离线登录保留时长</dt><dd>{savedMinutes%1440===0?`${savedMinutes/1440} 天`:`${savedMinutes} 分钟`}</dd></div><div><dt>后台管理员</dt><dd>仅管理账号与服务器</dd></div><div><dt>控制端账号</dt><dd>仅访问自己的 PC</dd></div><div><dt>无人值守更新</dt><dd>{version?.autoInstall?'已开启':'已关闭'}</dd></div></dl></section></div></>}
+    {(page==='users' || page==='admins') && <><div className="page-head"><div><h2>{page==='admins'?'后台管理员':'控制端账号'}</h2><p className="muted">{page==='admins'?'后台管理员不能登录控制端或 PC Agent。同名控制端账号拥有独立密码。':'这些账号用于 Web、App 和 PC Agent，无法登录管理后台。'}</p></div><div className="actions"><button disabled={busy} onClick={() => void run(refresh)}><RefreshCw size={16}/>刷新</button><button className="primary" onClick={() => openCreate(page==='admins'?'admin':'user')}><UserRoundPlus size={17}/>{page==='admins'?'添加管理员':'创建账号'}</button></div></div><section className="card account-card"><div className="table-toolbar"><span>{page==='admins'?admins.length:accounts.length} 个账号</span><label className="search"><Search size={16}/><input aria-label="搜索账号" placeholder="搜索账号名称" value={search} onChange={e => setSearch(e.target.value)}/></label></div><div className="table-scroll"><table><thead><tr><th>账号名称</th><th>账号类型</th><th>状态</th><th>创建时间</th><th className="align-right">操作</th></tr></thead><tbody>{rows.map(account => <tr key={account.id}><td><strong>{account.name}</strong>{account.id===currentId && <span className="self-label">当前账号</span>}</td><td className="muted">{account.role==='admin'?'后台管理员':'控制端账号'}</td><td><span className={'badge '+(account.revoked_at?'disabled':'')}>{account.revoked_at?'已禁用':account.login_enabled?'启用':'待设置密码'}</span></td><td className="muted">{new Date(Number(account.created_at)).toLocaleDateString('zh-CN')}</td><td><div className="row-actions">{!account.revoked_at && <><button disabled={busy} onClick={() => {setEditing({account,role:account.role});setNewPassword('');setNotice('');}}>重置密码</button><button className="danger" disabled={busy || account.id===currentId || account.role==='admin' && (stats?.enabledAdmins ?? 0)<=1} onClick={() => setDisabling(account)}>禁用</button></>}</div></td></tr>)}</tbody></table>{!rows.length && <p className="empty">{search?'没有匹配的账号':'暂无账号'}</p>}</div></section><p className="footnote"><ShieldCheck size={15}/>{page==='admins'?'不能禁用当前账号或最后一位有效管理员。重置自己的密码后需要重新登录。':'重置密码或禁用账号会立即撤销所有登录，保留设备和会话数据。'}</p></>}
+    {page==='settings' && <><form className="card login-settings" aria-label="登录超时设置" onSubmit={e => {e.preventDefault();const idleTimeoutMinutes=Number(timeout)*timeoutUnit;if(!Number.isInteger(idleTimeoutMinutes) || idleTimeoutMinutes<1 || idleTimeoutMinutes>MAX_IDLE_TIMEOUT_MINUTES){setNotice('登录超时须为 1 分钟至 30 天。');return;}void run(async () => {showTimeout((await api.saveAuthSettings({idleTimeoutMinutes})).idleTimeoutMinutes);setNotice('登录超时已保存，对已有登录立即生效。');});}}><h2><Clock3 size={20}/>登录超时</h2><p className="muted">离开页面或 App 超过此时长后，需要重新登录。前台使用自动续期，手机浏览器回收页面后也可恢复登录。</p><div className="timeout-fields"><label>超时时长<input type="number" min={1} max={MAX_IDLE_TIMEOUT_MINUTES/timeoutUnit} step={1} value={timeout} onChange={e => setTimeoutValue(e.target.value)} disabled={!settingsLoaded || busy} required/></label><label>单位<select aria-label="单位" value={timeoutUnit} onChange={e => setTimeoutUnit(Number(e.target.value))} disabled={busy}><option value={1}>分钟</option><option value={60}>小时</option><option value={1440}>天</option></select></label><button className="primary" disabled={!settingsLoaded || busy}>保存设置</button></div><p className="footnote">范围 1 分钟至 30 天，默认 7 天。适用于控制端和管理后台；PC Agent 登录不受此设置影响。</p></form><section className="card update-settings"><h2><Download size={20}/>服务器更新</h2><div className="setting-row"><div><strong>自动安装稳定版本</strong><p className="muted">每 6 小时检查 GitHub Release，发现新版本后自动安装，包含 Relay、Web 控制端和管理后台。更新时连接会短暂中断。</p></div><label className="switch-label"><input type="checkbox" role="switch" aria-label="自动安装稳定版本" checked={version?.autoInstall ?? false} disabled={busy || !version?.supported} onChange={e => {const enabled=e.target.checked;void run(async () => {await api.updateSettings(enabled);await checkVersion();setNotice(enabled?'自动安装已开启，下次定时检查时执行。':'自动安装已关闭。');});}}/><span className="switch"/></label></div><div className="update-summary"><span className="muted">{version?.supported?'更新失败保留原版本；启动检查失败自动回退。':'此部署未启用更新服务。Linux systemd 安装请重新运行新版安装器；Docker 或源码部署请在外部更新。'}</span><button onClick={() => setVersionOpen(true)}>版本与更新<ChevronRight size={16}/></button></div></section></>}
+    </main><footer>Codexer 管理控制台<span>Relay · Web · Admin</span></footer></div>
+    {versionOpen && <VersionPopover version={version} checking={checking} busy={busy} close={() => setVersionOpen(false)} check={() => void checkVersion(true)} update={() => setUpdateConfirm(true)}/>}
+    {editing && <Modal title={editing.account?`重置 ${editing.account.name} 的密码`:editing.role==='admin'?'添加后台管理员':'创建控制端账号'} close={() => {if(!busy) setEditing(null);}}><form onSubmit={e => {e.preventDefault();const target=editing,secret=newPassword;setNewPassword('');void run(async () => {if(target.account) await api.resetPassword(target.account.id,secret,target.role);else await api.createAccount(newName.trim(),secret,target.role);setEditing(null);if(target.account?.id===currentId){api.clearSession();setLoggedIn(false);return;}await refresh();setNotice(target.account?'密码已重置，旧登录已失效。':'账号已创建。');});}}>{!editing.account && <label>账号名称<input value={newName} onChange={e => setNewName(e.target.value)} required maxLength={100}/></label>}<label>新密码<input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required minLength={12} maxLength={128} autoComplete="new-password"/></label><p className="muted">密码为 12 至 128 个字符。{editing.role==='admin'?'该账号仅能登录管理后台。':'该账号用于控制端和 PC Agent。'}</p>{notice && <p className="error" role="alert">{notice}</p>}<div className="actions"><button type="button" disabled={busy} onClick={() => setEditing(null)}>取消</button><button className="primary" disabled={busy || newPassword.length<12 || !editing.account && !newName.trim()}>保存</button></div></form></Modal>}
+    {disabling && <Modal title={`禁用 ${disabling.name}？`} close={() => {if(!busy) setDisabling(null);}}><p>立即撤销该账号的所有登录，现有数据保留。</p>{notice && <p role="alert" className="error">{notice}</p>}<div className="actions"><button disabled={busy} onClick={() => setDisabling(null)}>取消</button><button className="danger" disabled={busy} onClick={() => {const target=disabling;void run(async () => {await api.disableAccount(target.id,target.role);setDisabling(null);await refresh();setNotice('账号已禁用。');});}}>确认禁用</button></div></Modal>}
+    {updateConfirm && <Modal title="更新服务器？" close={() => {if(!busy) setUpdateConfirm(false);}}><p>即将更新至 v{version?.latestVersion}，包括 Relay、Web 控制端和管理后台。服务器会短暂重启，客户端随后自动重连。</p><p className="muted">现有配置和数据保留。启动检查失败会回退程序版本。</p>{notice && <p className="error" role="alert">{notice}</p>}<div className="actions"><button disabled={busy} onClick={() => setUpdateConfirm(false)}>取消</button><button className="primary" disabled={busy} onClick={() => void run(async () => {const job=await api.updateServer(version!.release!.tag);setVersion(v => v?{...v,job}:v);setUpdateConfirm(false);})}>确认更新</button></div></Modal>}
   </div>;
 }
 createRoot(document.getElementById('root')!).render(<App/>);

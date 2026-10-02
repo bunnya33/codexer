@@ -12,7 +12,7 @@ let lastError = "service-unavailable";
 let verified = false;
 for (let attempt = 0; attempt < 40; attempt++) {
   try {
-    const response = await fetch(`http://127.0.0.1:${port}/v1/auth/login`, {
+    const response = await fetch(`http://127.0.0.1:${port}/v1/admin/auth/login`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(account),
       signal: AbortSignal.timeout(1500),
     });
@@ -30,6 +30,17 @@ for (let attempt = 0; attempt < 40; attempt++) {
       console.log("Relay、控制端、管理后台与管理员认证检查通过。");
       verified = true;
       break;
+    }
+    if (response.status === 401) {
+      const health = await fetch(`http://127.0.0.1:${port}/health`, {signal: AbortSignal.timeout(1500)});
+      if (health.ok && (await health.json() as {ok?: boolean}).ok) {
+        for (const path of ['/', '/admin/']) {
+          const page = await fetch(`http://127.0.0.1:${port}${path}`, {signal: AbortSignal.timeout(1500)});
+          if (!page.ok || !page.headers.get('content-type')?.includes('text/html')) throw new Error('web-assets-unavailable');
+        }
+        console.log('Relay 与网页检查通过；配置中的管理员密码已不同，请使用后台当前密码登录。');
+        verified = true; break;
+      }
     }
     lastError = `HTTP ${response.status}`;
   } catch (error) { lastError = error instanceof Error ? error.message : String(error); }

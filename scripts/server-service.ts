@@ -26,7 +26,7 @@ UMask=0077
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/codexer
+ReadWritePaths=/var/lib/codexer /var/lib/codexer-updater/inbox
 
 [Install]
 WantedBy=multi-user.target

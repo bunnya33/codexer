@@ -23,7 +23,9 @@ docker compose --env-file infra/.env -f infra/compose.yaml logs --tail=100 relay
 
 ## 状态和账号恢复
 
-systemd：`sudo codexer status`、`sudo codexer logs`、`sudo codexer restart`；浏览器账号管理见 [Admin](admin.md)。管理员密码使用 `sudo codexer password`，同时更新数据库与受限配置。
+systemd：`sudo codexer status`、`sudo codexer logs`、`sudo codexer restart`；浏览器账号管理见 [Admin](admin.md)。管理员密码使用 `sudo codexer password`，同时更新数据库与受限配置。若曾在后台改密，CLI 提示时输入当前管理员密码。后台与控制端使用独立账号；现有管理员用于 PC 时需创建控制端账号后重新登录。
+
+安装器管理的服务器支持后台稳定 Release 更新，自动安装默认关闭，见 [服务器更新](server-update.md)。PGlite 停服备份期间先 `sudo systemctl stop codexer-updater.timer`，确认没有更新任务正在执行，再停止 Relay；备份后启动 Relay 和 timer，避免更新与复制数据库重叠。
 
 Docker 的命令行账号管理：
 

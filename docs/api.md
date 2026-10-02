@@ -4,7 +4,7 @@ Base URL 是 Relay 的 HTTP 或 HTTPS 地址；本机开发默认为 `http://127
 
 ## 认证和错误
 
-Web、App 和 PC Agent 均通过账号密码登录。除健康与登录接口外，接口使用登录后程序自动保存的 `Authorization: Bearer <session>` 会话凭据，用户无需复制令牌。每个账号只能访问同账号登录的 PC；管理员的账号管理页只管理账号，管理员身份不能跨账号访问 PC。跨账号设备请求返回 404。
+Web、App 和 PC Agent 均通过控制端账号密码登录；后台管理员使用独立入口 `/v1/admin/auth/login`。两类账号可同名，密码和权限独立。除健康与登录接口外，接口使用 `Authorization: Bearer <session>` 会话凭据。控制端只能访问同账号 PC；管理员不能登录 PC Agent、申请控制 WebSocket ticket 或控制任何设备。跨账号设备请求返回 404。
 
 密码使用加盐 scrypt 哈希。控制端/后台登录按前台续期计算空闲超时，管理员可设为 1–43200 分钟，默认 10080 分钟（7 天）；Agent 仍为 7 天固定有效期。改密和禁用账号会撤销该账号所有会话；退出撤销当前会话。客户端和 Agent 会话相互隔离，Agent 会话只允许访问其 PC。WebSocket 使用绑定当前会话的 60 秒一次性 ticket，连接后 5 秒内发送 client.authenticate。PC WebSocket 使用 Agent 登录会话和 X-Device-Id。登录接口有 IP 与账号尝试限速，公网必须使用 HTTPS/WSS。
 
@@ -14,8 +14,9 @@ HTTP 错误体是 `{ "error": "code" }`。常见状态：`400 invalid-request`�
 
 | 方法 | 路由 | 请求 | 响应 |
 | --- | --- | --- | --- |
-| GET | `/health` | 无 | `{ok:true, protocolVersion:1}` |
-| POST | `/v1/auth/login` | `{username,password}` | `{session,expiresAt,role,userId,username}` |
+| GET | `/health` | 无 | `{ok:true, protocolVersion:1,version}` |
+| POST | `/v1/auth/login` | 控制端 `{username,password}` | `{session,expiresAt,role:'user',userId,username}` |
+| POST | `/v1/admin/auth/login` | 管理员 `{username,password}` | `{session,expiresAt,role:'admin',userId,username}` |
 | POST | `/v1/agents/login` | `{username,password,installationId,name,platform}` | `{session,expiresAt,deviceId,userId}`；自动归属登录账号 |
 | POST | `/v1/auth/logout` | 当前客户端会话 | `{loggedOut:true}` |
 | POST | `/v1/auth/active` | 当前控制端/后台会话，前台时每 30 秒及离开时调用 | `{expiresAt,idleTimeoutMinutes}`；已过期不续期，Agent 会话不可使用 |
@@ -36,7 +37,23 @@ HTTP 错误体是 `{ "error": "code" }`。常见状态：`400 invalid-request`�
 | POST | `/v1/devices/:deviceId/commands` | `RemoteCommand` | `command.accepted` 或 `command.result` |
 | GET | `/v1/devices/:deviceId/commands/:commandId` | 无 | `{status,result}` |
 
-账号名称忽略大小写且唯一；密码为 12–128 字符。installationId 为 PC 本地 UUID，同一账号下重新登录保持 deviceId，并撤销该安装的旧会话。配对、令牌重置、设备分配接口已移除。旧用户和内容保留，旧账号需要管理员设置密码后重新登录；无账号归属的历史设备不开放给任何客户端。
+账号名称在同一类型中忽略大小写且唯一；密码为 12–128 字符。`/v1/users` 系列只操作控制端账号，不能重置管理员密码。installationId 为 PC 本地 UUID，同一账号下重新登录保持 deviceId，并撤销该安装的旧会话。旧用户和内容保留；管理员旧设备仍保留，但不可继续通过管理员身份控制，需要新建控制端账号后重新登录 PC。
+
+### 管理员与服务器更新
+
+以下接口只接受后台管理员会话：
+
+| 方法 | 路由 | 行为 |
+| --- | --- | --- |
+| GET/POST | `/v1/admin/accounts` | 列出/创建管理员；GET 返回 `{users,currentUserId}`，POST 接受 `{username,password}` |
+| PUT | `/v1/admin/accounts/:userId/password` | `{password}`，仅重置管理员；撤销旧登录 |
+| DELETE | `/v1/admin/accounts/:userId` | 禁用管理员；当前账号或最后一位有效管理员返回 `409 admin-disable-protected` |
+| GET | `/v1/admin/overview` | 账号总量/启用量、在线 PC、在线控制连接及进程运行秒数；不暴露会话内容 |
+| GET | `/v1/admin/system/version` | 可选 `?force=true`；返回 `currentVersion,latestVersion,hasUpdate,checkedAt,warning,release,supported,autoInstall,job` |
+| POST | `/v1/admin/system/update` | `{tag:'vX.Y.Z'}`；重新检查固定仓库最新稳定 Release，排队后返回 `UpdateJob`；不接受 URL 或命令 |
+| PUT | `/v1/admin/system/update-settings` | `{autoInstall:boolean}`；仅安装器管理的部署可开启 |
+
+`UpdateJob` 包含 `id,tag,phase,updatedAt,code?`。阶段为 queued/downloading/verifying/installing/restarting/succeeded/failed/rolled-back。重复请求返回 `409 update-in-progress`，过期版本返回 `409 update-not-current`，未安装更新服务返回 `409 updater-not-installed`。检查失败会保留缓存版本并设置 warning，不能据此安装。详见 [服务器更新](server-update.md)。
 
 登录响应的 `expiresAt` 为当次到期时间；调用 `/v1/auth/active` 后更新。其他 REST 请求、设备数据、WebSocket ping/pong 和票据申请只检查有效性，不续期。设置持久化于 Relay 数据库；旧会话升级时从原有到期时间减去 7 天推算最后活动时间，随后由前台续期更新。缩短超时后，已到期的连接由后续请求/心跳检查关闭。
 

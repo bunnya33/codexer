@@ -25,8 +25,8 @@ export async function bootstrapAdmin(store: RelayStore, path = adminAccountPath(
   }
   await store.createUser(account.username, account.password, "admin");
 }
-export async function loginAccount(relayUrl: string, account: AdminAccount): Promise<string> {
-  const response = await fetch(new URL("/v1/auth/login", relayUrl), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(account), signal: AbortSignal.timeout(10000) });
+export async function loginAccount(relayUrl: string, account: AdminAccount, role: "user" | "admin" = "user"): Promise<string> {
+  const response = await fetch(new URL(role === "admin" ? "/v1/admin/auth/login" : "/v1/auth/login", relayUrl), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(account), signal: AbortSignal.timeout(10000) });
   if (!response.ok) throw new Error(`account-login-failed: HTTP ${response.status}`);
   return (await response.json() as { session: string }).session;
 }

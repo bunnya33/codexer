@@ -42,7 +42,7 @@ Admin 使用 React 而非 React Native：它面向浏览器管理员，与跨平
 | `apps/web/dist` | 控制端的生成结果，不单独维护 UI |
 | `apps/desktop` | Electron 主进程、preload、worker、React 控制台、打包配置 |
 | `apps/pc-agent` | 本机运行时、状态扫描、命令和用量日志 |
-| `apps/admin` | 独立账号管理网页 |
+| `apps/admin` | 侧栏控制台、控制端账号、后台管理员、登录策略和服务器更新 |
 | `apps/relay` | Fastify API/WebSocket/静态服务及数据库 |
 | `packages/protocol` | Zod 协议 schema、状态与命令类型 |
 | `packages/codex-adapter` | 桌面 IPC、App Server、历史、模型、图片和程序发现 |
@@ -58,3 +58,5 @@ Admin 使用 React 而非 React Native：它面向浏览器管理员，与跨平
 断开立即使旧 socket 回调失效、清除重连/心跳，拒绝新指令和尚未执行的 socket 队列，暂停待发送消息的自动启动。已交给 Codex 的操作不做撤回。重新连接保留 Agent epoch 与本机执行状态，恢复待发送队列。退出整个连接器停止 Agent 和其拥有的 App Server；有活动任务时先提示用户。
 
 官方桌面 IPC 与 App Server 属于实验性兼容层。Windows 已有本机验证记录，macOS IPC 路径与官方版本兼容性需要实机确认，见 [macOS](mac.md)。
+
+管理账号与控制账号使用独立登录入口和用户名命名空间。管理员不拥有任何设备控制权。安装器还部署一个独立 systemd 更新服务：Relay 以 codexer 用户运行，只能写更新请求；root 所有的更新器重新核对固定 GitHub Release、校验服务器包并切换版本。详见 [服务器更新](server-update.md)。

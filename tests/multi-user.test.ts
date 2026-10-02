@@ -53,14 +53,10 @@ it("shows only same-account PCs, blocks foreign data and commands, and gives adm
     const list = async (session: string) => (await f.app.inject({ url: "/v1/devices", headers: auth(session) })).json().devices;
     expect((await list(alice.session)).map((d: { id: string }) => d.id)).toEqual([a1.id, a2.id]);
     expect(await list(bob.session)).toMatchObject([{ id: b.id, online: true }]);
-    expect((await f.app.inject({ url: "/v1/devices", headers: f.admin.headers })).json().devices).toEqual([]);
-    expect((await f.app.inject({ method: "POST", url: "/v1/ws/tickets", headers: f.admin.headers })).statusCode).toBe(200);
+    expect((await f.app.inject({ url: "/v1/devices", headers: f.admin.headers })).statusCode).toBe(403);
+    expect((await f.app.inject({ method: "POST", url: "/v1/ws/tickets", headers: f.admin.headers })).statusCode).toBe(403);
     expect((await f.app.inject({ url: "/v1/users", headers: auth(alice.session) })).statusCode).toBe(403);
-    const ownAdminPC = await f.agent("admin");
-    expect(await list(f.admin.session)).toMatchObject([{ id: ownAdminPC.id }]);
-    const adminClient = await f.client(f.admin.session);
-    adminClient.send({ type: "client.subscribe", deviceId: ownAdminPC.id });
-    await adminClient.wait(message => message.type === "sync.ready");
+    expect((await f.app.inject({method:'POST',url:'/v1/agents/login',payload:{username:'admin',password:testPassword,installationId:randomUUID(),name:'PC',platform:'win32'}})).statusCode).toBe(401);
     const root = `/v1/devices/${b.id}`;
     for (const url of [`${root}/snapshot`, `${root}/catalog`, `${root}/threads/thread-test/turns`, `${root}/commands/${randomUUID()}`, `${root}/threads/thread-test/images/${"b".repeat(64)}`]) {
       expect((await f.app.inject({ url, headers: auth(alice.session) })).statusCode, url).toBe(404);

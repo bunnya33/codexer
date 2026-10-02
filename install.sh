@@ -240,10 +240,48 @@ activate() {
   rm -f "$command_file" || return 1
   printf '#!/usr/bin/env bash\n# Managed by Codexer installer\nexec %q /opt/codexer/current/dist/scripts/server-menu.js "$@"\n' "$node_path" >"$command_file" || return 1
   chmod 0755 "$command_file" || return 1
+  # Privileged updater code and status stay outside Relay-writable directories.
+  install -d -o root -g root -m 0755 /var/lib/codexer-updater /usr/local/lib/codexer-updater/scripts /usr/local/lib/codexer-updater/packages/shared/src || return 1
+  install -d -o codexer -g codexer -m 0700 /var/lib/codexer-updater/inbox || return 1
+  install -o root -g root -m 0644 "$release/dist/scripts/server-updater.js" /usr/local/lib/codexer-updater/scripts/server-updater.mjs || return 1
+  install -o root -g root -m 0644 "$release/dist/packages/shared/src/server-update.js" /usr/local/lib/codexer-updater/packages/shared/src/server-update.js || return 1
+  printf '{"type":"module"}\n' >/usr/local/lib/codexer-updater/package.json || return 1
+  cat >/etc/systemd/system/codexer-updater.service <<UNIT
+# Managed by Codexer installer
+[Unit]
+Description=Codexer verified release updater
+Wants=network-online.target
+After=network-online.target
+[Service]
+Type=oneshot
+ExecStart=$(command -v flock) -n /run/codexer-install.lock $node_path /usr/local/lib/codexer-updater/scripts/server-updater.mjs
+TimeoutStartSec=900
+UMask=0022
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/codexer /var/lib/codexer-updater /run
+UNIT
+  cat >/etc/systemd/system/codexer-updater.timer <<'UNIT'
+# Managed by Codexer installer
+[Unit]
+Description=Process Codexer update requests
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=30s
+AccuracySec=5s
+Unit=codexer-updater.service
+[Install]
+WantedBy=timers.target
+UNIT
+  chmod 0644 /etc/systemd/system/codexer-updater.service /etc/systemd/system/codexer-updater.timer || return 1
   systemctl daemon-reload || return 1
   systemctl enable codexer-relay.service || return 1
   systemctl restart codexer-relay.service || return 1
   "$node_path" "$release/dist/scripts/install-health.js" "$config_file" || return 1
+  # Initialize capability without taking the installer lock again. The timer takes it on subsequent runs.
+  "$node_path" /usr/local/lib/codexer-updater/scripts/server-updater.mjs || return 1
+  systemctl enable --now codexer-updater.timer || return 1
 }
 if ! activate; then fail "未通过服务与管理员认证检查；查看 journalctl -u codexer-relay.service -n 100"; fi
 migration_active=0
@@ -255,6 +293,7 @@ new_account=$(node -e 'const a=require(process.argv[1]).newAccount;process.stdou
 echo "Codexer 已安装：$public_url"
 echo "账号管理后台：${public_url%/}/admin；Web 控制端：${public_url%/}/"
 echo "管理菜单：sudo codexer；状态：sudo codexer status；日志：sudo codexer logs"
+echo "服务器更新：后台左上角版本入口；自动安装默认关闭；更新服务日志：journalctl -u codexer-updater.service"
 echo "数据目录：$data_dir；配置文件：$config_file"
 [[ -z $new_account ]] || echo "首次管理员账号密码（请保存）：$new_account"
 echo "请在服务器防火墙和云安全组放行 TCP $port；地址变更后同步修改 PC Agent 的服务器地址。"
