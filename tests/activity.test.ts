@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activityLabel, activitySections, buildActivityBlocks, completedTurnBlocks, executionItemLabel, executionItemSummary, executionSectionSummary, formatDuration, itemDuration, mergeLiveTurn } from "../packages/client-shared/src/activity.js";
+import { activityLabel, activitySections, buildActivityBlocks, completedTurnBlocks, executionItemLabel, executionItemSummary, executionSectionSummary, formatDuration, itemDuration, mergeLiveTurn, mergeTurnHistory } from "../packages/client-shared/src/activity.js";
 import type { ActivityBlock } from "../packages/client-shared/src/activity.js";
 import { desktopTurns, normalizeHistoryTurn, normalizeThread, withItemTimings } from "../packages/codex-adapter/src/normalize.js";
 import { historyTurnSchema, threadSchema } from "../packages/protocol/src/index.js";
@@ -10,6 +10,59 @@ import { rawThread } from "./helpers.js";
 const item = (id: string, type: string, rest: Partial<RemoteItem> = {}): RemoteItem => ({ id, type, truncated: false, ...rest });
 const turn = (items: RemoteItem[], rest: Partial<HistoryTurn> = {}): HistoryTurn => ({ id: "turn", status: "completed", items, truncated: false, ...rest });
 const groups = (value: HistoryTurn, active = false) => buildActivityBlocks(value, active).filter((block): block is ActivityBlock => block.kind === "activity");
+
+describe('refresh history identity and order', () => {
+  it('merges accepted desktop steering with its persisted message once, in recorded order', () => {
+    const prompt = {id: 'prompt', type: 'userMessage', content: [{type: 'text', text: 'Initial request'}]};
+    const before = {id: 'before', type: 'agentMessage', phase: 'commentary', text: 'Before steering'};
+    const after = Array.from({length: 30}, (_, index) => ({id: `work-${index}`, type: 'commandExecution', command: 'Synthetic command'}));
+    const canonical = {id: 'server-user', type: 'userMessage', clientId: 'client-request', content: [{type: 'text', text: 'Change direction'}]};
+    const state = rawThread();
+    Object.assign(desktopTurns(state)[0]!, {id: 'turn', turnId: 'turn', items: [prompt, before,
+      {id: 'desktop-local', type: 'steeringUserMessage', status: 'accepted', serverUserMessageId: canonical.id, serverClientUserMessageId: canonical.clientId, input: canonical.content},
+      ...after, {id: canonical.id, type: 'steered'}], itemTimingsById: {'desktop-local': {startedAtMs: 2000, completedAtMs: 2000}}});
+    const history = normalizeHistoryTurn({id: 'turn', status: 'inProgress', items: [prompt, before, canonical, ...after]});
+    const live = normalizeThread(state, 1).turns[0]!;
+    const merged = mergeLiveTurn(history, live);
+    expect(live.items.find(entry => entry.text === 'Change direction')).toMatchObject({id: canonical.id, startedAtMs: 2000});
+    expect(live.items.some(entry => entry.type === 'steered')).toBe(false);
+    expect(merged.items.map(entry => entry.id)).toEqual(['prompt', 'before', canonical.id, ...after.map(entry => entry.id)]);
+    expect(merged.items.filter(entry => entry.text === 'Change direction')).toHaveLength(1);
+    expect(mergeLiveTurn(merged, live).items.map(entry => entry.id)).toEqual(merged.items.map(entry => entry.id));
+  });
+
+  it('uses explicit client identity while a desktop pending entry overlaps the persisted item', () => {
+    const content = [{type: 'text', text: 'Same text'}];
+    const value = normalizeHistoryTurn({id: 'turn', items: [
+      {id: 'pending-local', type: 'steeringUserMessage', status: 'pending', clientUserMessageId: 'client-one', input: content},
+      {id: 'command', type: 'commandExecution', command: 'Synthetic command'},
+      {id: 'server-one', type: 'userMessage', clientId: 'client-one', content},
+      {id: 'server-two', type: 'userMessage', clientId: 'client-two', content},
+    ]});
+    expect(value.items.map(entry => entry.id)).toEqual(['server-one', 'command', 'server-two']);
+    expect(value.items.filter(entry => entry.text === 'Same text')).toHaveLength(2);
+  });
+
+  it('preserves intentional repeated messages and pending entries without an identity match', () => {
+    const input = [{type: 'text', text: 'Continue'}];
+    const value = normalizeHistoryTurn({id: 'turn', items: [
+      {id: 'one', type: 'userMessage', content: input},
+      {id: 'pending', type: 'steeringUserMessage', status: 'pending', input},
+      {id: 'two', type: 'userMessage', content: input},
+    ]});
+    expect(value.items.map(entry => entry.id)).toEqual(['one', 'pending', 'two']);
+  });
+
+  it('inserts overlapping latest and earlier pages next to shared turn boundaries', () => {
+    const make = (id: string) => turn([item(`user-${id}`, 'userMessage')], {id});
+    const a = make('a'), b = make('b'), c = make('c'), d = make('d');
+    expect(mergeTurnHistory([a, c], [a, b, c, d]).map(entry => entry.id)).toEqual(['a', 'b', 'c', 'd']);
+    expect(mergeTurnHistory([c, d], [a, b, c], 'earlier').map(entry => entry.id)).toEqual(['a', 'b', 'c', 'd']);
+    expect(mergeTurnHistory([c, d], [a, b], 'earlier').map(entry => entry.id)).toEqual(['a', 'b', 'c', 'd']);
+    expect(mergeTurnHistory([a, b], [c, d]).map(entry => entry.id)).toEqual(['a', 'b', 'c', 'd']);
+    expect(mergeTurnHistory([b, c], [a, b]).map(entry => entry.id)).toEqual(['a', 'b', 'c']);
+  });
+});
 
 describe('collapsed execution records', () => {
   it('uses the current public summary and shows the actual command on one line', () => {

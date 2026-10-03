@@ -72,6 +72,20 @@ fi
 node_path=$(readlink -f "$(command -v node)")
 [[ $node_path == /* && $node_path != *' '* ]] || fail "Node.js 路径不适用于 systemd：$node_path"
 [[ $node_path != /root/* && $node_path != /home/* ]] || fail "Node.js 安装在用户主目录，受 systemd 目录保护限制；请安装系统级 Node.js 24"
+if ! command -v git >/dev/null; then
+  if command -v apt-get >/dev/null; then apt-get update && apt-get install -y git
+  elif command -v dnf >/dev/null; then dnf install -y git
+  else fail "Git tag 更新需要 git；请先安装 git"; fi
+fi
+command -v systemd-run >/dev/null || fail "Git 构建需要 systemd-run"
+if ! getent passwd codexer-builder >/dev/null; then
+  useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin codexer-builder
+fi
+builder_uid=$(id -u codexer-builder)
+builder_gid=$(id -g codexer-builder)
+[[ $builder_uid -gt 0 && $builder_gid -gt 0 && $(id -gn codexer-builder) == codexer-builder ]] \
+  || fail "codexer-builder 必须是非 root 的独立构建账号及组"
+[[ $(id -G codexer-builder) == "$builder_gid" ]] || fail "codexer-builder 不应加入其他系统组"
 
 existing_url=
 if [[ -f $config_file ]]; then
@@ -249,13 +263,13 @@ activate() {
   cat >/etc/systemd/system/codexer-updater.service <<UNIT
 # Managed by Codexer installer
 [Unit]
-Description=Codexer verified release updater
+Description=Codexer release and Git tag updater
 Wants=network-online.target
 After=network-online.target
 [Service]
 Type=oneshot
 ExecStart=$(command -v flock) -n /run/codexer-install.lock $node_path /usr/local/lib/codexer-updater/scripts/server-updater.mjs
-TimeoutStartSec=900
+TimeoutStartSec=3600
 UMask=0022
 NoNewPrivileges=true
 ProtectHome=true
@@ -293,7 +307,7 @@ new_account=$(node -e 'const a=require(process.argv[1]).newAccount;process.stdou
 echo "Codexer 已安装：$public_url"
 echo "账号管理后台：${public_url%/}/admin；Web 控制端：${public_url%/}/"
 echo "管理菜单：sudo codexer；状态：sudo codexer status；日志：sudo codexer logs"
-echo "服务器更新：后台左上角版本入口；自动安装默认关闭；更新服务日志：journalctl -u codexer-updater.service"
+echo "服务器更新：后台左上角版本入口；自动准备默认关闭，重启始终需要单独确认；更新服务日志：journalctl -u codexer-updater.service"
 echo "数据目录：$data_dir；配置文件：$config_file"
 [[ -z $new_account ]] || echo "首次管理员账号密码（请保存）：$new_account"
 echo "请在服务器防火墙和云安全组放行 TCP $port；地址变更后同步修改 PC Agent 的服务器地址。"

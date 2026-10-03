@@ -12,6 +12,7 @@ const paths=['package.json','package-lock.json','install.sh','bootstrap.sh','REA
 for(const path of paths)await cp(resolve(path),resolve(staging,'codexer',path),{recursive:true,filter: source => !source.replaceAll('\\','/').includes('/docs/') || source.endsWith('.md')});
 await writeFile(resolve(staging,'codexer/server-bundle.json'),JSON.stringify({version,kind:'codexer-server-bundle',builtAt:new Date().toISOString()}));
 await mkdir('release',{recursive:true}); const archive=resolve(`release/codexer-server-${version}.tar.gz`);
-const result=spawnSync('tar',['-czf',archive,'-C',staging,'codexer'],{stdio:'inherit'});if(result.status!==0)throw new Error('archive-failed');
+// GNU tar and bsdtar otherwise choose different long-name extensions.
+const result=spawnSync('tar',['--format=pax','-czf',archive,'-C',staging,'codexer'],{stdio:'inherit'});if(result.status!==0)throw new Error('archive-failed');
 const hash=createHash('sha256').update(await readFile(archive)).digest('hex');await writeFile(archive+'.sha256',hash+'  '+archive.split(/[\\/]/).at(-1)+'\n');
 console.log(archive);

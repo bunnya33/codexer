@@ -76,7 +76,7 @@ sudo codexer info
 
 ## 更新与回退
 
-已有服务器先使用 `0.2.0` 发布包/源码运行一次 `sudo bash install.sh`，保留配置和数据，并部署 `codexer-updater.service` 与 timer。之后可以从后台版本入口一键更新或开启自动安装，见 [服务器更新](server-update.md)。Docker/源码运行的服务使用外部更新流程。更新前按 [运维文档](operations.md) 停服备份；保留至少一个旧 release。
+已有服务器先使用本次最新发布包/源码运行一次 `sudo bash install.sh`，保留配置和数据，部署协议 2 更新器、Git、codexer-builder 账号与 timer。安装器自身会重启服务。之后在后台切换 Release 包或 Git tag 更新；两者准备好后都须手动确认重启，自动准备开关也不会自动重启，见 [服务器更新](server-update.md)。Docker/源码直接运行的服务使用外部更新流程。更新前按 [运维文档](operations.md) 停服备份；保留至少一个旧 release。
 
 验收失败时安装器自动恢复程序与配置。手动回退先停服，把 current 指回**实际存在**的旧版本，再启动并检查：
 

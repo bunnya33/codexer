@@ -232,15 +232,15 @@ export async function createRelay(options: { store: RelayStore; allowedOrigins?:
   });
   app.post("/v1/admin/system/update", {preHandler: admin}, async request => {
     if (!options.updates) throw new HttpError(503, "updates-unavailable");
-    const {tag} = z.object({tag: z.string().regex(/^v\d+\.\d+\.\d+$/)}).parse(request.body);
-    try { return await options.updates.request(tag); }
+    const {tag, action, jobId} = z.object({tag: z.string().regex(/^v\d+\.\d+\.\d+$/), action: z.enum(['update','build','restart']).default('update'), jobId: z.uuid().optional()}).strict().parse(request.body);
+    try { return await options.updates.request(tag, action, jobId); }
     catch (error) { throw new HttpError(409, error instanceof Error ? error.message : "update-unavailable"); }
   });
   app.put("/v1/admin/system/update-settings", {preHandler: admin}, async request => {
     if (!options.updates) throw new HttpError(503, "updates-unavailable");
-    const {autoInstall} = z.object({autoInstall: z.boolean()}).parse(request.body);
-    try { return await options.updates.setAutoInstall(autoInstall); }
-    catch { throw new HttpError(409, "updater-not-installed"); }
+    const settings = z.object({autoInstall: z.boolean().optional(), method: z.enum(['release','git']).optional()}).strict().refine(value => value.autoInstall !== undefined || value.method !== undefined).parse(request.body);
+    try { return await options.updates.setSettings(settings); }
+    catch (error) { throw new HttpError(409, error instanceof Error ? error.message : "updater-not-installed"); }
   });
   app.delete<{ Params: { userId: string } }>("/v1/users/:userId", { preHandler: admin }, async request => queue.run(async () => {
     if (!await store.revokeUser(request.params.userId)) throw new HttpError(404, "user-not-found-or-admin");

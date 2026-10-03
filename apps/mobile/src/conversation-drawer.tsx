@@ -59,9 +59,10 @@ export function ConversationDrawer({ wide, open, onOpenChange, directory, childr
       offset.current = next; progress.setValue(next);
     },
     release: (velocity: number) => {
-      if (!drag.current) return;
+      const current = drag.current;
+      if (!current) return;
       drag.current = null;
-      const nextOpen = drawerReleaseOpen(offset.current * settings.current.travel, settings.current.travel, velocity);
+      const nextOpen = drawerReleaseOpen(offset.current * settings.current.travel, settings.current.travel, velocity, current.wasOpen, current.origin * settings.current.travel);
       settings.current.onOpenChange(nextOpen);
       animate(nextOpen);
     },
@@ -93,6 +94,7 @@ export function ConversationDrawer({ wide, open, onOpenChange, directory, childr
     <Animated.View testID="conversation-card" style={[styles.card, !wide && {
       width: '100%', transform: [{ translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [0, travel] }) }],
       borderTopLeftRadius: present ? 28 : 0, borderBottomLeftRadius: present ? 28 : 0,
+      shadowColor: '#000', shadowOffset: { width: -8, height: 0 }, shadowRadius: 24,
       shadowOpacity: present ? 0.12 : 0, elevation: present ? 12 : 0,
     }]}>
       <View style={[styles.content, !wide && { borderTopLeftRadius: present ? 28 : 0, borderBottomLeftRadius: present ? 28 : 0 }]}>
@@ -109,6 +111,6 @@ export function ConversationDrawer({ wide, open, onOpenChange, directory, childr
 const styles = StyleSheet.create({
   root: { flex: 1, overflow: 'hidden', backgroundColor: '#fff' }, wide: { flexDirection: 'row' },
   directory: { position: 'absolute', top: 0, bottom: 0, left: 0 }, desktopDirectory: { width: 300 },
-  card: { flex: 1, minWidth: 0, backgroundColor: '#fff', shadowColor: '#000', shadowOffset: { width: -8, height: 0 }, shadowRadius: 24 },
+  card: { flex: 1, minWidth: 0, backgroundColor: '#fff' },
   content: { flex: 1, overflow: 'hidden' }, cover: { flex: 1, backgroundColor: '#fff' },
 });

@@ -176,3 +176,26 @@ export function mergeLiveTurn(history: HistoryTurn, live: HistoryTurn): HistoryT
   return { ...merged, previousMessage: history.previousMessage ?? live.previousMessage, itemsTruncatedBefore: history.itemsTruncatedBefore ?? false, itemsTruncatedAfter: live.itemsTruncatedAfter ?? false,
     items: combined, truncated: Boolean(history.truncated || live.truncated || combined.some(item => item.truncated)) };
 }
+
+/** Both inputs are chronological. Insert missing turns beside their shared neighbours,
+ * so an overlapping page or live preview cannot append an older turn at the bottom.
+ */
+export function mergeTurnHistory(recorded: HistoryTurn[], incoming: HistoryTurn[], placement: 'earlier' | 'latest' = 'latest'): HistoryTurn[] {
+  const turns = [...recorded];
+  const updates = new Map(incoming.map(turn => [turn.id, turn]));
+  for (let index = 0; index < turns.length; index++) {
+    const update = updates.get(turns[index]!.id);
+    if (update) turns[index] = mergeLiveTurn(turns[index]!, update);
+  }
+  for (let index = 0; index < incoming.length; index++) {
+    const turn = incoming[index]!;
+    if (turns.some(existing => existing.id === turn.id)) continue;
+    const next = incoming.slice(index + 1).find(candidate => turns.some(existing => existing.id === candidate.id));
+    const previous = incoming.slice(0, index).reverse().find(candidate => turns.some(existing => existing.id === candidate.id));
+    const position = next ? turns.findIndex(existing => existing.id === next.id)
+      : previous ? turns.findIndex(existing => existing.id === previous.id) + 1
+      : placement === 'earlier' ? 0 : turns.length;
+    turns.splice(position, 0, turn);
+  }
+  return turns;
+}

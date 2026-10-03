@@ -1,4 +1,5 @@
-import {mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
+import {mkdir,mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
+import {spawnSync} from 'node:child_process';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {gzipSync} from 'node:zlib';
@@ -38,6 +39,15 @@ it('extracts files without links or traversal, and validates tar headers before 
     await expect(extractArchive(tar('codexer/package.json','overwrite'),root)).rejects.toMatchObject({code:'EEXIST'});
   } finally {await rm(root,{recursive:true,force:true});}
 });
+it('accepts actual PAX archives with long UTF-8 names on GNU tar and bsdtar',async () => {
+  const root=await mkdtemp(join(tmpdir(),'update-pax-')), name='a'.repeat(110)+'-示例.txt', archive=join(root,'bundle.tar.gz');
+  try {
+    await mkdir(join(root,'codexer'));await writeFile(join(root,'codexer',name),'synthetic-long-file');
+    const result=spawnSync('tar',['--format=pax','-czf',archive,'-C',root,'codexer'],{encoding:'utf8'});
+    expect(result.status,result.stderr).toBe(0);
+    expect(archiveEntries(await readFile(archive))).toEqual(expect.arrayContaining([{path:'codexer/'+name,data:Buffer.from('synthetic-long-file')}]));
+  } finally {await rm(root,{recursive:true,force:true});}
+});
 it('keeps a healthy activation and restores the previous release when start or health fails',async () => {
   for(const failure of ['none','health','start']) {
     const calls: string[]=[];let active='old';
@@ -59,20 +69,20 @@ it('caches checks, preserves a failed-check warning, prevents concurrent jobs, a
   fetch.mockImplementation(async () => new Response(JSON.stringify(release())));
   const service=new ServerUpdates('0.1.0',root,status,fetch);
   try {
-    await writeFile(status,JSON.stringify({enabled:true,job:null}));
+    await writeFile(status,JSON.stringify({enabled:true,protocol:2,job:null}));
     expect(await service.info()).toMatchObject({hasUpdate:true,supported:true,autoInstall:false});await service.info();expect(fetch).toHaveBeenCalledTimes(1);
     await service.setAutoInstall(true);expect((await service.info()).autoInstall).toBe(true);
     const results=await Promise.allSettled([service.request('v0.2.0'),service.request('v0.2.0')]);expect(results.filter(r => r.status==='fulfilled')).toHaveLength(1);
     const job=JSON.parse(await readFile(join(root,'request.json'),'utf8'));expect(job).toMatchObject({phase:'queued',tag:'v0.2.0'});
     const restored=new ServerUpdates('0.1.0',root,status,fetch);expect((await restored.info()).job?.id).toBe(job.id);
-    await writeFile(status,JSON.stringify({enabled:true,job:{...job,phase:'installing'}}));expect((await restored.info()).job?.phase).toBe('installing');
+    await writeFile(status,JSON.stringify({enabled:true,protocol:2,job:{...job,phase:'installing'}}));expect((await restored.info()).job?.phase).toBe('installing');
     await expect(service.request('v0.2.0')).rejects.toThrow('update-in-progress');
     fetch.mockRejectedValueOnce(new TypeError('offline'));expect(await service.info(true)).toMatchObject({warning:'offline',hasUpdate:true});
     const unsupported=new ServerUpdates('0.1.0',root,join(root,'missing'),fetch);await expect(unsupported.request('v0.2.0')).rejects.toThrow('updater-not-installed');
   } finally {service.close();await rm(root,{recursive:true,force:true});}
 });
 it('requires an admin session for updates and validates request bodies without invoking privileged work',async () => {
-  const root=await mkdtemp(join(tmpdir(),'update-api-')), status=join(root,'status.json');await writeFile(status,JSON.stringify({enabled:true,job:null}));
+  const root=await mkdtemp(join(tmpdir(),'update-api-')), status=join(root,'status.json');await writeFile(status,JSON.stringify({enabled:true,protocol:2,job:null}));
   const updates=new ServerUpdates('0.1.0',root,status,vi.fn<typeof fetch>().mockImplementation(async () => new Response(JSON.stringify(release()))));
   const store=await RelayStore.open(), admin=await testAccount(store,'admin','admin'), user=await testAccount(store);
   const app=await createRelay({store,updates,version:'0.1.0'});

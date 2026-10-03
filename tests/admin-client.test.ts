@@ -34,3 +34,9 @@ it('revokes login attempts from regular users at the admin entry', async () => {
   await expect(api.login('member','password')).rejects.toThrow('仅供管理员'); expect(storage.size).toBe(0); expect(api.hasSession()).toBe(false);
   expect(vi.mocked(fetch).mock.calls.map(([url]) => url)).toEqual(['/v1/admin/auth/login','/v1/auth/logout']);
 });
+it('keeps preparation, build and restart as distinct administrator requests',async()=>{
+  setup('admin');const api=await import('../apps/admin/src/api.js');await api.login('admin','fake-password');
+  await api.updateSettings({method:'git'});await api.updateServer('v0.3.0');await api.updateServer('v0.3.0','build','job-test');await api.updateServer('v0.3.0','restart','job-test');
+  const bodies=vi.mocked(fetch).mock.calls.slice(1).map(([,options])=>JSON.parse(options!.body as string));
+  expect(bodies).toEqual([{method:'git'},{tag:'v0.3.0',action:'update'},{tag:'v0.3.0',action:'build',jobId:'job-test'},{tag:'v0.3.0',action:'restart',jobId:'job-test'}]);
+});

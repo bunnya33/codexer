@@ -1,7 +1,7 @@
 import { clearCredentials as clearSavedCredentials, randomId, readCredentials, saveCredentials } from './runtime';
 import { catalogSchema, eventSchema, historyPageSchema, imageRefSchema, MAX_IMAGE_BYTES, reduceEvent, snapshotSchema } from '../../../packages/protocol/src/index';
 import type { CommandResult, DeviceCatalog, DeviceSnapshot, HistoryTurn, ImageRef, RemoteCommand } from '../../../packages/protocol/src/index';
-import { mergeLiveTurn } from '../../../packages/client-shared/src/activity';
+import { mergeTurnHistory } from '../../../packages/client-shared/src/activity';
 
 export type Device = { id: string; name: string; platform: string; online: boolean; owner_user_id?: string | null; last_seen_at?: number | string | null };
 export type HistoryState = { turns: HistoryTurn[]; nextCursor: string | null; loading: boolean; error?: string };
@@ -325,10 +325,7 @@ export class RelayClient {
       const incoming = [...page.turns].reverse();
       const current = this.view.histories[key];
       const old = current?.turns ?? [];
-      const updates = new Map(incoming.map(turn => [turn.id, turn]));
-      const merged = old.map(turn => updates.has(turn.id) ? mergeLiveTurn(turn, updates.get(turn.id)!) : turn);
-      const additions = incoming.filter(turn => !old.some(existing => existing.id === turn.id));
-      const turns = earlier ? [...additions, ...merged] : [...merged, ...additions];
+      const turns = mergeTurnHistory(old, incoming, earlier ? 'earlier' : 'latest');
       this.set({ histories: { ...this.view.histories, [key]: { turns, nextCursor: !earlier && old.length > incoming.length ? current?.nextCursor ?? null : page.nextCursor, loading: false } } });
     } catch (error) {
       if (generation !== this.generation) return;

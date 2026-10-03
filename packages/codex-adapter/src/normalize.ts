@@ -61,6 +61,32 @@ function visibleTurnItems(items: unknown[], limit: number): unknown[] {
   for (let index = items.length - 1; index >= 0 && selected.size < limit; index--) selected.add(index);
   return [...selected].sort((a, b) => a - b).map(index => items[index]);
 }
+/** Desktop steering entries and persisted user messages have different local IDs.
+ * Match their explicit server/client identity, never their text (a user can repeat it).
+ */
+function canonicalTurnItems(values: unknown[]): unknown[] {
+  const persisted = new Map<string, RecordValue>();
+  for (const value of values) {
+    const item = record(value);
+    if (item.type === 'userMessage' && typeof item.clientId === 'string') persisted.set(item.clientId, item);
+  }
+  const seen = new Set<string>();
+  return values.flatMap(value => {
+    const item = record(value);
+    // Internal placeholder for an accepted steering entry, not another activity.
+    if (item.type === 'steered') return [];
+    const accepted = item.type === 'steeringUserMessage' && ['pending', 'accepted'].includes(String(item.status));
+    const clientId = item.serverClientUserMessageId ?? item.clientUserMessageId;
+    const canonical = accepted && typeof clientId === 'string' ? persisted.get(clientId) : undefined;
+    const serverId = accepted && typeof item.serverUserMessageId === 'string' ? item.serverUserMessageId : canonical?.id;
+    const id = typeof serverId === 'string' && serverId ? serverId : item.id;
+    if (typeof id === 'string' && id) {
+      if (seen.has(id)) return [];
+      seen.add(id);
+    }
+    return [{...item, ...(id !== item.id ? {id, originalItemId: item.id} : {})}];
+  });
+}
 export function markTruncatedStart(turn: Pick<HistoryTurn, "itemsTruncatedBefore" | "previousMessage">, removed: RemoteItem | undefined): void {
   turn.itemsTruncatedBefore = true;
   const boundary = removed && messageBoundary(removed);
@@ -101,7 +127,7 @@ function normalizeItem(value: unknown, turn: RecordValue, textLimit = 4096, outp
     const kind = typeof change.kind === 'string' ? change.kind : record(change.kind).type ?? change.type;
     return { path: text(change.path, 1000), kind: kind === 'add' || kind === 'update' || kind === 'delete' ? kind : 'unknown' };
   }) : [];
-  const timing = record(record(turn.itemTimingsById)[String(item.id)]);
+  const timing = record(record(turn.itemTimingsById)[String(item.id)] ?? record(turn.itemTimingsById)[String(item.originalItemId)]);
   const startedAtMs = milliseconds(timing.startedAtMs) ?? milliseconds(item.startedAtMs)
     ?? milliseconds(record(turn.aeonAssistantMessageStartedAtMsById)[String(item.id)])
     ?? milliseconds(record(turn.commandExecutionStartedAtMsById)[String(item.id)]);
@@ -163,7 +189,7 @@ function fileChanges(items: unknown[]): HistoryTurn["fileChanges"] {
 }
 export function normalizeHistoryTurn(value: unknown, images?: ImageRegistry, threadId = ""): HistoryTurn {
   const turn = record(value);
-  const items = array(turn.items);
+  const items = canonicalTurnItems(array(turn.items));
   const changes = fileChanges(items);
   return {
     id: text(turn.id, 160) || "unknown",
@@ -206,7 +232,7 @@ export function normalizeThread(state: RecordValue, revision: number, images?: I
     updatedAt: typeof state.updatedAt === "number" ? state.updatedAt : Date.now(),
     ...(settings ? { settings } : {}),
     turns: turns.slice(-2).map(turn => {
-      const items = array(turn.items);
+      const items = canonicalTurnItems(array(turn.items));
       const changes = fileChanges(items);
       const precedingItem = items.slice(0, -20).reverse().find(item => ["userMessage", "steeringUserMessage", "agentMessage"].includes(String(record(item).type)));
       const preceding = precedingItem ? messageBoundary(normalizeItem(precedingItem, turn)) : undefined;

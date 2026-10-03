@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { event, snapshot } from './helpers.js';
 
 vi.mock('../apps/mobile/src/runtime', () => ({ randomId: () => '00000000-0000-4000-8000-000000000001', readCredentials: vi.fn(async () => null), saveCredentials: vi.fn(async () => undefined), clearCredentials: vi.fn(async () => undefined) }));
-import { RelayClient, normalizeRelayUrl } from '../apps/mobile/src/relay.js';
+import { RelayClient, historyKey, normalizeRelayUrl } from '../apps/mobile/src/relay.js';
 import { clearCredentials, readCredentials, saveCredentials } from '../apps/mobile/src/runtime';
 
 class FakeSocket {
@@ -52,6 +52,27 @@ async function connectedSocket() {
   socket.message({ type: 'sync.ready', deviceId: 'device-test', epoch: 'epoch-test', lastSeq: 0 });
   return socket;
 }
+
+it('keeps overlapping refresh and earlier history pages chronological without duplicate turns', async () => {
+  await connectedSocket();
+  const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+  const make = (id: string) => ({id, status: 'completed', truncated: false, items: [{id: `user-${id}`, type: 'userMessage', text: `Prompt ${id}`, truncated: false}]});
+  let turns = [make('c'), make('b')];
+  vi.mocked(fetch).mockImplementation(async (input, options) => new URL(String(input)).pathname.endsWith('/turns')
+    ? response({threadId: 'thread-test', turns, nextCursor: 'earlier-page', generatedAt: 1})
+    : originalFetch(input, options));
+  const ids = () => client.getSnapshot().histories[historyKey('device-test', 'thread-test')]!.turns.map(turn => turn.id);
+  await client.loadHistory('device-test', 'thread-test');
+  expect(ids()).toEqual(['b', 'c']);
+  turns = [make('c'), make('b'), make('a')];
+  await client.loadHistory('device-test', 'thread-test');
+  expect(ids()).toEqual(['a', 'b', 'c']);
+  turns = [make('a'), make('older')];
+  await client.loadHistory('device-test', 'thread-test', true);
+  expect(ids()).toEqual(['older', 'a', 'b', 'c']);
+  await client.loadHistory('device-test', 'thread-test', true);
+  expect(ids()).toEqual(['older', 'a', 'b', 'c']);
+});
 
 it('accepts only a relay root URL', () => {
   expect(normalizeRelayUrl('http://192.0.2.10:8899/')).toBe('http://192.0.2.10:8899');

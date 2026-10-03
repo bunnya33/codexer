@@ -18,12 +18,19 @@ it('accepts rightward conversation drags and closing drags without claiming taps
   expect(drawerCanStart(30, 60, 0)).toBe(false);
 });
 
-it('uses the release position for a held drag and the final direction for a flick', () => {
-  expect(drawerReleaseOpen(100, 312, 0)).toBe(false);
+it('commits deliberate opening and closing swipes after a pause, with short drag and flick handling', () => {
+  expect(drawerReleaseOpen(64, 312, 0)).toBe(true);
+  expect(drawerReleaseOpen(100, 312, 0)).toBe(true);
   expect(drawerReleaseOpen(210, 312, 0)).toBe(true);
+  expect(drawerReleaseOpen(30, 312, 0)).toBe(false);
+  expect(drawerReleaseOpen(248, 312, 0, true)).toBe(false);
+  expect(drawerReleaseOpen(290, 312, 0, true)).toBe(true);
   expect(drawerReleaseOpen(70, 312, 0.8)).toBe(true);
-  expect(drawerReleaseOpen(260, 312, -0.8)).toBe(false);
+  expect(drawerReleaseOpen(260, 312, -0.8, true)).toBe(false);
   expect(drawerReleaseOpen(200, 312, 0.8)).toBe(true);
-  expect(drawerReleaseOpen(120, 312, -0.8)).toBe(false);
+  expect(drawerReleaseOpen(120, 312, -0.8, true)).toBe(false);
+  expect(drawerReleaseOpen(110, 312, 0, true, 130)).toBe(true);
+  expect(drawerReleaseOpen(140, 312, 0, false, 120)).toBe(false);
+  expect(drawerReleaseOpen(200, 312, 0, false, 120)).toBe(true);
   expect(drawerReleaseOpen(0, 0, 0)).toBe(false);
 });

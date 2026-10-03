@@ -92,7 +92,7 @@ export function DrawerSwipeArea({ children }: { children: ReactNode }) {
       if (release(event.pointerId, event.clientX, event.timeStamp)) { event.preventDefault(); event.stopPropagation(); }
     }}
     onPointerCancelCapture={event => { if (event.pointerType !== 'touch') { pointers.current.delete(event.pointerId); cancel(); } }}
-    onLostPointerCapture={event => { if (drag.current?.id === event.pointerId) { pointers.current.delete(event.pointerId); cancel(); } }}
+    onLostPointerCapture={event => { if (event.pointerType !== 'touch' && drag.current?.id === event.pointerId) { pointers.current.delete(event.pointerId); cancel(); } }}
     onClickCapture={event => { if (performance.now() < suppressClickUntil.current) { event.preventDefault(); event.stopPropagation(); } }}>
     {children}
   </div>;

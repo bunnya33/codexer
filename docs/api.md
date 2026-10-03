@@ -49,11 +49,11 @@ HTTP 错误体是 `{ "error": "code" }`。常见状态：`400 invalid-request`�
 | PUT | `/v1/admin/accounts/:userId/password` | `{password}`，仅重置管理员；撤销旧登录 |
 | DELETE | `/v1/admin/accounts/:userId` | 禁用管理员；当前账号或最后一位有效管理员返回 `409 admin-disable-protected` |
 | GET | `/v1/admin/overview` | 账号总量/启用量、在线 PC、在线控制连接及进程运行秒数；不暴露会话内容 |
-| GET | `/v1/admin/system/version` | 可选 `?force=true`；返回 `currentVersion,latestVersion,hasUpdate,checkedAt,warning,release,supported,autoInstall,job` |
-| POST | `/v1/admin/system/update` | `{tag:'vX.Y.Z'}`；重新检查固定仓库最新稳定 Release，排队后返回 `UpdateJob`；不接受 URL 或命令 |
-| PUT | `/v1/admin/system/update-settings` | `{autoInstall:boolean}`；仅安装器管理的部署可开启 |
+| GET | `/v1/admin/system/version` | 可选 `?force=true`；返回 `currentVersion,latestVersion,hasUpdate,checkedAt,warning,release,supported,gitSupported,method,tags,autoInstall,job` |
+| POST | `/v1/admin/system/update` | `{tag:'vX.Y.Z',action?:'update'|'build'|'restart',jobId?:uuid}`；update 只准备版本；build/restart 匹配已有 jobId 和阶段；不接受 URL 或命令 |
+| PUT | `/v1/admin/system/update-settings` | `{method?:'release'|'git',autoInstall?:boolean}`；至少一项；autoInstall 只自动准备 Release，不自动重启；Git 禁止自动准备 |
 
-`UpdateJob` 包含 `id,tag,phase,updatedAt,code?`。阶段为 queued/downloading/verifying/installing/restarting/succeeded/failed/rolled-back。重复请求返回 `409 update-in-progress`，过期版本返回 `409 update-not-current`，未安装更新服务返回 `409 updater-not-installed`。检查失败会保留缓存版本并设置 warning，不能据此安装。详见 [服务器更新](server-update.md)。
+`UpdateJob` 包含 `id,tag,method,action,commit?,phase,updatedAt,code?`。阶段为 queued/downloading/verifying/installing/fetching/fetched/building/built/restarting/succeeded/failed/rolled-back。fetched 和 built 等待管理员操作，不是正在运行。Git tag 为 `{tag,version,commit}`，只允许比当前版本更高的稳定 tag；Release 准备后同样停在 built，重启始终单独请求。重复处理返回 `409 update-in-progress`，过期 Release 返回 `409 update-not-current`，不可用 tag 返回 `409 tag-not-available`，跳步骤或旧任务 ID 返回 `409 update-step-not-ready`，旧/缺失更新器返回 `409 updater-not-installed`。检查失败保留缓存并设置 warning，禁止准备新版本，已准备好的步骤可继续。只有协议 2 helper 才启用后台安装。详见 [服务器更新](server-update.md)。
 
 登录响应的 `expiresAt` 为当次到期时间；调用 `/v1/auth/active` 后更新。其他 REST 请求、设备数据、WebSocket ping/pong 和票据申请只检查有效性，不续期。设置持久化于 Relay 数据库；旧会话升级时从原有到期时间减去 7 天推算最后活动时间，随后由前台续期更新。缩短超时后，已到期的连接由后续请求/心跳检查关闭。
 

@@ -4,9 +4,17 @@
 
 ## 已验证的行为
 
+刷新消息修复：完整 236 项回归、37 个文件通过，根/后台/Electron/React Native 类型检查、服务器/Web/Admin/Electron 构建和 iOS/Android JS 导出通过。回归覆盖桌面追加消息的临时/服务器 ID、明确客户端关联、内部占位条目、长轮次部分窗口、合并重复调用、用户主动重复文字不去重，以及真实 RelayClient 的重叠刷新/较早分页顺序。隔离 Relay 的生产 Web 在默认桌面及 390px 浏览器登录后刷新，验证追加消息只出现一次、位于前后进度之间、上一轮保持在前、无页面错误；桌面会话卡片实测阴影和 transform 均为 none。Windows `0.1.6` 安装包/便携版生成；打包 worker 在真实 Electron utilityProcess、仅含 Windows System32 的 PATH 下完成消息身份同步、顺序合并、逐题回答和断开/重连任务保留验收。接口依据本机官方 bundle 只读核对，未操作真实任务；macOS 和原生手机仍需实机验收。
+
+分步服务器更新：完整 231 项回归、37 个测试文件通过，根/后台/Electron 类型检查、服务器/Web/Admin 构建、Bash 语法和文档检查通过。Git tag 检查独立于 Release 资产；接口覆盖更新方式持久化、管理员权限、固定仓库/完整 tag ref、版本匹配、禁用 hooks、不可跳步、拒绝过期任务、失败重试与旧 helper 协议禁用。Release 准备后和 Git 构建后都等待独立重启请求，自动准备不会发起重启。实际 tar 生成的长 UTF-8 名称 PAX 包通过更新器解析。
+
+生产 Admin 在默认桌面和 390px 浏览器验收两种方式切换、选择非最新 tag、步骤按钮变化、刷新保留已拉取/失败的构建步骤、取消确认不提交请求、失败重试、Release 准备后手动重启、Git 自动准备禁用、手机 tag/确认弹窗无横向溢出及无控制台错误。浏览器使用实际 Relay/Admin 和合成账号/版本，特权步骤由测试状态模拟。
+
+Linux WSL x64、官方校验的 Node 22.14，以 root 更新器副本、真实 Git/npm/Relay/PGlite 和真实 systemd 临时构建服务，验证精确 tag/commit、tag/package 不匹配拒绝、Release checksum 失败及准备不停止服务、Release 显式重启失败回退、Git 构建失败重试、实际 Relay/Web/Admin 编译与 PAX 打包/解包、安装运行依赖、构建后旧服务继续运行、显式重启启用新版本和已有账号密码保留。构建以现有非 root 测试用户运行，实际探针验证配置不可读、工作目录外不可写；修正 Expo 设置目录与 Node 全局模块搜索后通过。所有程序、配置和数据库使用独立临时目录；Git 来源与 Release 下载为合成数据，Relay 的 systemctl 操作为专用进程控制模拟。未执行真实安装器首装/升级、生产 systemd Relay unit、真实 GitHub Release 下载、arm64 或断电恢复验收。
+
 服务器/后台 `0.2.0`：既有 194 项回归和新增账号/更新测试通过，合计 204 项行为用例。根/后台/Electron 类型检查、服务器/Web/Admin 构建、Bash 语法、文档索引和示例地址检查通过。生产后台在桌面和 390px 浏览器验证独立管理员登录、两类账号列表与搜索、创建表单、当前管理员禁用保护、手机抽屉导航、版本弹窗、橙色呼吸动画、绿色最新标记、失败时灰色标记和错误提示、更新排队/重复点击禁用及结果轮询，无页面错误或页面横向溢出。浏览器更新使用合成 Release 和模拟状态；未修改真实账号或服务器。
 
-Linux WSL x64 + 官方校验的 Node 22.14，使用实际 `0.2.0` 服务器包、实际 `npm ci --omit=dev --ignore-scripts`、编译更新器副本及真实 Relay/PGlite 进程，验证 checksum 失败保持旧程序、启动失败回退、成功激活新版本、Web/Admin 健康检查和已有控制端账号 ID/密码保留。测试仅替换更新器副本的临时路径和 root 检查，模拟 systemctl；GitHub 元数据与资产由合成下载响应提供。未验收真实 systemd unit/权限沙箱、root 文件权限、断电恢复、arm64、真实 GitHub Release 下载或生产部署。包格式已由实际更新器解析并安装。
+初版 Release 更新验证：Linux WSL x64 + 官方校验的 Node 22.14，使用实际 `0.2.0` 服务器包、实际 `npm ci --omit=dev --ignore-scripts`、编译更新器副本及真实 Relay/PGlite 进程，验证 checksum 失败保持旧程序、启动失败回退、成功激活新版本、Web/Admin 健康检查和已有控制端账号 ID/密码保留。测试仅替换更新器副本的临时路径和 root 检查，模拟 systemctl；GitHub 元数据与资产由合成下载响应提供。当时未验收真实 systemd unit/权限沙箱、root 文件权限、断电恢复、arm64、真实 GitHub Release 下载或生产部署。包格式已由实际更新器解析并安装；新增分步流程和真实构建沙箱范围见上文。
 
 - 分离的 `/` 和 `/admin/` HTML/资源，不遮蔽 API，后台无设备请求/控制 WebSocket。
 - 账号密码、设备归属、跨账号权限、改密/禁用/注销、会话失效。
@@ -16,6 +24,8 @@ Linux WSL x64 + 官方校验的 Node 22.14，使用实际 `0.2.0` 服务器包�
 - 现有消息、历史、图片、模型、用量、命令幂等等行为测试。
 
 ## 构建与界面检查
+
+侧栏回弹与后台视觉修复：侧栏/滚动 8 项回归、React Native 类型检查及 Web/iOS/Android JS 导出通过。真实 Web/原生动画组件验收慢划后停顿、短划、快速划动、取消、多指、触摸 lostpointercapture 不取消 Touch 流、窗口切换和草稿保留。隔离 Relay 的生产 Web 在 PC 实测会话卡片 `box-shadow:none`，390px 浏览器 DOM 触摸验收右划 64px 停顿后展开至 312px、左划 64px 停顿后收起、30px 误触与取消返回，松手中间帧继续过渡，列表交互状态随结果变化。此处触摸由验收面板派发 DOM TouchEvent，不代替 Safari/Chrome 真机手势仲裁。后台恢复原蓝色 `#2466ed`、白卡片和浅灰背景，保留传统侧栏与所有新功能；桌面及 390px 布局检查通过。
 
 设置弹窗关闭闪烁修复：旧代码的实际 `App` 组件检查复现关闭模型时切成“推理强度”；修复后 18 项组件场景通过，覆盖模型/强度/模式/连接设置的关闭按钮、遮罩、请求关闭回调、选择后原命令、退出登录、即时切换入口和登录失效。模拟 Modal 在关闭时保留子内容，以检查退出动画期间的标题和选项；该检查不替代原生运行时。生产 Web 在桌面及 390px 浏览器验证四种弹窗淡出时仍保留各自内容、动画结束后移除、Escape 和选择模型的关闭路径；手机侧栏进入设置未产生新的页面错误，Web 仅监听 Escape，原生端保留返回键监听。现有 Web/原生侧栏组件验收、React Native 类型检查、Web 构建和 iOS/Android JS 导出通过。尚未验收 iOS/Android 实机淡出动画。
 
@@ -68,7 +78,7 @@ Windows `0.1.2` 打包后的真实 utilityProcess + 临时 Relay + FakeDesktop �
 | Windows | 本地打包和窗口验证；发行签名、全新机器安装/卸载、系统登录项注册与实际官方 Codex 版本任务验收；隔离测试跳过真实登录项修改 |
 | macOS | 配置 arm64/x64 打包，Windows 无法做 Mac 签名、Keychain、登录项和 IPC 实机验收 |
 | Android/iOS | 类型和 JS 导出；真实 APK/IPA、设备手势、后台联网、系统权限和商店发行未验收 |
-| Linux systemd | 安装脚本、配置、资源与本地验证；需要实际 Linux systemd 首装/更新/回滚验收 |
+| Linux systemd | 真实 systemd 非 root 构建沙箱和隔离分步更新通过；实际安装器首装/升级、生产 Relay unit、arm64 和断电恢复仍需验收 |
 | Docker/HTTPS | Dockerfile/Compose/Caddy 配置；需要具备 Docker 的环境及真实域名证书验收 |
 
 生产部署按顺序验证：健康接口、两个网页入口、管理员登录及创建普通账号、PC 同账号登录、设备在线、一次明确授权的测试任务、断开期间任务持续、重连恢复、改密失效、备份恢复。

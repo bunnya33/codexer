@@ -5,7 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Archive, ArrowDown, ArrowUp, Check, ChevronDown, ImagePlus, Info, ListChecks, LogOut, Menu, Pencil, RefreshCw, Square, Terminal, Trash2, X } from 'lucide-react-native';
-import { mergeLiveTurn } from '../../packages/client-shared/src/activity';
+import { mergeTurnHistory } from '../../packages/client-shared/src/activity';
 import { conversationImages } from '../../packages/client-shared/src/images';
 import type { ImageDirection, ImageGallery, ImagePreview } from '../../packages/client-shared/src/images';
 import { buildDirectoryRows } from '../../packages/client-shared/src/directory';
@@ -147,9 +147,7 @@ function AppContent() {
   useEffect(() => { if (view.phase !== 'connected' || !deviceId || !threadId || !device?.online || view.syncing[deviceId] || thread?.ownerAvailable) return; const timer = setInterval(() => relay.watchThread(deviceId, threadId), 16000); return () => clearInterval(timer); }, [view.phase, deviceId, threadId, device?.online, view.syncing[deviceId], thread?.ownerAvailable]);
   const ready = view.phase === 'connected' && !!device?.online && !view.syncing[deviceId] && !!thread?.ownerAvailable && ['idle', 'active'].includes(thread.status);
   const turns = useMemo(() => {
-    const result = [...(history?.turns ?? [])];
-    for (const live of thread?.turns ?? []) { const index = result.findIndex(item => item.id === live.id); if (index < 0) result.push(live); else result[index] = mergeLiveTurn(result[index]!, live); }
-    return result;
+    return mergeTurnHistory(history?.turns ?? [], thread?.turns ?? []);
   }, [history?.turns, thread?.turns]);
   const galleryContext = useRef({ turns, deviceId, threadId });
   galleryContext.current = { turns, deviceId, threadId };
