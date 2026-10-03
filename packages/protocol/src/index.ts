@@ -91,6 +91,7 @@ const itemSchema = z.object({
   output: z.string().max(8192).optional(),
   tool: z.string().max(300).optional(),
   files: z.array(z.string().max(1000)).max(40).optional(),
+  fileOperations: z.array(z.object({ path: z.string().max(1000), kind: z.enum(['add', 'update', 'delete', 'unknown']) })).max(40).optional(),
   images: z.array(imageRefSchema).max(8).optional(),
   truncated: z.boolean(),
 });

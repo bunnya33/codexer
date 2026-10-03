@@ -43,6 +43,60 @@ export function executionItemLabel(item: RemoteItem | undefined, running: boolea
   return `${active ? '正在调用' : '已调用'}${item.tool || '工具'}`;
 }
 
+function oneLine(value: string | undefined) {
+  return (value ?? '').split(/\r?\n/).map(line => line.trim()).find(Boolean)?.replace(/^#{1,6}\s+/, '').replace(/\*\*|__/g, '').replace(/\s+/g, ' ').slice(0, 220) ?? '';
+}
+function fileNames(paths: string[]) {
+  const names = [...new Set(paths)].map(path => path.split(/[\\/]/).at(-1) || path);
+  return names.slice(0, 2).map(name => name.slice(0, 80)).join('、') + (names.length > 2 ? ` 等 ${names.length} 个文件` : '');
+}
+function fileOperations(item: RemoteItem) {
+  return item.fileOperations?.length ? item.fileOperations : (item.files ?? []).map(path => ({ path, kind: 'unknown' as const }));
+}
+const fileVerb = { add: '创建', update: '编辑', delete: '删除', unknown: '修改' };
+const unsuccessful = (item: RemoteItem) => ['failed', 'interrupted', 'cancelled', 'declined', 'inProgress'].includes(item.status ?? '');
+
+/** Uses only public summaries and recorded operations, never private reasoning content. */
+export function executionItemSummary(item: RemoteItem | undefined, running: boolean): string {
+  if (!item) return '正在思考';
+  if (item.type === 'reasoning') return oneLine(item.text) || executionItemLabel(item, running);
+  const label = executionItemLabel(item, running);
+  const active = label.startsWith('正在');
+  const prefix = item.status === 'failed' ? '失败：' : item.status === 'declined' ? '已拒绝：'
+    : ['interrupted', 'cancelled'].includes(item.status ?? '') ? '已停止：' : active ? '正在' : '已';
+  if (item.command || item.type === 'commandExecution') return `${prefix}运行${item.command ? ` ${oneLine(item.command)}` : '命令'}`;
+  if (item.files?.length || item.fileOperations?.length || item.type === 'fileChange') {
+    const operations = fileOperations(item);
+    const descriptions = (['add', 'update', 'delete', 'unknown'] as const).flatMap(kind => {
+      const paths = operations.filter(operation => operation.kind === kind).map(operation => operation.path);
+      return paths.length ? [`${fileVerb[kind]} ${fileNames(paths)}`] : [];
+    });
+    return `${prefix}${descriptions.join('，') || '修改文件'}`;
+  }
+  return `${prefix}调用${item.tool || '工具'}${oneLine(item.text) ? ` · ${oneLine(item.text)}` : ''}`;
+}
+
+/** Finished groups describe their work instead of always naming the final reasoning step. */
+export function executionSectionSummary(section: ExecutionSection): string {
+  const latest = section.items.at(-1);
+  if (section.running) return executionItemSummary(latest, true);
+  const operations = section.items.filter(item => item.type !== 'reasoning' && !unsuccessful(item));
+  const failure = section.items.find(item => ['failed', 'interrupted', 'cancelled', 'declined'].includes(item.status ?? ''));
+  if (!operations.length) return executionItemSummary(failure ?? latest, false);
+  if (operations.length === 1 && !failure) return executionItemSummary(operations[0], false);
+  const files = operations.flatMap(fileOperations);
+  const commands = operations.filter(item => item.command || item.type === 'commandExecution');
+  const tools = operations.filter(item => !item.command && item.type !== 'commandExecution' && !item.files?.length && !item.fileOperations?.length && item.type !== 'fileChange');
+  const descriptions = (['add', 'update', 'delete', 'unknown'] as const).flatMap(kind => {
+    const paths = [...new Set(files.filter(operation => operation.kind === kind).map(operation => operation.path))];
+    return paths.length ? [`${fileVerb[kind]}${kind === 'add' && paths.length === 1 ? ` ${fileNames(paths)}` : paths.length > 1 ? ` ${paths.length} 个文件` : '文件'}`] : [];
+  });
+  if (commands.length) descriptions.push(`运行${descriptions.length || commands.length === 1 ? '' : ` ${commands.length} 条`}命令`);
+  if (tools.length) descriptions.push(tools.length === 1 ? `调用 ${tools[0]!.tool || '工具'}` : '调用工具');
+  const result = descriptions.length > 1 ? `${descriptions.slice(0, -1).join('，')}并${descriptions.at(-1)}` : descriptions[0];
+  return `已${result || '处理'}${failure ? '，部分操作未完成' : ''}`;
+}
+
 export function completedTurnBlocks(turn: HistoryTurn): ConversationBlock[] {
   return buildActivityBlocks(turn, false);
 }

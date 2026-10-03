@@ -22,8 +22,8 @@ export function ShimmerLabel({ text }: { text: string }) {
     animation.start();
     return () => animation.stop();
   }, [progress, reduceMotion, width]);
-  return <View testID="active-step-shimmer" style={{height: 18, flexShrink: 0}}>
-    <Text onLayout={event => setWidth(event.nativeEvent.layout.width)} style={{fontSize: 12, lineHeight: 18, color: '#9aa1a3'}}>{text}</Text>
+  return <View testID="active-step-shimmer" style={{height: 18, flexShrink: 1, minWidth: 0, overflow: 'hidden'}}>
+    <Text numberOfLines={1} onLayout={event => setWidth(event.nativeEvent.layout.width)} style={{fontSize: 12, lineHeight: 18, color: '#9aa1a3'}}>{text}</Text>
     {!reduceMotion && width > 0 && <Svg pointerEvents="none" accessible={false} width={width} height={18} style={{position: 'absolute'}}>
       <Defs><ClipPath id={`${id}clip`}><SvgText x={0} y={13.2} fontSize={12} fontFamily={Platform.OS === 'ios' ? 'System' : 'Roboto'}>{text}</SvgText></ClipPath><LinearGradient id={`${id}gradient`}><Stop offset="0" stopColor="#56676d" stopOpacity={0} /><Stop offset="0.5" stopColor="#56676d" /><Stop offset="1" stopColor="#56676d" stopOpacity={0} /></LinearGradient></Defs>
       <Sweep x={progress.interpolate({inputRange: [0, 1], outputRange: [-40, width + 40]})} y={0} width={40} height={18} fill={`url(#${id}gradient)`} clipPath={`url(#${id}clip)`} />

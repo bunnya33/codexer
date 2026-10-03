@@ -81,6 +81,9 @@ export function desktopTurns(state: RecordValue): RecordValue[] {
   const entities = record(history.entitiesByKey);
   return array(history.islands).flatMap(island => array(record(island).entries).map(entry => record(entities[String(record(entry).value)])));
 }
+function itemFileEntries(item: RecordValue): RecordValue[] {
+  return Array.isArray(item.changes) ? item.changes.map(record) : Object.entries(record(item.changes)).map(([path, change]) => ({ ...record(change), path }));
+}
 function normalizeItem(value: unknown, turn: RecordValue, textLimit = 4096, outputLimit = 8192, images?: ImageRegistry, threadId = ""): RemoteItem {
   const item = record(value);
   const parts = array(item.content ?? item.input).map(record);
@@ -94,6 +97,10 @@ function normalizeItem(value: unknown, turn: RecordValue, textLimit = 4096, outp
   const output = typeof item.aggregatedOutput === "string" ? item.aggregatedOutput : "";
   const paths = Array.isArray(item.changes) ? item.changes.map(change => String(record(change).path ?? "")).filter(Boolean) : Object.keys(record(item.changes));
   const files = [...paths, ...presentation.files.filter(file => !imageRefs.some(ref => ref.name === file))].slice(0, 40).map(path => path.slice(0, 1000));
+  const fileOperations: NonNullable<RemoteItem['fileOperations']> = item.type === 'fileChange' ? itemFileEntries(item).filter(change => typeof change.path === 'string' && change.path).slice(0, 40).map(change => {
+    const kind = typeof change.kind === 'string' ? change.kind : record(change.kind).type ?? change.type;
+    return { path: text(change.path, 1000), kind: kind === 'add' || kind === 'update' || kind === 'delete' ? kind : 'unknown' };
+  }) : [];
   const timing = record(record(turn.itemTimingsById)[String(item.id)]);
   const startedAtMs = milliseconds(timing.startedAtMs) ?? milliseconds(item.startedAtMs)
     ?? milliseconds(record(turn.aeonAssistantMessageStartedAtMsById)[String(item.id)])
@@ -116,6 +123,7 @@ function normalizeItem(value: unknown, turn: RecordValue, textLimit = 4096, outp
     ...(output ? { output: displayText(output.slice(-outputLimit)) } : {}),
     ...(typeof item.tool === "string" ? { tool: text(item.tool, 300) } : {}),
     ...(files.length ? { files } : {}),
+    ...(fileOperations.length ? { fileOperations } : {}),
     ...(imageRefs.length ? { images: imageRefs } : {}),
     truncated: body.length > textLimit || output.length > outputLimit || parts.some(part => typeof part.text === "string" && part.text.length > textLimit) || typeof item.command === "string" && item.command.length > (textLimit === 4096 ? 4096 : 8192) || paths.length + presentation.files.length > 40 || paths.some(path => path.length > 1000),
   };
@@ -125,7 +133,7 @@ function fileChanges(items: unknown[]): HistoryTurn["fileChanges"] {
   for (const value of items) {
     const item = record(value);
     if (item.type !== "fileChange" || item.status === "inProgress" || item.status === "failed" || item.status === "declined") continue;
-    const entries: RecordValue[] = Array.isArray(item.changes) ? item.changes.map(record) : Object.entries(record(item.changes)).map(([path, change]) => ({ ...record(change), path }));
+    const entries = itemFileEntries(item);
     for (const change of entries) {
       const path = text(change.path, 1000);
       if (!path || !changes.has(path) && changes.size >= 40) continue;

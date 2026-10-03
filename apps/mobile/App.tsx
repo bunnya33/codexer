@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { ActivityIndicator, AppState, FlatList, Image, KeyboardAvoidingView, Modal, PanResponder, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, AppState, FlatList, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
@@ -20,6 +20,9 @@ import { Directory } from './src/directory';
 import { confirmAction, defaultRelayUrl } from './src/runtime';
 import { ComposerInput } from './src/composer';
 import { ConversationViewport } from './src/conversation-viewport';
+import { ConversationDrawer } from './src/conversation-drawer';
+import { DrawerSwipeArea } from './src/drawer-swipe-area';
+import { DrawerSwipeBlock } from './src/drawer-swipe-block';
 
 type DraftImage = { key: number; uri: string; name: string; asset?: ImagePicker.ImagePickerAsset; id?: string; loading: boolean; error?: string };
 type Icon = typeof Menu;
@@ -96,10 +99,6 @@ function AppContent() {
     const index = current.index + direction;
     return index >= 0 && index < current.images.length ? { ...current, index } : current;
   }), []);
-  const edgeSwipe = useRef(PanResponder.create({
-    onMoveShouldSetPanResponder: (_, gesture) => gesture.x0 <= 28 && gesture.dx > 16 && gesture.dx > Math.abs(gesture.dy) * 1.5,
-    onPanResponderRelease: (_, gesture) => { if (gesture.dx > 65 && Math.abs(gesture.dy) < gesture.dx) setDrawerOpen(true); },
-  })).current;
 
   useEffect(() => { void relay.restore().finally(() => setRestoring(false)); return () => relay.disconnect(); }, []);
   useEffect(() => {
@@ -270,11 +269,11 @@ function AppContent() {
   const stopMode = thread?.status === 'active' && !draft.trim() && !images.length;
   const settings = thread?.settings ?? summary?.settings;
   const model = catalog?.models?.find(option => option.model === settings?.model);
-  return <SafeAreaView style={s.safe} edges={['top', 'left', 'right', 'bottom']} {...edgeSwipe.panHandlers}><StatusBar style="dark" />
-    <View style={s.appLayout}>
-    {wide && directory}
-    {
+  return <View style={s.safe}><StatusBar style="dark" />
+    <ConversationDrawer wide={wide} open={drawerOpen} onOpenChange={setDrawerOpen} directory={directory}>
+    <SafeAreaView style={s.page} edges={['top', 'left', 'right', 'bottom']}>
     <KeyboardAvoidingView style={s.page} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <DrawerSwipeArea>
       <View style={s.threadHeader}>{!wide && <IconButton icon={Menu} label="打开会话列表" onPress={() => setDrawerOpen(true)} />}<View style={s.threadHeading}><Text testID="conversation-title" style={s.threadTitle} numberOfLines={1}>{summary?.title ?? thread?.title ?? 'Codexer'}</Text><Text style={s.sub} numberOfLines={1}>{project?.name ?? device?.name ?? '选择设备'}{threadId ? ` · ${thread?.status === 'active' ? '进行中' : thread?.status === 'idle' ? '空闲' : '接入中'}` : ''}</Text></View><>{hasTruncatedContent && <IconButton icon={Info} label="查看会话展示范围" onPress={() => relay.showNotice("部分长记录受传输大小限制。完整内容可在本机 Codex 查看；更早消息可在会话顶部加载。")} />}</><IconButton icon={RefreshCw} label="刷新会话" disabled={!threadId} onPress={() => { void relay.loadHistory(deviceId, threadId); relay.watchThread(deviceId, threadId); }} /></View>
       <ConversationViewport onScrollIntent={() => { manualScroll.current = true; }}><FlatList key={historyKey(deviceId, threadId)} ref={listRef} testID="conversation-stream" data={turns} keyExtractor={item => item.id} style={s.stream} contentContainerStyle={[s.streamContent, wide && s.desktopContent]} initialNumToRender={8} windowSize={7} maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
         onScroll={event => {
@@ -302,7 +301,8 @@ function AppContent() {
         renderItem={({ item }) => <TurnView turn={item} active={item.id === thread?.activeTurnId && thread?.status === 'active'} deviceId={deviceId} threadId={threadId} onImage={openImage} questionRequestIds={questionRequestIds} />}
         ListHeaderComponent={history?.nextCursor ? <Pressable accessibilityRole="button" accessibilityLabel="加载更早消息" disabled={history.loading} onPress={loadEarlier} style={s.earlier}>{history.loading ? <ActivityIndicator size="small" color={c.accent} /> : <Text style={s.earlierText}>{Platform.OS === 'web' ? '加载更早消息' : '下拉加载更早消息'}</Text>}</Pressable> : null}
         ListEmptyComponent={<View style={s.chatEmpty}><Terminal size={30} color={c.accent} /><Text style={s.chatEmptyTitle}>{threadId ? history?.loading ? '正在读取会话' : '开始对话' : view.devices.length ? '选择 PC Agent 和会话' : '等待 PC Agent 登录'}</Text><Text style={s.chatEmptySub}>{threadId ? '消息将在这里显示' : view.devices.length ? '从左侧选择要控制的 PC Agent' : '在 PC 上使用同一账号登录，即可在这里选择控制端'}</Text></View>}
-        ListFooterComponent={<View>{!!history?.error && <Text style={s.error}>{history.error}</Text>}{thread?.requests.map(request => <RequestPanel key={request.id} request={request} threadId={threadId} enabled={ready && !busy} send={async payload => { const result = await relay.sendCommand(deviceId, payload); if (result.status !== 'succeeded') throw new Error(result.code); }} />)}</View>} /></ConversationViewport>
+        ListFooterComponent={<View>{!!history?.error && <Text style={s.error}>{history.error}</Text>}{thread?.requests.map(request => <DrawerSwipeBlock key={request.id}><RequestPanel request={request} threadId={threadId} enabled={ready && !busy} send={async payload => { const result = await relay.sendCommand(deviceId, payload); if (result.status !== 'succeeded') throw new Error(result.code); }} /></DrawerSwipeBlock>)}</View>} /></ConversationViewport>
+      </DrawerSwipeArea>
       {!!thread?.queuedMessages?.length && <View style={s.queue}>{thread.queuedMessages.map(item => <View key={item.id} style={s.queueRow}><Text numberOfLines={1} style={s.queueText}>{item.text || `${item.imageCount} 张图片`}</Text><Text style={s.queueStatus}>{item.status === 'queued' ? '待发送' : item.status === 'sending' ? '发送中' : '未确认'}</Text>{item.status === 'queued' && thread.activeTurnId && <Pressable accessibilityRole="button" onPress={() => void send({ type: 'turn.queue.steer', threadId, turnId: thread.activeTurnId!, queueId: item.id })}><Text style={s.queueAction}>引导</Text></Pressable>}{item.status !== 'sending' && <IconButton icon={X} label="移除待发送消息" onPress={() => void send({ type: 'turn.queue.remove', threadId, queueId: item.id })} />}</View>)}</View>}
       <View testID="composer-dock" style={[s.composerDock, wide && {maxWidth: 900, alignSelf: 'center'}]}>
         {showJumpToBottom && <Pressable accessibilityRole="button" accessibilityLabel="滚动到会话底部" style={s.jumpToBottom} onPress={scrollToBottom}><ArrowDown size={19} color={c.text} /></Pressable>}
@@ -312,14 +312,9 @@ function AppContent() {
         <View style={s.toolbar}><IconButton icon={ImagePlus} label="添加图片" disabled={!ready || busy || !snapshot?.runtime.capabilities.images || images.length >= MAX_IMAGES} onPress={() => void pickImages()} /><Pressable style={s.pill} disabled={!ready || busy || thread?.status !== 'idle'} onPress={() => setMenu('model')}><Text numberOfLines={1} style={s.pillText}>{modelLabel(settings?.model, catalog?.models)}</Text><ChevronDown size={14} color={c.muted} /></Pressable><Pressable style={s.pill} disabled={!ready || busy || thread?.status !== 'idle' || !model?.supportedReasoningEfforts.length} onPress={() => setMenu('effort')}><Text style={s.pillText}>{effortLabel(settings?.reasoningEffort)}</Text><ChevronDown size={14} color={c.muted} /></Pressable>{!!snapshot?.runtime.capabilities.collaborationModeUpdate && <Pressable accessibilityRole="button" accessibilityLabel={`工作模式：${settings?.collaborationMode === 'plan' ? 'Plan' : '默认'}`} style={[s.pill, s.modePill, settings?.collaborationMode === 'plan' && s.modeActive]} disabled={!ready || busy || thread?.status !== 'idle'} onPress={() => setMenu('mode')}><ListChecks size={15} color={settings?.collaborationMode === 'plan' ? c.accent : c.muted} /><Text style={s.pillText}>{settings?.collaborationMode === 'plan' ? 'Plan' : '默认'}</Text></Pressable>}<View style={s.spacer} /><Pressable accessibilityRole="button" accessibilityLabel={stopMode ? '停止当前任务' : thread?.status === 'active' ? '添加到待发送' : '发送消息'} disabled={!ready || busy || images.some(image => image.loading || !!image.error)} onPress={submit} style={[s.send, stopMode && s.stop, (!ready || busy) && s.disabled]}>{busy ? <ActivityIndicator color="#fff" size="small" /> : stopMode ? <Square size={18} color="#fff" fill="#fff" /> : <ArrowUp size={20} color="#fff" />}</Pressable></View>
       </View>
       </View>
-    </KeyboardAvoidingView>}
-    </View>
-    <Modal visible={drawerOpen && !wide} transparent animationType="fade" onRequestClose={() => setDrawerOpen(false)}>
-      <View style={s.drawerOverlay}>
-        {directory}
-        <Pressable accessibilityRole="button" accessibilityLabel="关闭会话列表" style={s.drawerScrim} onPress={() => setDrawerOpen(false)} />
-      </View>
-    </Modal>
+    </KeyboardAvoidingView>
+    </SafeAreaView>
+    </ConversationDrawer>
     <Modal visible={!!actionThread} transparent animationType="fade" onRequestClose={() => { setActionThread(null); setRenaming(false); }}>
       <Pressable style={s.backdrop} onPress={() => { setActionThread(null); setRenaming(false); }}>
         <Pressable style={[s.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]} onPress={event => event.stopPropagation()}>
@@ -334,7 +329,7 @@ function AppContent() {
     </Modal>
     <Modal visible={menu !== 'none'} transparent animationType="fade" onRequestClose={() => setMenu('none')}><Pressable style={s.backdrop} onPress={() => setMenu('none')}><Pressable style={[s.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]} onPress={event => event.stopPropagation()}><View style={s.modalHeader}><Text style={s.modalTitle}>{menu === 'settings' ? '连接' : menu === 'model' ? '选择模型' : menu === 'mode' ? '工作模式' : '推理强度'}</Text><IconButton icon={X} label="关闭" onPress={() => setMenu('none')} /></View>{menu === 'settings' ? <><Text style={s.sub}>{view.url}</Text><Pressable style={s.menuOption} onPress={() => { setMenu('none'); void relay.logout().catch(() => undefined); }}><LogOut size={18} color={c.danger} /><Text style={s.dangerText}>退出登录</Text></Pressable></> : menu === 'mode' ? <View><Pressable style={s.menuOption} onPress={() => changeMode('default')}><View style={{flex: 1}}><Text style={s.menuText}>默认模式</Text><Text style={s.sub}>按请求执行任务</Text></View>{settings?.collaborationMode === 'default' && <Check size={18} color={c.accent} />}</Pressable><Pressable style={s.menuOption} onPress={() => changeMode('plan')}><View style={{flex: 1}}><Text style={s.menuText}>Plan Mode</Text><Text style={s.sub}>先讨论和形成计划，再切换默认模式执行</Text></View>{settings?.collaborationMode === 'plan' && <Check size={18} color={c.accent} />}</Pressable></View> : menu === 'model' ? <ScrollView style={s.optionList}>{[...new Set([settings?.model, ...(catalog?.models?.map(option => option.model) ?? [])].filter((value): value is string => !!value))].map(name => <Pressable key={name} style={s.menuOption} onPress={() => changeModel(name)}><Text style={s.menuText}>{modelLabel(name, catalog?.models)}</Text>{settings?.model === name && <Check size={18} color={c.accent} />}</Pressable>)}</ScrollView> : <ScrollView style={s.optionList}>{model?.supportedReasoningEfforts.map(effort => <Pressable key={effort} style={s.menuOption} onPress={() => changeEffort(effort)}><Text style={s.menuText}>{effortLabel(effort)}</Text>{settings?.reasoningEffort === effort && <Check size={18} color={c.accent} />}</Pressable>)}</ScrollView>}</Pressable></Pressable></Modal>
     <ImageViewer preview={preview} onClose={() => setPreview(null)} onNavigate={moveImage} />
-  </SafeAreaView>;
+  </View>;
 }
 
 export default function App() { return <SafeAreaProvider><AppContent /></SafeAreaProvider>; }

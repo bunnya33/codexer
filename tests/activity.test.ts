@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activityLabel, activitySections, buildActivityBlocks, completedTurnBlocks, executionItemLabel, formatDuration, itemDuration, mergeLiveTurn } from "../packages/client-shared/src/activity.js";
+import { activityLabel, activitySections, buildActivityBlocks, completedTurnBlocks, executionItemLabel, executionItemSummary, executionSectionSummary, formatDuration, itemDuration, mergeLiveTurn } from "../packages/client-shared/src/activity.js";
 import type { ActivityBlock } from "../packages/client-shared/src/activity.js";
 import { desktopTurns, normalizeHistoryTurn, normalizeThread, withItemTimings } from "../packages/codex-adapter/src/normalize.js";
 import { historyTurnSchema, threadSchema } from "../packages/protocol/src/index.js";
@@ -12,6 +12,45 @@ const turn = (items: RemoteItem[], rest: Partial<HistoryTurn> = {}): HistoryTurn
 const groups = (value: HistoryTurn, active = false) => buildActivityBlocks(value, active).filter((block): block is ActivityBlock => block.kind === "activity");
 
 describe('collapsed execution records', () => {
+  it('uses the current public summary and shows the actual command on one line', () => {
+    expect(executionItemSummary(item('thinking', 'reasoning', {text: '\n**Checking server compatibility**\nLater summary'}), true)).toBe('Checking server compatibility');
+    expect(executionItemSummary(item('command', 'commandExecution', {command: 'npm run build\nnext command', status: 'completed'}), false)).toBe('已运行 npm run build');
+    expect(executionItemSummary(item('command', 'commandExecution', {command: 'npm test'}), true)).toBe('正在运行 npm test');
+    expect(executionItemSummary(item('no-summary', 'reasoning'), true)).toBe('正在思考');
+  });
+
+  it('describes completed file and command work even when the final item is reasoning', () => {
+    const items = [item('create', 'fileChange', {status: 'completed', files: ['/synthetic/helper.ts'], fileOperations: [{path: '/synthetic/helper.ts', kind: 'add'}]}),
+      item('edit', 'fileChange', {status: 'completed', files: ['App.tsx'], fileOperations: [{path: 'App.tsx', kind: 'update'}]}),
+      item('command', 'commandExecution', {status: 'completed', command: 'npm test'}), item('last', 'reasoning')];
+    expect(executionSectionSummary({kind: 'execution', id: 'group', items, running: false})).toBe('已创建 helper.ts，编辑文件并运行命令');
+    expect(executionSectionSummary({kind: 'execution', id: 'group', items, running: true})).toBe('正在思考');
+    expect(executionItemSummary(items[0], false)).toBe('已创建 helper.ts');
+    expect(executionItemSummary(item('old-agent', 'fileChange', {files: ['App.tsx']}), false)).toBe('已修改 App.tsx');
+    expect(executionItemSummary(item('delete', 'fileChange', {fileOperations: [{path: 'old.ts', kind: 'delete'}]}), false)).toBe('已删除 old.ts');
+  });
+
+  it('does not report unsuccessful operations as created files or completed commands', () => {
+    const failed = item('failed', 'fileChange', {status: 'failed', fileOperations: [{path: 'failed.ts', kind: 'add'}]});
+    expect(executionItemSummary(failed, false)).toBe('失败：创建 failed.ts');
+    expect(executionSectionSummary({kind: 'execution', id: 'group', items: [failed, item('last', 'reasoning')], running: false})).toBe('失败：创建 failed.ts');
+    expect(executionSectionSummary({kind: 'execution', id: 'group', items: [item('ok', 'commandExecution', {command: 'npm test', status: 'completed'}), failed], running: false})).toBe('已运行命令，部分操作未完成');
+  });
+
+  it('preserves bounded file-operation kinds through live and history schemas without guessing legacy metadata', () => {
+    const changes = [{path: 'new.ts', kind: {type: 'add'}, diff: 'new'}, {path: 'edit.ts', kind: {type: 'update'}, diff: '+edit'}, {path: 'old.ts', kind: {type: 'delete'}, diff: 'old'}, {path: 'legacy.ts', diff: 'unknown'}];
+    const rawItem = {id: 'change', type: 'fileChange', status: 'completed', changes};
+    const raw = {id: 'turn', status: 'completed', items: [rawItem]};
+    const history = normalizeHistoryTurn(raw);
+    expect(historyTurnSchema.parse(history).items[0]?.fileOperations).toEqual([{path: 'new.ts', kind: 'add'}, {path: 'edit.ts', kind: 'update'}, {path: 'old.ts', kind: 'delete'}, {path: 'legacy.ts', kind: 'unknown'}]);
+    const state = rawThread('idle'); desktopTurns(state)[0]!.items = [rawItem];
+    expect(threadSchema.parse(normalizeThread(state, 1)).turns[0]?.items[0]?.fileOperations).toEqual(history.items[0]?.fileOperations);
+    const huge = normalizeHistoryTurn({...raw, items: [{...rawItem, changes: Array.from({length: 50}, (_, i) => ({path: 'x'.repeat(1100) + i, kind: {type: 'add'}}))}]});
+    expect(huge.items[0]?.fileOperations).toHaveLength(40);
+    expect(huge.items[0]?.fileOperations?.every(operation => operation.path.length <= 1000)).toBe(true);
+    expect(huge.items[0]?.truncated).toBe(true);
+  });
+
   it('groups consecutive reasoning and tools while keeping progress and final replies in order', () => {
     const value = turn([
       item('user', 'userMessage'), item('progress-1', 'agentMessage', {phase: 'commentary', text: 'Checking'}),

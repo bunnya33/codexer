@@ -32,6 +32,8 @@ For history, the Relay sends `{type:"history.request",requestId,threadId,cursor}
 
 Changes are `thread.updated`, `thread.removed`, and `runtime.status`. They contain normalized bounded state rather than application-specific patches. The Agent coalesces thread updates over 400 ms; the resulting stream is ordered, but is not a replay of every token/terminal byte.
 
+File-change items may include additive `fileOperations:[{path,kind}]`, with up to 40 paths of at most 1000 characters. `kind` is `add`, `update`, `delete`, or `unknown`; it comes from the official change metadata, never a guess from filenames or diff counts. Live snapshots and requested history carry the same field. Older Agent records remain valid and display generic modification labels. Reasoning text contains public summary entries only, not the private content array.
+
 `snapshot.runtime.kind` is `official-desktop-ipc` or `official-app-server`. A `runtime.status` change may include `kind` when the Agent switches between them. Clients should keep a chat's controls disabled when `ownerAvailable` is false, even if the device itself is online.
 
 Relay sends `{type:"command", command}`. Agent responds `{type:"command.result", result}`. A newer connection fences and closes the older one.

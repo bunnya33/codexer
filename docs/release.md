@@ -13,7 +13,7 @@ npm test
 npm run package:desktop:win
 ```
 
-输出 `apps/desktop/release/Codexer Setup 0.1.4.exe`（NSIS）和 `Codexer 0.1.4.exe`（便携），以及 `win-unpacked` 验收目录。包内是 Electron 的 Node/SQLite、Agent bundle 和 React UI，不要求最终用户安装 Node。两个包未配置发行签名；当前 `signExecutable:false` 保留图标/元数据但跳过应用签名。商业发行需维护者自行配置可信 Windows 签名证书/服务并调整该选项，不能把工具出现 signing 日志当作已签名。
+输出 `apps/desktop/release/Codexer Setup 0.1.5.exe`（NSIS）和 `Codexer 0.1.5.exe`（便携），以及 `win-unpacked` 验收目录。包内是 Electron 的 Node/SQLite、Agent bundle 和 React UI，不要求最终用户安装 Node。两个包未配置发行签名；当前 `signExecutable:false` 保留图标/元数据但跳过应用签名。商业发行需维护者自行配置可信 Windows 签名证书/服务并调整该选项，不能把工具出现 signing 日志当作已签名。
 
 Electron 二进制下载失败时先检查网络、代理和 DNS，不关闭 TLS 校验。可以使用官方校验和验证后将官方解压目录交给 electron-builder 的 `electronDist`；这个选项只用于打包，最终用户仍无需 Node。
 
@@ -43,5 +43,7 @@ Web 随统一服务包发布。iOS/Android 由 Expo/EAS 或原生工具构建和
 PC 连接器与服务端可独立升级版本；同步对应 package 和锁文件的 workspace 版本，移动 App 发布时同步移动配置版本；先运行类型、行为、文档与平台检查，记录 [验证范围](validation.md)。PC 连接器仍需手动升级。服务器 `0.2.0` 支持从稳定 Release 更新统一服务器包，见 [服务器更新](server-update.md)。
 
 `0.1.4` 支持点击选项即发、异步消息按题回答、自定义文字手动提交及气泡内浅色问题/深色答案。需要同时更新 PC 连接器及服务器 Web 资源，旧 Agent 不支持按题回传或结构化展示字段；单独刷新浏览器不能解决。服务器升级按 [安装文档](server-install.md) 操作。
+
+`0.1.5` 同步活动记录的创建/编辑/删除类型，配合服务器的单行操作摘要与缩进列表；没有类型的旧记录按通用“修改”显示。侧栏跟手动画属于控制 UI，Web 随服务器包升级，手机 App 需重新构建；侧栏操作不要求更新 Agent。
 
 源码使用 `https://github.com/bunnya33/codexer` 的 `main` 分支。服务器稳定标签 `vX.Y.Z` 触发 `.github/workflows/release-server.yml`，测试和构建成功后上传统一包及校验文件；版本必须匹配根 package.json。桌面包仍需独立发布。当前只生成本地 `0.2.0` 服务器包，未发布版本标签或 Release。

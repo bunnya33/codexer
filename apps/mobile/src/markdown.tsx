@@ -4,6 +4,7 @@ import MarkdownIt from 'markdown-it';
 import taskLists from 'markdown-it-task-lists';
 import { c } from './styles';
 import { CodeBlock } from './code-block';
+import { DrawerSwipeBlock } from './drawer-swipe-block';
 
 const parser = new MarkdownIt({ html: false, linkify: true, breaks: true }).use(taskLists, { enabled: false });
 const originalValidate = parser.validateLink.bind(parser);
@@ -101,7 +102,7 @@ function blocks(tokens: Token[], prefix = 'b'): React.ReactNode[] {
         rows.push(<View key={at} style={ms.tableRow}>{cells}</View>);
         at = rowEnd;
       }
-      output.push(<ScrollView key={`${prefix}:${index}`} horizontal style={{ flexGrow: 0 }}><View style={ms.table}>{rows}</View></ScrollView>);
+      output.push(<DrawerSwipeBlock key={`${prefix}:${index}`}><ScrollView horizontal style={{ flexGrow: 0 }}><View style={ms.table}>{rows}</View></ScrollView></DrawerSwipeBlock>);
       index = end;
     } else if (token.type === 'hr') output.push(<View key={`${prefix}:${index}`} style={ms.rule} />);
   }
