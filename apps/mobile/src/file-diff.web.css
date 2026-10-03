@@ -1,0 +1,28 @@
+.codexer-file-diff {
+  max-width: 100%;
+  max-height: 280px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: #f8f9fa;
+}
+.codexer-file-diff pre {
+  margin: 0;
+  padding: 6px 0;
+  width: max-content;
+  min-width: 100%;
+  box-sizing: border-box;
+  font: 12px/20px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #191d1e;
+  tab-size: 4;
+}
+.codexer-file-diff code { font: inherit; }
+.codexer-diff-line {
+  display: block;
+  height: 20px;
+  padding: 0 10px;
+  white-space: pre;
+}
+.codexer-diff-addition { color: #116329; background: #dafbe1; }
+.codexer-diff-deletion { color: #a40e26; background: #ffebe9; }
+.codexer-diff-metadata { color: #687275; }
+.codexer-diff-hunk { color: #576f80; background: #eef4f8; }

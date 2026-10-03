@@ -23,6 +23,7 @@ import { ConversationViewport } from './src/conversation-viewport';
 import { ConversationDrawer } from './src/conversation-drawer';
 import { DrawerSwipeArea } from './src/drawer-swipe-area';
 import { DrawerSwipeBlock } from './src/drawer-swipe-block';
+import { ConversationScroll } from '../../packages/client-shared/src/conversation-scroll';
 
 type DraftImage = { key: number; uri: string; name: string; asset?: ImagePicker.ImagePickerAsset; id?: string; loading: boolean; error?: string };
 type Icon = typeof Menu;
@@ -72,26 +73,25 @@ function AppContent() {
   const streamKey = historyKey(deviceId, threadId);
   const currentStreamKey = useRef(streamKey);
   currentStreamKey.current = streamKey;
-  const atBottom = useRef(true);
-  const seekingBottom = useRef(true);
-  const manualScroll = useRef(false);
-  const scrollMetrics = useRef({height: 0, offset: 0});
+  const scrollPosition = useRef(new ConversationScroll());
   const olderAnchor = useRef<{height: number; offset: number} | null>(null);
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
   const scrollFrame = useRef<number | null>(null);
   const scrollToBottom = useCallback(() => {
-    atBottom.current = true;
-    seekingBottom.current = true;
-    manualScroll.current = false;
+    scrollPosition.current.requestBottom();
     setShowJumpToBottom(false);
     if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current);
     scrollFrame.current = requestAnimationFrame(() => {
       scrollFrame.current = null;
-      if (manualScroll.current || !atBottom.current) return;
+      if (!scrollPosition.current.shouldFollow) return;
       // ScrollView includes the footer and content padding in the true end position.
       const responder = listRef.current?.getScrollResponder() as unknown as ScrollView | null;
       responder?.scrollToEnd({ animated: false });
     });
+  }, []);
+  const markScrollIntent = useCallback(() => {
+    scrollPosition.current.beginInteraction();
+    if (scrollFrame.current !== null) { cancelAnimationFrame(scrollFrame.current); scrollFrame.current = null; }
   }, []);
   const nextImageKey = useRef(0);
   const moveImage = useCallback((direction: ImageDirection) => setPreview(current => {
@@ -125,7 +125,7 @@ function AppContent() {
   useEffect(() => {
     setPreview(null);
     olderAnchor.current = null;
-    scrollMetrics.current = {height: 0, offset: 0};
+    scrollPosition.current.reset();
     scrollToBottom();
     if (deviceId && threadId) void relay.loadHistory(deviceId, threadId);
     return () => { if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current); };
@@ -253,8 +253,8 @@ function AppContent() {
     if (thread?.settings?.model && thread.status === 'idle' && snapshot?.runtime.capabilities.collaborationModeUpdate && mode !== thread.settings.collaborationMode) void send({ type: 'thread.mode.update', threadId, mode, expectedMode: thread.settings.collaborationMode ?? null, expectedModel: thread.settings.model, expectedEffort: thread.settings.reasoningEffort });
   };
   const loadEarlier = () => {
-    atBottom.current = false; seekingBottom.current = false;
-    if (Platform.OS === 'web') olderAnchor.current = {...scrollMetrics.current};
+    scrollPosition.current.pause();
+    if (Platform.OS === 'web') olderAnchor.current = {...scrollPosition.current.metrics};
     void relay.loadHistory(deviceId, threadId, true);
   };
 
@@ -275,27 +275,25 @@ function AppContent() {
     <KeyboardAvoidingView style={s.page} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <DrawerSwipeArea>
       <View style={s.threadHeader}>{!wide && <IconButton icon={Menu} label="打开会话列表" onPress={() => setDrawerOpen(true)} />}<View style={s.threadHeading}><Text testID="conversation-title" style={s.threadTitle} numberOfLines={1}>{summary?.title ?? thread?.title ?? 'Codexer'}</Text><Text style={s.sub} numberOfLines={1}>{project?.name ?? device?.name ?? '选择设备'}{threadId ? ` · ${thread?.status === 'active' ? '进行中' : thread?.status === 'idle' ? '空闲' : '接入中'}` : ''}</Text></View><>{hasTruncatedContent && <IconButton icon={Info} label="查看会话展示范围" onPress={() => relay.showNotice("部分长记录受传输大小限制。完整内容可在本机 Codex 查看；更早消息可在会话顶部加载。")} />}</><IconButton icon={RefreshCw} label="刷新会话" disabled={!threadId} onPress={() => { void relay.loadHistory(deviceId, threadId); relay.watchThread(deviceId, threadId); }} /></View>
-      <ConversationViewport onScrollIntent={() => { manualScroll.current = true; }}><FlatList key={historyKey(deviceId, threadId)} ref={listRef} testID="conversation-stream" data={turns} keyExtractor={item => item.id} style={s.stream} contentContainerStyle={[s.streamContent, wide && s.desktopContent]} initialNumToRender={8} windowSize={7} maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+      <ConversationViewport onScrollIntent={markScrollIntent}><FlatList key={historyKey(deviceId, threadId)} ref={listRef} testID="conversation-stream" data={turns} keyExtractor={item => item.id} style={s.stream} contentContainerStyle={[s.streamContent, wide && s.desktopContent]} initialNumToRender={8} windowSize={7} maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
         onScroll={event => {
           if (currentStreamKey.current !== streamKey) return;
           const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-          scrollMetrics.current = {height: contentSize.height, offset: contentOffset.y};
-          const nearBottom = contentSize.height - contentOffset.y - layoutMeasurement.height < 100;
-          if ((seekingBottom.current || atBottom.current) && !nearBottom && !manualScroll.current) return;
-          seekingBottom.current = false;
-          atBottom.current = nearBottom;
-          if (nearBottom) manualScroll.current = false;
-          setShowJumpToBottom(!nearBottom);
+          setShowJumpToBottom(scrollPosition.current.readScroll({height: contentSize.height, offset: contentOffset.y, viewport: layoutMeasurement.height}));
         }} scrollEventThrottle={32}
-        onScrollBeginDrag={() => { manualScroll.current = true; }}
-        onLayout={() => { if (currentStreamKey.current === streamKey && atBottom.current && !manualScroll.current) scrollToBottom(); }}
+        onScrollBeginDrag={markScrollIntent}
+        onLayout={event => {
+          if (currentStreamKey.current !== streamKey) return;
+          setShowJumpToBottom(scrollPosition.current.layout(event.nativeEvent.layout.height));
+          if (scrollPosition.current.shouldFollow) scrollToBottom();
+        }}
         onContentSizeChange={(_width, height) => {
           if (currentStreamKey.current !== streamKey) return;
+          setShowJumpToBottom(scrollPosition.current.contentSize(height));
           if (olderAnchor.current && !history?.loading) {
             const anchor = olderAnchor.current; olderAnchor.current = null;
             listRef.current?.scrollToOffset({offset: Math.max(0, anchor.offset + height - anchor.height), animated: false});
-          } else if (atBottom.current && !manualScroll.current) scrollToBottom();
-          scrollMetrics.current.height = height;
+          } else if (scrollPosition.current.shouldFollow) scrollToBottom();
         }} refreshing={!!history?.nextCursor && !!history.loading}
         onRefresh={Platform.OS !== 'web' && history?.nextCursor ? loadEarlier : undefined}
         renderItem={({ item }) => <TurnView turn={item} active={item.id === thread?.activeTurnId && thread?.status === 'active'} deviceId={deviceId} threadId={threadId} onImage={openImage} questionRequestIds={questionRequestIds} />}

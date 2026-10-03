@@ -14,6 +14,7 @@ import { copyText } from './runtime';
 import { c, s } from './styles';
 import { ShimmerLabel } from './shimmer';
 import { DrawerSwipeBlock } from './drawer-swipe-block';
+import { FileDiff } from './file-diff';
 
 type ImageSource = { uri: string; headers?: Record<string, string> };
 type ImageViewer = (source: ImageSource, name: string) => void;
@@ -96,9 +97,20 @@ function Activity({ block, deviceId, threadId, onImage, questionRequestIds }: { 
 
 export function FileChangesPanel({ changes, compact = true }: { changes: NonNullable<HistoryTurn['fileChanges']>; compact?: boolean }) {
   const [diffOpen, setDiffOpen] = useState(false);
+  const [expandedPath, setExpandedPath] = useState<string | null>(null);
+  useEffect(() => { if (expandedPath && !changes.some(change => change.path === expandedPath)) setExpandedPath(null); }, [changes, expandedPath]);
   if (!changes.length) return null;
-  const diffs = changes.map(change => <View key={change.path} style={[s.diff, !compact && {borderTopWidth: 1, borderColor: c.line}]}><Text style={s.diffPath}>{change.path}</Text><Text selectable style={s.code}>{change.diff || '差异暂不可用'}</Text>{change.truncated && <Text style={s.usage}>部分差异已截断</Text>}</View>);
-  return <View style={compact ? s.changes : s.completedChanges}><Pressable accessibilityRole="button" accessibilityLabel={`${changes.length} 个文件已更改，${diffOpen ? '收起' : '查看'}差异`} aria-expanded={diffOpen} onPress={() => setDiffOpen(!diffOpen)} style={compact ? s.changeHead : s.completedChangeHead}>{!compact && <Folder size={15} color={c.muted} />}<Text style={compact ? s.changeTitle : s.completedChangeTitle}>{compact ? `${changes.length} 个文件已更改` : `已编辑 ${changes.length} 个文件`}</Text><Text style={compact ? s.additions : s.completedAdditions}>+{changes.reduce((n, change) => n + change.additions, 0)}</Text><Text style={s.deletions}>-{changes.reduce((n, change) => n + change.deletions, 0)}</Text>{!compact && <ChevronDown size={16} color={c.muted} style={diffOpen ? s.rotated : undefined} />}</Pressable>{diffOpen && (compact ? <ScrollView style={s.diffs} nestedScrollEnabled>{diffs}</ScrollView> : diffs)}</View>;
+  const diffs = changes.map(change => {
+    const open = expandedPath === change.path;
+    return <View key={change.path} style={s.diff}>
+      <Pressable accessibilityRole="button" accessibilityLabel={`${change.path}，${open ? '收起' : '查看'}差异`} accessibilityState={{ expanded: open }} aria-expanded={open}
+        onPress={() => setExpandedPath(current => current === change.path ? null : change.path)} style={({ pressed }) => [s.diffFileHead, pressed && s.pressed]}>
+        <ChevronRight size={14} color={c.muted} style={open ? s.chevronDown : undefined} /><Text style={s.diffPath}>{change.path}</Text><Text style={s.additions}>+{change.additions}</Text><Text style={s.deletions}>-{change.deletions}</Text>
+      </Pressable>
+      {open && <View testID="expanded-file-diff">{change.diff ? <FileDiff diff={change.diff} path={change.path} /> : <Text style={s.diffNotice}>差异暂不可用</Text>}{change.truncated && <Text style={s.diffNotice}>部分差异已截断</Text>}</View>}
+    </View>;
+  });
+  return <View style={compact ? s.changes : s.completedChanges}><Pressable accessibilityRole="button" accessibilityLabel={`${changes.length} 个文件已更改，${diffOpen ? '收起' : '查看'}差异`} aria-expanded={diffOpen} onPress={() => { setDiffOpen(!diffOpen); setExpandedPath(null); }} style={compact ? s.changeHead : s.completedChangeHead}>{!compact && <Folder size={15} color={c.muted} />}<Text style={compact ? s.changeTitle : s.completedChangeTitle}>{compact ? `${changes.length} 个文件已更改` : `已编辑 ${changes.length} 个文件`}</Text><Text style={compact ? s.additions : s.completedAdditions}>+{changes.reduce((n, change) => n + change.additions, 0)}</Text><Text style={s.deletions}>-{changes.reduce((n, change) => n + change.deletions, 0)}</Text>{!compact && <ChevronDown size={16} color={c.muted} style={diffOpen ? s.rotated : undefined} />}</Pressable>{diffOpen && (compact ? <ScrollView style={s.diffs} nestedScrollEnabled>{diffs}</ScrollView> : diffs)}</View>;
 }
 
 export const TurnView = memo(function TurnView({ turn, active, deviceId, threadId, onImage, questionRequestIds }: { turn: HistoryTurn; active: boolean; deviceId: string; threadId: string; onImage: ImageViewer; questionRequestIds: string[] }) {
