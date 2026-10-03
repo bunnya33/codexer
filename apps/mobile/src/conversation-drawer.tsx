@@ -75,12 +75,12 @@ export function ConversationDrawer({ wide, open, onOpenChange, directory, childr
   useEffect(() => {
     if (wide || !present) return;
     const close = () => { settings.current.onOpenChange(false); animate(false); return true; };
-    const back = BackHandler.addEventListener('hardwareBackPress', close);
     if (Platform.OS === 'web') {
       const escape = (event: KeyboardEvent) => { if (event.key === 'Escape' && !event.defaultPrevented) { event.preventDefault(); close(); } };
       window.addEventListener('keydown', escape);
-      return () => { back.remove(); window.removeEventListener('keydown', escape); };
+      return () => window.removeEventListener('keydown', escape);
     }
+    const back = BackHandler.addEventListener('hardwareBackPress', close);
     return () => back.remove();
   }, [wide, present, animate]);
   const interactive = open && !wide;
