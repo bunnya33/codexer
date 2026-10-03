@@ -13,7 +13,7 @@ npm test
 npm run package:desktop:win
 ```
 
-输出 `apps/desktop/release/Codexer Setup 0.1.5.exe`（NSIS）和 `Codexer 0.1.5.exe`（便携），以及 `win-unpacked` 验收目录。包内是 Electron 的 Node/SQLite、Agent bundle 和 React UI，不要求最终用户安装 Node。两个包未配置发行签名；当前 `signExecutable:false` 保留图标/元数据但跳过应用签名。商业发行需维护者自行配置可信 Windows 签名证书/服务并调整该选项，不能把工具出现 signing 日志当作已签名。
+输出 `apps/desktop/release/Codexer Setup 0.1.6.exe`（NSIS）和 `Codexer 0.1.6.exe`（便携），以及 `win-unpacked` 验收目录。包内是 Electron 的 Node/SQLite、Agent bundle 和 React UI，不要求最终用户安装 Node。两个包未配置发行签名；当前 `signExecutable:false` 保留图标/元数据但跳过应用签名。商业发行需维护者自行配置可信 Windows 签名证书/服务并调整该选项，不能把工具出现 signing 日志当作已签名。
 
 Electron 二进制下载失败时先检查网络、代理和 DNS，不关闭 TLS 校验。可以使用官方校验和验证后将官方解压目录交给 electron-builder 的 `electronDist`；这个选项只用于打包，最终用户仍无需 Node。
 
@@ -30,7 +30,7 @@ npm run build:server
 npm run package:server
 ```
 
-输出 `release/codexer-server-0.2.0.tar.gz` 和 `.sha256`，包含 Relay 编译产物、控制端/后台静态文件、更新器、锁定依赖清单、安装器和文档。不含 node_modules、真实配置、旧 Git 历史或 Electron 二进制。服务器安装时自动装 Node/生产依赖，看到 bundle 标记后直接使用已构建网页。
+输出 `release/codexer-server-0.2.1.tar.gz` 和 `.sha256`，包含 Relay 编译产物、控制端/后台静态文件、更新器、锁定依赖清单、安装器和文档。不含 node_modules、真实配置、旧 Git 历史或 Electron 二进制。服务器安装时自动装 Node/生产依赖，看到 bundle 标记后直接使用已构建网页。
 
 同一个包同时升级 Admin 和 Relay，避免接口与 UI 不一致。安装、校验、回退见 [服务器安装](server-install.md)。源码的 Dockerfile 独立执行完整服务器构建，也跳过 Electron 下载。
 
@@ -46,4 +46,10 @@ PC 连接器与服务端可独立升级版本；同步对应 package 和锁文�
 
 `0.1.5` 同步活动记录的创建/编辑/删除类型，配合服务器的单行操作摘要与缩进列表；没有类型的旧记录按通用“修改”显示。侧栏跟手动画属于控制 UI，Web 随服务器包升级，手机 App 需重新构建；侧栏操作不要求更新 Agent。
 
-源码使用 `https://github.com/bunnya33/codexer` 的 `main` 分支。服务器稳定标签 `vX.Y.Z` 触发 `.github/workflows/release-server.yml`，测试和构建成功后上传统一包及校验文件；版本必须匹配根 package.json。桌面包仍需独立发布。当前只生成本地 `0.2.0` 服务器包，未发布版本标签或 Release。
+源码使用 `https://github.com/bunnya33/codexer` 的 `main` 分支。服务器稳定标签 `vX.Y.Z` 触发 `.github/workflows/release-server.yml`，测试和构建成功后上传统一包及校验文件；版本必须匹配根 package.json。桌面包仍需独立发布。`v0.2.1` 用于验证从 `0.2.0` 升级的流程，标签与根 package、Admin 和锁文件版本一致。Git 更新只需标签；Release 包在上述工作流通过后生成。
+
+## 0.2.1 更新验证版本
+
+在已验证的 `0.2.0` 代码上提升服务端版本号，便于测试后台发现新版本及升级。包含 Git tag 拉取/构建/手动重启、Release 准备后手动重启、后台蓝色样式、侧栏松手状态及刷新消息去重和顺序修复；本次不改变数据库结构，也不额外变更接口。旧部署须先安装协议 2 更新器，见 [服务器更新](server-update.md)。
+
+刷新消息修复需 PC 连接器 `0.1.6`；此服务器版本标签不会自动更新 PC。Windows 安装包仍独立提供，macOS/原生手机的实机验证范围见 [验证说明](validation.md)。
