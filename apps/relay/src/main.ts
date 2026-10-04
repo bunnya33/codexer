@@ -4,6 +4,8 @@ import { bootstrapAdmin, adminAccountPath } from "../../../packages/shared/src/a
 import { createRelay } from "./server.js";
 import { RelayStore } from "./store.js";
 import { ServerUpdates } from "./updates.js";
+import { loadWeixinKey } from './weixin-secrets.js';
+import { WeixinApi } from './weixin-api.js';
 
 const directory = resolve(process.env.RELAY_DATA_DIR ?? ".local/relay");
 const adminPath = adminAccountPath();
@@ -11,7 +13,8 @@ const store = await RelayStore.open(process.env.DATABASE_URL, directory);
 await bootstrapAdmin(store, adminPath);
 const {version} = JSON.parse(await readFile(resolve('package.json'), 'utf8')) as {version: string};
 const updates = new ServerUpdates(version, '/var/lib/codexer-updater/inbox');
-const app = await createRelay({ store, updates, version, allowedOrigins: (process.env.RELAY_ALLOWED_ORIGINS ?? "").split(",").filter(Boolean), webRoot: resolve(process.env.RELAY_WEB_DIR ?? "apps/web/dist"), adminRoot: resolve(process.env.RELAY_ADMIN_DIR ?? "apps/admin/dist") });
+const weixin = process.env.RELAY_WEIXIN_ENABLED === 'false' ? undefined : {key: await loadWeixinKey(directory,process.env.RELAY_WEIXIN_KEY),api:new WeixinApi(version)};
+const app = await createRelay({ store, updates, version, weixin, allowedOrigins: (process.env.RELAY_ALLOWED_ORIGINS ?? "").split(",").filter(Boolean), webRoot: resolve(process.env.RELAY_WEB_DIR ?? "apps/web/dist"), adminRoot: resolve(process.env.RELAY_ADMIN_DIR ?? "apps/admin/dist") });
 updates.start(); app.addHook('onClose', async () => updates.close());
 const bindHost = process.env.RELAY_HOST ?? "127.0.0.1";
 const address = await app.listen({ host: bindHost, port: Number(process.env.RELAY_PORT ?? "8787") });

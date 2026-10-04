@@ -4,6 +4,19 @@ Base URL 是 Relay 的 HTTP 或 HTTPS 地址；本机开发默认为 `http://127
 
 ## 认证和错误
 
+微信接入 API 只接受普通账号的控制端 session；管理员和设备限定 session 无权访问。所有返回使用 `Cache-Control: no-store`，不返回 Bot token、上下文令牌或消息游标。完整使用说明见 [微信 ClawBot](weixin.md)。
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| GET | `/v1/weixin` | 当前账号绑定、激活、连接状态、通知与续做开关、待发送数和错误代码 |
+| POST | `/v1/weixin/login` | 创建当前账号的扫码流程，返回 `loginId`、二维码 PNG data URL 和五分钟有效期 |
+| POST | `/v1/weixin/login/:loginId/poll` | 查询本账号二维码状态，可带 `{verifyCode}`；微信状态轮询可能等待 35 秒 |
+| PUT | `/v1/weixin` | 保存 `{notifications:boolean,replies:boolean}` |
+| DELETE | `/v1/weixin` | 解除当前账号绑定并清除对应收发队列 |
+| POST | `/v1/weixin/test` | 激活后提交测试通知，`queued:true` 表示入队，不代表已投递 |
+
+二维码绑定冲突返回 409 `weixin-bot-already-bound`；其他账号的绑定流程返回 404 `weixin-login-not-found`；未激活测试返回 409 `weixin-not-activated`。微信功能未开启时 GET 返回 `available:false`，其他操作返回 503 `weixin-disabled`。上游错误使用脱敏的固定错误代码。
+
 Web、App 和 PC Agent 均通过控制端账号密码登录；后台管理员使用独立入口 `/v1/admin/auth/login`。两类账号可同名，密码和权限独立。除健康与登录接口外，接口使用 `Authorization: Bearer <session>` 会话凭据。控制端只能访问同账号 PC；管理员不能登录 PC Agent、申请控制 WebSocket ticket 或控制任何设备。跨账号设备请求返回 404。
 
 密码使用加盐 scrypt 哈希。控制端/后台登录按前台续期计算空闲超时，管理员可设为 1–43200 分钟，默认 10080 分钟（7 天）；Agent 仍为 7 天固定有效期。改密和禁用账号会撤销该账号所有会话；退出撤销当前会话。客户端和 Agent 会话相互隔离，Agent 会话只允许访问其 PC。WebSocket 使用绑定当前会话的 60 秒一次性 ticket，连接后 5 秒内发送 client.authenticate。PC WebSocket 使用 Agent 登录会话和 X-Device-Id。登录接口有 IP 与账号尝试限速，公网必须使用 HTTPS/WSS。

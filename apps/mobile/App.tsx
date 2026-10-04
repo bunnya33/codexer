@@ -4,7 +4,7 @@ import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { Archive, ArrowDown, ArrowUp, Check, ChevronDown, ImagePlus, Info, ListChecks, LogOut, Menu, Pencil, RefreshCw, Square, Terminal, Trash2, X } from 'lucide-react-native';
+import { Archive, ArrowDown, ArrowUp, Check, ChevronDown, ImagePlus, Info, ListChecks, LogOut, Menu, MessageCircle, Pencil, RefreshCw, Square, Terminal, Trash2, X } from 'lucide-react-native';
 import { mergeTurnHistory } from '../../packages/client-shared/src/activity';
 import { conversationImages } from '../../packages/client-shared/src/images';
 import type { ImageDirection, ImageGallery, ImagePreview } from '../../packages/client-shared/src/images';
@@ -24,6 +24,7 @@ import { ConversationDrawer } from './src/conversation-drawer';
 import { DrawerSwipeArea } from './src/drawer-swipe-area';
 import { DrawerSwipeBlock } from './src/drawer-swipe-block';
 import { ConversationScroll } from '../../packages/client-shared/src/conversation-scroll';
+import { WeixinSettings } from './src/weixin-settings';
 
 type DraftImage = { key: number; uri: string; name: string; asset?: ImagePicker.ImagePickerAsset; id?: string; loading: boolean; error?: string };
 type Icon = typeof Menu;
@@ -65,6 +66,7 @@ function AppContent() {
   const [busy, setBusy] = useState(false);
   const [menu, setMenu] = useState<'settings' | 'model' | 'effort' | 'mode'>('settings');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [weixinOpen,setWeixinOpen] = useState(false);
   const openMenu = (kind: typeof menu) => { setMenu(kind); setMenuOpen(true); };
   // Keep the selected content mounted while Modal plays its closing animation.
   const closeMenu = () => setMenuOpen(false);
@@ -119,7 +121,7 @@ function AppContent() {
     const listener = AppState.addEventListener('change', state => relay.setForeground(state === 'active'));
     return () => listener.remove();
   }, []);
-  useEffect(() => { if (view.phase === 'locked') { setThreadId(''); setDeviceId(''); setDraft(''); setImages([]); setDrawerOpen(false); setActionThread(null); setPreview(null); closeMenu(); } }, [view.phase]);
+  useEffect(() => { if (view.phase === 'locked') { setThreadId(''); setDeviceId(''); setDraft(''); setImages([]); setDrawerOpen(false); setActionThread(null); setPreview(null); setWeixinOpen(false); closeMenu(); } }, [view.phase]);
   useEffect(() => { if (!view.devices.some(device => device.id === deviceId)) setDeviceId(view.devices[0]?.id ?? ''); }, [view.devices, deviceId]);
   useEffect(() => { if (view.phase === 'connected' && deviceId && !view.catalogs[deviceId]) void relay.loadCatalog(deviceId); }, [deviceId, view.catalogs, view.phase]);
   useEffect(() => {
@@ -327,7 +329,8 @@ function AppContent() {
         </Pressable>
       </Pressable>
     </Modal>
-    <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => closeMenu()}><Pressable style={s.backdrop} onPress={() => closeMenu()}><Pressable style={[s.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]} onPress={event => event.stopPropagation()}><View style={s.modalHeader}><Text style={s.modalTitle}>{menu === 'settings' ? '连接' : menu === 'model' ? '选择模型' : menu === 'mode' ? '工作模式' : '推理强度'}</Text><IconButton icon={X} label="关闭" onPress={() => closeMenu()} /></View>{menu === 'settings' ? <><Text style={s.sub}>{view.url}</Text><Pressable style={s.menuOption} onPress={() => { closeMenu(); void relay.logout().catch(() => undefined); }}><LogOut size={18} color={c.danger} /><Text style={s.dangerText}>退出登录</Text></Pressable></> : menu === 'mode' ? <View><Pressable style={s.menuOption} onPress={() => changeMode('default')}><View style={{flex: 1}}><Text style={s.menuText}>默认模式</Text><Text style={s.sub}>按请求执行任务</Text></View>{settings?.collaborationMode === 'default' && <Check size={18} color={c.accent} />}</Pressable><Pressable style={s.menuOption} onPress={() => changeMode('plan')}><View style={{flex: 1}}><Text style={s.menuText}>Plan Mode</Text><Text style={s.sub}>先讨论和形成计划，再切换默认模式执行</Text></View>{settings?.collaborationMode === 'plan' && <Check size={18} color={c.accent} />}</Pressable></View> : menu === 'model' ? <ScrollView style={s.optionList}>{[...new Set([settings?.model, ...(catalog?.models?.map(option => option.model) ?? [])].filter((value): value is string => !!value))].map(name => <Pressable key={name} style={s.menuOption} onPress={() => changeModel(name)}><Text style={s.menuText}>{modelLabel(name, catalog?.models)}</Text>{settings?.model === name && <Check size={18} color={c.accent} />}</Pressable>)}</ScrollView> : <ScrollView style={s.optionList}>{model?.supportedReasoningEfforts.map(effort => <Pressable key={effort} style={s.menuOption} onPress={() => changeEffort(effort)}><Text style={s.menuText}>{effortLabel(effort)}</Text>{settings?.reasoningEffort === effort && <Check size={18} color={c.accent} />}</Pressable>)}</ScrollView>}</Pressable></Pressable></Modal>
+    <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => closeMenu()}><Pressable style={s.backdrop} onPress={() => closeMenu()}><Pressable style={[s.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]} onPress={event => event.stopPropagation()}><View style={s.modalHeader}><Text style={s.modalTitle}>{menu === 'settings' ? '连接' : menu === 'model' ? '选择模型' : menu === 'mode' ? '工作模式' : '推理强度'}</Text><IconButton icon={X} label="关闭" onPress={() => closeMenu()} /></View>{menu === 'settings' ? <><Text style={s.sub}>{view.url}</Text><Pressable accessibilityRole="button" style={s.menuOption} onPress={() => { closeMenu(); setWeixinOpen(true); }}><MessageCircle size={18} color={c.text} /><Text style={s.menuText}>微信 ClawBot</Text></Pressable><Pressable style={s.menuOption} onPress={() => { closeMenu(); void relay.logout().catch(() => undefined); }}><LogOut size={18} color={c.danger} /><Text style={s.dangerText}>退出登录</Text></Pressable></> : menu === 'mode' ? <View><Pressable style={s.menuOption} onPress={() => changeMode('default')}><View style={{flex: 1}}><Text style={s.menuText}>默认模式</Text><Text style={s.sub}>按请求执行任务</Text></View>{settings?.collaborationMode === 'default' && <Check size={18} color={c.accent} />}</Pressable><Pressable style={s.menuOption} onPress={() => changeMode('plan')}><View style={{flex: 1}}><Text style={s.menuText}>Plan Mode</Text><Text style={s.sub}>先讨论和形成计划，再切换默认模式执行</Text></View>{settings?.collaborationMode === 'plan' && <Check size={18} color={c.accent} />}</Pressable></View> : menu === 'model' ? <ScrollView style={s.optionList}>{[...new Set([settings?.model, ...(catalog?.models?.map(option => option.model) ?? [])].filter((value): value is string => !!value))].map(name => <Pressable key={name} style={s.menuOption} onPress={() => changeModel(name)}><Text style={s.menuText}>{modelLabel(name, catalog?.models)}</Text>{settings?.model === name && <Check size={18} color={c.accent} />}</Pressable>)}</ScrollView> : <ScrollView style={s.optionList}>{model?.supportedReasoningEfforts.map(effort => <Pressable key={effort} style={s.menuOption} onPress={() => changeEffort(effort)}><Text style={s.menuText}>{effortLabel(effort)}</Text>{settings?.reasoningEffort === effort && <Check size={18} color={c.accent} />}</Pressable>)}</ScrollView>}</Pressable></Pressable></Modal>
+    {weixinOpen&&<WeixinSettings onClose={()=>setWeixinOpen(false)}/>}
     <ImageViewer preview={preview} onClose={() => setPreview(null)} onNavigate={moveImage} />
   </View>;
 }

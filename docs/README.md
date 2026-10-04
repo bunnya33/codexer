@@ -15,6 +15,7 @@
 | [管理后台](admin.md) | 创建账号、密码重置、禁用、管理与控制会话隔离 |
 | [服务器更新](server-update.md) | Release/Git tag 切换、分步构建、手动重启、校验、回退与部署要求 |
 | [Relay](relay.md) | Fastify 服务职责、配置、存储、连接和错误处理 |
+| [微信 ClawBot](weixin.md) | 每账号独立扫码绑定、多 PC 完成通知、微信回复续做 |
 | [运维与故障排查](operations.md) | HTTPS、备份、账号恢复、服务状态、常见问题 |
 
 ## 开发与交付

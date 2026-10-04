@@ -1,6 +1,7 @@
 import { clearCredentials as clearSavedCredentials, randomId, readCredentials, saveCredentials } from './runtime';
 import { catalogSchema, eventSchema, historyPageSchema, imageRefSchema, MAX_IMAGE_BYTES, reduceEvent, snapshotSchema } from '../../../packages/protocol/src/index';
 import type { CommandResult, DeviceCatalog, DeviceSnapshot, HistoryTurn, ImageRef, RemoteCommand } from '../../../packages/protocol/src/index';
+import type { WeixinLogin, WeixinStatus } from '../../../packages/protocol/src/weixin';
 import { mergeTurnHistory } from '../../../packages/client-shared/src/activity';
 
 export type Device = { id: string; name: string; platform: string; online: boolean; owner_user_id?: string | null; last_seen_at?: number | string | null };
@@ -144,6 +145,12 @@ export class RelayClient {
     try { await this.api('/v1/auth/logout', undefined, 'POST'); }
     finally { this.disconnect(true); }
   }
+  weixinStatus() { return this.api<WeixinStatus>('/v1/weixin'); }
+  weixinLogin() { return this.api<WeixinLogin>('/v1/weixin/login',{},'POST'); }
+  weixinPoll(loginId:string,verifyCode?:string) { return this.api<WeixinLogin>(`/v1/weixin/login/${encodeURIComponent(loginId)}/poll`,verifyCode?{verifyCode}:{},'POST'); }
+  weixinSettings(notifications:boolean,replies:boolean) { return this.api<WeixinStatus>('/v1/weixin',{notifications,replies},'PUT'); }
+  weixinUnbind() { return this.api('/v1/weixin',undefined,'DELETE'); }
+  weixinTest() { return this.api('/v1/weixin/test',{},'POST'); }
 
   disconnect(clearCredentials = false): void {
     this.generation++;

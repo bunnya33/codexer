@@ -8,13 +8,15 @@ import { PGlite } from "@electric-sql/pglite";
 import { Pool } from "pg";
 import { reduceEvent } from "../../../packages/protocol/src/index.js";
 import type { CommandResult, DeviceCatalog, DeviceSnapshot, ImagePayload, RemoteCommand, RemoteEvent } from "../../../packages/protocol/src/index.js";
+import { WeixinStore } from './weixin-store.js';
 
 type Row = Record<string, unknown>;
 type Sql = { query: (sql: string, params?: unknown[]) => Promise<{ rows: Row[] }> };
 export type Principal = { kind: "admin" | "user"; id: string; sessionHash?: string; expiresAt?: number };
 export function hash(value: string): string { return createHash("sha256").update(value).digest("hex"); }
 export class RelayStore {
-  private constructor(private readonly sql: Sql, private readonly transaction: <T>(operation: (sql: Sql) => Promise<T>) => Promise<T>, readonly close: () => Promise<void>) {}
+  readonly weixin: WeixinStore;
+  private constructor(private readonly sql: Sql, private readonly transaction: <T>(operation: (sql: Sql) => Promise<T>) => Promise<T>, readonly close: () => Promise<void>) { this.weixin = new WeixinStore(sql,transaction); }
   static async open(databaseUrl?: string, directory?: string): Promise<RelayStore> {
     let store: RelayStore;
     if (databaseUrl) {
@@ -32,6 +34,7 @@ export class RelayStore {
       store = new RelayStore(db, operation => db.transaction(tx => operation(tx)), () => db.close());
     }
     await store.initialize();
+    await store.weixin.initialize();
     return store;
   }
   private async initialize(): Promise<void> {
@@ -132,6 +135,7 @@ export class RelayStore {
       if (!rows.length) return false;
       await sql.query("DELETE FROM sessions WHERE user_id=$1", [id]);
       await sql.query("DELETE FROM tickets WHERE owner_user_id=$1", [id]);
+      await sql.query('DELETE FROM weixin_bindings WHERE user_id=$1', [id]);
       return true;
     });
   }
@@ -141,6 +145,7 @@ export class RelayStore {
       if (!(await sql.query("UPDATE users SET password_hash=$2,token_hash=NULL WHERE id=$1 AND role=$3 AND revoked_at IS NULL RETURNING id", [id, encoded, role])).rows.length) return false;
       await sql.query("DELETE FROM sessions WHERE user_id=$1", [id]);
       await sql.query("DELETE FROM tickets WHERE owner_user_id=$1", [id]);
+      await sql.query('DELETE FROM weixin_bindings WHERE user_id=$1', [id]);
       return true;
     });
   }
@@ -189,9 +194,12 @@ export class RelayStore {
     await this.sql.query("INSERT INTO catalogs(device_id,payload) VALUES($1,$2::jsonb) ON CONFLICT(device_id) DO UPDATE SET payload=EXCLUDED.payload", [catalog.deviceId, jsonForStorage(catalog)]);
   }
   async saveSnapshot(snapshot: DeviceSnapshot): Promise<void> {
-    const existing = await this.snapshot(snapshot.deviceId);
-    if (existing?.epoch === snapshot.epoch && existing.lastSeq > snapshot.lastSeq) throw new Error("stale-snapshot");
-    await this.sql.query("INSERT INTO snapshots(device_id,epoch,seq,payload) VALUES($1,$2,$3,$4::jsonb) ON CONFLICT(device_id) DO UPDATE SET epoch=EXCLUDED.epoch,seq=EXCLUDED.seq,payload=EXCLUDED.payload", [snapshot.deviceId, snapshot.epoch, snapshot.lastSeq, jsonForStorage(snapshot)]);
+    await this.transaction(async sql => {
+      const existing = (await sql.query('SELECT payload FROM snapshots WHERE device_id=$1 FOR UPDATE',[snapshot.deviceId])).rows[0]?.payload as DeviceSnapshot | undefined;
+      if (existing?.epoch === snapshot.epoch && existing.lastSeq > snapshot.lastSeq) throw new Error("stale-snapshot");
+      await sql.query("INSERT INTO snapshots(device_id,epoch,seq,payload) VALUES($1,$2,$3,$4::jsonb) ON CONFLICT(device_id) DO UPDATE SET epoch=EXCLUDED.epoch,seq=EXCLUDED.seq,payload=EXCLUDED.payload", [snapshot.deviceId, snapshot.epoch, snapshot.lastSeq, jsonForStorage(snapshot)]);
+      await this.weixin.completions(sql,existing??null,snapshot);
+    });
   }
   async saveEvent(event: RemoteEvent): Promise<DeviceSnapshot> {
     return this.transaction(async sql => {
@@ -201,6 +209,7 @@ export class RelayStore {
       const snapshot = reduceEvent(rows[0].payload as DeviceSnapshot, event);
       await sql.query("INSERT INTO events(device_id,epoch,seq,payload,created_at) VALUES($1,$2,$3,$4::jsonb,$5)", [event.deviceId, event.epoch, event.seq, jsonForStorage(event), Date.now()]);
       await sql.query("UPDATE snapshots SET seq=$2,payload=$3::jsonb WHERE device_id=$1", [event.deviceId, event.seq, jsonForStorage(snapshot)]);
+      await this.weixin.completions(sql,rows[0].payload as DeviceSnapshot,snapshot);
       return snapshot;
     });
   }
@@ -242,5 +251,6 @@ export class RelayStore {
     await this.sql.query("DELETE FROM tickets WHERE expires_at<$1", [now]);
     await this.sql.query("DELETE FROM sessions WHERE expires_at<$1", [now]);
     await this.sql.query("DELETE FROM images WHERE expires_at<$1 OR EXISTS(SELECT 1 FROM devices WHERE id=images.device_id AND revoked_at IS NOT NULL)", [now]);
+    await this.weixin.cleanup();
   }
 }

@@ -12,6 +12,8 @@ Relay 是控制客户端和 PC 之间的认证与通信中转。采用 Node、Fa
 
 PC 主动连接 Relay，电脑无需公网端口。Agent 离线时拒绝新命令；Relay 不能替代 PC 执行任务。服务重启后 PC 自动重连，客户端补齐状态。
 
+微信 ClawBot 也在服务器运行，按账号独立绑定与收发。使用、隔离、监听范围和密钥备份见 [微信接入](weixin.md)。
+
 ## 配置
 
 | 环境变量 | 默认/用途 |
@@ -22,6 +24,8 @@ PC 主动连接 Relay，电脑无需公网端口。Agent 离线时拒绝新命�
 | `RELAY_WEB_DIR` | 默认 `apps/web/dist`，React Native Web 静态资源 |
 | `RELAY_ADMIN_DIR` | 默认 `apps/admin/dist`，React Admin 静态资源 |
 | `RELAY_DATA_DIR` | 默认 `.local/relay`，PGlite 数据目录 |
+| `RELAY_WEIXIN_ENABLED` | 默认开启微信 ClawBot；`false` 禁用 |
+| `RELAY_WEIXIN_KEY` | 可选 64 位十六进制加密密钥，默认保存在数据目录的 `weixin.key` |
 | `DATABASE_URL` | 设置后使用外部 PostgreSQL，未设置使用 PGlite |
 | `RELAY_ADMIN_USERNAME` / `RELAY_ADMIN_PASSWORD` | 初次创建管理员的账号与密码 |
 | `RELAY_ADMIN_PASSWORD_B64` | 安装器的密码编码字段；编码不等于加密 |

@@ -30,7 +30,7 @@ npm run build:server
 npm run package:server
 ```
 
-输出 `release/codexer-server-0.2.1.tar.gz` 和 `.sha256`，包含 Relay 编译产物、控制端/后台静态文件、更新器、锁定依赖清单、安装器和文档。不含 node_modules、真实配置、旧 Git 历史或 Electron 二进制。服务器安装时自动装 Node/生产依赖，看到 bundle 标记后直接使用已构建网页。
+输出 `release/codexer-server-0.2.2.tar.gz` 和 `.sha256`，包含 Relay 编译产物、控制端/后台静态文件、更新器、锁定依赖清单、安装器和文档。不含 node_modules、真实配置、旧 Git 历史或 Electron 二进制。服务器安装时自动装 Node/生产依赖，看到 bundle 标记后直接使用已构建网页。
 
 同一个包同时升级 Admin 和 Relay，避免接口与 UI 不一致。安装、校验、回退见 [服务器安装](server-install.md)。源码的 Dockerfile 独立执行完整服务器构建，也跳过 Electron 下载。
 
@@ -47,6 +47,12 @@ PC 连接器与服务端可独立升级版本；同步对应 package 和锁文�
 `0.1.5` 同步活动记录的创建/编辑/删除类型，配合服务器的单行操作摘要与缩进列表；没有类型的旧记录按通用“修改”显示。侧栏跟手动画属于控制 UI，Web 随服务器包升级，手机 App 需重新构建；侧栏操作不要求更新 Agent。
 
 源码使用 `https://github.com/bunnya33/codexer` 的 `main` 分支。服务器稳定标签 `vX.Y.Z` 触发 `.github/workflows/release-server.yml`，测试和构建成功后上传统一包及校验文件；版本必须匹配根 package.json。桌面包仍需独立发布。`v0.2.1` 用于验证从 `0.2.0` 升级的流程，标签与根 package、Admin 和锁文件版本一致。Git 更新只需标签；Release 包在上述工作流通过后生成。
+
+## 0.2.2 微信 ClawBot
+
+在 Relay 服务器接入腾讯微信 ClawBot，每个普通账号独立绑定一个 Bot，汇总该账号多个 PC 的任务完成通知，并支持通过会话编号发送继续执行指令。Web 设置提供扫码、通知/回复开关、测试消息与解绑；不需要为了这项功能更新 PC 连接器。
+
+新增微信绑定与消息队列表由服务器启动时创建。部署须保留数据目录中的 `weixin.key`，或固定配置 `RELAY_WEIXIN_KEY`，数据库与密钥一同备份。真实微信扫码及消息投递仍需部署后联调，使用与限制见 [微信接入](weixin.md)。
 
 ## 0.2.1 更新验证版本
 

@@ -16,6 +16,9 @@ import { authSettingsSchema } from "../../../packages/shared/src/session-policy.
 import { hash, RelayStore } from "./store.js";
 import type { Principal } from "./store.js";
 import type { ServerUpdates } from "./updates.js";
+import { WeixinService } from './weixin.js';
+import type { WeixinOptions } from './weixin.js';
+import { WeixinError } from './weixin-api.js';
 
 class HttpError extends Error { constructor(readonly statusCode: number, readonly code: string) { super(code); } }
 function bearer(request: FastifyRequest): string { const value = request.headers.authorization; return value?.startsWith("Bearer ") ? value.slice(7) : ""; }
@@ -24,7 +27,7 @@ type ClientConnection = { socket: WebSocket; principal: Principal | null; device
 type PendingHistory = { deviceId: string; threadId: string; resolve: (page: HistoryPage) => void; reject: (error: Error) => void; timer: NodeJS.Timeout };
 type PendingImage = { deviceId: string; threadId: string; imageId: string; resolve: (image: ImagePayload) => void; reject: (error: Error) => void; timer: NodeJS.Timeout };
 
-export async function createRelay(options: { store: RelayStore; allowedOrigins?: string[]; heartbeatMs?: number; webRoot?: string; adminRoot?: string; updates?: ServerUpdates; version?: string }) {
+export async function createRelay(options: { store: RelayStore; allowedOrigins?: string[]; heartbeatMs?: number; webRoot?: string; adminRoot?: string; updates?: ServerUpdates; version?: string; weixin?: WeixinOptions }) {
   const app = Fastify({ logger: false, bodyLimit: MAX_MESSAGE_BYTES });
   await app.register(websocket, { options: { maxPayload: MAX_MESSAGE_BYTES, perMessageDeflate: false } });
   await app.register(rateLimit, { max: 120, timeWindow: "1 minute" });
@@ -44,6 +47,7 @@ export async function createRelay(options: { store: RelayStore; allowedOrigins?:
   const principals = new WeakMap<FastifyRequest, Principal>();
   const origins = new Set(options.allowedOrigins ?? []);
   app.addHook("onRequest", async (request, reply) => {
+    if (request.url.startsWith('/v1/weixin')) reply.header('Cache-Control','no-store');
     const origin = request.headers.origin;
     if (origin && originAllowed(request)) {
       reply.header("Access-Control-Allow-Origin", origin).header("Vary", "Origin");
@@ -118,9 +122,35 @@ export async function createRelay(options: { store: RelayStore; allowedOrigins?:
     }
     return { type: "command.accepted", commandId: command.commandId };
   }
+  const weixin = options.weixin ? new WeixinService(store, options.weixin, (userId,bindingId,command) => queue.run(async () => {
+    if(closing || !await store.weixin.current(bindingId,userId)) throw new WeixinError('weixin-account-inactive',403);
+    if(!await store.ownsDevice(command.deviceId,{id:userId,kind:'user'})) throw new HttpError(404,'device-not-found');
+    const binding=await store.weixin.get(userId);
+    if(!binding?.replies)throw new WeixinError('weixin-replies-disabled',403);
+    if('threadId' in command.payload) {
+      const threadId = command.payload.threadId;
+      const catalog=await store.catalog(command.deviceId);
+      if(!catalog?.threads.some(t=>t.id===threadId&&!t.archived))throw new WeixinError('weixin-target-not-found',404);
+    }
+    return submit(commandSchema.parse(command));
+  }),deviceId=>agents.get(deviceId)?.socket.readyState===WebSocket.OPEN) : undefined;
+  const weixinRequired = () => { if(!weixin)throw new WeixinError('weixin-disabled',503);return weixin; };
+  app.get('/v1/weixin',{preHandler:control},async request => weixin ? weixin.status(principals.get(request)!.id) : {available:false,bound:false,connected:false,activated:false,notifications:true,replies:true,lastError:null,pendingNotifications:0});
+  app.post('/v1/weixin/login',{preHandler:control,config:{rateLimit:{max:5,timeWindow:'1 minute'}}},async request=>weixinRequired().startLogin(principals.get(request)!.id));
+  app.post<{Params:{loginId:string}}>('/v1/weixin/login/:loginId/poll',{preHandler:control},async request=>{
+    const body=z.object({verifyCode:z.string().trim().regex(/^[a-zA-Z0-9]{1,16}$/).optional()}).strict().parse(request.body??{});
+    return weixinRequired().pollLogin(principals.get(request)!.id,z.string().uuid().parse(request.params.loginId),body.verifyCode);
+  });
+  app.put('/v1/weixin',{preHandler:control},async request=>{
+    const body=z.object({notifications:z.boolean(),replies:z.boolean()}).strict().parse(request.body);
+    return weixinRequired().settings(principals.get(request)!.id,body.notifications,body.replies);
+  });
+  app.delete('/v1/weixin',{preHandler:control},async request=>{await weixinRequired().unbind(principals.get(request)!.id);return {unbound:true};});
+  app.post('/v1/weixin/test',{preHandler:control,config:{rateLimit:{max:5,timeWindow:'1 minute'}}},async request=>weixinRequired().test(principals.get(request)!.id));
+  if(weixin)app.addHook('onReady',async()=>weixin.start());
   app.setErrorHandler((error, _request, reply) => {
-    const statusCode = error instanceof HttpError ? error.statusCode : error instanceof z.ZodError ? 400 : error !== null && typeof error === "object" && "statusCode" in error && typeof error.statusCode === "number" && error.statusCode >= 400 && error.statusCode <= 599 ? error.statusCode : 500;
-    void reply.code(statusCode).send({ error: error instanceof HttpError ? error.code : statusCode === 400 ? "invalid-request" : statusCode === 413 ? "request-too-large" : statusCode === 429 ? "rate-limited" : "server-error" });
+    const statusCode = error instanceof HttpError || error instanceof WeixinError ? error.statusCode : error instanceof z.ZodError ? 400 : error !== null && typeof error === "object" && "statusCode" in error && typeof error.statusCode === "number" && error.statusCode >= 400 && error.statusCode <= 599 ? error.statusCode : 500;
+    void reply.code(statusCode).send({ error: error instanceof HttpError || error instanceof WeixinError ? error.code : statusCode === 400 ? "invalid-request" : statusCode === 413 ? "request-too-large" : statusCode === 429 ? "rate-limited" : "server-error" });
   });
   app.get("/health", async () => ({ ok: true, protocolVersion: PROTOCOL_VERSION, version: options.version ?? "development" }));
   const loginSchema = z.object({ username: z.string().trim().min(1).max(100), password: z.string().min(1).max(128) });
@@ -419,7 +449,7 @@ export async function createRelay(options: { store: RelayStore; allowedOrigins?:
           catch { send(socket, { type: "device.resync", reason: "sequence-gap" }); }
         } else {
           if (message.result.deviceId !== deviceId) throw new Error("device-mismatch");
-          if (await store.finishCommand(message.result)) broadcast(deviceId, message);
+          if (await store.finishCommand(message.result)) { broadcast(deviceId, message); await store.weixin.commandResult(message.result); }
         }
       }).catch(error => {
         const reason = error instanceof Error ? error.message : '';
@@ -494,7 +524,7 @@ export async function createRelay(options: { store: RelayStore; allowedOrigins?:
     }
     void queue.run(async () => { for (const client of clients) if (client.principal && !await store.sessionForHash(client.principal.sessionHash!)) client.socket.close(4003, "session-expired");
       for (const [id, agent] of agents) if (!await store.sessionForHash(agent.principal.sessionHash!, id)) closeSessions(value => value.sessionHash === agent.principal.sessionHash, "session-expired");
-      for (const result of await store.expireCommands()) broadcast(result.deviceId, { type: "command.result", result }); }).catch(() => undefined);
+      for (const result of await store.expireCommands()) { broadcast(result.deviceId, { type: "command.result", result }); await store.weixin.commandResult(result); } }).catch(() => undefined);
   }, options.heartbeatMs ?? 15000);
   heartbeat.unref();
   const cleanup = setInterval(() => { void queue.run(() => store.cleanup()).catch(() => undefined); }, 3600000);
@@ -502,6 +532,7 @@ export async function createRelay(options: { store: RelayStore; allowedOrigins?:
   app.addHook("preClose", async () => {
     closing = true;
     clearInterval(heartbeat); clearInterval(cleanup);
+    await weixin?.stop();
     for (const client of clients) { clearTimeout(client.authTimer); client.socket.terminate(); }
     for (const agent of agents.values()) agent.socket.terminate();
     for (const pending of pendingHistory.values()) { clearTimeout(pending.timer); pending.reject(new HttpError(503, "relay-closing")); }

@@ -19,7 +19,8 @@ COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/apps/web/dist ./web
 COPY --from=build --chown=node:node /app/apps/admin/dist ./admin
 COPY --from=build --chown=node:node /app/package.json ./package.json
-ENV RELAY_WEB_DIR=/app/web RELAY_ADMIN_DIR=/app/admin
+ENV RELAY_WEB_DIR=/app/web RELAY_ADMIN_DIR=/app/admin RELAY_DATA_DIR=/var/lib/codexer
+RUN mkdir -p /var/lib/codexer && chown node:node /var/lib/codexer && chmod 700 /var/lib/codexer
 USER node
 EXPOSE 8787
 CMD ["node", "dist/apps/relay/src/main.js"]
