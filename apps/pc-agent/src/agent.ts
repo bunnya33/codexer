@@ -541,6 +541,9 @@ export class PcAgent extends EventEmitter {
     await this.commandQueue.run(async () => undefined);
     await this.historyQueue.run(async () => undefined);
     await this.imageQueue.run(async () => undefined);
+    // Queued turns use the runtime queue and may still finish after adapter.stop().
+    // Keep their journal open until they have persisted the final outcome.
+    await this.switchQueue.run(async () => undefined);
     this.usageJournal.gap();
     this.usageJournal.close();
     this.journal.close();
