@@ -1,6 +1,6 @@
 {
   "name": "codex-remote",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -35,6 +35,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && npm run typecheck --workspace @codexer/admin && npm run typecheck --workspace @codexer/desktop",
     "test": "vitest run",
     "dev:relay": "tsx apps/relay/src/main.ts",
+    "format:relay": "prettier --write \"apps/relay/src/**/*.ts\"",
+    "check:format:relay": "prettier --check \"apps/relay/src/**/*.ts\"",
     "start:relay": "node dist/apps/relay/src/main.js",
     "dev:agent": "tsx apps/pc-agent/src/main.ts",
     "users": "tsx scripts/manage-users.ts",
@@ -75,6 +77,7 @@
     "electron-builder": "26.15.3",
     "esbuild": "0.28.2",
     "pngjs": "^7.0.0",
+    "prettier": "3.9.9",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "8.3.1",

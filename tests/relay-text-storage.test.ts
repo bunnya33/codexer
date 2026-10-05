@@ -1,6 +1,6 @@
 import { testAccount, testAgent } from './account-helpers.js';
 import { expect, it } from 'vitest';
-import { RelayStore } from '../apps/relay/src/store.js';
+import { RelayStore } from '../apps/relay/src/storage/store.js';
 import { createRelay } from '../apps/relay/src/server.js';
 import { snapshot, waitFor, WsPeer } from './helpers.js';
 import { jsonForStorage } from '../packages/shared/src/json.js';

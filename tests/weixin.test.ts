@@ -4,11 +4,11 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { createRelay } from '../apps/relay/src/server.js';
-import { RelayStore } from '../apps/relay/src/store.js';
-import { WeixinApi, WeixinError } from '../apps/relay/src/weixin-api.js';
-import type { WeixinTransport, WeixinMessage, WeixinCredentials, WeixinQrStatus } from '../apps/relay/src/weixin-api.js';
-import { WeixinSecrets, loadWeixinKey } from '../apps/relay/src/weixin-secrets.js';
-import { completedTurns } from '../apps/relay/src/weixin-store.js';
+import { RelayStore } from '../apps/relay/src/storage/store.js';
+import { WeixinApi, WeixinError } from '../apps/relay/src/weixin/api.js';
+import type { WeixinTransport, WeixinMessage, WeixinCredentials, WeixinQrStatus } from '../apps/relay/src/weixin/api.js';
+import { WeixinSecrets, loadWeixinKey } from '../apps/relay/src/weixin/secrets.js';
+import { completedTurns } from '../apps/relay/src/weixin/repository.js';
 import { testAccount, testAgent } from './account-helpers.js';
 import { snapshot, waitFor, WsPeer } from './helpers.js';
 import type { DeviceSnapshot, RemoteEvent } from '../packages/protocol/src/index.js';
@@ -157,7 +157,113 @@ it('supports account-only session lists and queue requests, while honoring disab
   f.api.message('alice',`继续 ${target} disabled`);await waitFor(()=>f.api.sent.some(m=>m.text.includes('微信续做已关闭')));expect(a.peer.messages.filter(m=>m.type==='command')).toHaveLength(0);
   await f.app.inject({method:'PUT',url:'/v1/weixin',headers:f.alice.headers,payload:{notifications:true,replies:true}});
   f.api.message('alice',`继续 ${target} 排队测试`);const msg=await a.peer.wait(m=>m.type==='command');expect(msg.command).toMatchObject({payload:{type:'turn.queue',text:'排队测试'}});
+  await waitFor(()=>f.api.sent.some(m=>m.text.includes('已提交排队请求')));
+  f.api.message('alice','直接排队');await waitFor(()=>a.peer.messages.filter(m=>m.type==='command').length===2);
+  expect(a.peer.messages.filter(m=>m.type==='command').at(-1)?.command).toMatchObject({payload:{type:'turn.queue',text:'直接排队'}});
   await a.peer.close();f.api.message('alice',`继续 ${target} offline`);await waitFor(()=>f.api.sent.some(m=>m.text.includes('目标电脑离线')));expect(b.peer.messages.filter(m=>m.type==='command')).toHaveLength(0);
+});
+
+it('continues the last delivered conversation with plain text and keeps explicit switching and deduplication', async () => {
+  const f = await fixture();
+  await f.bind(f.alice, 'alice'); await f.bind(f.bob, 'bob'); await f.activate('alice', f.alice);
+  const a = await f.agent(f.alice, 'First'), latest = await f.agent(f.alice, 'Latest'), foreign = await f.agent(f.bob, 'Foreign', true);
+  const binding = (await f.store.weixin.get(f.alice.id))!;
+  f.api.message('alice', '增加登录测试');
+  await waitFor(() => f.api.sent.some(m => m.text.includes('还没有可直接回复的会话')));
+  expect(a.peer.messages.filter(m => m.type === 'command')).toHaveLength(0);
+  a.peer.send({ type: 'device.event', event: completion(a.state) });
+  await waitFor(async () => (await f.store.weixin.replyTarget(binding.id, f.alice.id))?.deviceId === a.id);
+  latest.peer.send({ type: 'device.event', event: completion(latest.state) });
+  await waitFor(async () => (await f.store.weixin.replyTarget(binding.id, f.alice.id))?.deviceId === latest.id);
+  const notice = f.api.sent.find(m => m.text.startsWith('本轮执行完成') && m.text.includes('结果-Latest'))!;
+  expect(notice.text).toContain('直接回复你的下一步要求即可续做'); expect(notice.text).not.toContain('回复「继续');
+  for (const text of ['设备', '会话', '帮助']) f.api.message('alice', text);
+  await waitFor(() => f.api.sent.some(m => m.text.startsWith('会话 1/')));
+  const id = randomUUID();
+  f.api.message('alice', '  增加登录测试\n并检查结果  ', id); f.api.message('alice', '  增加登录测试\n并检查结果  ', id);
+  const received = await latest.peer.wait(m => m.type === 'command');
+  expect(received.command).toMatchObject({ deviceId: latest.id, payload: { type: 'turn.start', threadId: 'thread-test', text: '增加登录测试\n并检查结果' } });
+  await waitFor(() => f.api.sent.some(m => m.text.includes('已提交续做指令') && m.text.includes('Latest')));
+  expect(latest.peer.messages.filter(m => m.type === 'command')).toHaveLength(1);
+  expect(a.peer.messages.filter(m => m.type === 'command')).toHaveLength(0); expect(foreign.peer.messages.filter(m => m.type === 'command')).toHaveLength(0);
+  const target = await f.store.weixin.target(f.alice.id, a.id, 'thread-test');
+  f.api.message('alice', `继续 ${target} 切换到第一个会话`); await a.peer.wait(m => m.type === 'command');
+  await waitFor(async () => (await f.store.weixin.replyTarget(binding.id, f.alice.id))?.deviceId === a.id);
+  f.api.message('alice', '再补上测试');
+  await waitFor(() => a.peer.messages.filter(m => m.type === 'command').length === 2);
+  expect(a.peer.messages.filter(m => m.type === 'command').at(-1)?.command).toMatchObject({ deviceId: a.id, payload: { text: '再补上测试' } });
+  expect(latest.peer.messages.filter(m => m.type === 'command')).toHaveLength(1);
+});
+
+it('keeps plain replies on the delivered conversation while another completion fails to send', async () => {
+  const f = await fixture(); await f.bind(f.alice, 'alice'); await f.activate('alice', f.alice);
+  const delivered = await f.agent(f.alice, 'Delivered'), pending = await f.agent(f.alice, 'Pending');
+  const binding = (await f.store.weixin.get(f.alice.id))!;
+  delivered.peer.send({ type: 'device.event', event: completion(delivered.state) });
+  await waitFor(async () => (await f.store.weixin.replyTarget(binding.id, f.alice.id))?.deviceId === delivered.id);
+  f.api.failed.add('token-alice'); pending.peer.send({ type: 'device.event', event: completion(pending.state) });
+  await waitFor(async () => (await f.store.weixin.get(f.alice.id))?.sendError === 'weixin-api-error');
+  f.api.message('alice', '继续完善这个功能');
+  const received = await delivered.peer.wait(m => m.type === 'command');
+  expect(received.command).toMatchObject({ deviceId: delivered.id, payload: { text: '继续完善这个功能' } });
+  expect(pending.peer.messages.filter(m => m.type === 'command')).toHaveLength(0);
+  expect((await f.store.weixin.replyTarget(binding.id, f.alice.id))?.deviceId).toBe(delivered.id);
+});
+
+it('checks freshness, sender, settings, and availability for plain replies without falling back', async () => {
+  const f = await fixture(); await f.bind(f.alice, 'alice'); await f.activate('alice', f.alice);
+  const a = await f.agent(f.alice, 'Latest'), other = await f.agent(f.alice, 'Other', true);
+  a.peer.send({ type: 'device.event', event: completion(a.state) });
+  const binding = (await f.store.weixin.get(f.alice.id))!;
+  await waitFor(async () => (await f.store.weixin.replyTarget(binding.id, f.alice.id))?.deviceId === a.id);
+  f.api.message('alice', '过期要求', randomUUID(), { create_time_ms: Date.now() - 600000 });
+  f.api.message('alice', '没有时间的要求', randomUUID(), { create_time_ms: undefined });
+  f.api.message('alice', '伪造发送者', randomUUID(), { from_user_id: 'peer-bob' }); f.api.message('alice', '群消息', randomUUID(), { group_id: 'group' });
+  await waitFor(() => f.api.sent.filter(m => m.text.includes('指令已过期')).length === 2);
+  expect(a.peer.messages.filter(m => m.type === 'command')).toHaveLength(0);
+  await f.store.weixin.settings(f.alice.id, true, false); f.api.message('alice', '关闭续做后的要求');
+  await waitFor(() => f.api.sent.some(m => m.text.includes('微信续做已关闭')));
+  await f.store.weixin.settings(f.alice.id, true, true);
+  const catalog = (await f.store.catalog(a.id))!; catalog.threads[0]!.archived = true;
+  a.peer.send({ type: 'device.catalog', catalog });
+  await waitFor(async () => Boolean((await f.store.catalog(a.id))?.threads[0]?.archived));
+  f.api.message('alice', '已归档会话的要求'); await waitFor(() => f.api.sent.some(m => m.text.includes('找不到这个账号下的会话编号')));
+  await a.peer.close(); f.api.message('alice', '离线后的要求'); await waitFor(() => f.api.sent.some(m => m.text.includes('目标电脑离线')));
+  expect(a.peer.messages.filter(m => m.type === 'command')).toHaveLength(0); expect(other.peer.messages.filter(m => m.type === 'command')).toHaveLength(0);
+});
+
+it('persists reply targets across restart, follows delivery order, and clears the target on rebinding', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'codexer-weixin-reply-'));
+  let store: RelayStore | undefined;
+  try {
+    store = await RelayStore.open(undefined, join(directory, 'db'));
+    const account = await testAccount(store, 'PersistentReply');
+    const first = await testAgent(store, account.id), second = await testAgent(store, account.id), id = randomUUID();
+    const binding = { id, userId: account.id, botId: 'reply-bot', peerId: 'reply-peer', baseUrl: 'https://ilinkai.weixin.qq.com', token: 'encrypted-test-token' };
+    await store.weixin.bind(binding);
+    const one = snapshot(first.id), two = snapshot(second.id);
+    await store.saveSnapshot(one); await store.saveEvent(completion(one));
+    const older = (await store.weixin.next(id))!;
+    await store.saveSnapshot(two); await store.saveEvent(completion(two));
+    expect(await store.weixin.replyTarget(id, account.id)).toBeNull();
+    await store.weixin.retry(id, older.id, 'weixin-api-error', 1);
+    const newer = (await store.weixin.next(id))!; await store.weixin.delivered(id, newer.id);
+    expect((await store.weixin.replyTarget(id, account.id))?.deviceId).toBe(second.id);
+    await store.weixin.delivered(id, older.id);
+    expect((await store.weixin.replyTarget(id, account.id))?.deviceId).toBe(first.id);
+    await store.weixin.delivered(id, newer.id);
+    expect((await store.weixin.replyTarget(id, account.id))?.deviceId).toBe(first.id);
+    await store.close(); store = undefined; store = await RelayStore.open(undefined, join(directory, 'db'));
+    expect(await store.weixin.replyTarget(id, account.id)).toMatchObject({ deviceId: first.id, threadId: 'thread-test' });
+    expect(await store.weixin.replyTarget(id, 'another-account')).toBeNull();
+    await store.weixin.bind({ ...binding, id: randomUUID() });
+    expect(await store.weixin.replyTarget(id, account.id)).toBeNull();
+    expect(await store.weixin.replyTarget((await store.weixin.get(account.id))!.id, account.id)).toBeNull();
+  } finally {
+    await store?.close();
+    if (!resolve(directory).startsWith(resolve(tmpdir()) + '\\') && !resolve(directory).startsWith(resolve(tmpdir()) + '/')) throw new Error('unexpected-test-directory');
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 it('keeps bot failures isolated, retries with a stable ID after a fresh interaction, and stops after account disable/unbind',async()=>{

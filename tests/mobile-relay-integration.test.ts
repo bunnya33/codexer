@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { WebSocket } from 'ws';
 import { expect, it, vi } from 'vitest';
 import { createRelay } from '../apps/relay/src/server.js';
-import { hash, RelayStore } from '../apps/relay/src/store.js';
+import { hash, RelayStore } from '../apps/relay/src/storage/store.js';
 import { record } from '../packages/codex-adapter/src/normalize.js';
 import { reduceEvent } from '../packages/protocol/src/index.js';
 import { event, snapshot, waitFor, WsPeer } from './helpers.js';

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createRelay } from "../apps/relay/src/server.js";
-import { RelayStore } from "../apps/relay/src/store.js";
+import { RelayStore } from "../apps/relay/src/storage/store.js";
 import { record } from "../packages/codex-adapter/src/normalize.js";
 import type { DeviceCatalog, DeviceSnapshot } from "../packages/protocol/src/index.js";
 import { command, event, snapshot, waitFor, WsPeer } from "./helpers.js";

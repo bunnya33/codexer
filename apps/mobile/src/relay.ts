@@ -19,6 +19,7 @@ export type RelayView = {
 };
 
 const emptyView = (): RelayView => ({ phase: 'locked', url: '', role: null, devices: [], catalogs: {}, snapshots: {}, histories: {}, syncing: {}, notice: '' });
+const SOCKET_AUTH_TIMEOUT_MS = 12000;
 class ApiError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 export const historyKey = (deviceId: string, threadId: string) => `${deviceId}:${threadId}`;
 
@@ -34,10 +35,13 @@ export class RelayClient {
   private token = '';
   private socket: WebSocket | null = null;
   private generation = 0;
+  private connectionRevision = 0;
+  private socketAttempt = 0;
+  private socketTimeout?: ReturnType<typeof setTimeout>;
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   private refreshTimer?: ReturnType<typeof setInterval>;
   private foreground = true;
-  private initializingGeneration?: number;
+  private initialization?: { generation: number; revision: number };
   private historyLoading = new Set<string>();
   private catalogLoading = new Set<string>();
   private watched = new Map<string, number>();
@@ -90,35 +94,38 @@ export class RelayClient {
   }
 
   private async initializeSession(generation: number, remember: boolean): Promise<void> {
-    if (generation !== this.generation || this.initializingGeneration === generation) return;
-    this.initializingGeneration = generation;
+    const revision = this.connectionRevision;
+    if (generation !== this.generation || this.initialization?.generation === generation && this.initialization.revision === revision) return;
+    const initialization = { generation, revision };
+    this.initialization = initialization;
+    const current = () => generation === this.generation && revision === this.connectionRevision;
     try {
       const me = await this.api<{ role: 'admin' | 'user' }>('/v1/me');
-      if (generation !== this.generation) return;
+      if (!current()) return;
       this.set({ role: me.role });
       if (remember) {
         try { await saveCredentials(JSON.stringify({ url: this.view.url, session: this.token })); }
         catch { this.notice('登录已完成，但当前环境无法保存登录状态'); }
       }
-      if (generation !== this.generation) return;
+      if (!current()) return;
       if (this.foreground) await this.touchLogin();
-      if (generation !== this.generation) return;
+      if (!current()) return;
       await this.refreshDevices();
-      if (generation !== this.generation) return;
-      await this.openSocket(generation);
-      if (generation !== this.generation) return;
+      if (!current()) return;
+      await this.openSocket(generation, revision);
+      if (!current()) return;
       if (this.refreshTimer) clearInterval(this.refreshTimer);
       this.refreshTimer = setInterval(() => {
         if (!this.foreground) return;
         void this.touchLogin().then(() => this.refreshDevices()).catch(() => undefined);
       }, 30000);
     } catch (error) {
-      if (generation !== this.generation) return;
+      if (!current()) return;
       if (this.view.phase === 'locked') throw error;
       this.set({phase: 'reconnecting', notice: '网络暂不可用，正在恢复连接'});
       if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = setTimeout(() => { void this.initializeSession(generation, remember).catch(() => undefined); }, 3000);
-    } finally { if (this.initializingGeneration === generation) this.initializingGeneration = undefined; }
+      this.reconnectTimer = setTimeout(() => { if (current()) void this.initializeSession(generation, remember).catch(() => undefined); }, 3000);
+    } finally { if (this.initialization === initialization) this.initialization = undefined; }
   }
 
   private async touchLogin(): Promise<void> {
@@ -132,6 +139,10 @@ export class RelayClient {
     if (!this.token || this.view.phase === 'locked' || previous === active) return;
     if (!active) { void this.touchLogin().catch(() => undefined); return; }
     // A suspended browser can retain a socket that looks open but no longer receives data.
+    // Invalidate pending ticket/initialization responses as well as the old socket callbacks.
+    this.connectionRevision++;
+    this.socketAttempt++;
+    if (this.socketTimeout) clearTimeout(this.socketTimeout);
     const oldSocket = this.socket;
     this.socket = null;
     oldSocket?.close();
@@ -154,8 +165,11 @@ export class RelayClient {
 
   disconnect(clearCredentials = false): void {
     this.generation++;
+    this.connectionRevision++;
+    this.socketAttempt++;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     if (this.refreshTimer) clearInterval(this.refreshTimer);
+    if (this.socketTimeout) clearTimeout(this.socketTimeout);
     this.socket?.close();
     this.socket = null;
     this.historyLoading.clear(); this.catalogLoading.clear(); this.watched.clear(); this.subscribed.clear(); this.resyncing.clear(); this.presenceVersions.clear();
@@ -247,28 +261,63 @@ export class RelayClient {
     this.subscribeDevice(deviceId, false);
   }
 
-  private async openSocket(generation: number): Promise<void> {
-    const { ticket } = await this.api<{ ticket: string }>('/v1/ws/tickets', undefined, 'POST');
-    if (generation !== this.generation) return;
-    const ws = new WebSocket(`${this.view.url.replace(/^http/, 'ws')}/v1/ws/client`);
-    this.socket = ws;
-    const currentSocket = () => generation === this.generation && this.socket === ws;
-    ws.onopen = () => { if (currentSocket()) ws.send(JSON.stringify({ type: 'client.authenticate', ticket })); };
-    ws.onmessage = event => {
-      if (!currentSocket()) return;
-      try { this.handle(JSON.parse(String(event.data)) as Record<string, unknown>); }
-      catch { this.notice('收到无法解析的服务器消息'); }
+  private async openSocket(generation: number, revision = this.connectionRevision): Promise<void> {
+    if (generation !== this.generation || revision !== this.connectionRevision || this.socket) return;
+    const attempt = ++this.socketAttempt;
+    const currentAttempt = () => generation === this.generation && revision === this.connectionRevision && attempt === this.socketAttempt;
+    const retry = (delay: number) => {
+      if (!currentAttempt()) return;
+      if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = setTimeout(() => {
+        if (currentAttempt() && !this.socket) void this.openSocket(generation, revision);
+      }, delay);
     };
-    ws.onerror = () => { if (currentSocket()) ws.close(); };
-    ws.onclose = event => {
-      if (!currentSocket()) return;
-      if (event?.code === 4003 && event.reason !== 'device-reassigned') { this.disconnect(true); this.notice('登录已过期，请重新登录'); return; }
-      this.socket = null;
-      this.subscribed.clear(); this.resyncing.clear();
-      this.set({ phase: 'reconnecting' });
-      const retry = () => { if (generation !== this.generation) return; void this.openSocket(generation).catch(error => { if (generation !== this.generation) return; this.notice(String(error)); this.reconnectTimer = setTimeout(retry, 5000); }); };
-      this.reconnectTimer = setTimeout(retry, 3000);
-    };
+    try {
+      const { ticket } = await this.api<{ ticket: string }>('/v1/ws/tickets', undefined, 'POST');
+      if (!currentAttempt()) return;
+      const ws = new WebSocket(`${this.view.url.replace(/^http/, 'ws')}/v1/ws/client`);
+      this.socket = ws;
+      if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+      const currentSocket = () => currentAttempt() && this.socket === ws;
+      const recover = (notice: string) => {
+        if (!currentSocket()) return;
+        // Detach first: close/error callbacks can be delayed or never arrive through a proxy.
+        this.socket = null;
+        if (this.socketTimeout) clearTimeout(this.socketTimeout);
+        this.subscribed.clear(); this.resyncing.clear();
+        this.set({ phase: 'reconnecting', notice });
+        retry(3000);
+        ws.close();
+      };
+      this.socketTimeout = setTimeout(() => {
+        recover('实时连接超时，正在重试；请检查 VPN 或代理设置');
+      }, SOCKET_AUTH_TIMEOUT_MS);
+      ws.onopen = () => {
+        if (!currentSocket()) return;
+        try { ws.send(JSON.stringify({ type: 'client.authenticate', ticket })); }
+        catch { recover('实时连接失败，正在重试'); }
+      };
+      ws.onmessage = event => {
+        if (!currentSocket()) return;
+        try {
+          const message = JSON.parse(String(event.data)) as Record<string, unknown>;
+          if (message.type === 'client.authenticated') {
+            if (this.socketTimeout) clearTimeout(this.socketTimeout);
+          }
+          this.handle(message);
+        } catch { this.notice('收到无法解析的服务器消息'); }
+      };
+      ws.onerror = () => recover('实时连接失败，正在重试；请检查 VPN 或代理设置');
+      ws.onclose = event => {
+        if (!currentSocket()) return;
+        if (event?.code === 4003 && event.reason !== 'device-reassigned') { this.disconnect(true); this.notice('登录已过期，请重新登录'); return; }
+        recover(event?.code === 1008 ? '实时连接认证未完成，正在重试' : '实时连接中断，正在重试');
+      };
+    } catch {
+      if (!currentAttempt()) return;
+      this.set({ phase: 'reconnecting', notice: '实时连接暂不可用，正在重试' });
+      retry(5000);
+    }
   }
 
   private handle(message: Record<string, unknown>): void {

@@ -262,6 +262,105 @@ it('retains PC presence during client reconnect and ignores callbacks from the o
   expect(client.getSnapshot()).toMatchObject({ phase: 'connected', devices: [{ online: true }] });
 });
 
+it.each(['handshake', 'authentication'] as const)('recovers a stalled %s even when HTTP refresh works and the socket never reports close', async stage => {
+  await connectedSocket();
+  vi.useFakeTimers();
+  FakeSocket.last.close();
+  await vi.advanceTimersByTimeAsync(3000);
+  const stalled = FakeSocket.last;
+  if (stage === 'authentication') stalled.open();
+  // A proxy can leave close pending too; retry must not depend on its close callback.
+  const close = vi.spyOn(stalled, 'close').mockImplementation(() => { stalled.readyState = 2; });
+  await client.refreshDevices();
+  expect(client.getSnapshot()).toMatchObject({ phase: 'reconnecting', devices: [{ online: true }] });
+  await expect(client.sendCommand('device-test', { type: 'thread.watch', threadId: 'thread-test' })).rejects.toThrow('设备暂不可操作');
+  await vi.advanceTimersByTimeAsync(12000);
+  expect(close).toHaveBeenCalledOnce();
+  expect(client.getSnapshot().notice).toContain('实时连接超时');
+  await vi.advanceTimersByTimeAsync(3000);
+  const recovered = FakeSocket.last;
+  expect(recovered).not.toBe(stalled);
+  recovered.open();
+  recovered.message({ type: 'client.authenticated' });
+  recovered.message({ type: 'sync.ready', deviceId: 'device-test', epoch: 'epoch-test', lastSeq: 0 });
+  stalled.message({ type: 'client.authenticated' });
+  stalled.onclose?.();
+  await vi.advanceTimersByTimeAsync(15000);
+  expect(FakeSocket.last).toBe(recovered);
+  expect(client.getSnapshot()).toMatchObject({ phase: 'connected', notice: '' });
+});
+
+it('retries a socket error without waiting for the browser close event', async () => {
+  await connectedSocket();
+  vi.useFakeTimers();
+  const failed = FakeSocket.last;
+  vi.spyOn(failed, 'close').mockImplementation(() => { failed.readyState = 2; });
+  failed.onerror?.();
+  expect(client.getSnapshot().phase).toBe('reconnecting');
+  await vi.advanceTimersByTimeAsync(3000);
+  expect(FakeSocket.last).not.toBe(failed);
+});
+
+it.each(['success', 'failure'] as const)('ignores a late ticket %s from a reconnect superseded by foreground return', async outcome => {
+  await connectedSocket();
+  vi.useFakeTimers();
+  const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+  let finish!: (response: Response) => void;
+  let fail!: (error: Error) => void;
+  let delayed = false;
+  vi.mocked(fetch).mockImplementation((input, options) => {
+    if (new URL(String(input)).pathname === '/v1/ws/tickets' && !delayed) {
+      delayed = true;
+      return new Promise<Response>((resolve, reject) => { finish = resolve; fail = reject; });
+    }
+    return originalFetch(input, options);
+  });
+  FakeSocket.last.close();
+  await vi.advanceTimersByTimeAsync(3000);
+  expect(delayed).toBe(true);
+  client.setForeground(false);
+  client.setForeground(true);
+  await vi.advanceTimersByTimeAsync(0);
+  const current = FakeSocket.last;
+  current.open();
+  current.message({ type: 'client.authenticated' });
+  if (outcome === 'success') finish(response({ ticket: 'late-ticket-xxxxxxxxxxxxxxxx' }));
+  else fail(new TypeError('network-unavailable'));
+  await vi.advanceTimersByTimeAsync(15000);
+  expect(FakeSocket.last).toBe(current);
+  expect(current.readyState).toBe(FakeSocket.OPEN);
+  expect(client.getSnapshot()).toMatchObject({ phase: 'connected', notice: '' });
+});
+
+it('invalidates an in-flight foreground initialization when a newer foreground attempt connects', async () => {
+  await connectedSocket();
+  vi.useFakeTimers();
+  const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+  let fail!: (error: Error) => void;
+  let delayed = false;
+  vi.mocked(fetch).mockImplementation((input, options) => {
+    if (new URL(String(input)).pathname === '/v1/me' && !delayed) {
+      delayed = true;
+      return new Promise<Response>((_resolve, reject) => { fail = reject; });
+    }
+    return originalFetch(input, options);
+  });
+  client.setForeground(false);
+  client.setForeground(true);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(delayed).toBe(true);
+  client.setForeground(false);
+  client.setForeground(true);
+  await vi.advanceTimersByTimeAsync(0);
+  const current = FakeSocket.last;
+  current.open();
+  current.message({ type: 'client.authenticated' });
+  fail(new TypeError('network-unavailable'));
+  await vi.advanceTimersByTimeAsync(15000);
+  expect(FakeSocket.last).toBe(current);
+  expect(client.getSnapshot()).toMatchObject({ phase: 'connected', notice: '' });
+});
+
 it('does not restore legacy access tokens or save the account password', async () => {
   vi.mocked(readCredentials).mockResolvedValueOnce(JSON.stringify({ url: 'http://relay.example', token: 'old-token' }));
   expect(await client.restore()).toBe(false);

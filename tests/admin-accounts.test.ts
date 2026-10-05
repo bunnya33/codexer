@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {PGlite} from '@electric-sql/pglite';
 import {afterAll,beforeAll,expect,it} from 'vitest';
-import {RelayStore} from '../apps/relay/src/store.js';
+import {RelayStore} from '../apps/relay/src/storage/store.js';
 import {createRelay} from '../apps/relay/src/server.js';
 import {testAccount,testPassword} from './account-helpers.js';
 import {hashPassword} from '../packages/shared/src/accounts.js';

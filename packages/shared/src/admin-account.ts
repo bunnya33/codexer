@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { resolve } from "node:path";
 import { readSecret, writeSecret } from "./secrets.js";
-import type { RelayStore } from "../../../apps/relay/src/store.js";
+import type { RelayStore } from "../../../apps/relay/src/storage/store.js";
 
 export type AdminAccount = { username: string; password: string };
 export function accountFromEnv(env: Record<string, string | undefined>): AdminAccount | null {

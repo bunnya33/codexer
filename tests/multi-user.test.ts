@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { expect, it } from "vitest";
 import { createRelay } from "../apps/relay/src/server.js";
-import { hash, RelayStore } from "../apps/relay/src/store.js";
+import { hash, RelayStore } from "../apps/relay/src/storage/store.js";
 import { testAccount, testPassword } from "./account-helpers.js";
 import { command, snapshot, waitFor, WsPeer } from "./helpers.js";
 

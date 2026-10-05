@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { afterEach, expect, it, vi } from 'vitest';
 import { createRelay } from '../apps/relay/src/server.js';
-import { RelayStore } from '../apps/relay/src/store.js';
+import { RelayStore } from '../apps/relay/src/storage/store.js';
 import { testAccount } from './account-helpers.js';
 import { waitFor, WsPeer } from './helpers.js';
 

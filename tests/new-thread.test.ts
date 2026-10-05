@@ -6,7 +6,7 @@ import { expect, it, vi } from "vitest";
 import { PcAgent } from "../apps/pc-agent/src/agent.js";
 import { loginAgent } from "../apps/pc-agent/src/auth.js";
 import { createRelay } from "../apps/relay/src/server.js";
-import { RelayStore } from "../apps/relay/src/store.js";
+import { RelayStore } from "../apps/relay/src/storage/store.js";
 import { AdapterError } from "../packages/codex-adapter/src/desktop.js";
 import { HeadlessAdapter } from "../packages/codex-adapter/src/headless.js";
 import { record } from "../packages/codex-adapter/src/normalize.js";

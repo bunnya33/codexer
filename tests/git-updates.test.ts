@@ -2,10 +2,10 @@ import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {expect,it,vi} from 'vitest';
-import {ServerUpdates} from '../apps/relay/src/updates.js';
+import {ServerUpdates} from '../apps/relay/src/updates/service.js';
 import {buildUnitArgs,fetchGitTag,validUpdateRequest} from '../scripts/server-updater.js';
 import {nextGitAction,stableTags,UPDATE_PROTOCOL,updateRunning} from '../packages/shared/src/server-update.js';
-import {RelayStore} from '../apps/relay/src/store.js';
+import {RelayStore} from '../apps/relay/src/storage/store.js';
 import {createRelay} from '../apps/relay/src/server.js';
 import {testAccount} from './account-helpers.js';
 

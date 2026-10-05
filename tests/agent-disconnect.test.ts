@@ -5,7 +5,7 @@ import { expect, it } from 'vitest';
 import { PcAgent } from '../apps/pc-agent/src/agent.js';
 import { loginAgent } from '../apps/pc-agent/src/auth.js';
 import { createRelay } from '../apps/relay/src/server.js';
-import { RelayStore } from '../apps/relay/src/store.js';
+import { RelayStore } from '../apps/relay/src/storage/store.js';
 import { command, FakeDesktop, rawThread, waitFor } from './helpers.js';
 import { testAccount, testPassword } from './account-helpers.js';
 it('pauses remote control and queued starts while preserving a running local task, then resumes explicitly', async () => {

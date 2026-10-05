@@ -6,6 +6,8 @@
 
 目录和模块边界见 [架构](architecture.md)。协议变更先改 `packages/protocol`，再同步 Relay、Agent 和 React Native 客户端。Electron 的 React 窗口只通过 `DesktopApi` 操作；不要把 bearer session、密码、Node API 或任意文件读写暴露给窗口。
 
+Relay 的接口、业务和 SQL 按功能目录维护，具体职责见 [Relay 开发结构](../apps/relay/README.md)。`server.ts` 只负责组装；微信相关接口和实现统一放在 `weixin`。使用 `npm run format:relay` 格式化，提交前运行 `npm run check:format:relay`。
+
 ## 日常命令
 
 | 命令 | 用途 |

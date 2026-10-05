@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { RelayStore } from "../apps/relay/src/store.js";
+import { RelayStore } from "../apps/relay/src/storage/store.js";
 import { command, event, snapshot } from "./helpers.js";
 
 describe("relay persistence", () => {
@@ -26,7 +26,8 @@ describe("relay persistence", () => {
     const state = snapshot(deviceId, "epoch-order");
     await store.saveSnapshot(state);
     const first = event(state);
-    const next = await store.saveEvent(first);
+    await store.saveEvent(first);
+    const next = (await store.snapshot(deviceId))!;
     await expect(store.saveEvent({ ...first, seq: 3 })).rejects.toThrow("sequence-gap");
     expect((await store.snapshot(deviceId))?.lastSeq).toBe(1);
     await store.saveEvent(event(next, true));
