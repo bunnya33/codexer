@@ -527,7 +527,11 @@ export class WeixinService {
           await pause(this.intervalMs, signal);
           continue;
         }
-        if (item.kind === "completion" && !b.notifications) {
+        if (
+          item.kind === "completion" &&
+          !b.notifications &&
+          !(await this.store.weixin.completionAllowed(b.userId, item.deviceId, item.targetCode))
+        ) {
           await this.store.weixin.delivered(b.id, item.id, false);
           continue;
         }

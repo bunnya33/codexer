@@ -2,12 +2,18 @@ import { WebSocket } from "ws";
 import { MAX_MESSAGE_BYTES } from "../../../../packages/protocol/src/index.js";
 import type { HistoryPage } from "../../../../packages/protocol/src/index.js";
 import type { ImagePayload } from "../../../../packages/protocol/src/index.js";
+import type { FilePayload } from "../../../../packages/protocol/src/files.js";
 import type { Principal } from "../auth/types.js";
 import { HttpError } from "../core/errors.js";
 import { performance } from "node:perf_hooks";
 import type { RelayMetrics } from "../observability/metrics.js";
 
-export type AgentConnection = { socket: WebSocket; lastPong: number; principal: Principal };
+export type AgentConnection = {
+  socket: WebSocket;
+  lastPong: number;
+  principal: Principal;
+  filesSupported?: boolean;
+};
 
 export type ClientConnection = {
   socket: WebSocket;
@@ -37,12 +43,24 @@ type PendingImage = {
   timer: NodeJS.Timeout;
 };
 
+type PendingFile = {
+  deviceId: string;
+  threadId: string;
+  path: string;
+  offset?: number;
+  version?: string;
+  resolve: (file: FilePayload) => void;
+  reject: (error: Error) => void;
+  timer: NodeJS.Timeout;
+};
+
 /** 仅维护当前进程的连接、订阅与待回源请求；在线状态不从快照推断。 */
 export function createConnections(metrics?: RelayMetrics) {
   const agents = new Map<string, AgentConnection>();
   const clients = new Set<ClientConnection>();
   const pendingHistory = new Map<string, PendingHistory>();
   const pendingImages = new Map<string, PendingImage>();
+  const pendingFiles = new Map<string, PendingFile>();
   const subscribers = new Map<string, Set<ClientConnection>>();
 
   function send(socket: WebSocket, message: unknown): boolean {
@@ -81,6 +99,12 @@ export function createConnections(metrics?: RelayMetrics) {
     metrics?.observeBroadcast(performance.now() - startedAt, recipients);
   }
 
+  function broadcastAccount(userId: string, message: unknown): void {
+    for (const client of clients)
+      if (client.principal?.kind === "user" && client.principal.id === userId)
+        send(client.socket, message);
+  }
+
   /** 正反索引同时更新，断开或撤销时不残留订阅。 */
   function subscribe(client: ClientConnection, deviceId: string): boolean {
     // 同步读取期间客户端可能断开；禁止把已经移除的连接重新放回索引。
@@ -107,6 +131,12 @@ export function createConnections(metrics?: RelayMetrics) {
   }
 
   function failHistory(deviceId: string, status: number, code: string): void {
+    for (const [id, pending] of pendingFiles)
+      if (pending.deviceId === deviceId) {
+        clearTimeout(pending.timer);
+        pendingFiles.delete(id);
+        pending.reject(new HttpError(status, code));
+      }
     for (const [id, pending] of pendingHistory)
       if (pending.deviceId === deviceId) {
         clearTimeout(pending.timer);
@@ -141,8 +171,10 @@ export function createConnections(metrics?: RelayMetrics) {
     clients,
     pendingHistory,
     pendingImages,
+    pendingFiles,
     send,
     broadcast,
+    broadcastAccount,
     subscribe,
     removeClient,
     failRequests: failHistory,
@@ -159,6 +191,7 @@ export function createConnections(metrics?: RelayMetrics) {
         onlineClients: [...clients].filter((client) => client.principal).length,
         pendingHistory: pendingHistory.size,
         pendingImages: pendingImages.size,
+        pendingFiles: pendingFiles.size,
         subscriptionDevices: subscribers.size,
         subscriptions: [...subscribers.values()].reduce(
           (total, targets) => total + targets.size,

@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 export type WeixinStatus = {
   available: boolean;
   bound: boolean;
@@ -9,6 +11,9 @@ export type WeixinStatus = {
   lastError: string | null;
   pendingNotifications: number;
 };
+
+export const threadNotificationSchema = z.object({ enabled: z.boolean(), allEnabled: z.boolean(), available: z.boolean(), bound: z.boolean() });
+export type ThreadNotification = z.infer<typeof threadNotificationSchema>;
 
 export type WeixinLogin = {
   loginId: string;

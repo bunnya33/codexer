@@ -13,6 +13,7 @@ import { registerLifecycle } from "./core/lifecycle.js";
 import { registerDevicesRoutes } from "./devices/routes.js";
 import { registerHistoryRoutes } from "./history/routes.js";
 import { registerImagesRoutes } from "./images/routes.js";
+import { registerFilesRoutes } from "./files/routes.js";
 import { registerSyncClientSocket } from "./sync/client-socket.js";
 import { registerSyncDeviceSocket } from "./sync/device-socket.js";
 import { registerSyncRoutes } from "./sync/routes.js";
@@ -42,6 +43,7 @@ export async function createRelay(options: RelayOptions) {
   registerCommandsRoutes(app, context);
   registerHistoryRoutes(app, context);
   registerImagesRoutes(app, context);
+  registerFilesRoutes(app, context);
   registerWeixinRoutes(app, context);
   registerUpdatesRoutes(app, context);
   registerSyncDeviceSocket(app, context);

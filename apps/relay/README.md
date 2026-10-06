@@ -17,6 +17,7 @@ Node/Fastify/WebSocket 认证中转服务；PGlite 默认，支持 PostgreSQL。
 | `commands` | 幂等记录、命令转发和结果 |
 | `history` | 历史分页请求转发 |
 | `images` | 图片接口、缓存和回源 |
+| `files` | 会话文件元数据与流式回源；无内容缓存或存储 |
 | `weixin` | 微信 API 客户端、密钥、存储、机器人业务与全部微信接口 |
 | `updates` | 版本检查与受限更新器接口 |
 | `transport` | 连接、订阅、待回源请求和发送背压 |

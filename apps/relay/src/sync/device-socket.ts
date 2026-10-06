@@ -2,6 +2,7 @@ import { z } from "zod";
 import { WebSocket } from "ws";
 import { deviceMessageSchema } from "../../../../packages/protocol/src/index.js";
 import { PROTOCOL_VERSION } from "../../../../packages/protocol/src/index.js";
+import { FILE_CHUNK_BYTES } from "../../../../packages/protocol/src/files.js";
 import { decodeImage } from "../../../../packages/shared/src/images.js";
 import { jsonForStorage } from "../../../../packages/shared/src/json.js";
 import type { AgentConnection } from "../transport/connections.js";
@@ -17,6 +18,7 @@ export function registerSyncDeviceSocket(app: FastifyInstance, context: RelayCon
   const agents = context.connections.agents;
   const pendingHistory = context.connections.pendingHistory;
   const pendingImages = context.connections.pendingImages;
+  const pendingFiles = context.connections.pendingFiles;
   const send = context.connections.send;
   const broadcast = context.connections.broadcast;
   const failHistory = context.connections.failRequests;
@@ -66,7 +68,7 @@ export function registerSyncDeviceSocket(app: FastifyInstance, context: RelayCon
             type: "device.welcome",
             deviceId,
             protocolVersion: PROTOCOL_VERSION,
-            features: ["catalog", "history", "images"],
+            features: ["catalog", "history", "images", "files"],
           });
           broadcast(deviceId, { type: "device.presence", deviceId, online: true });
         })
@@ -95,7 +97,41 @@ export function registerSyncDeviceSocket(app: FastifyInstance, context: RelayCon
               socket.close(4003, "session-expired");
               return;
             }
-            if (message.type === "device.snapshot") {
+            if (message.type === "device.capabilities") {
+              connection.filesSupported = message.features.includes("files");
+            } else if (message.type === "device.file") {
+              const pending = pendingFiles.get(message.requestId);
+              if (
+                !pending ||
+                pending.deviceId !== deviceId ||
+                pending.threadId !== message.threadId ||
+                pending.path !== message.path
+              )
+                return;
+              clearTimeout(pending.timer);
+              pendingFiles.delete(message.requestId);
+              const file = message.file;
+              if (!file) {
+                const status =
+                  message.code === "file-too-large"
+                    ? 413
+                    : message.code === "file-changed"
+                      ? 409
+                      : 404;
+                pending.reject(new HttpError(status, message.code ?? "file-unavailable"));
+              } else if (
+                message.code ||
+                file.offset !== pending.offset ||
+                (pending.offset === undefined
+                  ? file.base64 !== undefined
+                  : file.version !== pending.version ||
+                    file.base64 === undefined ||
+                    Buffer.from(file.base64, "base64").length !==
+                      Math.min(FILE_CHUNK_BYTES, file.size - pending.offset))
+              ) {
+                pending.reject(new HttpError(502, "invalid-file-response"));
+              } else pending.resolve(file);
+            } else if (message.type === "device.snapshot") {
               if (message.snapshot.deviceId !== deviceId) throw new Error("device-mismatch");
               await store.saveSnapshot(message.snapshot);
               broadcast(deviceId, message);

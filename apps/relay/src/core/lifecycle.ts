@@ -13,6 +13,7 @@ export function registerLifecycle(app: FastifyInstance, context: RelayContext): 
   const clients = context.connections.clients;
   const pendingHistory = context.connections.pendingHistory;
   const pendingImages = context.connections.pendingImages;
+  const pendingFiles = context.connections.pendingFiles;
   const broadcast = context.connections.broadcast;
   const closeSessions = context.connections.closeSessions;
   const cleanupController = new AbortController();
@@ -117,6 +118,11 @@ export function registerLifecycle(app: FastifyInstance, context: RelayContext): 
       pending.reject(new HttpError(503, "relay-closing"));
     }
     pendingImages.clear();
+    for (const pending of pendingFiles.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(new HttpError(503, "relay-closing"));
+    }
+    pendingFiles.clear();
     await queue.drain();
   });
 

@@ -73,6 +73,7 @@ export function WeixinSettings({onClose}:{onClose:()=>void}) {
             {!!status.lastError&&<Text style={s.error}>{errorLabels[status.lastError]??'微信连接暂不可用，请稍后重试。'}</Text>}
             {status.bound&&<>
               <View style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:12}}><Text style={s.menuText}>任务完成通知</Text><Switch accessibilityLabel="任务完成通知" value={status.notifications} disabled={busy} onValueChange={value=>update(value,status.replies)}/></View>
+              <Text style={s.sub}>开启时通知全部会话；关闭时只通知在会话顶部开启“微信通知”的会话。设置随账号同步。</Text>
               <View style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:12}}><Text style={s.menuText}>微信回复续做</Text><Switch accessibilityLabel="微信回复续做" value={status.replies} disabled={busy} onValueChange={value=>update(status.notifications,value)}/></View>
               {!!status.pendingNotifications&&<Text style={s.sub}>{status.pendingNotifications} 条消息待发送</Text>}
               <Pressable accessibilityRole="button" style={[s.primary,(busy||!status.activated)&&s.disabled]} disabled={busy||!status.activated} onPress={test}><Text style={s.primaryText}>发送测试通知</Text></Pressable>
@@ -84,7 +85,7 @@ export function WeixinSettings({onClose}:{onClose:()=>void}) {
             </View>}
             <Pressable accessibilityRole="button" style={[s.menuOption,busy&&s.disabled]} disabled={busy} onPress={bind}><Text style={s.menuText}>{status.bound?'重新扫码绑定':login?'重新获取二维码':'扫码绑定微信'}</Text>{busy&&<ActivityIndicator size="small" color={c.accent}/>}</Pressable>
             {status.bound&&<Pressable accessibilityRole="button" style={[s.menuOption,busy&&s.disabled]} disabled={busy} onPress={unbind}><Text style={s.dangerText}>解除绑定</Text></Pressable>}
-            <Text style={s.sub}>绑定后先给机器人发送“你好”。发送“会话”获取编号，再发送“继续 编号 下一步要求”。PC 需要在线；审批和提问仍在 Codexer 中处理。</Text>
+            <Text style={s.sub}>绑定后先给机器人发送“你好”。直接回复下一步要求，继续最近收到通知的会话；发送“会话”获取编号，可用“继续 编号 下一步要求”切换。PC 需要在线；审批和提问仍在 Codexer 中处理。</Text>
             <Text style={s.sub}>微信可能限制主动通知的次数和有效时间。收不到通知时，先给机器人发一条消息刷新会话。</Text>
           </>}
           {!!notice&&<Text style={s.sub}>{notice}</Text>}{!!error&&<Text style={s.error}>{error}</Text>}

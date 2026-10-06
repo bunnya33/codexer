@@ -53,6 +53,27 @@ async function connectedSocket() {
   return socket;
 }
 
+it('keeps synchronized thread and global notification changes when older REST reads finish later', async () => {
+  const socket = await connectedSocket();
+  const original = vi.mocked(fetch).getMockImplementation()!;
+  const preference = {enabled:false,allEnabled:false,available:true,bound:true};
+  let finish = (_value: Response) => {};
+  vi.mocked(fetch).mockImplementation(async (input,options) => new URL(String(input)).pathname.endsWith('/weixin-notification')
+    ? new Promise<Response>(resolve => {finish=resolve;}) : original(input,options));
+  const read = client.loadThreadNotification('device-test','thread-test');
+  socket.message({type:'weixin.thread-notification',deviceId:'device-test',threadId:'thread-test',notification:{...preference,enabled:true}});
+  finish(response(preference)); await read;
+  const key = historyKey('device-test','thread-test');
+  expect(client.getSnapshot().threadNotifications[key]?.enabled).toBe(true);
+  const status = {available:true,bound:true,connected:true,activated:true,notifications:true,replies:true,lastError:null,pendingNotifications:0};
+  const oldGlobal = client.loadThreadNotification('device-test','thread-test');
+  socket.message({type:'weixin.settings',status});
+  finish(response({...preference,enabled:true})); await oldGlobal;
+  expect(client.getSnapshot().threadNotifications[key]).toMatchObject({enabled:true,allEnabled:true});
+  client.disconnect();
+  expect(client.getSnapshot().threadNotifications).toEqual({});
+});
+
 it('keeps overlapping refresh and earlier history pages chronological without duplicate turns', async () => {
   await connectedSocket();
   const originalFetch = vi.mocked(fetch).getMockImplementation()!;

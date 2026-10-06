@@ -14,6 +14,7 @@ import sql from "highlight.js/lib/languages/sql";
 import typescript from "highlight.js/lib/languages/typescript";
 import xml from "highlight.js/lib/languages/xml";
 import yaml from "highlight.js/lib/languages/yaml";
+import { localFilePath } from "./file-links.js";
 
 for (const [name, language] of Object.entries({ bash, css, diff, go, javascript, json, powershell, python, rust, sql, typescript, xml, yaml })) hljs.registerLanguage(name, language);
 
@@ -36,7 +37,9 @@ markdown.renderer.rules.fence = (tokens, index) => renderCodeBlock(tokens[index]
 markdown.renderer.rules.code_block = (tokens, index) => renderCodeBlock(tokens[index]!.content);
 markdown.renderer.rules.table_open = () => '<div class="table-scroll"><table>\n';
 markdown.renderer.rules.table_close = () => '</table></div>\n';
-markdown.renderer.rules.link_open = (tokens, index, options, _env, renderer) => {
+markdown.renderer.rules.link_open = (tokens, index, options, env, renderer) => {
+  const path = env?.fileLinks ? localFilePath(String(tokens[index]!.attrGet("href") ?? "")) : null;
+  if (path) return `<a href="#" data-file-path="${escape(path)}">`;
   tokens[index]!.attrSet("target", "_blank");
   tokens[index]!.attrSet("rel", "noopener noreferrer");
   return renderer.renderToken(tokens, index, options);
@@ -46,6 +49,7 @@ markdown.renderer.rules.image = (tokens, index, options, env, renderer) => {
   const imageRenderer = env?.imageRenderer as ((source: string) => string | undefined) | undefined;
   const resolved = imageRenderer?.(String(tokens[index]!.attrGet("src") ?? ""));
   if (resolved !== undefined) return resolved;
+  if (localFilePath(String(tokens[index]!.attrGet("src") ?? ""))) return escape(tokens[index]!.content);
   tokens[index]!.attrSet("loading", "lazy");
   tokens[index]!.attrSet("referrerpolicy", "no-referrer");
   return defaultImage(tokens, index, options, env, renderer);
@@ -55,24 +59,25 @@ const renderCache = new Map<string, { html: string; bytes: number }>();
 let cachedBytes = 0;
 const cacheBudget = 2 * 1024 * 1024;
 
-export function renderMarkdown(source: string, imageRenderer?: (source: string) => string | undefined): string {
-  if (imageRenderer) {
+export function renderMarkdown(source: string, imageRenderer?: (source: string) => string | undefined, fileLinks = false): string {
+  if (imageRenderer || fileLinks) {
     // Register local image URLs only for this render; they never become links.
     const validate = markdown.validateLink;
     try {
-      markdown.validateLink = value => imageRenderer(value) !== undefined || validate(value);
+      markdown.validateLink = value => imageRenderer?.(value) !== undefined || (fileLinks && localFilePath(value) !== null) || validate(value);
       const tokens = markdown.parse(source, {});
       for (const token of tokens) {
         const blocked: boolean[] = [];
         for (const child of token.children ?? []) {
           if (child.type === "link_open") {
-            const unsafe = !validate(String(child.attrGet("href") ?? ""));
+            const href = String(child.attrGet("href") ?? "");
+            const unsafe = !(fileLinks && localFilePath(href)) && !validate(href);
             blocked.push(unsafe);
             if (unsafe) { child.type = "text"; child.content = ""; }
           } else if (child.type === "link_close" && blocked.pop()) { child.type = "text"; child.content = ""; }
         }
       }
-      return markdown.renderer.render(tokens, markdown.options, { imageRenderer });
+      return markdown.renderer.render(tokens, markdown.options, { imageRenderer, fileLinks });
     } finally { markdown.validateLink = validate; }
   }
   const cached = renderCache.get(source);

@@ -15,6 +15,8 @@ import type { QueuedMessage } from "./journal.js";
 import { UsageJournal } from "./usage.js";
 import { validateRelayUrl } from "./auth.js";
 import { ImageRegistry } from "../../../packages/codex-adapter/src/images.js";
+import { FileRegistry } from "../../../packages/codex-adapter/src/files.js";
+import { fileRequestSchema, fileResponseSchema } from "../../../packages/protocol/src/files.js";
 import { imageRequestSchema } from "../../../packages/protocol/src/index.js";
 import { decodeImage } from "../../../packages/shared/src/images.js";
 import type { UserInput } from "../../../packages/codex-generated/src/v2/UserInput.js";
@@ -29,6 +31,8 @@ export class PcAgent extends EventEmitter {
   private readonly commandQueue = new SerialQueue();
   private readonly historyQueue = new SerialQueue();
   private readonly imageQueue = new SerialQueue();
+  private readonly fileQueue = new SerialQueue();
+  private readonly files = new FileRegistry();
   private readonly images = new ImageRegistry();
   private readonly switchQueue = new SerialQueue();
   private socket: WebSocket | null = null;
@@ -77,6 +81,7 @@ export class PcAgent extends EventEmitter {
       else if (!thread.ownerAvailable) this.usageJournal.gap(thread.id);
       const parsed = threadSchema.safeParse(this.withQueue(this.usageJournal.enrichThread(thread)));
       if (!parsed.success) { this.log("incompatible-runtime-state"); return; }
+      this.files.observe(parsed.data);
       this.pendingThreads.set(thread.id, parsed.data);
       void this.writeStatus();
       if (!this.flushTimer) this.flushTimer = setTimeout(() => this.flush(), 400);
@@ -414,6 +419,7 @@ export class PcAgent extends EventEmitter {
       let message: { type?: string; command?: unknown; requestId?: unknown; threadId?: unknown; cursor?: unknown; features?: unknown };
       try { message = JSON.parse(bytes.toString()) as typeof message; } catch { socket.close(1008, "invalid-message"); return; }
       if (message.type === "device.welcome") {
+        if (Array.isArray(message.features) && message.features.includes("files")) this.send({ type: "device.capabilities", features: ["files"] });
         this.relayError = null;
         this.log("relay-connected");
         void this.writeStatus();
@@ -437,11 +443,29 @@ export class PcAgent extends EventEmitter {
             const page = this.usageJournal.enrichHistory(await (this.headlessThreads.has(threadId) && this.headless
               ? this.headless.history(threadId, cursor)
               : this.catalogReader.history(threadId, cursor, this.images)));
+            for (const turn of page.turns) this.files.observeTurn(threadId, turn);
             if (current()) this.send({ type: "device.history", requestId, threadId, page, code: null });
           } catch {
             if (current()) this.send({ type: "device.history", requestId, threadId, page: null, code: "history-unavailable" });
           }
         }).catch(() => this.log("history-read-failed"));
+        return;
+      }
+      if (message.type === "file.request") {
+        const request = fileRequestSchema.safeParse(message);
+        if (!request.success) { socket.close(1008, "invalid-file-request"); return; }
+        void this.fileQueue.run(async () => {
+          if (!current()) return;
+          const { requestId, threadId, path, offset, version } = request.data;
+          try {
+            if (!this.catalog?.threads.some(thread => thread.id === threadId && !thread.archived)) throw new Error("file-not-in-thread");
+            const file = await this.files.read(threadId, path, offset, version);
+            if (current()) this.send({ type: "device.file", requestId, threadId, path, file, code: null });
+          } catch (error) {
+            const code = fileResponseSchema.shape.code.safeParse(error instanceof Error ? error.message : "");
+            if (current()) this.send({ type: "device.file", requestId, threadId, path, file: null, code: code.success ? code.data : "file-unavailable" });
+          }
+        }).catch(() => this.log("file-read-failed"));
         return;
       }
       if (message.type === "image.request") {
@@ -541,6 +565,7 @@ export class PcAgent extends EventEmitter {
     await this.commandQueue.run(async () => undefined);
     await this.historyQueue.run(async () => undefined);
     await this.imageQueue.run(async () => undefined);
+    await this.fileQueue.run(async () => undefined);
     // Queued turns use the runtime queue and may still finish after adapter.stop().
     // Keep their journal open until they have persisted the final outcome.
     await this.switchQueue.run(async () => undefined);

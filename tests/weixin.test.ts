@@ -71,7 +71,7 @@ async function fixture() {
     return {...registered,state,peer:p};
   };
   const activate=async(name:string,account:typeof alice)=>{api.message(name,'你好');await waitFor(async()=>Boolean((await store.weixin.get(account.id))?.context));await waitFor(()=>api.sent.some(m=>m.token===`token-${name}`));};
-  return {store,api,key,app,alice,bob,admin,bind,agent,activate};
+  return {store,api,key,app,base,alice,bob,admin,bind,agent,activate};
 }
 function completion(state:DeviceSnapshot):RemoteEvent {
   const thread=structuredClone(state.threads['thread-test']!);thread.status='idle';thread.activeTurnId=null;thread.turns[0]!.status='completed';
@@ -303,8 +303,11 @@ it('persists encrypted bindings, account targets, and deduplicated pending compl
     await store.weixin.bind({id,userId:account.id,botId:'persistent-bot',peerId:'persistent-peer',baseUrl:'https://ilinkai.weixin.qq.com',token:vault.seal('persistent-token',`${account.id}:${id}:token`)});
     const state=snapshot(agent.id);await store.saveSnapshot(state);await store.saveEvent(completion(state));
     const pending=(await store.weixin.next(id))!;expect(pending.text).toContain('本轮执行完成');const target=await store.weixin.target(account.id,agent.id,'thread-test');
+    await store.weixin.setThreadNotifications(account.id,agent.id,'thread-separate',true);
     await store.close();store=undefined;
     const restoredKey=await loadWeixinKey(directory);expect(restoredKey).toEqual(key);store=await RelayStore.open(undefined,join(directory,'db'));
+    expect(await store.weixin.threadNotifications(account.id,agent.id,'thread-separate')).toBe(true);
+    expect(await store.weixin.threadNotifications(account.id,agent.id,'thread-test')).toBe(false);
     const binding=(await store.weixin.get(account.id))!;expect(new WeixinSecrets(restoredKey).open(binding.token,`${account.id}:${id}:token`)).toBe('persistent-token');
     expect((await store.weixin.next(id))?.clientId).toBe(pending.clientId);expect(await store.weixin.target(account.id,agent.id,'thread-test')).toBe(target);
     await store.saveSnapshot((await store.snapshot(agent.id))!);expect(await store.weixin.pending(id)).toBe(1);
@@ -326,4 +329,69 @@ it('rolls back a completion when enqueue fails and then atomically retries witho
   await expect(store.saveEvent(completion(state))).rejects.toThrow('simulated-database-failure');
   expect((await store.snapshot(agent.id))?.lastSeq).toBe(0);expect(await store.weixin.pending(id)).toBe(0);
   enqueue.mockRestore();await store.saveEvent(completion(state));expect((await store.snapshot(agent.id))?.lastSeq).toBe(1);expect(await store.weixin.pending(id)).toBe(1);
+});
+
+it('defaults per-thread notifications off, syncs the account across clients, and enforces account/device scope', async () => {
+  const f = await fixture(), a = await f.agent(f.alice, 'Selected'), foreign = await f.agent(f.bob, 'Foreign');
+  const path = `/v1/devices/${a.id}/threads/thread-test/weixin-notification`;
+  const initial = await f.app.inject({url:path,headers:f.alice.headers});
+  expect(initial.headers['cache-control']).toBe('no-store');
+  expect(initial.json()).toMatchObject({enabled:false,allEnabled:false});
+  expect((await f.app.inject({method:'PUT',url:path,headers:f.bob.headers,payload:{enabled:true}})).statusCode).toBe(404);
+  expect((await f.app.inject({method:'PUT',url:path,headers:f.admin.headers,payload:{enabled:true}})).statusCode).toBe(403);
+  expect((await f.app.inject({method:'PUT',url:path,headers:f.alice.headers,payload:{enabled:true,userId:f.bob.id}})).statusCode).toBe(400);
+  const session = (await f.store.createSession(f.alice.id)).session;
+  const headers = {authorization:`Bearer ${session}`};
+  const peers: WsPeer[] = [];
+  closes.push(async()=>{for (const p of peers) p.socket.terminate();});
+  for (const h of [f.alice.headers,headers,f.bob.headers]) {
+    const ticket = (await f.app.inject({method:'POST',url:'/v1/ws/tickets',headers:h})).json().ticket;
+    const peer = await WsPeer.open(f.base.replace('http:','ws:')+'/v1/ws/client');
+    peers.push(peer); peer.send({type:'client.authenticate',ticket}); await peer.wait(m=>m.type==='client.authenticated');
+  }
+  expect((await f.app.inject({method:'PUT',url:path,headers:f.alice.headers,payload:{enabled:true}})).json().enabled).toBe(true);
+  for (const p of peers.slice(0,2)) expect((await p.wait(m=>m.type==='weixin.thread-notification')).notification).toMatchObject({enabled:true});
+  expect(peers[2]!.messages.some(m=>m.type==='weixin.thread-notification')).toBe(false);
+  expect((await f.app.inject({url:path,headers})).json().enabled).toBe(true);
+  expect((await f.app.inject({url:`/v1/devices/${foreign.id}/threads/thread-test/weixin-notification`,headers:f.bob.headers})).json().enabled).toBe(false);
+  await f.bind(f.alice,'alice');
+  await f.app.inject({method:'PUT',url:'/v1/weixin',headers:f.alice.headers,payload:{notifications:false,replies:true}});
+  for (const p of peers.slice(0,2)) expect((await p.wait(m=>m.type==='weixin.settings')).status).toMatchObject({notifications:false});
+  expect(peers[2]!.messages.some(m=>m.type==='weixin.settings')).toBe(false);
+  expect((await f.app.inject({url:path,headers})).json()).toMatchObject({enabled:true,allEnabled:false});
+});
+
+it('sends only opted-in sessions with the global switch off, and all sessions with it on', async () => {
+  const f = await fixture(); await f.bind(f.alice,'alice'); await f.activate('alice',f.alice);
+  await f.store.weixin.settings(f.alice.id,false,true);
+  const selected = await f.agent(f.alice,'Selected'), silent = await f.agent(f.alice,'Silent');
+  await f.store.weixin.setThreadNotifications(f.alice.id,selected.id,'thread-test',true);
+  await f.store.saveEvent(completion(selected.state)); await f.store.saveEvent(completion(silent.state));
+  await waitFor(()=>f.api.sent.some(m=>m.text.includes('结果-Selected')));
+  expect(f.api.sent.filter(m=>m.text.startsWith('本轮执行完成'))).toHaveLength(1);
+  expect(f.api.sent.some(m=>m.text.includes('结果-Silent'))).toBe(false);
+  await f.store.weixin.settings(f.alice.id,true,true);
+  const all = await f.agent(f.alice,'Global');
+  expect(await f.store.weixin.threadNotifications(f.alice.id,all.id,'thread-test')).toBe(false);
+  await f.store.saveEvent(completion(all.state));
+  await waitFor(()=>f.api.sent.some(m=>m.text.includes('结果-Global')));
+  expect(f.api.sent.filter(m=>m.text.startsWith('本轮执行完成'))).toHaveLength(2);
+});
+
+it('keeps opted-in pending completions when global notifications are disabled and removes them when that session is disabled', async () => {
+  const f = await fixture(); await f.bind(f.alice,'alice');
+  const a = await f.agent(f.alice,'A'), b = await f.agent(f.alice,'B');
+  await f.store.weixin.setThreadNotifications(f.alice.id,a.id,'thread-test',true);
+  await f.store.saveEvent(completion(a.state)); await f.store.saveEvent(completion(b.state));
+  const binding = (await f.store.weixin.get(f.alice.id))!;
+  expect(await f.store.weixin.pending(binding.id)).toBe(2);
+  await f.store.weixin.settings(f.alice.id,false,true);
+  expect(await f.store.weixin.pending(binding.id)).toBe(1);
+  expect((await f.store.weixin.next(binding.id))?.text).toContain('结果-A');
+  await f.store.weixin.setThreadNotifications(f.alice.id,a.id,'thread-test',false);
+  expect(await f.store.weixin.pending(binding.id)).toBe(0);
+  await f.store.weixin.settings(f.alice.id,true,true);
+  const c = await f.agent(f.alice,'C'); await f.store.saveEvent(completion(c.state));
+  await f.store.weixin.setThreadNotifications(f.alice.id,c.id,'thread-test',false);
+  expect(await f.store.weixin.pending(binding.id)).toBe(1);
 });

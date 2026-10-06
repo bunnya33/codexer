@@ -86,6 +86,7 @@ export class WeixinStore {
     for (const sql of [
       "CREATE TABLE IF NOT EXISTS weixin_bindings (id TEXT PRIMARY KEY, user_id TEXT UNIQUE NOT NULL REFERENCES users(id), bot_id TEXT UNIQUE NOT NULL, peer_id TEXT UNIQUE NOT NULL, base_url TEXT NOT NULL, token TEXT NOT NULL, context TEXT, cursor TEXT, created_at BIGINT NOT NULL, last_poll_at BIGINT, notifications BOOLEAN NOT NULL DEFAULT TRUE, replies BOOLEAN NOT NULL DEFAULT TRUE, poll_error TEXT, send_error TEXT)",
       "CREATE TABLE IF NOT EXISTS weixin_targets (user_id TEXT NOT NULL REFERENCES users(id), code TEXT NOT NULL, device_id TEXT NOT NULL REFERENCES devices(id), thread_id TEXT NOT NULL, PRIMARY KEY(user_id,code), UNIQUE(user_id,device_id,thread_id))",
+      "CREATE TABLE IF NOT EXISTS weixin_thread_notifications (user_id TEXT NOT NULL REFERENCES users(id), device_id TEXT NOT NULL REFERENCES devices(id), thread_id TEXT NOT NULL, PRIMARY KEY(user_id,device_id,thread_id))",
       "CREATE TABLE IF NOT EXISTS weixin_outbox (binding_id TEXT NOT NULL REFERENCES weixin_bindings(id) ON DELETE CASCADE, id TEXT NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL, client_id TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at BIGINT NOT NULL, created_at BIGINT NOT NULL, error TEXT, PRIMARY KEY(binding_id,id))",
       "CREATE TABLE IF NOT EXISTS weixin_inbox (binding_id TEXT NOT NULL REFERENCES weixin_bindings(id) ON DELETE CASCADE, id TEXT NOT NULL, created_at BIGINT NOT NULL, device_id TEXT, command_id TEXT, PRIMARY KEY(binding_id,id))",
       "CREATE INDEX IF NOT EXISTS weixin_pending ON weixin_outbox(binding_id,next_attempt_at) WHERE state='pending'",
@@ -175,10 +176,68 @@ export class WeixinStore {
       ]);
       if (!notifications)
         await sql.query(
-          "DELETE FROM weixin_outbox WHERE kind='completion' AND binding_id IN (SELECT id FROM weixin_bindings WHERE user_id=$1)",
+          "DELETE FROM weixin_outbox o WHERE kind='completion' AND binding_id IN (SELECT id FROM weixin_bindings WHERE user_id=$1) AND NOT EXISTS (SELECT 1 FROM weixin_targets t JOIN weixin_thread_notifications n ON n.user_id=t.user_id AND n.device_id=t.device_id AND n.thread_id=t.thread_id WHERE t.user_id=$1 AND t.code=o.target_code AND t.device_id=o.device_id)",
           [userId],
         );
     });
+  }
+
+  /** 仅存储显式开启的会话，缺省关闭；偏好独立于微信绑定和登录设备。 */
+  async threadNotifications(
+    userId: string,
+    deviceId: string,
+    threadId: string,
+    sql = this.sql,
+  ): Promise<boolean> {
+    return (
+      (
+        await sql.query(
+          "SELECT 1 FROM weixin_thread_notifications WHERE user_id=$1 AND device_id=$2 AND thread_id=$3",
+          [userId, deviceId, threadId],
+        )
+      ).rows.length > 0
+    );
+  }
+
+  async setThreadNotifications(
+    userId: string,
+    deviceId: string,
+    threadId: string,
+    enabled: boolean,
+  ) {
+    await this.transaction(async (sql) => {
+      if (enabled)
+        await sql.query(
+          "INSERT INTO weixin_thread_notifications(user_id,device_id,thread_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",
+          [userId, deviceId, threadId],
+        );
+      else {
+        await sql.query(
+          "DELETE FROM weixin_thread_notifications WHERE user_id=$1 AND device_id=$2 AND thread_id=$3",
+          [userId, deviceId, threadId],
+        );
+        await sql.query(
+          "DELETE FROM weixin_outbox o WHERE kind='completion' AND device_id=$2 AND binding_id IN (SELECT id FROM weixin_bindings WHERE user_id=$1 AND notifications=FALSE) AND target_code IN (SELECT code FROM weixin_targets WHERE user_id=$1 AND device_id=$2 AND thread_id=$3)",
+          [userId, deviceId, threadId],
+        );
+      }
+    });
+  }
+
+  async completionAllowed(
+    userId: string,
+    deviceId: string | null,
+    targetCode: string | null,
+  ): Promise<boolean> {
+    if (!deviceId || !targetCode) return false;
+    return (
+      (
+        await this.sql.query(
+          "SELECT 1 FROM weixin_targets t JOIN weixin_thread_notifications n ON n.user_id=t.user_id AND n.device_id=t.device_id AND n.thread_id=t.thread_id WHERE t.user_id=$1 AND t.device_id=$2 AND t.code=$3",
+          [userId, deviceId, targetCode],
+        )
+      ).rows.length > 0
+    );
   }
 
   async polled(id: string, cursor?: string, context?: string) {
@@ -322,13 +381,18 @@ export class WeixinStore {
     if (!completed.length) return;
     const row = (
       await sql.query(
-        "SELECT b.*,d.name AS device_name,c.payload AS catalog FROM devices d JOIN users u ON u.id=d.owner_user_id JOIN weixin_bindings b ON b.user_id=u.id LEFT JOIN catalogs c ON c.device_id=d.id WHERE d.id=$1 AND d.revoked_at IS NULL AND u.revoked_at IS NULL AND u.role='user' AND b.notifications=TRUE",
+        "SELECT b.*,d.name AS device_name,c.payload AS catalog FROM devices d JOIN users u ON u.id=d.owner_user_id JOIN weixin_bindings b ON b.user_id=u.id LEFT JOIN catalogs c ON c.device_id=d.id WHERE d.id=$1 AND d.revoked_at IS NULL AND u.revoked_at IS NULL AND u.role='user'",
         [after.deviceId],
       )
     ).rows[0];
     if (!row) return;
     const catalog = row.catalog as DeviceCatalog | null;
     for (const { thread, turn } of completed) {
+      if (
+        !row.notifications &&
+        !(await this.threadNotifications(String(row.user_id), after.deviceId, thread.id, sql))
+      )
+        continue;
       if (turn.completedAtMs != null && turn.completedAtMs < Number(row.created_at)) continue;
       const code = await this.targetWithSql(sql, String(row.user_id), after.deviceId, thread.id);
       const entry = catalog?.threads.find((value) => value.id === thread.id);
@@ -399,6 +463,7 @@ export class WeixinStore {
     createdAt: number;
     kind: string;
     deviceId: string | null;
+    targetCode: string | null;
   } | null> {
     const row = (
       await this.sql.query(
@@ -415,6 +480,7 @@ export class WeixinStore {
           createdAt: Number(row.created_at),
           kind: String(row.kind),
           deviceId: row.device_id as string | null,
+          targetCode: row.target_code as string | null,
         }
       : null;
   }

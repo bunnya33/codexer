@@ -12,10 +12,27 @@ Base URL 是 Relay 的 HTTP 或 HTTPS 地址；本机开发默认为 `http://127
 | POST | `/v1/weixin/login` | 创建当前账号的扫码流程，返回 `loginId`、二维码 PNG data URL 和五分钟有效期 |
 | POST | `/v1/weixin/login/:loginId/poll` | 查询本账号二维码状态，可带 `{verifyCode}`；微信状态轮询可能等待 35 秒 |
 | PUT | `/v1/weixin` | 保存 `{notifications:boolean,replies:boolean}` |
+| GET | `/v1/devices/:deviceId/threads/:threadId/weixin-notification` | 当前账号的会话偏好 `{enabled,allEnabled,available,bound}`，缺省 `enabled:false` |
+| PUT | `/v1/devices/:deviceId/threads/:threadId/weixin-notification` | 保存 `{enabled:boolean}`；校验设备/会话归属并向本账号在线客户端同步 |
 | DELETE | `/v1/weixin` | 解除当前账号绑定并清除对应收发队列 |
 | POST | `/v1/weixin/test` | 激活后提交测试通知，`queued:true` 表示入队，不代表已投递 |
 
 二维码绑定冲突返回 409 `weixin-bot-already-bound`；其他账号的绑定流程返回 404 `weixin-login-not-found`；未激活测试返回 409 `weixin-not-activated`。微信功能未开启时 GET 返回 `available:false`，其他操作返回 503 `weixin-disabled`。上游错误使用脱敏的固定错误代码。
+
+`notifications:true` 表示通知全部已监听会话；关闭后只通知单独开启的会话。会话偏好可在绑定微信前保存，按账号、设备和会话持久化，不随退出或登录设备改变。修改后控制 WebSocket 发送 `weixin.thread-notification`（`deviceId,threadId,notification`）或 `weixin.settings`（`status`），只发给当前账号。新登录或重连用 REST 校准。关闭总开关会保留单独开启会话的待发送完成通知；关闭单个会话且总开关关闭时移除该会话的待发送完成通知。已发起的微信发送无法撤回。
+
+## 会话文件读取
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| GET | `/v1/devices/:deviceId/threads/:threadId/files/info?path=...` | 返回 `{name,size,version}`；只读取元数据，不读取内容 |
+| GET | `/v1/devices/:deviceId/threads/:threadId/files/content?path=...&version=...` | 经 PC Agent 分块读取并流式返回二进制附件 |
+
+两种接口都需要同账号 Bearer 认证。`path` 为 URL 编码后的 PC 绝对路径；只接受当前会话官方消息里实际观察到的 Markdown 文件链接。支持 Windows/Unix 路径、中文与空格，以及本地 `file:` 链接，不接受网络共享路径。PC 必须在线，服务器与 PC 连接器都需更新到支持文件协议的版本。旧连接器返回 409 `agent-update-required`；文件未引用/不可读返回 404 `file-not-in-thread|file-unavailable`；文件变化返回 409 `file-changed`，应重新获取元数据。
+
+文件上限 512 MiB，Agent 每块最多 256 KiB，并校验文件版本和读取偏移。Relay 最多同时转发四个内容传输、每设备两个；超出返回 429 `files-busy`。每块回源等待最多 15 秒，返回 504 `file-timeout`。客户端断开会取消待回源请求；设备离线和服务器关闭会及时失败。**Relay 不缓存、不写入磁盘或数据库，也不把文件字节放入快照或历史。** 内容响应为附件、`no-store`、`nosniff`，浏览器不能在服务器来源下执行文件。传输中变化或断线会终止响应，客户端检查完整长度。
+
+客户端自动阅读不超过 2 MiB 的 UTF-8 MD/TXT/JSON 及常见文本文件；JSON 自动格式化。其它格式、较大文本和无法按 UTF-8 解码的文件显示下载确认，再请求内容。网页交给浏览器下载，原生端用临时文件交给系统保存/分享并清理临时文件；PC 源文件保留。
 
 Web、App 和 PC Agent 均通过控制端账号密码登录；后台管理员使用独立入口 `/v1/admin/auth/login`。两类账号可同名，密码和权限独立。除健康与登录接口外，接口使用 `Authorization: Bearer <session>` 会话凭据。控制端只能访问同账号 PC；管理员不能登录 PC Agent、申请控制 WebSocket ticket 或控制任何设备。跨账号设备请求返回 404。
 

@@ -2,7 +2,11 @@ import { clearCredentials as clearSavedCredentials, randomId, readCredentials, s
 import { catalogSchema, eventSchema, historyPageSchema, imageRefSchema, MAX_IMAGE_BYTES, reduceEvent, snapshotSchema } from '../../../packages/protocol/src/index';
 import type { CommandResult, DeviceCatalog, DeviceSnapshot, HistoryTurn, ImageRef, RemoteCommand } from '../../../packages/protocol/src/index';
 import type { WeixinLogin, WeixinStatus } from '../../../packages/protocol/src/weixin';
+import { threadNotificationSchema } from '../../../packages/protocol/src/weixin';
+import type { ThreadNotification } from '../../../packages/protocol/src/weixin';
 import { mergeTurnHistory } from '../../../packages/client-shared/src/activity';
+import { fileInfoSchema } from '../../../packages/protocol/src/files';
+import type { FileInfo } from '../../../packages/protocol/src/files';
 
 export type Device = { id: string; name: string; platform: string; online: boolean; owner_user_id?: string | null; last_seen_at?: number | string | null };
 export type HistoryState = { turns: HistoryTurn[]; nextCursor: string | null; loading: boolean; error?: string };
@@ -16,9 +20,11 @@ export type RelayView = {
   histories: Record<string, HistoryState>;
   syncing: Record<string, boolean>;
   notice: string;
+  weixin: WeixinStatus | null;
+  threadNotifications: Record<string, ThreadNotification>;
 };
 
-const emptyView = (): RelayView => ({ phase: 'locked', url: '', role: null, devices: [], catalogs: {}, snapshots: {}, histories: {}, syncing: {}, notice: '' });
+const emptyView = (): RelayView => ({ phase: 'locked', url: '', role: null, devices: [], catalogs: {}, snapshots: {}, histories: {}, syncing: {}, notice: '', weixin: null, threadNotifications: {} });
 const SOCKET_AUTH_TIMEOUT_MS = 12000;
 class ApiError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 export const historyKey = (deviceId: string, threadId: string) => `${deviceId}:${threadId}`;
@@ -48,6 +54,8 @@ export class RelayClient {
   private subscribed = new Set<string>();
   private resyncing = new Set<string>();
   private presenceVersions = new Map<string, number>();
+  private notificationVersions = new Map<string, number>();
+  private weixinVersion = 0;
   private pending = new Map<string, { resolve: (result: CommandResult) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout>; deviceId: string }>();
 
   getSnapshot = () => this.view;
@@ -156,12 +164,41 @@ export class RelayClient {
     try { await this.api('/v1/auth/logout', undefined, 'POST'); }
     finally { this.disconnect(true); }
   }
-  weixinStatus() { return this.api<WeixinStatus>('/v1/weixin'); }
+  async weixinStatus() {
+    const generation = this.generation, version = this.weixinVersion;
+    const status = await this.api<WeixinStatus>('/v1/weixin');
+    if (generation === this.generation && version === this.weixinVersion) this.acceptWeixin(status);
+    return status;
+  }
   weixinLogin() { return this.api<WeixinLogin>('/v1/weixin/login',{},'POST'); }
   weixinPoll(loginId:string,verifyCode?:string) { return this.api<WeixinLogin>(`/v1/weixin/login/${encodeURIComponent(loginId)}/poll`,verifyCode?{verifyCode}:{},'POST'); }
-  weixinSettings(notifications:boolean,replies:boolean) { return this.api<WeixinStatus>('/v1/weixin',{notifications,replies},'PUT'); }
+  async weixinSettings(notifications:boolean,replies:boolean) {
+    const generation = this.generation, version = this.weixinVersion;
+    const status = await this.api<WeixinStatus>('/v1/weixin',{notifications,replies},'PUT');
+    if (generation === this.generation && version === this.weixinVersion) this.acceptWeixin(status);
+    return status;
+  }
   weixinUnbind() { return this.api('/v1/weixin',undefined,'DELETE'); }
   weixinTest() { return this.api('/v1/weixin/test',{},'POST'); }
+
+  private acceptWeixin(status: WeixinStatus) {
+    this.weixinVersion++;
+    this.set({ weixin: status, threadNotifications: Object.fromEntries(Object.entries(this.view.threadNotifications).map(([key, value]) => [key, { ...value, allEnabled: status.bound && status.notifications, bound: status.bound, available: status.available }])) });
+  }
+
+  private async threadNotification(deviceId: string, threadId: string, enabled?: boolean) {
+    const generation = this.generation, key = historyKey(deviceId, threadId), version = this.notificationVersions.get(key), weixinVersion = this.weixinVersion;
+    const notification = threadNotificationSchema.parse(await this.api<unknown>(`/v1/devices/${encodeURIComponent(deviceId)}/threads/${encodeURIComponent(threadId)}/weixin-notification`, enabled === undefined ? undefined : { enabled }, enabled === undefined ? 'GET' : 'PUT'));
+    if (generation !== this.generation || version !== this.notificationVersions.get(key)) return;
+    if (weixinVersion !== this.weixinVersion && this.view.weixin) {
+      notification.allEnabled = this.view.weixin.bound && this.view.weixin.notifications;
+      notification.bound = this.view.weixin.bound;
+      notification.available = this.view.weixin.available;
+    }
+    this.set({ threadNotifications: { ...this.view.threadNotifications, [key]: notification } });
+  }
+  loadThreadNotification(deviceId: string, threadId: string) { return this.threadNotification(deviceId, threadId); }
+  setThreadNotification(deviceId: string, threadId: string, enabled: boolean) { return this.threadNotification(deviceId, threadId, enabled); }
 
   disconnect(clearCredentials = false): void {
     this.generation++;
@@ -173,16 +210,21 @@ export class RelayClient {
     this.socket?.close();
     this.socket = null;
     this.historyLoading.clear(); this.catalogLoading.clear(); this.watched.clear(); this.subscribed.clear(); this.resyncing.clear(); this.presenceVersions.clear();
+    this.notificationVersions.clear();
+    this.weixinVersion++;
     for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(new Error('连接已断开，请核对操作结果')); }
     this.pending.clear();
     if (clearCredentials) { this.token = ''; void clearSavedCredentials().catch(() => undefined); }
     this.set(emptyView());
   }
 
-  private async api<T>(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST', keepalive = false): Promise<T> {
+  private async api<T>(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST', keepalive = false, signal?: AbortSignal): Promise<T> {
     const generation = this.generation;
     if (!this.view.url || !this.token) throw new Error('连接已断开');
     const controller = new AbortController();
+    const abort = () => controller.abort();
+    signal?.addEventListener('abort', abort, {once: true});
+    if (signal?.aborted) abort();
     const timer = setTimeout(() => controller.abort(), 40000);
     try {
       const response = await fetch(`${this.view.url}${path}`, {
@@ -195,7 +237,7 @@ export class RelayClient {
         throw new ApiError(response.status, result.error ?? `HTTP ${response.status}`);
       }
       return response.json() as Promise<T>;
-    } finally { clearTimeout(timer); }
+    } finally { clearTimeout(timer); signal?.removeEventListener('abort', abort); }
   }
 
   async refreshDevices(): Promise<void> {
@@ -324,8 +366,18 @@ export class RelayClient {
     const deviceId = typeof message.deviceId === 'string' ? message.deviceId : '';
     if (message.type === 'client.authenticated') {
       this.set({ phase: 'connected', notice: '' });
+      if (this.view.role === 'user') void this.weixinStatus().catch(() => undefined);
       for (const device of this.view.devices) { if (!this.subscribed.has(device.id)) this.subscribeDevice(device.id); void this.loadCatalog(device.id); }
       for (const [id, pending] of this.pending) void this.api<{ result: CommandResult | null }>(`/v1/devices/${encodeURIComponent(pending.deviceId)}/commands/${encodeURIComponent(id)}`).then(response => { if (response.result) this.finishCommand(response.result); }).catch(() => undefined);
+    } else if (message.type === 'weixin.settings') {
+      const status = message.status as WeixinStatus | undefined;
+      if (status && typeof status.notifications === 'boolean' && typeof status.bound === 'boolean') this.acceptWeixin(status);
+    } else if (message.type === 'weixin.thread-notification' && deviceId && typeof message.threadId === 'string') {
+      const parsed = threadNotificationSchema.safeParse(message.notification);
+      if (!parsed.success) return;
+      const key = historyKey(deviceId, message.threadId);
+      this.notificationVersions.set(key, (this.notificationVersions.get(key) ?? 0) + 1);
+      this.set({ threadNotifications: { ...this.view.threadNotifications, [key]: parsed.data } });
     } else if (message.type === 'catalog.updated' && deviceId) void this.loadCatalog(deviceId);
     else if (message.type === 'sync.begin' && deviceId) this.set({ syncing: { ...this.view.syncing, [deviceId]: true } });
     else if (message.type === 'sync.ready' && deviceId) {
@@ -425,6 +477,16 @@ export class RelayClient {
 
   imageSource(deviceId: string, threadId: string, imageId: string) {
     return { uri: `${this.view.url}/v1/devices/${encodeURIComponent(deviceId)}/threads/${encodeURIComponent(threadId)}/images/${imageId}`, headers: { authorization: `Bearer ${this.token}` } };
+  }
+
+  async fileInfo(deviceId: string, threadId: string, path: string, signal: AbortSignal): Promise<FileInfo> {
+    const result = await this.api<unknown>(`/v1/devices/${encodeURIComponent(deviceId)}/threads/${encodeURIComponent(threadId)}/files/info?path=${encodeURIComponent(path)}`, undefined, 'GET', false, signal);
+    return fileInfoSchema.parse(result);
+  }
+
+  fileSource(deviceId: string, threadId: string, path: string, version: string) {
+    if (!this.view.url || !this.token) throw new Error('连接已断开');
+    return { uri: `${this.view.url}/v1/devices/${encodeURIComponent(deviceId)}/threads/${encodeURIComponent(threadId)}/files/content?path=${encodeURIComponent(path)}&version=${encodeURIComponent(version)}`, headers: { authorization: `Bearer ${this.token}` } };
   }
 
   async revokeDevice(id: string) { await this.api(`/v1/devices/${encodeURIComponent(id)}`, undefined, 'DELETE'); await this.refreshDevices(); }

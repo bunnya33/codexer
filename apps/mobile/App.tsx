@@ -13,6 +13,8 @@ import { effortLabel, modelLabel } from '../../packages/client-shared/src/models
 import { MAX_IMAGES, MAX_IMAGE_BYTES } from '../../packages/protocol/src/index';
 import type { HistoryTurn, RemoteCommand } from '../../packages/protocol/src/index';
 import { FileChangesPanel, RequestPanel, TurnView } from './src/conversation';
+import { FileViewerProvider } from './src/file-viewer';
+import { ThreadNotificationToggle } from './src/thread-notification';
 import { ImageViewer } from './src/image-viewer';
 import { historyKey, relay } from './src/relay';
 import { c, s } from './src/styles';
@@ -274,11 +276,12 @@ function AppContent() {
   const settings = thread?.settings ?? summary?.settings;
   const model = catalog?.models?.find(option => option.model === settings?.model);
   return <View style={s.safe}><StatusBar style="dark" />
-    <ConversationDrawer wide={wide} open={drawerOpen} onOpenChange={setDrawerOpen} directory={directory}>
+    <FileViewerProvider deviceId={deviceId} threadId={threadId}><ConversationDrawer wide={wide} open={drawerOpen} onOpenChange={setDrawerOpen} directory={directory}>
     <SafeAreaView style={s.page} edges={['top', 'left', 'right', 'bottom']}>
     <KeyboardAvoidingView style={s.page} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <DrawerSwipeArea>
       <View style={s.threadHeader}>{!wide && <IconButton icon={Menu} label="打开会话列表" onPress={() => setDrawerOpen(true)} />}<View style={s.threadHeading}><Text testID="conversation-title" style={s.threadTitle} numberOfLines={1}>{summary?.title ?? thread?.title ?? 'Codexer'}</Text><Text style={s.sub} numberOfLines={1}>{project?.name ?? device?.name ?? '选择设备'}{threadId ? ` · ${thread?.status === 'active' ? '进行中' : thread?.status === 'idle' ? '空闲' : '接入中'}` : ''}</Text></View><>{hasTruncatedContent && <IconButton icon={Info} label="查看会话展示范围" onPress={() => relay.showNotice("部分长记录受传输大小限制。完整内容可在本机 Codex 查看；更早消息可在会话顶部加载。")} />}</><IconButton icon={RefreshCw} label="刷新会话" disabled={!threadId} onPress={() => { void relay.loadHistory(deviceId, threadId); relay.watchThread(deviceId, threadId); }} /></View>
+      <ThreadNotificationToggle deviceId={deviceId} threadId={threadId} />
       <ConversationViewport onScrollIntent={markScrollIntent}><FlatList key={historyKey(deviceId, threadId)} ref={listRef} testID="conversation-stream" data={turns} keyExtractor={item => item.id} style={s.stream} contentContainerStyle={[s.streamContent, wide && s.desktopContent]} initialNumToRender={8} windowSize={7} maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
         onScroll={event => {
           if (currentStreamKey.current !== streamKey) return;
@@ -316,7 +319,7 @@ function AppContent() {
       </View>
     </KeyboardAvoidingView>
     </SafeAreaView>
-    </ConversationDrawer>
+    </ConversationDrawer></FileViewerProvider>
     <Modal visible={!!actionThread} transparent animationType="fade" onRequestClose={() => { setActionThread(null); setRenaming(false); }}>
       <Pressable style={s.backdrop} onPress={() => { setActionThread(null); setRenaming(false); }}>
         <Pressable style={[s.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]} onPress={event => event.stopPropagation()}>
