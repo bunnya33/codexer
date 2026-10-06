@@ -1,6 +1,6 @@
 import type { HistoryTurn } from '../../protocol/src/index';
 
-export type ImagePreview = { source: { uri: string; headers?: Record<string, string> }; name: string };
+export type ImagePreview = { source: { uri: string; headers?: Record<string, string>; mimeType?: string; expectedBytes?: number }; name: string; svgXml?: string };
 export type ImageGallery = { images: ImagePreview[]; index: number };
 export type ImageDirection = -1 | 1;
 

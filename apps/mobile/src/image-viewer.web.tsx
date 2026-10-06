@@ -7,8 +7,10 @@ import { ImageViewerHeader, ImageViewerNavigation } from './image-viewer-control
 import { useImageUrl } from './relay-image.web';
 import { s } from './styles';
 
-function ZoomImage({ preview, onClose, onNavigate }: { preview: ImagePreview; onClose: () => void; onNavigate: (direction: ImageDirection) => void }) {
+export function ImageViewerImage({ preview, onClose, onNavigate }: { preview: ImagePreview; onClose: () => void; onNavigate?: (direction: ImageDirection) => void }) {
   const image = useImageUrl(preview.source);
+  const [decodeError, setDecodeError] = useState(false);
+  useEffect(() => setDecodeError(false), [image.uri]);
   const [zoom, setZoom] = useState(1);
   const zoomValue = useRef(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -50,15 +52,15 @@ function ZoomImage({ preview, onClose, onNavigate }: { preview: ImagePreview; on
         if (pointers.current.size) return;
         const dx = event.clientX - gesture.current.startX, dy = event.clientY - gesture.current.startY;
         const direction = imageSwipe(dx, dy, zoomValue.current, gesture.current.multiTouch || !gesture.current.canSwipe);
-        if (direction) onNavigate(direction);
+        if (direction) onNavigate?.(direction);
         else if (!gesture.current.moved && !gesture.current.multiTouch && Math.hypot(dx, dy) <= 6) onClose();
       }}
       onPointerCancel={event => { pointers.current.delete(event.pointerId); gesture.current.moved = true; gesture.current.canSwipe = false; }}
       onLostPointerCapture={event => {
         if (pointers.current.delete(event.pointerId)) { gesture.current.moved = true; gesture.current.canSwipe = false; }
       }}>
-      {image.error ? <Text style={{ color: '#fff', textAlign: 'center' }}>图片暂不可用</Text> : !image.uri ? <ActivityIndicator color="#fff" />
-        : <img alt={preview.name} src={image.uri} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain', transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`, userSelect: 'none' }} />}
+      {image.error || decodeError ? <Text accessibilityRole="alert" style={{ color: '#fff', textAlign: 'center' }}>图片暂不可用或格式不受支持</Text> : !image.uri ? <ActivityIndicator color="#fff" />
+        : <img alt={preview.name} src={image.uri} draggable={false} onError={() => setDecodeError(true)} style={{ width: '100%', height: '100%', objectFit: 'contain', transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`, userSelect: 'none' }} />}
     </div>
     <View style={{ position: 'absolute', bottom: 20, alignSelf: 'center', flexDirection: 'row', gap: 12, backgroundColor: '#273030', borderRadius: 8 }}>
       <Pressable accessibilityRole="button" accessibilityLabel="缩小图片" onPress={() => changeZoom(zoomValue.current / 1.4)} style={s.viewerClose}><ZoomOut color="#fff" size={20} /></Pressable>
@@ -81,7 +83,7 @@ export function ImageViewer({ preview, onClose, onNavigate }: { preview: ImageGa
   return <Modal visible={visible} animationType="fade" onRequestClose={onClose}>
     <View style={s.viewer}>
       <ImageViewerHeader name={image?.name} onClose={onClose} />
-      {image && <ZoomImage key={image.source.uri} preview={image} onClose={onClose} onNavigate={onNavigate} />}
+      {image && <ImageViewerImage key={image.source.uri} preview={image} onClose={onClose} onNavigate={onNavigate} />}
       {preview && <ImageViewerNavigation gallery={preview} onNavigate={onNavigate} />}
     </View>
   </Modal>;

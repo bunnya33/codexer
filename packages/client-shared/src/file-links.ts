@@ -21,6 +21,8 @@ export function localFilePath(value: string): string | null {
     .replaceAll("\\", "/")
     .replace(/#(?:L?\d+(?:-L?\d+)?)$/, "")
     .replace(/:\d+(?::\d+)?$/, "");
+  // Codex 的 Windows 文档链接也会使用 /D:/...，转换为真实盘符路径。
+  if (/^\/[A-Za-z]:\//.test(path)) path = path.slice(1);
   if (/[\u0000-\u001f\u007f]/.test(path) || path.startsWith("//")) return null;
   if (!/^[A-Za-z]:\//.test(path) && !path.startsWith("/")) return null;
   return path;
@@ -30,8 +32,21 @@ export function fileName(path: string): string {
   return path.replaceAll("\\", "/").split("/").at(-1) || "文件";
 }
 
-export function fileReaderKind(name: string): "markdown" | "json" | "text" | "download" {
+/** 按文件名选择图片阅读器；实际解码失败时由预览器提示，不自动执行文件。 */
+export function fileImageMime(name: string): string | null {
+  if (!name.includes(".")) return null;
+  const extension = name.toLowerCase().split(".").at(-1) ?? "";
+  const types: Record<string, string> = {
+    png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", jpe: "image/jpeg",
+    webp: "image/webp", gif: "image/gif", bmp: "image/bmp", ico: "image/x-icon",
+    avif: "image/avif", svg: "image/svg+xml",
+  };
+  return Object.hasOwn(types, extension) ? types[extension]! : null;
+}
+
+export function fileReaderKind(name: string): "image" | "markdown" | "json" | "text" | "download" {
   const extension = name.toLowerCase().split(".").at(-1);
+  if (fileImageMime(name)) return "image";
   if (extension === "md" || extension === "markdown") return "markdown";
   if (extension === "json") return "json";
   if (

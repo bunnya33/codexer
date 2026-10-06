@@ -13,7 +13,7 @@ npm test
 npm run package:desktop:win
 ```
 
-输出 `apps/desktop/release/Codexer Setup 0.1.6.exe`（NSIS）和 `Codexer 0.1.6.exe`（便携），以及 `win-unpacked` 验收目录。包内是 Electron 的 Node/SQLite、Agent bundle 和 React UI，不要求最终用户安装 Node。两个包未配置发行签名；当前 `signExecutable:false` 保留图标/元数据但跳过应用签名。商业发行需维护者自行配置可信 Windows 签名证书/服务并调整该选项，不能把工具出现 signing 日志当作已签名。
+输出 `apps/desktop/release/Codexer Setup 0.1.8.exe`（NSIS）和 `Codexer 0.1.8.exe`（便携），以及 `win-unpacked` 验收目录。包内是 Electron 的 Node/SQLite、Agent bundle 和 React UI，不要求最终用户安装 Node。两个包未配置发行签名；当前 `signExecutable:false` 保留图标/元数据但跳过应用签名。商业发行需维护者自行配置可信 Windows 签名证书/服务并调整该选项，不能把工具出现 signing 日志当作已签名。
 
 Electron 二进制下载失败时先检查网络、代理和 DNS，不关闭 TLS 校验。可以使用官方校验和验证后将官方解压目录交给 electron-builder 的 `electronDist`；这个选项只用于打包，最终用户仍无需 Node。
 
@@ -30,7 +30,7 @@ npm run build:server
 npm run package:server
 ```
 
-输出 `release/codexer-server-0.2.5.tar.gz` 和 `.sha256`，包含 Relay 编译产物、控制端/后台静态文件、更新器、锁定依赖清单、安装器和文档。不含 node_modules、真实配置、旧 Git 历史或 Electron 二进制。服务器安装时自动装 Node/生产依赖，看到 bundle 标记后直接使用已构建网页。
+输出 `release/codexer-server-0.2.6.tar.gz` 和 `.sha256`，包含 Relay 编译产物、控制端/后台静态文件、更新器、锁定依赖清单、安装器和文档。不含 node_modules、真实配置、旧 Git 历史或 Electron 二进制。服务器安装时自动装 Node/生产依赖，看到 bundle 标记后直接使用已构建网页。
 
 同一个包同时升级 Admin 和 Relay，避免接口与 UI 不一致。安装、校验、回退见 [服务器安装](server-install.md)。源码的 Dockerfile 独立执行完整服务器构建，也跳过 Electron 下载。
 
@@ -47,6 +47,22 @@ PC 连接器与服务端可独立升级版本；同步对应 package 和锁文�
 `0.1.5` 同步活动记录的创建/编辑/删除类型，配合服务器的单行操作摘要与缩进列表；没有类型的旧记录按通用“修改”显示。侧栏跟手动画属于控制 UI，Web 随服务器包升级，手机 App 需重新构建；侧栏操作不要求更新 Agent。
 
 源码使用 `https://github.com/bunnya33/codexer` 的 `main` 分支。服务器稳定标签 `vX.Y.Z` 触发 `.github/workflows/release-server.yml`，测试和构建成功后上传统一包及校验文件；版本必须匹配根 package.json。桌面包仍需独立发布。`v0.2.1` 用于验证从 `0.2.0` 升级的流程，标签与根 package、Admin 和锁文件版本一致。Git 更新只需标签；Release 包在上述工作流通过后生成。
+
+## PC 连接器 0.1.8
+
+修复 Codex 本地文档链接 `</D:/...>` 的 Windows 路径解析：去掉盘符前的单个斜线后再验证引用与读取文件，避免将真实存在的 `D:/...` 错当成当前盘符下的路径。安装新版连接器即可兼容已发布的服务器 `0.2.5`，原会话链接无需重新生成。
+
+## PC 连接器 0.1.7
+
+Windows PC 连接器加入会话引用文件的读取、版本检查和分块响应，配合服务器 `0.2.5` 的 Web 文件阅读和下载功能。只接受已在对应会话中引用的本地普通文件，确认前只读取元数据，Relay 不存储文件内容；旧服务器未声明文件能力时不发送新增能力消息。包含此前退出时等待排队任务完成、再关闭数据库的修复。
+
+输出 Windows x64 安装版和便携版；服务器、PC 连接器和原生手机 App 独立更新。此次 Windows 本地打包不生成 macOS、APK 或 IPA，也不会修改已发布的服务器 `v0.2.5` 标签。
+
+## 0.2.6 图片文件预览
+
+图片文件链接直接打开可缩放的预览弹窗，保留下载按钮；超过 2 MiB 的图片也可直接预览，文本预览限制保持不变。支持 PNG/JPEG/WebP/GIF/BMP/ICO/AVIF/SVG，解码失败时显示错误并保留下载入口；EXE 和压缩包仍先确认下载。图片从 PC 按需读取，Relay 继续只转发、不存储文件。
+
+统一服务器包更新 Relay、Admin 和 Web，网页更新后启用图片文件预览，原生 App 需重新构建。已支持文件协议的 PC 连接器无需为图片功能重新打包；Codex 的 `</D:/...>` 路径兼容修复仍需 PC 连接器 `0.1.8`。此服务器标签不发布新的桌面或原生手机安装包。
 
 ## 0.2.5 会话文件与微信通知开关
 

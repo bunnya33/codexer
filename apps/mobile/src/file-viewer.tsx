@@ -17,6 +17,8 @@ import type { FileInfo } from "../../../packages/protocol/src/files";
 import { FileLinkContext } from "./file-link-context";
 import { fileError, previewFile } from "./file-transfer";
 import { downloadFile } from "./file-download";
+import { FileImage } from "./file-image";
+import type { FileSource } from "./file-transfer";
 import { Markdown } from "./markdown";
 import { CodeBlock } from "./code-block";
 import { relay } from "./relay";
@@ -27,6 +29,7 @@ type OpenFile = {
   info?: FileInfo;
   phase: "loading" | "preview" | "confirm" | "downloading" | "done" | "error";
   text?: string;
+  imageSource?: FileSource;
   message?: string;
   progress?: number;
 };
@@ -65,6 +68,10 @@ export function FileViewerProvider({
         try {
           const info = await relay.fileInfo(deviceId, threadId, path, controller.signal);
           if (!current()) return;
+          if (fileReaderKind(info.name) === "image") {
+            setFile({ path, info, phase: "preview", imageSource: relay.fileSource(deviceId, threadId, path, info.version) });
+            return;
+          }
           if (fileReaderKind(info.name) === "download" || info.size > MAX_FILE_PREVIEW_BYTES) {
             setFile({
               path,
@@ -161,7 +168,9 @@ export function FileViewerProvider({
                 <X size={22} color={c.text} />
               </Pressable>
             </View>
-            <ScrollView style={fs.body} contentContainerStyle={fs.content}>
+            {file?.phase === "preview" && file.imageSource ? (
+              <FileImage source={file.imageSource} info={file.info!} onClose={close} />
+            ) : <ScrollView style={fs.body} contentContainerStyle={fs.content}>
               {file?.phase === "preview" && (
                 <FileLinkContext.Provider value={undefined}>
                   {fileReaderKind(file.info!.name) === "markdown" ? (
@@ -217,7 +226,7 @@ export function FileViewerProvider({
                   <Text style={fs.text}>重试</Text>
                 </Pressable>
               )}
-            </ScrollView>
+            </ScrollView>}
           </SafeAreaView>
         </View>
       </Modal>

@@ -19,7 +19,8 @@ it('retrieves live and historical files through a real PC Agent with account/thr
     const body = '# 测试文档\n\n已从 PC 读取。', binary = Buffer.alloc(FILE_CHUNK_BYTES * 2 + 71, 123);
     await Promise.all([writeFile(path,body),writeFile(archive,binary),writeFile(historical,'{"ok":true}')]);
     const turns = desktop.state.turnHistory as {history:{entitiesByKey: Record<string,{items:unknown[]}>}};
-    turns.history.entitiesByKey['turn-key']!.items = [{id:'final',type:'agentMessage',text:`[文档](<${path}>)\n\n[压缩包](<${archive}>)`,phase:'final_answer'}];
+    const citation = process.platform === 'win32' ? '/' + path : path;
+    turns.history.entitiesByKey['turn-key']!.items = [{id:'final',type:'agentMessage',text:`[文档](<${citation}>)\n\n[压缩包](<${archive}>)`,phase:'final_answer'}];
     await desktop.start();
     const base = await app.listen({host:'127.0.0.1',port:0}), registered = await testAgent(store,account.id);
     const credentials = {relayUrl:base,deviceId:registered.id,session:registered.token,installationId:'test',username:account.name,expiresAt:Date.now()+60000};
@@ -33,6 +34,8 @@ it('retrieves live and historical files through a real PC Agent with account/thr
     const url = (kind:string,value=path,thread='thread-test') => `/v1/devices/${registered.id}/threads/${thread}/files/${kind}?path=${encodeURIComponent(value)}`;
     const info = await app.inject({url:url('info'),headers:account.headers});
     expect(info.statusCode).toBe(200); expect(info.json()).toMatchObject({name:'文档 with spaces.md',size:Buffer.byteLength(body)}); expect(info.json().base64).toBeUndefined();
+    const citationInfo = await app.inject({url:url('info',citation),headers:account.headers});
+    expect(citationInfo.statusCode).toBe(200); expect(citationInfo.json()).toEqual(info.json());
     const content = await app.inject({url:url('content')+`&version=${info.json().version}`,headers:account.headers});
     expect(content.statusCode).toBe(200); expect(content.body).toBe(body); expect(content.headers['content-disposition']).toContain('filename*=UTF-8');
     expect(content.headers['cache-control']).toBe('no-store');
