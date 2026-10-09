@@ -5,6 +5,7 @@
 ```mermaid
 flowchart LR
   C[React Native 控制端\niOS / Android / Web] -->|HTTPS / WSS| R[Fastify Relay]
+  W[Electron Windows 控制端] -->|控制网页 / HTTPS / WSS| R
   A[React 管理后台 /admin/] -->|账号管理 API| R
   P[Electron PC 连接器] -->|主动连接 WSS| R
   P --> G[内置 PC Agent]
@@ -28,7 +29,7 @@ PC 连接器由主进程、隔离的 React 窗口、受限 preload、utilityProc
 
 ## 三种交付方案
 
-1. 控制客户端：原生 App 使用 React Native，Web 使用同一代码的 Expo 导出。
+1. 控制客户端：原生 App 使用 React Native，Web 使用同一代码的 Expo 导出；Windows RelayDesk 使用本地自定义标题栏和独立 WebContentsView 加载服务器控制网页。
 2. PC 连接器：Electron 内置 Node，Agent 和依赖打进包；Windows 安装/便携，macOS DMG/ZIP。
 3. 统一服务器：Relay 加两套独立前端静态产物，一个进程/端口。`/` 是控制端，`/admin/` 是 React 后台，`/v1/*` 是 API。
 
@@ -41,6 +42,7 @@ Admin 使用 React 而非 React Native：它面向浏览器管理员，与跨平
 | `apps/mobile` | React Native 控制端，目录名称沿用现有工程 |
 | `apps/web/dist` | 控制端的生成结果，不单独维护 UI |
 | `apps/desktop` | Electron 主进程、preload、worker、React 控制台、打包配置 |
+| `apps/control-desktop` | Windows 会话控制端、服务器地址选择、独立配置和安装包 |
 | `apps/pc-agent` | 本机运行时、状态扫描、命令和用量日志 |
 | `apps/admin` | 侧栏控制台、控制端账号、后台管理员、登录策略和服务器更新 |
 | `apps/relay` | Fastify API/WebSocket/静态服务及数据库 |

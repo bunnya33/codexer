@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Switch, Text, View } from "react-native";
 import { historyKey, relay } from "./relay";
 import { c } from "./styles";
 
-export function ThreadNotificationToggle({
+export function useThreadNotification({
   deviceId,
   threadId,
 }: {
@@ -40,7 +40,6 @@ export function ThreadNotificationToggle({
       clearInterval(timer);
     };
   }, [deviceId, threadId, view.role, view.phase]);
-  if (view.role !== "user" || !deviceId || !threadId) return null;
   const change = async (enabled: boolean) => {
     if (pending) return;
     setPending(true);
@@ -62,43 +61,64 @@ export function ThreadNotificationToggle({
         : notification && !notification.bound
           ? "需在设置中绑定微信"
           : "仅通知本会话，设置随账号同步");
+  const retry = () => {
+    void relay
+      .loadThreadNotification(deviceId, threadId)
+      .then(() => {
+        if (currentKey.current === key) setError("");
+      })
+      .catch(() => {
+        if (currentKey.current === key) setError("通知设置读取失败，点击重试");
+      });
+  };
+  return {
+    notification,
+    pending,
+    error,
+    hint,
+    change,
+    retry,
+    visible: view.role === "user" && !!deviceId && !!threadId,
+    connected: view.phase === "connected",
+  };
+}
+
+export function ThreadNotificationToggle({
+  control,
+}: {
+  control: ReturnType<typeof useThreadNotification>;
+}) {
+  if (!control.visible) return null;
   return (
-    <View style={ns.row}>
+    <View style={ns.container}>
+      <View style={ns.row}>
+        <Text style={ns.label}>本会话微信通知</Text>
+        <Switch
+          accessibilityLabel="本会话微信通知"
+          value={control.notification?.enabled ?? false}
+          disabled={control.pending || !control.notification || !control.connected}
+          onValueChange={(value) => void control.change(value)}
+          trackColor={{ true: c.accent }}
+        />
+      </View>
       <Pressable
-        style={ns.hint}
-        disabled={!error}
-        onPress={() => {
-          void relay
-            .loadThreadNotification(deviceId, threadId)
-            .then(() => setError(""))
-            .catch(() => setError("通知设置读取失败，点击重试"));
-        }}
+        disabled={!control.error}
+        onPress={control.retry}
+        accessibilityRole={control.error ? "button" : undefined}
       >
-        <Text style={[ns.description, !!error && { color: c.danger }]}>{hint}</Text>
+        <Text style={[ns.description, !!control.error && { color: c.danger }]}>{control.hint}</Text>
       </Pressable>
-      <Text style={ns.label}>微信通知</Text>
-      <Switch
-        accessibilityLabel="本会话微信通知"
-        value={notification?.enabled ?? false}
-        disabled={pending || !notification || view.phase !== "connected"}
-        onValueChange={(value) => void change(value)}
-        trackColor={{ true: c.accent }}
-      />
     </View>
   );
 }
 
 const ns = StyleSheet.create({
+  container: { gap: 6, paddingVertical: 14 },
   row: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: c.line,
   },
-  hint: { flex: 1, minWidth: 0 },
   description: { fontSize: 12, lineHeight: 18, color: c.muted },
-  label: { fontSize: 13, color: c.text },
+  label: { flex: 1, fontSize: 14, color: c.text },
 });

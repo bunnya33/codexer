@@ -4,6 +4,12 @@
 
 ## Windows
 
+### Windows 会话控制端
+
+执行 npm run package:control-desktop:win，输出独立的 RelayDesk 安装版和便携版，路径与使用方法见 [Windows 控制端](../apps/control-desktop/README.md)。首次填写服务器地址，再登录控制端账号；控制界面随服务器前端更新。此包使用独立图标、快捷方式、自定义标题栏和用户配置目录；0.1.1 更名时保留旧控制端的应用 ID 和配置目录以支持升级。
+
+### Windows PC 连接器
+
 在 Windows 开发机执行：
 
 ```powershell
@@ -13,7 +19,9 @@ npm test
 npm run package:desktop:win
 ```
 
-输出 `apps/desktop/release/Codexer Setup 0.1.8.exe`（NSIS）和 `Codexer 0.1.8.exe`（便携），以及 `win-unpacked` 验收目录。包内是 Electron 的 Node/SQLite、Agent bundle 和 React UI，不要求最终用户安装 Node。两个包未配置发行签名；当前 `signExecutable:false` 保留图标/元数据但跳过应用签名。商业发行需维护者自行配置可信 Windows 签名证书/服务并调整该选项，不能把工具出现 signing 日志当作已签名。
+输出 `apps/desktop/release/Codexer Setup 0.1.9.exe`（NSIS）和 `Codexer 0.1.9.exe`（便携），以及 `win-unpacked` 验收目录。包内是 Electron 的 Node/SQLite、Agent bundle 和 React UI，不要求最终用户安装 Node。两个包未配置发行签名；当前 `signExecutable:false` 保留图标/元数据但跳过应用签名。商业发行需维护者自行配置可信 Windows 签名证书/服务并调整该选项，不能把工具出现 signing 日志当作已签名。
+
+PC 连接器 `0.1.9` 增加子 Agent 状态同步。需配套更新服务器协议和控制页面；RelayDesk 仍使用 `0.1.1` 桌面壳，新的紧凑标题栏和 Agent 详情由服务器页面提供，见 [会话界面](conversation.md)。
 
 Electron 二进制下载失败时先检查网络、代理和 DNS，不关闭 TLS 校验。可以使用官方校验和验证后将官方解压目录交给 electron-builder 的 `electronDist`；这个选项只用于打包，最终用户仍无需 Node。
 
@@ -30,7 +38,7 @@ npm run build:server
 npm run package:server
 ```
 
-输出 `release/codexer-server-0.2.6.tar.gz` 和 `.sha256`，包含 Relay 编译产物、控制端/后台静态文件、更新器、锁定依赖清单、安装器和文档。不含 node_modules、真实配置、旧 Git 历史或 Electron 二进制。服务器安装时自动装 Node/生产依赖，看到 bundle 标记后直接使用已构建网页。
+输出 `release/codexer-server-0.2.7.tar.gz` 和 `.sha256`，包含 Relay 编译产物、控制端/后台静态文件、更新器、锁定依赖清单、安装器和文档。不含 node_modules、真实配置、旧 Git 历史或 Electron 二进制。服务器安装时自动装 Node/生产依赖，看到 bundle 标记后直接使用已构建网页。
 
 同一个包同时升级 Admin 和 Relay，避免接口与 UI 不一致。安装、校验、回退见 [服务器安装](server-install.md)。源码的 Dockerfile 独立执行完整服务器构建，也跳过 Electron 下载。
 
@@ -57,6 +65,16 @@ PC 连接器与服务端可独立升级版本；同步对应 package 和锁文�
 Windows PC 连接器加入会话引用文件的读取、版本检查和分块响应，配合服务器 `0.2.5` 的 Web 文件阅读和下载功能。只接受已在对应会话中引用的本地普通文件，确认前只读取元数据，Relay 不存储文件内容；旧服务器未声明文件能力时不发送新增能力消息。包含此前退出时等待排队任务完成、再关闭数据库的修复。
 
 输出 Windows x64 安装版和便携版；服务器、PC 连接器和原生手机 App 独立更新。此次 Windows 本地打包不生成 macOS、APK 或 IPA，也不会修改已发布的服务器 `v0.2.5` 标签。
+
+## 0.2.7 紧凑标题栏与子 Agent
+
+会话顶部保留一行，子 Agent 按钮显示运行及等待数/总数，点击弹窗查看名称、任务、状态和最近消息。微信通知、刷新与展示说明收进「…」会话选项；通知启用时显示绿点，账号同步规则保持原有行为。
+
+服务器协议保留子 Agent 的身份、任务及状态字段。PC 连接器先汇总再裁剪消息，避免早期创建记录被长输出挤掉；桌面模式使用 Codex 更新的子会话信息，独立 App Server 模式通过只读后代会话查询校准状态。界面区分会话状态与最近记录，离线后显示最后同步状态，工具调用完成不等于 Agent 完成。
+
+此版本统一更新 Relay、Admin 和 Web，需要配套 PC 连接器 `0.1.9` 或新版源码 Agent。RelayDesk `0.1.1` 加载服务器页面，更新服务器后刷新即可获得新界面；原生手机 App 需重新构建。服务器 Release 不附带 EXE、APK 或 IPA，不自动安装客户端。
+
+本次没有新增数据库迁移。升级使用后台的准备、重启步骤，保留账号、数据和微信设置。验证范围见 [验证说明](validation.md)。
 
 ## 0.2.6 图片文件预览
 

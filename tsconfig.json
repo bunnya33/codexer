@@ -14,5 +14,5 @@
     "types": ["node"]
   },
   "include": ["apps/**/*.ts", "packages/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts"],
-  "exclude": ["node_modules", "dist", "apps/mobile", "apps/admin", "apps/desktop", "tests/mobile-relay*.test.ts"]
+  "exclude": ["node_modules", "dist", "apps/mobile", "apps/admin", "apps/desktop", "apps/control-desktop", "tests/mobile-relay*.test.ts"]
 }

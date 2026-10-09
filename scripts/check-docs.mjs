@@ -2,7 +2,7 @@ import { readdir, readFile, access } from 'node:fs/promises';
 import { resolve, dirname, relative } from 'node:path';
 async function walk(directory) { const entries=await readdir(directory,{withFileTypes:true}); const result=[];for(const item of entries){const path=resolve(directory,item.name);if(item.isDirectory())result.push(...await walk(path));else if(item.name.endsWith('.md'))result.push(path);}return result; }
 const files=[resolve('README.md'),...await walk('docs')];
-for(const name of ['mobile','web','desktop','pc-agent','admin','relay'])files.push(resolve('apps',name,'README.md'));
+for(const name of ['mobile','web','desktop','control-desktop','pc-agent','admin','relay'])files.push(resolve('apps',name,'README.md'));
 const errors=[];
 for(const file of files){const text=await readFile(file,'utf8');
   for(const match of text.matchAll(/\[[^\]]*\]\(([^)]+)\)/g)){let target=match[1].split(/\s+"/)[0];if(/^(https?:|mailto:|#)/.test(target))continue;target=decodeURIComponent(target.split('#')[0]);if(!target)continue;try{await access(resolve(dirname(file),target));}catch{errors.push(relative('.',file)+': missing '+target);}}

@@ -4,6 +4,8 @@ apps/web/dist/
 apps/admin/dist/
 apps/desktop/dist/
 apps/desktop/release/
+apps/control-desktop/dist/
+apps/control-desktop/release/
 .vite/
 .env
 .env.*

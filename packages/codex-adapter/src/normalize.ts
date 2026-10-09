@@ -4,6 +4,7 @@ import { userPresentation } from "../../protocol/src/user-presentation.js";
 import type { UserMessagePart } from '../../protocol/src/user-presentation.js';
 import type { ImageRegistry } from "./images.js";
 import { asyncInputRequests, asyncQuestionRequestId } from './async-input.js';
+import { collectSubAgents, itemSubAgents } from './sub-agents.js';
 
 export type RecordValue = Record<string, unknown>;
 export function record(value: unknown): RecordValue {
@@ -134,6 +135,7 @@ function normalizeItem(value: unknown, turn: RecordValue, textLimit = 4096, outp
   const durationMs = milliseconds(item.durationMs);
   const completedAtMs = milliseconds(timing.completedAtMs) ?? milliseconds(item.completedAtMs);
   const questionRequestId = asyncQuestionRequestId(item);
+  const subAgents = itemSubAgents(item, threadId);
   return {
     id: text(item.id, 160) || "unknown",
     type: text(item.type, 100) || "unknown",
@@ -148,6 +150,7 @@ function normalizeItem(value: unknown, turn: RecordValue, textLimit = 4096, outp
     ...(typeof item.command === "string" ? { command: text(item.command, textLimit === 4096 ? 4096 : 8192) } : {}),
     ...(output ? { output: displayText(output.slice(-outputLimit)) } : {}),
     ...(typeof item.tool === "string" ? { tool: text(item.tool, 300) } : {}),
+    ...(subAgents.length ? { subAgents } : {}),
     ...(files.length ? { files } : {}),
     ...(fileOperations.length ? { fileOperations } : {}),
     ...(imageRefs.length ? { images: imageRefs } : {}),
@@ -231,6 +234,7 @@ export function normalizeThread(state: RecordValue, revision: number, images?: I
     activeTurnId: status === "active" && typeof activeId === "string" ? activeId : null,
     updatedAt: typeof state.updatedAt === "number" ? state.updatedAt : Date.now(),
     ...(settings ? { settings } : {}),
+    ...collectSubAgents(turns, String(state.id)),
     turns: turns.slice(-2).map(turn => {
       const items = canonicalTurnItems(array(turn.items));
       const changes = fileChanges(items);
@@ -258,6 +262,10 @@ export function boundThread(thread: RemoteThread): RemoteThread {
   // Keep a full-device snapshot below the transport limit, including escaped Unicode.
   while (jsonBytes(thread) > MAX_THREAD_BYTES) {
     thread.truncated = true;
+    const agent = thread.subAgents?.find(agent => agent.message || agent.task);
+    if (agent) { delete agent.message; delete agent.task; agent.truncated = true; thread.subAgentsTruncated = true; continue; }
+    const metadata = thread.subAgents?.find(agent => agent.path || agent.name || agent.role || agent.model);
+    if (metadata) { delete metadata.path; delete metadata.name; delete metadata.role; delete metadata.model; thread.subAgentsTruncated = true; continue; }
     const change = thread.turns.flatMap(turn => turn.fileChanges ?? []).find(change => change.diff.length);
     if (change) { change.diff = ""; change.truncated = true; continue; }
     const turn = thread.turns.find(value => value.items.some(item => !["userMessage", "steeringUserMessage"].includes(item.type)) || value.diff.length > 0 || value.plan.length > 0)

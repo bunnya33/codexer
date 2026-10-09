@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DesktopAdapter } from "../packages/codex-adapter/src/desktop.js";
-import { record } from "../packages/codex-adapter/src/normalize.js";
+import { desktopTurns, record } from "../packages/codex-adapter/src/normalize.js";
 import { command, FakeDesktop, rawThread, waitFor } from "./helpers.js";
 import { parseQuestionReplies } from '../packages/protocol/src/user-presentation.js';
 
@@ -13,6 +13,22 @@ describe("official desktop compatibility boundary", () => {
     await waitFor(() => adapter.getThread("thread-test") !== null);
   });
   afterEach(async () => { adapter.stop(); await desktop.close(); });
+
+  it("streams child runtime changes from receiver metadata without treating a completed spawn call as completion", async () => {
+    desktopTurns(desktop.state)[0]!.items = [{
+      id: 'spawn-child', type: 'collabAgentToolCall', tool: 'spawnAgent', status: 'completed',
+      senderThreadId: 'thread-test', receiverThreadIds: ['child'], prompt: 'Review layout',
+      agentsStates: {child: {status: 'completed', message: 'Earlier result'}},
+      receiverThreads: [{threadId: 'child', thread: {id: 'child', agentNickname: 'Layout', parentThreadId: 'thread-test', status: {type: 'active'}}}],
+    }];
+    desktop.publishSnapshot();
+    await waitFor(() => adapter.getThread('thread-test')?.subAgents?.[0]?.status === 'running');
+    expect(adapter.getThread('thread-test')!.subAgents![0]).toMatchObject({threadId: 'child', name: 'Layout', task: 'Review layout', statusSource: 'thread'});
+    expect(adapter.getThread('thread-test')!.subAgents![0]!.message).toBeUndefined();
+    desktop.publishPatches([{op: 'replace', path: ['turnHistory', 'history', 'entitiesByKey', 'turn-key', 'items', 0, 'receiverThreads', 0, 'thread', 'status'], value: {type: 'idle'}}]);
+    await waitFor(() => adapter.getThread('thread-test')?.subAgents?.[0]?.status === 'completed');
+    expect(desktop.received.some(message => message.method === 'thread-follower-start-turn')).toBe(false);
+  });
 
   it("starts an idle turn through the existing owner without overriding auth or permissions", async () => {
     desktop.state = rawThread("idle"); desktop.publishSnapshot();

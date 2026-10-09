@@ -1,0 +1,43 @@
+{
+  "name": "@codexer/control-desktop",
+  "version": "0.1.1",
+  "description": "RelayDesk Windows conversation control client",
+  "author": "Codexer contributors",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "typecheck": "tsc --noEmit",
+    "package:win": "electron-builder --win --x64 --publish never"
+  },
+  "build": {
+    "appId": "com.codexer.control",
+    "productName": "RelayDesk",
+    "electronVersion": "44.5.1",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json",
+      "!**/node_modules/**/*"
+    ],
+    "asar": true,
+    "npmRebuild": false,
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "assets/icon.ico",
+      "signExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

@@ -8,6 +8,7 @@ export const MAX_THREADS = 20;
 export const MAX_CATALOG_BYTES = 6 * 1024 * 1024;
 export const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 export const MAX_IMAGES = 4;
+export const MAX_SUB_AGENTS = 32;
 export const imageIdSchema = z.string().regex(/^[a-f0-9]{64}$/);
 export const imagePayloadSchema = z.object({
   name: z.string().min(1).max(255),
@@ -76,6 +77,23 @@ export const requestSchema = z.object({
 });
 export type InteractiveRequest = z.infer<typeof requestSchema>;
 
+export const subAgentSchema = z.object({
+  threadId: idSchema,
+  parentThreadId: idSchema.optional(),
+  name: z.string().max(256).optional(),
+  role: z.string().max(256).optional(),
+  path: z.string().max(1000).optional(),
+  task: z.string().max(2000).optional(),
+  model: z.string().max(200).optional(),
+  status: z.enum(["pendingInit", "running", "idle", "interrupted", "completed", "errored", "shutdown", "notFound", "unknown"]),
+  statusSource: z.enum(["reported", "activity", "thread"]),
+  message: z.string().max(2000).optional(),
+  truncated: z.boolean().optional(),
+});
+export type RemoteSubAgent = z.infer<typeof subAgentSchema>;
+const subAgentsSchema = z.array(subAgentSchema).max(MAX_SUB_AGENTS)
+  .refine(agents => new Set(agents.map(agent => agent.threadId)).size === agents.length, "duplicate-sub-agent");
+
 const itemSchema = z.object({
   id: idSchema,
   type: z.string().max(100),
@@ -91,6 +109,7 @@ const itemSchema = z.object({
   command: z.string().max(4096).optional(),
   output: z.string().max(8192).optional(),
   tool: z.string().max(300).optional(),
+  subAgents: subAgentsSchema.optional(),
   files: z.array(z.string().max(1000)).max(40).optional(),
   fileOperations: z.array(z.object({ path: z.string().max(1000), kind: z.enum(['add', 'update', 'delete', 'unknown']) })).max(40).optional(),
   images: z.array(imageRefSchema).max(8).optional(),
@@ -111,6 +130,8 @@ export const threadSchema = z.object({
   queuedMessages: z.array(z.object({ id: idSchema, text: z.string().max(1000), imageCount: z.number().int().min(0).max(MAX_IMAGES), createdAt: seqSchema, status: z.enum(["queued", "sending", "failed"]) })).max(20).optional(),
   updatedAt: z.number(),
   settings: modelSettingsSchema.optional(),
+  subAgents: subAgentsSchema.optional(),
+  subAgentsTruncated: z.boolean().optional(),
   turns: z.array(z.object({
     id: idSchema,
     status: z.string().max(80),
@@ -155,7 +176,7 @@ export const snapshotSchema = z.object({
     kind: z.enum(["official-desktop-ipc", "official-app-server"]),
     connected: z.boolean(),
     experimental: z.literal(true),
-    capabilities: z.object({ observe: z.boolean(), startTurn: z.boolean(), interrupt: z.boolean(), approvals: z.boolean(), userInput: z.boolean(), modelUpdate: z.boolean().optional(), effortUpdate: z.boolean().optional(), collaborationModeUpdate: z.boolean().optional(), images: z.boolean().optional() }),
+    capabilities: z.object({ observe: z.boolean(), startTurn: z.boolean(), interrupt: z.boolean(), approvals: z.boolean(), userInput: z.boolean(), modelUpdate: z.boolean().optional(), effortUpdate: z.boolean().optional(), collaborationModeUpdate: z.boolean().optional(), images: z.boolean().optional(), subAgents: z.boolean().optional() }),
   }),
   threads: z.record(idSchema, threadSchema).refine(threads => Object.keys(threads).length <= MAX_THREADS && Object.entries(threads).every(([id, thread]) => id === thread.id)),
 });

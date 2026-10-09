@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Easing, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { Check, ChevronDown, ChevronRight, ChevronUp, Clock3, Copy, Folder, HelpCircle, Pencil, Sparkles, Terminal } from 'lucide-react-native';
+import { Bot, Check, ChevronDown, ChevronRight, ChevronUp, Clock3, Copy, Folder, HelpCircle, Pencil, Sparkles, Terminal } from 'lucide-react-native';
 import { inputQuestions } from '../../../packages/client-shared/src/questions';
 import { activityLabel, activitySections, buildActivityBlocks, executionItemSummary, executionSectionSummary, formatDuration, itemDuration, messageRole } from '../../../packages/client-shared/src/activity';
 import type { ExecutionSection } from '../../../packages/client-shared/src/activity';
@@ -20,7 +20,7 @@ type ImageSource = { uri: string; headers?: Record<string, string> };
 type ImageViewer = (source: ImageSource, name: string) => void;
 
 function ExecutionIcon({ item }: { item?: RemoteItem }) {
-  const Icon = !item || item.type === 'reasoning' ? Sparkles : item.files?.length || item.type === 'fileChange' ? Pencil : Terminal;
+  const Icon = item?.subAgents?.length ? Bot : !item || item.type === 'reasoning' ? Sparkles : item.files?.length || item.type === 'fileChange' ? Pencil : Terminal;
   return <Icon size={14} color={c.muted} />;
 }
 

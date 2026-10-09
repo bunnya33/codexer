@@ -9,9 +9,11 @@ import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep, toNamespacedPath } from "node:path";
 import { createInterface } from "node:readline";
 import { isDeepStrictEqual } from "node:util";
-import { catalogSchema, historyPageSchema } from "../../protocol/src/index.js";
+import { catalogSchema, historyPageSchema, MAX_SUB_AGENTS } from "../../protocol/src/index.js";
 import type { DeviceCatalog, HistoryPage, ModelOption, RemoteCommand, RemoteThread } from "../../protocol/src/index.js";
-import { boundHistoryPage, modelSettings, normalizeHistoryTurn, normalizeThread, record, withItemTimings } from "./normalize.js";
+import { boundHistoryPage, boundThread, modelSettings, normalizeHistoryTurn, normalizeThread, record, withItemTimings } from "./normalize.js";
+import { enrichSubAgents } from "./sub-agents.js";
+import { isSubAgentActive, mergeSubAgents } from "../../client-shared/src/sub-agents.js";
 import { asyncQuestionAnswer } from './async-input.js';
 import type { RecordValue } from "./normalize.js";
 import { AdapterError } from "./desktop.js";
@@ -345,6 +347,10 @@ export class HeadlessAdapter extends EventEmitter {
       const threadId = typeof params.threadId === "string" ? params.threadId : null;
       const turnId = typeof params.turnId === "string" ? params.turnId : null;
       if (!threadId) return;
+      // Child lifecycle notifications refresh the parent panel without resuming children.
+      for (const [parentId, thread] of this.watched) {
+        if (thread.subAgents?.some(agent => agent.threadId === threadId)) this.scheduleRefresh(parentId);
+      }
       if (method === "turn/started" && typeof record(params.turn).id === "string") this.emit("turnStarted", { threadId, turnId: record(params.turn).id, model: this.watched.get(threadId)?.settings?.model });
       if (method === "turn/completed") {
         const completedId = record(params.turn).id;
@@ -366,7 +372,7 @@ export class HeadlessAdapter extends EventEmitter {
     });
     await rpc.connect();
     this.pollTimer = setInterval(() => {
-      for (const [id, thread] of this.watched) if (thread.status === "active") void this.follow(id);
+      for (const [id, thread] of this.watched) if (thread.status === "active" || thread.subAgents?.some(isSubAgentActive)) void this.follow(id);
     }, 2000);
     this.pollTimer.unref();
   }
@@ -413,6 +419,24 @@ export class HeadlessAdapter extends EventEmitter {
       const status = record(source.status);
       const prior = this.watched.get(threadId);
       const normalized = normalizeThread({ ...source, id: threadId, title: source.name || source.preview || "未命名会话", latestThreadSettings: this.settings.get(threadId), cwd: source.cwd, updatedAt: typeof source.updatedAt === "number" ? source.updatedAt * 1000 : Date.now(), threadRuntimeStatus: status.type === "notLoaded" ? { type: "idle" } : status, turns, requests: pending, latestTokenUsageInfo: this.usage.get(threadId) }, (prior?.revision ?? -1) + 1, this.images);
+      normalized.subAgents = mergeSubAgents(prior?.subAgents ?? [], normalized.subAgents ?? []);
+      normalized.subAgentsTruncated ||= prior?.subAgentsTruncated;
+      // Discover even when the two recent turns no longer contain the spawn record.
+      try {
+        const descendants = await rpc.request("thread/list", {
+          ancestorThreadId: threadId, sourceKinds: ["subAgent", "subAgentReview", "subAgentCompact", "subAgentThreadSpawn", "subAgentOther"],
+          limit: MAX_SUB_AGENTS + 1, sortKey: "updated_at", sortDirection: "desc", useStateDbOnly: true,
+        }, 5000);
+        if (Array.isArray(descendants.data)) {
+          const threads = descendants.data.map(record).filter(thread => typeof thread.id === "string" && thread.id.length > 0 && thread.id.length <= 160 && thread.id !== threadId);
+          const known = new Set(normalized.subAgents.map(agent => agent.threadId));
+          normalized.subAgents = enrichSubAgents(mergeSubAgents(normalized.subAgents, threads.filter(thread => !known.has(String(thread.id))).map(thread => ({
+            threadId: String(thread.id), status: "unknown" as const, statusSource: "reported" as const,
+          }))), threads);
+          normalized.subAgentsTruncated ||= threads.length > MAX_SUB_AGENTS || typeof descendants.nextCursor === "string";
+        }
+      } catch { /* Older app-server versions retain the reported states from items. */ }
+      boundThread(normalized);
       if (!prior || JSON.stringify({ ...prior, revision: 0 }) !== JSON.stringify({ ...normalized, revision: 0 })) {
         this.watched.set(threadId, normalized);
         this.emit("thread", normalized);

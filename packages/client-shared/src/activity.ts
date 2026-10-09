@@ -1,4 +1,5 @@
 import type { HistoryTurn, RemoteItem } from "../../protocol/src/index.js";
+import { subAgentName, subAgentStatusLabel } from './sub-agents.js';
 
 export type ActivityBlock = {
   kind: "activity";
@@ -36,6 +37,11 @@ export function activitySections(block: ActivityBlock): ActivitySection[] {
 
 export function executionItemLabel(item: RemoteItem | undefined, running: boolean): string {
   if (!item) return '正在思考';
+  if (item.subAgents?.length) {
+    if (item.type === 'subAgentActivity') return `子 Agent · ${subAgentStatusLabel[item.subAgents[0]!.status]}`;
+    const action: Record<string, string> = { spawnAgent: '创建子 Agent', wait: '等待子 Agent', closeAgent: '关闭子 Agent', resumeAgent: '恢复子 Agent', interruptAgent: '中断子 Agent', followupTask: '安排子 Agent 任务', sendInput: '向子 Agent 发送指令', sendMessage: '向子 Agent 发送消息', listAgents: '查看子 Agent' };
+    return `${running && item.status === 'inProgress' ? '正在' : '已'}${action[item.tool ?? ''] || '协调子 Agent'}`;
+  }
   const active = running && item.completedAtMs === undefined && item.durationMs === undefined && !['completed', 'failed', 'interrupted', 'cancelled', 'declined'].includes(item.status ?? '');
   if (item.type === 'reasoning') return active ? '正在思考' : '已思考';
   if (item.command || item.type === 'commandExecution') return active ? '正在运行命令' : '已运行命令';
@@ -61,6 +67,7 @@ export function executionItemSummary(item: RemoteItem | undefined, running: bool
   if (!item) return '正在思考';
   if (item.type === 'reasoning') return oneLine(item.text) || executionItemLabel(item, running);
   const label = executionItemLabel(item, running);
+  if (item.subAgents?.length) return `${label} · ${item.subAgents.map(subAgentName).slice(0, 2).join('、')}${item.subAgents.length > 2 ? ` 等 ${item.subAgents.length} 个` : ''}`;
   const active = label.startsWith('正在');
   const prefix = item.status === 'failed' ? '失败：' : item.status === 'declined' ? '已拒绝：'
     : ['interrupted', 'cancelled'].includes(item.status ?? '') ? '已停止：' : active ? '正在' : '已';

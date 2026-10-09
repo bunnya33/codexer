@@ -1,12 +1,13 @@
 {
   "name": "codex-remote",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "private": true,
   "type": "module",
   "workspaces": [
     "apps/mobile",
     "apps/admin",
-    "apps/desktop"
+    "apps/desktop",
+    "apps/control-desktop"
   ],
   "engines": {
     "node": ">=22.13"
@@ -24,6 +25,10 @@
     "package:desktop": "npm run build:desktop && npm run package --workspace @codexer/desktop",
     "package:desktop:win": "npm run build:desktop && npm run package:win --workspace @codexer/desktop",
     "package:desktop:mac": "npm run build:desktop && npm run package:mac --workspace @codexer/desktop",
+    "build:control-desktop": "node scripts/build-control-desktop.mjs",
+    "dev:control-desktop": "npm run build:control-desktop && npm run start --workspace @codexer/control-desktop",
+    "package:control-desktop:win": "npm run build:control-desktop && npm run package:win --workspace @codexer/control-desktop",
+    "typecheck:control-desktop": "npm run typecheck --workspace @codexer/control-desktop",
     "package:server": "node scripts/package-server.mjs",
     "export:source": "node scripts/export-source.mjs",
     "check:docs": "node scripts/check-docs.mjs",
@@ -32,7 +37,7 @@
     "mobile:export": "npm run export --workspace @codexer/mobile",
     "icons:mobile": "node scripts/generate-mobile-icons.mjs",
     "dev:web": "node scripts/dev-web.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit && npm run typecheck --workspace @codexer/admin && npm run typecheck --workspace @codexer/desktop",
+    "typecheck": "tsc -p tsconfig.json --noEmit && npm run typecheck --workspace @codexer/admin && npm run typecheck --workspace @codexer/desktop && npm run typecheck:control-desktop",
     "test": "vitest run",
     "dev:relay": "tsx apps/relay/src/main.ts",
     "format:relay": "prettier --write \"apps/relay/src/**/*.ts\"",
