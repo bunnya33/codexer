@@ -11,13 +11,15 @@ import type { ToolRequestUserInputResponse } from "../../codex-generated/src/v2/
 import { collaborationOverride } from "./collaboration.js";
 import type { ModelOption, RemoteCommand, RemoteThread } from "../../protocol/src/index.js";
 import { FrameDecoder, encodeFrame } from "./framing.js";
-import { normalizeThread, record } from "./normalize.js";
+import { boundThread, normalizeThread, record } from "./normalize.js";
 import type { RecordValue } from "./normalize.js";
 import { modelOverride, supportsEffort } from "./models.js";
 import { ImageRegistry } from "./images.js";
 import type { UserInput } from "../../codex-generated/src/v2/UserInput.js";
 import { asyncQuestionAnswer } from './async-input.js';
 import { parseQuestionReplies } from '../../protocol/src/user-presentation.js';
+
+import { SubAgentRollouts } from "./sub-agent-rollouts.js";
 
 enablePatches();
 const versions: Record<string, number> = {
@@ -46,12 +48,17 @@ export class DesktopAdapter extends EventEmitter {
   private reconnectTimer?: NodeJS.Timeout;
   private connecting?: Promise<void>;
   private stopped = false;
+  private subAgentTimer?: NodeJS.Timeout;
+  private refreshingSubAgents = false;
+  private lastSubAgentRefreshAt = 0;
+  private readonly subAgentRollouts: SubAgentRollouts;
   connected = false;
   models: ModelOption[] = [];
   images = new ImageRegistry();
 
-  constructor(endpoint?: string) {
+  constructor(endpoint?: string, codexHome?: string) {
     super();
+    this.subAgentRollouts = new SubAgentRollouts(codexHome);
     this.endpoint = endpoint ?? (process.platform === "win32" ? "\\\\.\\pipe\\codex-ipc" : join(process.env.CODEX_HOME ?? join(homedir(), ".codex"), "ipc", "ipc.sock"));
   }
   connect(): Promise<void> {
@@ -81,6 +88,8 @@ export class DesktopAdapter extends EventEmitter {
       for (const [id, watched] of this.watched) {
         if (watched.raw) this.emit("thread", this.unavailable(id));
       }
+      clearInterval(this.subAgentTimer);
+      for (const id of this.watched.keys()) this.subAgentRollouts.forget(id);
       this.watched.clear();
       this.emit("status", false);
       if (!this.stopped) this.reconnectTimer = setTimeout(() => { void this.connect().catch(() => undefined); }, 2000);
@@ -92,12 +101,16 @@ export class DesktopAdapter extends EventEmitter {
       if (this.stopped || this.socket !== socket) throw new AdapterError("desktop-disconnected");
       this.clientId = initialized.result.clientId;
       this.connected = true;
+      clearInterval(this.subAgentTimer);
+      this.subAgentTimer = setInterval(() => { void this.refreshSubAgents(); }, 3000);
+      this.subAgentTimer.unref();
       this.emit("status", true);
     } catch (error) { socket.destroy(); throw error; }
   }
   stop(): void {
     this.stopped = true;
     this.connected = false;
+    clearInterval(this.subAgentTimer);
     clearTimeout(this.reconnectTimer);
     for (const [id, watched] of this.watched) this.following(id, watched.ownerId, false);
     this.socket?.destroy();
@@ -117,12 +130,37 @@ export class DesktopAdapter extends EventEmitter {
     const watched = this.watched.get(threadId);
     if (watched) this.following(threadId, watched.ownerId, false);
     this.watched.delete(threadId);
+    this.subAgentRollouts.forget(threadId);
   }
   getThread(threadId: string): RemoteThread | null {
     const entry = this.watched.get(threadId);
     if (!entry?.raw) return null;
     const thread = normalizeThread(entry.raw, entry.revision, this.images);
+    thread.subAgents = this.subAgentRollouts.enrich(threadId, thread.subAgents ?? []);
+    boundThread(thread);
     return entry.compatible ? thread : { ...thread, ownerAvailable: false, status: "unavailable", activeTurnId: null, requests: [] };
+  }
+  /** Child records can change without a new parent IPC patch. */
+  async refreshSubAgents(force = true): Promise<void> {
+    if (this.refreshingSubAgents || !this.connected || this.stopped ||
+        !force && Date.now() - this.lastSubAgentRefreshAt < 3000) return;
+    this.refreshingSubAgents = true;
+    this.lastSubAgentRefreshAt = Date.now();
+    try {
+      for (const [id, entry] of this.watched) {
+        if (!entry.raw || !entry.compatible) continue;
+        const before = this.getThread(id);
+        if (!before?.subAgents?.length) continue;
+        await this.subAgentRollouts.refresh(id, before.subAgents);
+        if (this.stopped || this.watched.get(id) !== entry) {
+          this.subAgentRollouts.forget(id);
+          continue;
+        }
+        const updated = this.getThread(id);
+        if (updated && JSON.stringify(before.subAgents) !== JSON.stringify(updated.subAgents)) this.emit("thread", updated);
+      }
+    } catch { this.emit("diagnostic", { code: "sub-agent-details-unavailable" }); }
+    finally { this.refreshingSubAgents = false; }
   }
   private unavailable(threadId: string): RemoteThread | null {
     const current = this.getThread(threadId);
@@ -196,6 +234,7 @@ export class DesktopAdapter extends EventEmitter {
     } else return;
     const normalized = this.getThread(id);
     if (normalized) this.emit("thread", normalized);
+    void this.refreshSubAgents(false);
   }
   private resnapshot(id: string, watched: Watched): void {
     watched.compatible = false;

@@ -64,7 +64,7 @@ export class PcAgent extends EventEmitter {
   constructor(private readonly credentials: AgentCredentials, private readonly directory: string, private readonly seedThreads: string[] = [], endpoint?: string, private readonly codexHome?: string, private readonly runtimePreference: "auto" | "desktop" | "headless" = "auto", private readonly catalogReader: { list: (deviceId: string) => Promise<DeviceCatalog>; history: (threadId: string, cursor: string | null, images?: ImageRegistry) => Promise<HistoryPage> } = { list: readOfficialCatalog, history: readOfficialHistory }) {
     super();
     validateRelayUrl(credentials.relayUrl);
-    this.adapter = new DesktopAdapter(endpoint);
+    this.adapter = new DesktopAdapter(endpoint, codexHome);
     this.headless = runtimePreference !== "desktop" && (!endpoint || runtimePreference === "headless") ? new HeadlessAdapter() : undefined;
     this.activeAdapter = this.adapter;
     this.adapter.images = this.images;
