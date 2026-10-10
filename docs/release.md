@@ -31,6 +31,8 @@ Electron 二进制下载失败时先检查网络、代理和 DNS，不关闭 TLS
 
 未提供凭据时得到开发测试包，不能声称通过 Gatekeeper/notarization。真正发行前分别验证两种架构、登录项、Keychain、官方运行时和休眠重连，见 [macOS](mac.md)。本次不跨平台伪造 Mac 验收。
 
+当前 Mac 本地使用可执行 `npm run package:desktop:mac:local`，仅生成本机架构的 DMG/ZIP，使用 ad-hoc 签名且关闭该本地包的 hardened runtime 和公证，不需要 Apple Developer 证书。正式发行配置保持上述要求。2026-10-09 在 Apple Silicon / macOS 26.4 上生成 `Codexer-0.1.9-arm64.dmg` 与 `Codexer-0.1.9-arm64-mac.zip`，对应 `main` 提交 `5ca3e94`，详见 [验证范围](validation.md)。
+
 ## 统一服务器包
 
 ```bash

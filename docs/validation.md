@@ -1,6 +1,10 @@
 # 验证范围
 
-本次开发环境：Windows x64，Node 24，Electron 44.5.1。自动测试使用本地临时 Relay、合成账号和 FakeDesktop。另以只读桌面观测在隔离 Relay 中复现并验证含 NUL 的任务输出，未发送真实控制命令或修改真实服务器。
+此前主要开发环境：Windows x64，Node 24，Electron 44.5.1。自动测试使用本地临时 Relay、合成账号和 FakeDesktop。另以只读桌面观测在隔离 Relay 中复现并验证含 NUL 的任务输出，未发送真实控制命令或修改真实服务器。
+
+2026-10-09 Mac 本地构建：从 GitHub `main` 更新至 `5ca3e94`，根版本 `0.2.7`、PC 连接器版本 `0.1.9`，保留本机 ChatGPT 内置 Codex 的自动发现与本地打包命令。Apple Silicon / macOS 26.4 上完成根/Admin/PC 连接器/控制端类型检查和 315 项测试（49 个文件），生成 ARM64 DMG/ZIP 并做 ad-hoc 签名。严格签名验证、DMG 校验、ZIP CRC、版本/架构检查、包内 7 个构建资源逐项比对以及 DMG 内应用与最终构建一致性检查通过。
+
+PATH 仅含系统目录时，包内 Electron 44.5.1 / Node 24.21.0 的 SQLite 检查通过；实际打包应用在隔离配置及 `--use-mock-keychain` 下启动并报告控制台就绪。普通启动检查遇到 macOS 钥匙串授权提示，未代替用户授权；该测试参数只用于隔离检查，未写入发行配置。包内 worker 模块通过加载与 stop 消息回复检查，该检查模拟父进程消息端口，不代替完整 utilityProcess 任务验收。本机 Codex CLI 0.159.2 自动发现及真实桌面 IPC 握手通过。当前旧版连接器有活动任务，未替换其安装或修改生产服务器；本地改动已备份。新版远程任务、Keychain 升级后的凭据恢复、登录项、休眠、Intel 和发行签名/Apple 公证仍需验收。此前 `0.1.1` Mac 的安装和窗口启动记录见 [macOS](mac.md)。
 
 ## 已验证的行为
 
@@ -106,7 +110,7 @@ Windows `0.1.2` 打包后的真实 utilityProcess + 临时 Relay + FakeDesktop �
 | 范围 | 本次界限/还需检查 |
 | --- | --- |
 | Windows | 本地打包和窗口验证；发行签名、全新机器安装/卸载、系统登录项注册与实际官方 Codex 版本任务验收；隔离测试跳过真实登录项修改 |
-| macOS | 配置 arm64/x64 打包，Windows 无法做 Mac 签名、Keychain、登录项和 IPC 实机验收 |
+| macOS | Apple Silicon `0.1.9` DMG/ZIP、本地签名、包内 Node/SQLite、隔离配置下应用启动、Codex 自动发现和真实 IPC 握手已验证；新版完整远程任务、Keychain、登录项、休眠、Intel 与发行签名/公证仍需验收 |
 | Android/iOS | 类型和 JS 导出；真实 APK/IPA、设备手势、后台联网、系统权限和商店发行未验收 |
 | Linux systemd | 真实 systemd 非 root 构建沙箱和隔离分步更新通过；实际安装器首装/升级、生产 Relay unit、arm64 和断电恢复仍需验收 |
 | Docker/HTTPS | Dockerfile/Compose/Caddy 配置；需要具备 Docker 的环境及真实域名证书验收 |

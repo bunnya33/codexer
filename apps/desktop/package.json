@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "package": "electron-builder --publish never",
     "package:win": "electron-builder --win --x64 --publish never",
-    "package:mac": "electron-builder --mac --arm64 --x64 --publish never"
+    "package:mac": "electron-builder --mac --arm64 --x64 --publish never",
+    "package:mac:local": "electron-builder --mac --publish never --config.mac.identity=- --config.mac.hardenedRuntime=false --config.mac.notarize=false"
   },
   "devDependencies": {
     "react": "19.2.3",

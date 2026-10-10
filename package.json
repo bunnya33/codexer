@@ -25,6 +25,7 @@
     "package:desktop": "npm run build:desktop && npm run package --workspace @codexer/desktop",
     "package:desktop:win": "npm run build:desktop && npm run package:win --workspace @codexer/desktop",
     "package:desktop:mac": "npm run build:desktop && npm run package:mac --workspace @codexer/desktop",
+    "package:desktop:mac:local": "npm run build:desktop && npm run package:mac:local --workspace @codexer/desktop --",
     "build:control-desktop": "node scripts/build-control-desktop.mjs",
     "dev:control-desktop": "npm run build:control-desktop && npm run start --workspace @codexer/control-desktop",
     "package:control-desktop:win": "npm run build:control-desktop && npm run package:win --workspace @codexer/control-desktop",

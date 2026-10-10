@@ -17,7 +17,14 @@ export async function resolveCodexBinary(override = process.env.CODEX_REMOTE_COD
       }));
       candidates.push(...binaries.sort((a, b) => b.time - a.time).map(item => item.path));
     }
-    if (process.platform === "darwin") candidates.push("/Applications/Codex.app/Contents/Resources/codex", join(homedir(), "Applications/Codex.app/Contents/Resources/codex"), "/opt/homebrew/bin/codex", "/usr/local/bin/codex");
+    if (process.platform === "darwin") candidates.push(
+      "/Applications/Codex.app/Contents/Resources/codex",
+      join(homedir(), "Applications/Codex.app/Contents/Resources/codex"),
+      "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
+      join(homedir(), "Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"),
+      "/opt/homebrew/bin/codex",
+      "/usr/local/bin/codex",
+    );
     for (const directory of (process.env.PATH ?? "").split(delimiter).filter(Boolean)) candidates.push(join(directory, process.platform === "win32" ? "codex.exe" : "codex"));
   }
   for (const path of candidates) {
