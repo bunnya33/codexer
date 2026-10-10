@@ -30,6 +30,8 @@ Relay 通过 PC Agent 已建立的出站 WebSocket 回源，电脑无需增加�
 
 转发支持 HTTP 方法、API 原始请求内容、二进制资源、Cookie、事件流和 WebSocket。登录凭据不会转发给本地服务；本地 Cookie 仅存在预览会话内，不能写入 Relay 的登录域。HTTP 请求体上限 1 MB，响应上限 32 MB，单条 WebSocket 消息上限 64 KB。
 
+沙盒页面读取 `document.cookie` 时返回空字符串，写入被忽略，不会访问 Relay 的 Cookie。这样 Streamlit 等框架可以在未使用浏览器 Cookie 的情况下启动实时连接；依赖 JavaScript 读写 Cookie 的登录流程仍需要适配。服务端 HTTP Cookie 由 Relay 在预览会话内缓存和转发。
+
 HTML 资源地址、CSS URL、Vite 模块导入和浏览器 fetch/XHR/WebSocket 会映射到独立的预览路径。路径代理不是一个完整透明的浏览器域名：依赖 `window.location` 原始路径的 SPA 路由、框架硬编码的资源地址、Service Worker、浏览器持久存储和复杂认证流程可能需要适配预览基础路径。原生 WebView 的实际手势、键盘和导航行为仍需 iOS/Android 实机验收。
 
 代理页面提供 `window.__CODEXER_PREVIEW_BASE__`。需要基础路径的前端可以在 React Router 的 `basename` 或 Vue Router 的 history base 中使用它，普通本机访问时回退到 `/`。

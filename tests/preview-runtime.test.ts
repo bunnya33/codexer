@@ -71,3 +71,29 @@ it('maps browser API and HMR traffic once, including relative paths and Relay-de
     expect(requests.at(-1)).toBe('https://external.example/api');
   } finally { dom.window.close(); }
 });
+
+it('lets a sandboxed app read an optional cookie before opening its WebSocket', () => {
+  const prefix = '/v1/previews/' + 'a'.repeat(64) + '/';
+  const sockets: string[] = [];
+  const html = rewritePreviewContent(`<html><head></head><body><script>
+    document.cookie = 'app=value';
+    window.cookieValue = document.cookie;
+    new WebSocket('ws://localhost:8501/_stcore/stream', ['streamlit', document.cookie || 'PLACEHOLDER_AUTH_TOKEN']);
+  </script></body></html>`, 'text/html', prefix, 'http://localhost:8501');
+  const dom = new JSDOM(html, {
+    runScripts: 'dangerously', url: 'https://relay.example' + prefix,
+    beforeParse(window) {
+      Object.defineProperty(window.document, 'cookie', {
+        configurable: true,
+        get() { throw new window.DOMException('The document is sandboxed', 'SecurityError'); },
+        set() { throw new window.DOMException('The document is sandboxed', 'SecurityError'); },
+      });
+      Object.assign(window, { WebSocket: class { constructor(url: string) { sockets.push(String(url)); } } });
+    },
+  });
+  try {
+    expect((dom.window as unknown as {cookieValue:string}).cookieValue).toBe('');
+    expect(sockets).toEqual(['wss://relay.example' + prefix + '__socket?path=%2F_stcore%2Fstream']);
+    expect(buildPreviewDocument(html, 'test', null, true)).not.toContain('allow-same-origin');
+  } finally { dom.window.close(); }
+});

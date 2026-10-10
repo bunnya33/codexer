@@ -39,6 +39,12 @@ export function rewritePreviewContent(
   const bootstrap = `<base href="${base}"><script>(()=>{
     const prefix=${escapedPrefix},origin=${escapedOrigin},page=new URL(${escapedPath},origin);
     window.__CODEXER_PREVIEW_BASE__=prefix;
+    // Opaque frames throw even on optional cookie reads (for example Streamlit's
+    // WebSocket startup). Match a browser with cookies disabled without exposing
+    // the Relay domain's cookies or relaxing the frame sandbox.
+    try{void document.cookie}catch{
+      Object.defineProperty(document,'cookie',{get:()=>'',set:()=>{}});
+    }
     const map=value=>{
       try{
         const u=new URL(String(value),page);
