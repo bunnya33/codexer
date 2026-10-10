@@ -14,7 +14,7 @@ import { readSecret, writeSecret } from "../packages/shared/src/secrets.js";
 
 const root = resolve(process.cwd()), local = join(root, ".local");
 const recordPath = join(local, "services.json"), adminPath = join(local, "relay-admin-account.secret"), credentialPath = join(local, "agent-credentials.secret");
-const relayEntry = join(root, "apps/relay/src/main.ts"), agentEntry = join(root, "apps/pc-agent/src/main.ts");
+const relayEntry = join(root, process.platform === "win32" ? "dist/codexer.exe" : "dist/codexer"), agentEntry = join(root, "apps/pc-agent/src/main.ts");
 const serviceSchema = z.object({ relayPid: z.number().int().positive(), agentPid: z.number().int().positive().nullable(), relayUrl: z.string().url(), deviceId: z.string().nullable(), startedAt: z.string() });
 type Services = z.infer<typeof serviceSchema>;
 async function readRecord(): Promise<Services | null> {
@@ -58,7 +58,7 @@ async function until(test: () => Promise<boolean>, timeout: number): Promise<voi
 async function launch(entry: string, name: string, env: NodeJS.ProcessEnv): Promise<number> {
   const stdout = openSync(join(local, `${name}.log`), "a"), stderr = openSync(join(local, `${name}.err.log`), "a");
   try {
-    const child = spawn(process.execPath, ["--import", "tsx", entry], { cwd: root, env: { ...process.env, ...env }, detached: true, windowsHide: true, stdio: ["ignore", stdout, stderr] });
+    const child = spawn(name === "relay" ? entry : process.execPath, name === "relay" ? ["serve"] : ["--import", "tsx", entry], { cwd: root, env: { ...process.env, ...env }, detached: true, windowsHide: true, stdio: ["ignore", stdout, stderr] });
     await new Promise<void>((resolveLaunch, reject) => { child.once("spawn", resolveLaunch); child.once("error", reject); });
     if (!child.pid) throw new Error("local-service-start-failed");
     child.unref(); return child.pid;

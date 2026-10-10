@@ -4,9 +4,9 @@
 
 ## 使用
 
-1. 已有 systemd 部署先用本次新版源码或发布包运行一次 `sudo bash install.sh`，安装协议 2 更新器、Git、专用构建账号和更新服务。安装器本身会重启服务，建议在维护时间运行；此后后台更新使用分步流程。仅替换网页不能更新 root helper，旧 helper 会禁用后台安装按钮，避免旧程序自动重启。
+1. 已有 systemd 部署先用新版源码或发布包运行一次 `sudo bash install.sh`，安装原生更新器和更新服务。若需要 Git 构建，预先准备构建工具并设置 `CODEXER_GIT_UPDATES=1`，安装器会创建专用构建账号。安装器本身会重启服务，建议在维护时间运行；此后后台更新使用分步流程。仅替换网页不能更新 root helper，旧 helper 会禁用后台安装按钮，避免旧程序自动重启。
 2. 点击后台左上角版本徽标：绿色表示已检查且无新版本；橙色动画表示有新版本；灰色表示未知、检查失败或暂无可安装 Release。
-3. 默认 Release 方式点击“立即更新 → 确认更新”。约 30 秒内开始下载、SHA-256 校验、解压及安装运行依赖，不切换程序、不重启服务。
+3. 默认 Release 方式点击“立即更新 → 确认更新”。约 30 秒内开始下载、SHA-256 校验、解压及检查执行文件，不切换程序、不重启服务。
 4. 准备好后显示“立即重启”，可关闭页面或稍后回来，状态会保留。点击“立即重启 → 确认重启”才激活版本。后台轮询状态，连接恢复后显示最终结果。
 5. “自动准备稳定版本”默认关闭，每 6 小时及 Relay 启动时检查。开启后只自动执行第 3 步，仍需手动确认重启；兼容原 `autoInstall` 设置，但不再自动重启。失败/回退后不自动重复尝试，等待重启的版本也不会被定时检查覆盖。
 
@@ -17,12 +17,12 @@
 1. 在“系统设置 → 服务器更新”选择 **Git tag · 服务器构建**，切回 **Release 包更新** 也在同一处操作。
 2. 打开左上角版本弹窗，选择“目标 tag”。列表来自固定仓库最近 100 个 tag，只保留 `vX.Y.Z`，只能更新到高于当前程序的版本；不接受 main、任意分支、仓库地址或命令。
 3. 点击“更新 → 确认更新”：浅拉取指定 tag，解析并检出实际 commit，检查根 `package.json` 版本与 tag 相同。记录 commit，保留独立的原始源码快照，后续构建不受远端 tag 移动影响。
-4. 拉取后按钮变成“构建”。点击“构建 → 确认构建”：安装锁定的开发依赖，编译 Relay、导出 Expo Web、构建 React Admin、生成服务器包，并准备运行依赖。
+4. 拉取后按钮变成“构建”。点击“构建 → 确认构建”：安装锁定的开发依赖，编译 Go Relay、导出 Expo Web、构建 React Admin 并生成单文件服务器包。
 5. 构建后按钮变成“立即重启”。点击并确认后才切换程序、重启及检查健康状态。
 
 构建失败可重试，从保留的原始源码重新准备干净工作目录。刷新页面保留步骤，处理中禁用重复操作及更新方式切换；等待构建/重启时可以切换方式或选择其他 tag，旧产物不会因此激活。同种方式下一次准备版本时清理被替代的暂存产物。Git 模式禁止自动准备、构建和重启。
 
-Git 不依赖 Release 资产，适合已发布稳定 tag 但没有服务器包的版本。服务器需访问 GitHub 和 npm，建议至少 2 GiB 内存和 4 GiB 可用空间；构建进程组运行时限 30 分钟。小内存服务器优先用 Release 包。固定仓库和版本校验不因后台切换而改变。
+Git 不依赖 Release 资产，适合已发布稳定 tag 但没有服务器包的版本。构建机需安装 Go >=1.26、Node >=22.13、npm 和 Git，并能访问 GitHub、Go 模块镜像和 npm，建议至少 2 GiB 内存和 4 GiB 可用空间；构建进程组运行时限 30 分钟。小内存服务器优先用 Release 包。固定仓库和版本校验不因后台切换而改变。
 
 升级本次安装器的一行命令：
 
@@ -45,24 +45,26 @@ curl -fsSL https://raw.githubusercontent.com/bunnya33/codexer/main/bootstrap.sh 
 | 更新互斥 | 与安装器共用 `/run/codexer-install.lock`；不依赖删除锁文件解锁 |
 | 程序/数据 | `/opt/codexer/releases`、`current`；保留 `/etc/codexer/relay.env` 与数据库目录 |
 
-下载仅接受固定仓库的稳定 Release 和 GitHub 资产主机，限制跳转与大小。SHA-256 校验匹配后才解压；拒绝绝对路径、路径穿越、符号/硬链接和设备条目。服务器包使用统一 PAX 格式，兼容 GNU tar、bsdtar 和长 UTF-8 文件名。Git 使用固定远端与完整 tag ref，禁用 hooks；源码构建脚本以受限账号运行，只能写指定工作目录，超时终止整组进程。Expo 设置与 npm 缓存留在构建目录，不读取用户主目录。运行依赖安装忽略 lifecycle scripts。确认重启后才记录回退日志并激活，失败恢复之前的程序链接；激活中断由下次更新服务运行恢复。
+下载仅接受固定仓库的稳定 Release 和 GitHub 资产主机，限制跳转与大小。SHA-256 校验匹配后才解压；拒绝绝对路径、路径穿越、符号/硬链接和设备条目。服务器包使用统一 PAX 格式，兼容 GNU tar、bsdtar 和长 UTF-8 文件名。Git 使用固定远端与完整 tag ref，禁用 hooks；源码构建脚本以受限账号运行，只能写指定工作目录，超时终止整组进程。Expo 设置与 npm 缓存留在构建目录，不读取用户主目录。前端构建依赖安装忽略 lifecycle scripts；发布包不安装 Node 运行依赖。确认重启后才记录回退日志并激活，失败恢复之前的程序链接；激活中断由下次更新服务运行恢复。
+
+首次从 Node/PGlite 升级到 Go 需运行新安装器，旧 Node helper 不认识 Go 包格式。Go 使用 SQLite 的发布版本之间可按更新器流程准备和重启。回退到 Node 版本需恢复对应停服旧库备份。
 
 此回退仅恢复程序，不恢复数据库；发布版本的数据迁移必须兼容旧程序。`0.2.0` 保留旧表和数据，迁移账号唯一索引以允许两类账号同名；创建同名账号后，不能把手动回退到 `0.1.0` 当作完整数据库回退，因为旧版登录不区分账号类型。跨这一边界需匹配的停服备份。更新器本身的协议/权限修改需重新运行安装器，不能由 Relay 提交自定义脚本或替换 root helper。
 
-Linux x64/arm64、Node >=22.13、systemd 安装器部署可启用安装功能。Docker 不挂载 Docker socket，也不授予容器主机管理权限；在服务器更新源码后执行原 Compose 构建命令。源码开发和其他部署只检查版本，不能在后台直接安装。
+Linux amd64/arm64、systemd 安装器部署可启用发布包更新，无需 Node；Git 构建需要单独准备构建工具。Docker 不挂载 Docker socket，也不授予容器主机管理权限；在服务器更新源码后执行原 Compose 构建命令。源码开发和其他部署只检查版本，不能在后台直接安装。
 
 ## Release 要求
 
 固定仓库 `https://github.com/bunnya33/codexer` 的最新稳定 Release 必须使用 `vX.Y.Z`，且版本等于根 `package.json`，包含：
 
 ```text
-codexer-server-X.Y.Z.tar.gz
-codexer-server-X.Y.Z.tar.gz.sha256
+codexer-server-X.Y.Z-linux-amd64.tar.gz
+codexer-server-X.Y.Z-linux-amd64.tar.gz.sha256
 ```
 
-`npm run build:server && npm run package:server` 生成包和校验文件。新增 `.github/workflows/release-server.yml`：维护者推送匹配版本标签后运行测试/构建，并创建 Release 上传两个资产。仅推送源码 main 不会创建 Release；本次未替维护者发布标签或 Release。
+`npm run build:server && npm run package:server` 生成包和校验文件。`.github/workflows/release-server.yml` 在推送匹配版本标签后运行测试/构建，并创建 Release 上传各架构的包和校验文件。仅推送源码 main 不会创建 Release。
 
-例如完成版本审查后，维护者可执行 `git tag v0.2.0`、`git push origin v0.2.0` 触发发布。GitHub Actions 需允许工作流写仓库内容。草稿、预发布和没有匹配资产的版本不会安装。
+例如完成版本审查后，维护者可执行 `git tag v0.3.0`、`git push origin v0.3.0` 触发发布。GitHub Actions 需允许工作流写仓库内容。草稿、预发布和没有匹配资产的版本不会安装。
 
 ## 故障排查
 

@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { expect, it } from "vitest";
 import { loginAgent } from "../apps/pc-agent/src/auth.js";
-import { createRelay } from "../apps/relay/src/server.js";
-import { RelayStore } from "../apps/relay/src/storage/store.js";
+import { createRelay } from "./go-relay.js";
+import { RelayStore } from "./go-relay.js";
 import { readSecret } from "../packages/shared/src/secrets.js";
 import type { AgentCredentials } from "../apps/pc-agent/src/auth.js";
 

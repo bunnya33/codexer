@@ -14,3 +14,12 @@ apps/control-desktop/release/
 coverage/
 output/
 release/
+
+apps/relay/assets/**
+!apps/relay/assets/
+!apps/relay/assets/web/
+!apps/relay/assets/admin/
+!apps/relay/assets/web/placeholder.txt
+!apps/relay/assets/admin/placeholder.txt
+
+.DS_Store

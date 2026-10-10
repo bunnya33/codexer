@@ -1,0 +1,14 @@
+[
+  {
+    "raw": "{\"commandId\":\"c0\",\"deviceId\":\"d\",\"expectedEpoch\":\"e\",\"expiresAt\":1700000000000,\"payload\":{\"type\":\"turn.start\",\"threadId\":\"t\",\"text\":\"中文 <>&    literal \\\\u2028\\u0000\"}}",
+    "hash": "ac54f3b1ac973a1e5ab0c30b4af98d1ab0fd3bcde460f7673074a68e98ab9818"
+  },
+  {
+    "raw": "{\"commandId\":\"c1\",\"deviceId\":\"d\",\"expectedEpoch\":\"e\",\"expiresAt\":1700000000000,\"payload\":{\"type\":\"input.respond\",\"threadId\":\"t\",\"turnId\":\"turn\",\"requestId\":\"request\",\"answers\":{\"2\":{\"answers\":[\"two-index\"]},\"10\":{\"answers\":[\"ten\"]},\"z\":{\"answers\":[\"one\"]},\"b\":{\"answers\":[\"two\"]}}}}",
+    "hash": "3ba1a2e8bc1713e2ea9fb82b6b602429544d2381cac9d084bef50b0a02cbfa5f"
+  },
+  {
+    "raw": "{\"commandId\":\"c2\",\"deviceId\":\"d\",\"expectedEpoch\":\"e\",\"expiresAt\":1700000000000,\"payload\":{\"type\":\"thread.rename\",\"threadId\":\"t\",\"name\":\"   新名字   \"}}",
+    "hash": "650eed0f6cf3d171be8d620fd687a6195bc706172c93f6b38df3c7881f3a8d80"
+  }
+]

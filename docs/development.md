@@ -2,7 +2,7 @@
 
 ## 环境与边界
 
-开发机使用 Node 24、npm 和 Git。`npm ci` 按根 lockfile 安装 Expo、React、Electron、Fastify 和测试工具。普通 PC 用户使用成品安装包，不需要这些开发环境。官方 Codex 是本机执行前提，不由本项目重新分发。
+开发机使用 Go >=1.26、Node 24、npm 和 Git。`npm ci` 按根 lockfile 安装 Expo、React、Electron 和测试工具。普通 PC 用户使用成品安装包，不需要这些开发环境。官方 Codex 是本机执行前提，不由本项目重新分发。
 
 目录和模块边界见 [架构](architecture.md)。协议变更先改 `packages/protocol`，再同步 Relay、Agent 和 React Native 客户端。Electron 的 React 窗口只通过 `DesktopApi` 操作；不要把 bearer session、密码、Node API 或任意文件读写暴露给窗口。
 
@@ -19,7 +19,7 @@ Relay 的接口、业务和 SQL 按功能目录维护，具体职责见 [Relay �
 | `npm run mobile:start` | Expo 原生开发 |
 | `npm run dev:admin` | 独立 React 后台，5174，代理本机 Relay |
 | `npm run dev:desktop` | 构建并启动 Electron 控制台 |
-| `npm run build:server` | 按 `tsconfig.server.json` 编译 Relay/安装运维脚本、导出控制端 Web、构建 Admin |
+| `npm run build:server` | 导出控制端 Web、构建 Admin 并编译内嵌页面的 Go 执行文件 |
 | `npm run build:desktop` | 打包主进程/preload/Agent 并构建 React 控制台 |
 | `npm run package:server` | 已完成 server build 后生成统一服务器发布包 |
 | `npm run package:desktop:win` / `package:desktop:mac` | 对应平台的安装包 |
@@ -55,3 +55,5 @@ Agent 开发 CLI 统一为 `npm run dev:agent`，动作包括 `login`、`check-l
 `inspect:bundle`、`probe:desktop`、`check:live` 与 `check:control/model-usage/effort-images/stop/approval/input` 用于官方运行时兼容调查与人工验收，不随服务器编译产物发布。这些工具可能操作指定的官方会话，只对明确准备的测试任务运行；自动测试不调用它们。`scripts/create-image-fixture.ps1` 为图片验收生成本地测试图，保留供 Windows 维护者使用。
 
 `check:live` 默认报告在 `.local/diagnostics/live-evidence.json`，`probe:desktop` 默认在 `.local/desktop-ipc-probe.json`；不要用 `--report` 将真实环境数据写进源码目录。发布使用 [发布文档](release.md)；新仓库使用 [安全导出](new-repository.md)，不要携带旧 `.git`。
+
+服务器原生测试为 `go test ./...`；`npm test` 自动运行 Go 测试并生成客户端联调驱动。`CODEXER_TEST_POSTGRES_URL` 指向独立测试库时，还会验证 PostgreSQL 兼容与旧库迁移。

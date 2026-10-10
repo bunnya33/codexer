@@ -1,50 +1,38 @@
-# Fastify Relay
+# Go Relay
 
-Node/Fastify/WebSocket 认证中转服务；PGlite 默认，支持 PostgreSQL。提供账号、设备隔离、命令/历史/图片转发和静态页面 `/`、`/admin/`。
+Go 实现的认证、HTTP/WebSocket 中转和静态页面服务。默认使用纯 Go SQLite（WAL），保留外部 PostgreSQL 支持。服务器只有一个执行文件，内嵌控制端和后台页面，运行时无需 Node。
 
-根目录 `npm run dev:relay` 开发，`npm run build:server` 构建。生产随统一服务包或 Docker 安装。见 [Relay 配置](../../docs/relay.md)、[API](../../docs/api.md)、[服务器安装](../../docs/server-install.md)。
+前端继续使用 React / React Native，PC Agent 继续使用 Electron 的 JavaScript。Node 只用于这些前端/客户端的构建，以及首次读取旧 PGlite 数据时的兼容导入。
 
-## 开发结构
+## 构建与运行
 
-`src/server.ts` 只组装插件、依赖、功能路由和生命周期。每个业务功能放在独立目录，接口使用 `routes.ts`，业务逻辑使用 `service.ts`，数据库操作使用 `repository.ts`；职责简单的模块不强行添加空的 service 层。
+```bash
+npm ci
+npm run build:server
+./dist/codexer serve
+npm run package:server
+```
 
-| 目录 | 职责 |
+构建需要 Go 1.26 及以上、Node 22.13 及以上。直接开发 Go 服务用 `go run ./cmd/codexer serve`；未构建前端时可设置 `RELAY_WEB_DIR` 和 `RELAY_ADMIN_DIR`。发布包按操作系统与架构分别生成。见 [安装](../../docs/server-install.md)、[迁移与回归](../../docs/go-migration.md)。
+
+## 代码地图
+
+| 文件 | 职责 |
 | --- | --- |
-| `auth` | 登录、账号存储、会话、票据、鉴权和密码失败计数 |
-| `admin` | 管理员账号接口、登录策略和服务概览 |
-| `devices` | 设备归属、注册、撤销、目录与在线信息 |
-| `sync` | 按会话存储、完整快照组装、事件重放和两类 WebSocket |
-| `commands` | 幂等记录、命令转发和结果 |
-| `history` | 历史分页请求转发 |
-| `images` | 图片接口、缓存和回源 |
-| `files` | 会话文件元数据与流式回源；无内容缓存或存储 |
-| `previews` | 会话内本地网页回源、资源路径改写、HTTP/WebSocket 与预览会话 |
-| `weixin` | 微信 API 客户端、密钥、存储、机器人业务与全部微信接口 |
-| `updates` | 版本检查与受限更新器接口 |
-| `transport` | 连接、订阅、待回源请求和发送背压 |
-| `concurrency` | 按设备调度、身份变更屏障和关闭排空 |
-| `observability` | 固定内存指标采集与管理员指标接口 |
-| `storage` | 数据库连接、迁移、存储门面和保留期清理 |
-| `core` | 显式共享依赖、公共 HTTP 策略、错误和生命周期 |
+| `server.go` / `routes.go` | HTTP、静态页面、生命周期、FIFO 设备队列与身份变更屏障 |
+| `transport.go` / `transfers.go` | Agent/客户端连接、同步、指令、历史、图片和文件回源 |
+| `previews.go` | 受限网页预览、路径/浏览器运行时改写、SSE 和 WebSocket |
+| `accounts.go` / `bootstrap.go` | 账号、Node 兼容 scrypt、登录策略、会话撤销和初始化 |
+| `store.go` / `sync_store.go` / `postgres.sql` | SQLite/PostgreSQL、事务、快照拆分、重放与图片保存 |
+| `weixin*.go` | 微信扫码、验证、加密绑定、轮询、通知、回复和事务收发队列 |
+| `updates.go` / `metrics.go` | 后台更新接口和聚合运行指标 |
+| `validation.go` / `projection.go` / `protocol/` | 共享协议 schema、跨字段检查、UTF-16 长度与浏览器预览资源 |
+| `../../cmd/codexer` / `../../internal/management` | 单文件入口、管理命令、安装配置、旧库导入和受限升级器 |
 
-新增接口放进对应功能的 `routes.ts`，不要重新堆进 `server.ts`。SQL 留在存储层，协议类型复用 `packages/protocol`；跨模块依赖显式注入，禁止模块级连接表。注释说明顺序、事务、权限及恢复约束，不重复描述每条语句。顶层声明和类方法之间保留空行。
+快照元数据与会话行分开保存；事件只写变化的会话。序号、事件、快照和完成通知在同一个事务提交。读取完整快照使用一致性事务，PostgreSQL 采用 repeatable read。
 
-使用 `npm run format:relay` 格式化，提交前运行 `npm run check:format:relay`、类型检查和相关测试。统一采用两空格缩进、分号和 LF 换行。
+同一设备使用 FIFO 队列，不同设备可并行；账号与会话变更等待已登记工作完成，后续请求重新鉴权。WebSocket 收发具有缓冲预算，慢连接单独关闭。等待历史、图片、文件或预览回包时释放设备队列。
 
-## 状态存储
+清理每批最多 500 行、每类目标最多 20 批。通常每 5 分钟运行，达到预算后 5 秒续跑，轮次不重叠。关闭时取消后续清理并排空已登记任务。保留事件 24 小时、完成的微信收发记录 30 天；命令幂等记录和 pending 通知保留。
 
-`snapshots` 只保存设备元数据，`snapshot_threads` 按 `(device_id, thread_id)` 保存会话预览。事件事务只更新受影响的会话、设备序号、事件记录及微信完成通知；运行状态事件不重写任何会话。完整快照通过单条数据库查询组装，返回结构与 v1 协议一致。
-
-启动时在事务中将旧 `snapshots.payload.threads` 拆入新表，再移除旧字段；失败会回滚，重复启动不会覆盖已经拆分后的状态。全量同步仍会替换该设备的全部会话，支持首次连接、epoch 更换和序号缺口恢复。
-
-## 并发与运维
-
-同设备的连接替换、事件、命令、图片写入和订阅重放使用同一队列；不同设备可同时处理。命令超时状态也在设备队列中写入，先处理此前已经排队的 Agent 回包。客户端消息在入队时同时登记连接顺序和设备顺序，保证认证先于订阅、`sync.ready` 先于后续实时事件。历史/图片请求只在队列中校验与转发，等待 Agent 回包在队列外。
-
-登录与账号/会话变更使用全局屏障，等待此前设备任务完成，之后任务重新校验身份；这些敏感操作仍会短暂协调所有设备。设备/屏障任务不得嵌套并等待调度器任务。维护任务独立运行，关闭时停止下一轮维护并排空所有队列。PGlite 的数据库执行仍受单个嵌入式实例约束；服务端并行调度不等于多实例部署。
-
-广播按设备订阅索引查找连接，消息序列化一次后复用；断开/撤销同步清理索引，慢客户端独立关闭。
-
-清理每批默认删除最多 500 行，每类目标最多 20 批，通常每小时运行；达到本轮预算后默认 5 秒续跑，清完后恢复正常间隔。每批独立提交、让出事件循环，并支持关闭取消。保留期不变：事件 24 小时、票据/会话按到期时间、图片按到期或设备撤销、微信已完成收发记录 30 天；pending 微信通知和命令幂等记录保留。时间筛选新增对应索引。
-
-管理员访问 `GET /v1/admin/metrics` 查看聚合指标，字段、统计窗口及诊断方式见 [Relay 性能指标](../../docs/relay-metrics.md)。
+`go test ./...` 验证原生实现，`npm test` 先运行 Go 测试，再用实际 Go 服务验证客户端和 Agent。`go test -race ./...` 检查并发访问；可用 `CODEXER_TEST_POSTGRES_URL` 指定独立 PostgreSQL 测试库。更改协议后运行 `npm run build:protocol`，生成文件必须随源码提交。

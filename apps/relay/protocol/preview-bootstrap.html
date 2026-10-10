@@ -1,0 +1,36 @@
+<base href="@@BASE@@"><script>(()=>{
+    const prefix=@@PREFIX@@,origin=@@ORIGIN@@,page=new URL(@@PATH@@,origin);
+    window.__CODEXER_PREVIEW_BASE__=prefix;
+    // Opaque frames throw even on optional cookie reads (for example Streamlit's
+    // WebSocket startup). Match a browser with cookies disabled without exposing
+    // the Relay domain's cookies or relaxing the frame sandbox.
+    try{void document.cookie}catch{
+      Object.defineProperty(document,'cookie',{get:()=>'',set:()=>{}});
+    }
+    const map=value=>{
+      try{
+        const u=new URL(String(value),page);
+        const local=u.origin===origin||u.origin===location.origin;
+        if(!local||u.pathname.startsWith(prefix))return value;
+        return prefix+u.pathname.slice(1)+u.search+u.hash;
+      }catch{return value}
+    };
+    const fetchOriginal=window.fetch;
+    window.fetch=(value,options)=>fetchOriginal(value instanceof Request?new Request(new URL(map(value.url),location.href),value):map(value),options);
+    const open=XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open=function(method,url,...rest){return open.call(this,method,map(url),...rest)};
+    const WS=window.WebSocket;
+    window.WebSocket=class extends WS{
+      constructor(url,protocols){
+        const u=new URL(url,page);
+        const local=u.origin.replace(/^ws/,'http')===origin||u.host===location.host;
+        const proxied=u.pathname.startsWith(prefix);
+        const socket=proxied&&u.pathname===prefix+'__socket';
+        const path=(proxied?'/'+u.pathname.slice(prefix.length):u.pathname)+u.search;
+        super(local&&!socket?location.origin.replace(/^http/,'ws')+prefix+'__socket?path='+encodeURIComponent(path):url,protocols);
+      }
+    };
+    const originalPush=history.pushState.bind(history),originalReplace=history.replaceState.bind(history);
+    history.pushState=(s,t,u)=>originalPush(s,t,u==null?u:map(u));
+    history.replaceState=(s,t,u)=>originalReplace(s,t,u==null?u:map(u));
+  })();</script>

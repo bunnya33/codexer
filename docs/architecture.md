@@ -4,14 +4,14 @@
 
 ```mermaid
 flowchart LR
-  C[React Native 控制端\niOS / Android / Web] -->|HTTPS / WSS| R[Fastify Relay]
+  C[React Native 控制端\niOS / Android / Web] -->|HTTPS / WSS| R[Go Relay]
   W[Electron Windows 控制端] -->|控制网页 / HTTPS / WSS| R
   A[React 管理后台 /admin/] -->|账号管理 API| R
   P[Electron PC 连接器] -->|主动连接 WSS| R
   P --> G[内置 PC Agent]
   G --> D[官方 Codex 桌面 IPC]
   G --> H[官方 Codex App Server]
-  R --> DB[PGlite / PostgreSQL]
+  R --> DB[SQLite / PostgreSQL]
 ```
 
 控制端发出操作，Relay 校验账号、设备归属及命令时效后转发，PC Agent 在本机执行，再同步结果和会话状态。Codex 模型密钥、官方账号与执行环境留在本机；Relay 账号只负责项目的远程访问。
@@ -31,7 +31,7 @@ PC 连接器由主进程、隔离的 React 窗口、受限 preload、utilityProc
 
 1. 控制客户端：原生 App 使用 React Native，Web 使用同一代码的 Expo 导出；Windows RelayDesk 使用本地自定义标题栏和独立 WebContentsView 加载服务器控制网页。
 2. PC 连接器：Electron 内置 Node，Agent 和依赖打进包；Windows 安装/便携，macOS DMG/ZIP。
-3. 统一服务器：Relay 加两套独立前端静态产物，一个进程/端口。`/` 是控制端，`/admin/` 是 React 后台，`/v1/*` 是 API。
+3. 统一服务器：Go Relay 内嵌两套前端静态产物，一个执行文件、一个进程/端口。`/` 是控制端，`/admin/` 是 React 后台，`/v1/*` 是 API。
 
 Admin 使用 React 而非 React Native：它面向浏览器管理员，与跨平台控制端职责不同。两者独立构建、独立 localStorage key；这不产生第二套控制逻辑。
 
@@ -45,7 +45,8 @@ Admin 使用 React 而非 React Native：它面向浏览器管理员，与跨平
 | `apps/control-desktop` | Windows 会话控制端、服务器地址选择、独立配置和安装包 |
 | `apps/pc-agent` | 本机运行时、状态扫描、命令和用量日志 |
 | `apps/admin` | 侧栏控制台、控制端账号、后台管理员、登录策略和服务器更新 |
-| `apps/relay` | Fastify API/WebSocket/静态服务及数据库 |
+| `cmd/codexer` / `internal/management` | Go 入口、管理命令、导入与升级器 |
+| `apps/relay` | Go API/WebSocket/静态服务及数据库 |
 | `packages/protocol` | Zod 协议 schema、状态与命令类型 |
 | `packages/codex-adapter` | 桌面 IPC、App Server、历史、模型、图片和程序发现 |
 | `packages/client-shared` | 消息显示/历史合并/模型标签等控制端共用逻辑 |

@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { RelayStore } from "../apps/relay/src/storage/store.js";
+import { RelayStore } from "./go-relay.js";
 import { command, event, snapshot } from "./helpers.js";
 
 describe("relay persistence", () => {

@@ -9,9 +9,9 @@
 | 控制客户端 | React Native + Expo + TypeScript | iOS、Android、Web 共用 UI 和远程控制逻辑；源代码在 `apps/mobile` |
 | PC 连接器 | Electron + React + TypeScript | Windows/macOS 完整控制台，内置 Node 和 PC Agent；安装包或便携版 |
 | 管理后台 | React + Vite + TypeScript | `/admin/` 侧栏控制台、两类独立账号、登录策略、服务器更新 |
-| Relay | Node + Fastify + WebSocket | 登录认证、账号隔离、设备状态、命令与历史转发；PGlite 或 PostgreSQL |
+| Relay | Go + HTTP/WebSocket | 登录认证、账号隔离、设备状态、命令与历史转发；SQLite 或 PostgreSQL |
 
-服务端交付物同时包含 **Relay、Web 控制端、管理后台**，一次安装、一个服务、一个访问端口。移动 App 单独安装，PC 连接器单独安装。
+服务端交付物同时包含 **Relay、Web 控制端、管理后台**，一次安装、一个执行文件、一个服务、一个访问端口，运行时无需 Node。移动 App 单独安装，PC 连接器单独安装。
 
 ## 开始使用
 

@@ -6,11 +6,11 @@
 
 ```bash
 cp infra/.env.example infra/.env
-# 编辑 infra/.env：REMOTE_DOMAIN、POSTGRES_PASSWORD、管理员账号密码
+# 编辑 infra/.env：REMOTE_DOMAIN、管理员账号密码；可选 DATABASE_URL
 docker compose --env-file infra/.env -f infra/compose.yaml up -d --build
 ```
 
-Caddy 自动管理该域名证书并反向代理 Relay。访问 `https://你的域名/` 和 `/admin/`；PC 使用相同 HTTPS 根地址。PostgreSQL 不对外暴露，Relay 仅在容器网络暴露 8787。数据库密码使用随机 base64url 字符避免 URI 编码问题；管理员密码至少 12 字符。`.env` 不提交、不分享。
+Caddy 自动管理该域名证书并反向代理 Relay。访问 `https://你的域名/` 和 `/admin/`；PC 使用相同 HTTPS 根地址。默认 SQLite 保存在 relay-data volume，Relay 仅在容器网络暴露 8787；外部 PostgreSQL 通过可选 DATABASE_URL 接入。管理员密码至少 12 字符。`.env` 不提交、不分享。
 
 更新执行同一条 Compose 构建命令，不删除 volumes。查看状态/日志：
 
@@ -25,21 +25,21 @@ docker compose --env-file infra/.env -f infra/compose.yaml logs --tail=100 relay
 
 systemd：`sudo codexer status`、`sudo codexer logs`、`sudo codexer restart`；浏览器账号管理见 [Admin](admin.md)。管理员密码使用 `sudo codexer password`，同时更新数据库与受限配置。若曾在后台改密，CLI 提示时输入当前管理员密码。后台与控制端使用独立账号；现有管理员用于 PC 时需创建控制端账号后重新登录。
 
-安装器管理的服务器支持后台 Release 包或 Git tag 更新。自动准备默认关闭；两种方式都等管理员确认后才重启，见 [服务器更新](server-update.md)。PGlite 停服备份期间先 `sudo systemctl stop codexer-updater.timer`，确认没有准备/构建/重启任务正在执行，再停止 Relay；备份后启动 Relay 和 timer，避免更新与复制数据库重叠。
+安装器管理的服务器支持后台 Release 包或 Git tag 更新。自动准备默认关闭；两种方式都等管理员确认后才重启，见 [服务器更新](server-update.md)。SQLite 停服备份期间先 `sudo systemctl stop codexer-updater.timer`，确认没有准备/构建/重启任务正在执行，再停止 Relay；备份后启动 Relay 和 timer，避免更新与复制数据库重叠。
 
 Docker 的命令行账号管理：
 
 ```bash
-docker compose --env-file infra/.env -f infra/compose.yaml exec relay node dist/scripts/manage-users.js list
-docker compose --env-file infra/.env -f infra/compose.yaml exec relay node dist/scripts/manage-users.js create 用户名
-docker compose --env-file infra/.env -f infra/compose.yaml exec relay node dist/scripts/manage-users.js password 账号ID
+docker compose --env-file infra/.env -f infra/compose.yaml exec relay /app/codexer users list
+docker compose --env-file infra/.env -f infra/compose.yaml exec relay /app/codexer users create 用户名
+docker compose --env-file infra/.env -f infra/compose.yaml exec relay /app/codexer users password 账号ID
 ```
 
 命令使用当前容器配置中的管理员密码，创建/改密在终端提示输入。若曾通过 API 修改管理员密码，需要同步受限配置；已有管理员时仅改环境变量不会重置数据库密码。不要删除数据库来“恢复”账号。
 
 ## 备份与恢复
 
-PGlite 需要停服复制完整数据库目录；不能运行中只复制几个文件：
+SQLite 备份需停服后复制完整数据目录（包括 WAL/SHM 和微信密钥），避免只复制活动中的主数据库文件：
 
 ```bash
 sudo systemctl stop codexer-relay
@@ -50,10 +50,10 @@ sudo systemctl start codexer-relay
 
 备份含管理员配置、会话及任务数据，按凭据保护。恢复先停服，将备份恢复至原路径、确认 `/var/lib/codexer` 属于 codexer 且目录 0700，配置 root:codexer 0640；使用匹配版本启动，检查登录与设备。恢复前额外保留当前数据副本。
 
-外部 PostgreSQL 使用 `pg_dump`/`pg_restore`。Docker 示例：
+外部 PostgreSQL 使用 `pg_dump`/`pg_restore`，在具备 PostgreSQL 工具的管理机器执行：
 
 ```bash
-docker compose --env-file infra/.env -f infra/compose.yaml exec -T postgres pg_dump -U codex_remote -d codex_remote -Fc > codexer-postgres.dump
+pg_dump --dbname="$DATABASE_URL" -Fc > codexer-postgres.dump
 ```
 
 恢复前停止 Relay，备份现有库，在明确的目标库用 `pg_restore`；同时备份 `infra/.env` 和 Caddy volumes。不要执行 `docker compose down -v`，它会删除持久数据。

@@ -1,0 +1,55 @@
+{
+  "protocolVersion": 1,
+  "deviceId": "device-test",
+  "epoch": "epoch-test",
+  "lastSeq": 0,
+  "generatedAt": 1791646923822,
+  "hostname": "test-pc",
+  "platform": "win32",
+  "runtime": {
+    "kind": "official-desktop-ipc",
+    "connected": true,
+    "experimental": true,
+    "capabilities": {
+      "observe": true,
+      "startTurn": true,
+      "interrupt": true,
+      "approvals": true,
+      "userInput": true
+    }
+  },
+  "threads": {
+    "thread-test": {
+      "id": "thread-test",
+      "title": "Test",
+      "cwd": "/test",
+      "status": "active",
+      "activeFlags": [],
+      "ownerAvailable": true,
+      "truncated": false,
+      "revision": 0,
+      "activeTurnId": "turn-A",
+      "updatedAt": 123,
+      "settings": {
+        "model": null,
+        "modelProvider": null,
+        "reasoningEffort": null,
+        "collaborationMode": null
+      },
+      "subAgents": [],
+      "subAgentsTruncated": false,
+      "turns": [
+        {
+          "id": "turn-A",
+          "status": "inProgress",
+          "items": [],
+          "plan": [],
+          "diff": "",
+          "truncated": false
+        }
+      ],
+      "requests": [],
+      "tokenUsage": null
+    }
+  }
+}

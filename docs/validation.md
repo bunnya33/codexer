@@ -1,3 +1,7 @@
+# 当前 Go 迁移验证
+
+0.3.0 的服务器实现和验证见 [Go 迁移与回归](go-migration.md)。以下条目保留历史版本的实测范围；其中 Node/Fastify/PGlite 运行方式不再代表当前服务器。
+
 # 验证范围
 
 此前主要开发环境：Windows x64，Node 24，Electron 44.5.1。自动测试使用本地临时 Relay、合成账号和 FakeDesktop。另以只读桌面观测在隔离 Relay 中复现并验证含 NUL 的任务输出，未发送真实控制命令或修改真实服务器。

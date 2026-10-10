@@ -6,7 +6,7 @@ import { FileRegistry } from '../packages/codex-adapter/src/files.js';
 import { PreviewRegistry } from '../packages/codex-adapter/src/previews.js';
 import { localPreviewUrl, previewControls, previewFeedback, previewReferences, restoredControlValue, splitPreviewContent, widgetState } from '../packages/client-shared/src/previews.js';
 import { buildPreviewDocument, nativePreviewShell } from '../packages/client-shared/src/preview-runtime.js';
-import { rewritePreviewContent } from '../apps/relay/src/previews/rewrite.js';
+import { rewritePreviewContent } from './go-preview.js';
 
 it('recognizes inline visualizations, HTML citations and loopback URLs while preserving code and malformed markers', () => {
   const marker = 'visualize{"path":"/tmp/dashboard.html","title":"概览","mode":"wide"}';

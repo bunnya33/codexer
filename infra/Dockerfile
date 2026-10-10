@@ -1,26 +1,36 @@
-FROM node:24-bookworm-slim AS build
+FROM node:24-bookworm-slim AS frontend
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/mobile/package.json ./apps/mobile/package.json
 COPY apps/admin/package.json ./apps/admin/package.json
 COPY apps/desktop/package.json ./apps/desktop/package.json
-RUN ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci
-COPY tsconfig.json tsconfig.server.json ./
+COPY apps/control-desktop/package.json ./apps/control-desktop/package.json
+RUN ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci --ignore-scripts
 COPY apps ./apps
 COPY packages ./packages
 COPY scripts ./scripts
-RUN npm run build && npm prune --omit=dev --workspaces=false
+RUN npm run build:protocol && npm run build:web && npm run build:admin
+RUN mkdir -p apps/relay/assets/web apps/relay/assets/admin && cp -a apps/web/dist/. apps/relay/assets/web/ && cp -a apps/admin/dist/. apps/relay/assets/admin/
 
-FROM node:24-bookworm-slim
-ENV NODE_ENV=production RELAY_HOST=0.0.0.0 RELAY_PORT=8787
+FROM golang:1.27-bookworm AS build
 WORKDIR /app
-COPY --from=build --chown=node:node /app/node_modules ./node_modules
-COPY --from=build --chown=node:node /app/dist ./dist
-COPY --from=build --chown=node:node /app/apps/web/dist ./web
-COPY --from=build --chown=node:node /app/apps/admin/dist ./admin
-COPY --from=build --chown=node:node /app/package.json ./package.json
-ENV RELAY_WEB_DIR=/app/web RELAY_ADMIN_DIR=/app/admin RELAY_DATA_DIR=/var/lib/codexer
-RUN mkdir -p /var/lib/codexer && chown node:node /var/lib/codexer && chmod 700 /var/lib/codexer
-USER node
+COPY go.mod go.sum ./
+RUN go mod download
+COPY apps/relay ./apps/relay
+COPY cmd ./cmd
+COPY internal ./internal
+COPY --from=frontend /app/apps/relay/assets ./apps/relay/assets
+COPY --from=frontend /app/apps/relay/protocol/schemas.json ./apps/relay/protocol/schemas.json
+RUN mkdir -p /data && chmod 700 /data
+ARG VERSION=0.3.0
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /codexer ./cmd/codexer
+
+FROM gcr.io/distroless/static-debian12:nonroot
+ENV RELAY_HOST=0.0.0.0 RELAY_PORT=8787 RELAY_DATA_DIR=/var/lib/codexer RELAY_ADMIN_FILE=/var/lib/codexer/admin-account.secret
+WORKDIR /app
+COPY --from=build /codexer /app/codexer
+COPY --from=build --chown=65532:65532 /data /var/lib/codexer
+USER 65532:65532
 EXPOSE 8787
-CMD ["node", "dist/apps/relay/src/main.js"]
+ENTRYPOINT ["/app/codexer"]
+CMD ["serve"]

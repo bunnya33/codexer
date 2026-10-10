@@ -20,9 +20,9 @@
 
 ## 构建与本地文件
 
-服务器使用独立 `tsconfig.server.json`。每次构建先清空根 `dist`，只编译 Relay、6 个安装/运维脚本及其传递依赖；测试、桌面控制台、Agent 和开发验收程序不再进入服务器包。Docker 与源码导出使用同一配置。
+0.3.0 已移除全部 `apps/relay/src` Node 服务、旧 TypeScript 服务器管理/更新/安装脚本、`tsconfig.server.json` 及服务器专用的 Fastify、PGlite、pg、qrcode npm 依赖。服务、CLI 和升级器由 Go 实现。
 
-服务器打包脚本另有明确文件白名单：只复制 Relay、protocol/shared 和指定的 6 个脚本，即使开发时额外编译过测试或 Agent，也不会将这些产物混入服务器包。
+服务器构建仅用 Node 构建 React/React Native 页面和共享协议资源，再由 Go 内嵌。发布包白名单只包含执行文件、脚本、文档和版本标记，不带 Node 运行依赖。旧服务器内部测试移到原生 Go，客户端联调连接实际 Go 服务，见 [迁移与回归](go-migration.md)。
 
 文档目录不作为诊断输出目录。`check:live` 默认写入 `.local/diagnostics/live-evidence.json`；`.local` 被 Git、源码导出和服务器发布排除。已清除 `.local/desktop-work` 内的 Electron 下载 ZIP（约 158 MB），已安装的 Electron 运行文件保留。
 
@@ -35,7 +35,7 @@
 | `apps/pc-agent`、`packages/codex-adapter` | Electron 内置运行与官方 Codex 兼容层仍依赖 |
 | `packages/codex-generated` | 官方协议生成类型及其类型引用链，不是另一套客户端实现 |
 | React Native 的 `.web.*` 与原生同名文件 | 平台解析使用不同实现，不能按 Windows 当前构建删除原生适配 |
-| `scripts/local-services.ts`、`manage-users.ts`、验收/探测脚本 | 维护和开发仍有 npm 入口；不作为最终用户启动方案 |
+| `scripts/local-services.ts`、前端构建、验收/探测脚本 | 维护和开发仍有 npm 入口；不作为最终用户启动方案 |
 | `scripts/create-image-fixture.ps1` | 图片验收脚本仍使用对应本地测试图 |
 | 旧数据库兼容字段和迁移测试 | 升级保留旧账号/设备内容，同时拒绝旧令牌认证 |
 | `.local` 的设备数据、凭据、日志、隔离测试资料与安全调查副本 | 本地运行、回退与调查资料，不能按无用源码一并删除；不进入发布 |

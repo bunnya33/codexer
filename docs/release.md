@@ -40,7 +40,7 @@ npm run build:server
 npm run package:server
 ```
 
-输出 `release/codexer-server-0.2.7.tar.gz` 和 `.sha256`，包含 Relay 编译产物、控制端/后台静态文件、更新器、锁定依赖清单、安装器和文档。不含 node_modules、真实配置、旧 Git 历史或 Electron 二进制。服务器安装时自动装 Node/生产依赖，看到 bundle 标记后直接使用已构建网页。
+输出当前平台的 `release/codexer-server-0.3.0-<os>-<arch>.tar.gz` 和 `.sha256`。包内一个 Go 执行文件已内嵌控制端/后台资源及 Go 更新器，另带安装脚本和文档，不含 Node 运行依赖、真实配置、旧 Git 历史或 Electron。设置 `CODEXER_TARGETS=linux/amd64,linux/arm64,darwin/amd64,darwin/arm64` 可交叉构建四个平台包。
 
 同一个包同时升级 Admin 和 Relay，避免接口与 UI 不一致。安装、校验、回退见 [服务器安装](server-install.md)。源码的 Dockerfile 独立执行完整服务器构建，也跳过 Electron 下载。
 

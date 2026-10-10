@@ -15,7 +15,7 @@ const pages = [
   {id:'admins' as const, title:'后台管理员', subtitle:'独立管理后台访问权限', icon:ShieldCheck},
   {id:'settings' as const, title:'系统设置', subtitle:'登录策略与服务器更新', icon:Settings},
 ];
-const phases: Record<string,string> = {queued:'已加入更新队列，更新服务将在约 30 秒内开始',fetching:'正在拉取指定 tag…',fetched:'代码已拉取，等待确认构建',building:'正在服务器构建 Relay、Web 和 Admin…',built:'构建完成，等待确认重启',downloading:'正在下载服务器更新包…',verifying:'正在校验更新包…',installing:'正在安装运行依赖…',restarting:'正在重启服务器，连接将短暂中断…',succeeded:'服务器更新完成',failed:'更新失败，请检查更新服务日志','rolled-back':'更新未通过检查，已恢复之前的版本'};
+const phases: Record<string,string> = {queued:'已加入更新队列，更新服务将在约 30 秒内开始',fetching:'正在拉取指定 tag…',fetched:'代码已拉取，等待确认构建',building:'正在服务器构建 Relay、Web 和 Admin…',built:'构建完成，等待确认重启',downloading:'正在下载服务器更新包…',verifying:'正在校验更新包…',installing:'正在准备新服务器程序…',restarting:'正在重启服务器，连接将短暂中断…',succeeded:'服务器更新完成',failed:'更新失败，请检查更新服务日志','rolled-back':'更新未通过检查，已恢复之前的版本'};
 const warnings: Record<string,string> = {'no-published-release':'GitHub 暂无可安装的服务器 Release','release-assets-missing':'最新 Release 缺少服务器包或校验文件','github-rate-limited':'GitHub 请求额度已用完，请稍后重试','no-stable-tags':'仓库暂无 vX.Y.Z 稳定 tag','tag-check-failed':'GitHub tag 检查失败，请重试'};
 const running = (v: VersionInfo | null) => updateRunning(v?.job);
 

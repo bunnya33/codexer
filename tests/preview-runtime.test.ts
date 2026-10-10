@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { JSDOM } from 'jsdom';
 import { buildPreviewDocument } from '../packages/client-shared/src/preview-runtime.js';
-import { rewritePreviewContent } from '../apps/relay/src/previews/rewrite.js';
+import { rewritePreviewContent } from './go-preview.js';
 
 it('runs the dashboard interaction, restores state, applies Tweak changes and sends a feedback draft', async () => {
   const messages: Record<string, unknown>[]=[];

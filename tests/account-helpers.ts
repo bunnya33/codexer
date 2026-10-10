@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { RelayStore } from "../apps/relay/src/storage/store.js";
+import type { RelayStore } from "./go-relay.js";
 
 export const testPassword = "test-password-12345";
 export async function testAccount(store: RelayStore, name = "test", role: "admin" | "user" = "user") {
