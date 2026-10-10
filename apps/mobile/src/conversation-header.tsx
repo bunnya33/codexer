@@ -51,7 +51,7 @@ function AgentCard({ agent }: { agent: RemoteSubAgent }) {
         <ChevronDown size={14} color={c.muted} style={expanded ? s.rotated : undefined} />
       </Pressable>
       <Text selectable numberOfLines={expanded ? undefined : 3} style={hs.task}>
-        {agent.task || "尚未同步任务说明"}
+        {agent.task || "当前 Codex 记录未提供任务正文"}
       </Text>
       <Text style={hs.source}>{agent.statusSource === "thread" ? "会话状态" : "最近活动记录"}</Text>
       {expanded && (
@@ -69,7 +69,7 @@ function AgentCard({ agent }: { agent: RemoteSubAgent }) {
               </Text>
             </>
           )}
-          {!agent.message && <Text style={hs.source}>暂无同步消息</Text>}
+          {!agent.message && <Text style={hs.source}>当前记录没有可读取的消息</Text>}
           {agent.truncated && <Text style={hs.source}>长任务或消息仅显示部分内容。</Text>}
         </View>
       )}
