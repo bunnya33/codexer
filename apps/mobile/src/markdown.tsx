@@ -7,6 +7,7 @@ import { CodeBlock } from './code-block';
 import { DrawerSwipeBlock } from './drawer-swipe-block';
 import { localFilePath } from '../../../packages/client-shared/src/file-links';
 import { useFileLink } from './file-link-context';
+import { PreviewContent } from './preview-content';
 
 const parser = new MarkdownIt({ html: false, linkify: true, breaks: true }).use(taskLists, { enabled: false });
 const originalValidate = parser.validateLink.bind(parser);
@@ -112,6 +113,10 @@ function blocks(tokens: Token[], prefix = 'b', onFile?: (path: string) => void):
 }
 
 export function Markdown({ children }: { children: string }) {
+  return <PreviewContent source={children} renderText={text => <MarkdownText>{text}</MarkdownText>} />;
+}
+
+function MarkdownText({ children }: { children: string }) {
   const onFile = useFileLink();
   const parsed = useMemo(() => {
     const validate = parser.validateLink;

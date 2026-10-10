@@ -16,6 +16,7 @@ import { UsageJournal } from "./usage.js";
 import { validateRelayUrl } from "./auth.js";
 import { ImageRegistry } from "../../../packages/codex-adapter/src/images.js";
 import { FileRegistry } from "../../../packages/codex-adapter/src/files.js";
+import { PreviewAgent, PreviewRegistry } from '../../../packages/codex-adapter/src/previews.js';
 import { fileRequestSchema, fileResponseSchema } from "../../../packages/protocol/src/files.js";
 import { imageRequestSchema } from "../../../packages/protocol/src/index.js";
 import { decodeImage } from "../../../packages/shared/src/images.js";
@@ -33,6 +34,7 @@ export class PcAgent extends EventEmitter {
   private readonly imageQueue = new SerialQueue();
   private readonly fileQueue = new SerialQueue();
   private readonly files = new FileRegistry();
+  private readonly previews = new PreviewRegistry();
   private readonly images = new ImageRegistry();
   private readonly switchQueue = new SerialQueue();
   private socket: WebSocket | null = null;
@@ -82,6 +84,7 @@ export class PcAgent extends EventEmitter {
       const parsed = threadSchema.safeParse(this.withQueue(this.usageJournal.enrichThread(thread)));
       if (!parsed.success) { this.log("incompatible-runtime-state"); return; }
       this.files.observe(parsed.data);
+      this.previews.observe(parsed.data);
       this.pendingThreads.set(thread.id, parsed.data);
       void this.writeStatus();
       if (!this.flushTimer) this.flushTimer = setTimeout(() => this.flush(), 400);
@@ -394,6 +397,12 @@ export class PcAgent extends EventEmitter {
     this.socket = socket;
     let openedAt = 0;
     const current = () => !this.stopped && !this.remotePaused && this.socket === socket;
+    const previewAgent = new PreviewAgent(this.previews, message => {
+      if (!current() || socket.readyState !== WebSocket.OPEN) return false;
+      if (socket.bufferedAmount > 16 * 1024 * 1024) return false;
+      socket.send(JSON.stringify(message)); return true;
+    }, threadId => current() && !!this.catalog?.threads.some(thread => thread.id === threadId && !thread.archived));
+    socket.once('close', () => previewAgent.close());
     socket.on("open", () => {
       if (!current()) { socket.close(); return; }
       openedAt = Date.now();
@@ -419,7 +428,7 @@ export class PcAgent extends EventEmitter {
       let message: { type?: string; command?: unknown; requestId?: unknown; threadId?: unknown; cursor?: unknown; features?: unknown };
       try { message = JSON.parse(bytes.toString()) as typeof message; } catch { socket.close(1008, "invalid-message"); return; }
       if (message.type === "device.welcome") {
-        if (Array.isArray(message.features) && message.features.includes("files")) this.send({ type: "device.capabilities", features: ["files"] });
+        if (Array.isArray(message.features) && message.features.includes("files")) this.send({ type: "device.capabilities", features: ['files', ...(message.features.includes('previews') ? ['previews'] : [])] });
         this.relayError = null;
         this.log("relay-connected");
         void this.writeStatus();
@@ -429,6 +438,10 @@ export class PcAgent extends EventEmitter {
         return;
       }
       if (message.type === "device.resync") { this.send({ type: "device.snapshot", snapshot: this.state }); return; }
+      if (message.type?.startsWith('preview.')) {
+        if (!previewAgent.handle(message)) socket.close(1008, 'invalid-preview-request');
+        return;
+      }
       if (message.type === "history.request") {
         const request = historyRequestSchema.safeParse(message);
         if (!request.success) { socket.close(1008, "invalid-history-request"); return; }
@@ -443,7 +456,7 @@ export class PcAgent extends EventEmitter {
             const page = this.usageJournal.enrichHistory(await (this.headlessThreads.has(threadId) && this.headless
               ? this.headless.history(threadId, cursor)
               : this.catalogReader.history(threadId, cursor, this.images)));
-            for (const turn of page.turns) this.files.observeTurn(threadId, turn);
+            for (const turn of page.turns) { this.files.observeTurn(threadId, turn); this.previews.observeTurn(threadId, turn); }
             if (current()) this.send({ type: "device.history", requestId, threadId, page, code: null });
           } catch {
             if (current()) this.send({ type: "device.history", requestId, threadId, page: null, code: "history-unavailable" });

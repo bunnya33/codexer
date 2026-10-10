@@ -3,8 +3,13 @@ import { renderMarkdown } from '../../../packages/client-shared/src/markdown';
 import { copyText } from './runtime';
 import './markdown.web.css';
 import { useFileLink } from './file-link-context';
+import { PreviewContent } from './preview-content';
 
 export function Markdown({ children }: { children: string }) {
+  return <PreviewContent source={children} renderText={text => <MarkdownText>{text}</MarkdownText>} />;
+}
+
+function MarkdownText({ children }: { children: string }) {
   const onFile = useFileLink();
   const html = useMemo(() => renderMarkdown(children, undefined, !!onFile), [children, onFile]);
   return <div className="codexer-markdown" dangerouslySetInnerHTML={{ __html: html }} onClick={event => {

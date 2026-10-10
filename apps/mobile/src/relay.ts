@@ -7,6 +7,7 @@ import type { ThreadNotification } from '../../../packages/protocol/src/weixin';
 import { mergeTurnHistory } from '../../../packages/client-shared/src/activity';
 import { fileInfoSchema } from '../../../packages/protocol/src/files';
 import type { FileInfo } from '../../../packages/protocol/src/files';
+import type { WidgetState } from '../../../packages/client-shared/src/previews';
 
 export type Device = { id: string; name: string; platform: string; online: boolean; owner_user_id?: string | null; last_seen_at?: number | string | null };
 export type HistoryState = { turns: HistoryTurn[]; nextCursor: string | null; loading: boolean; error?: string };
@@ -487,6 +488,35 @@ export class RelayClient {
   fileSource(deviceId: string, threadId: string, path: string, version: string) {
     if (!this.view.url || !this.token) throw new Error('连接已断开');
     return { uri: `${this.view.url}/v1/devices/${encodeURIComponent(deviceId)}/threads/${encodeURIComponent(threadId)}/files/content?path=${encodeURIComponent(path)}&version=${encodeURIComponent(version)}`, headers: { authorization: `Bearer ${this.token}` } };
+  }
+
+  previewStateKey(deviceId: string, threadId: string, source: string): string {
+    // Separate saved previews by login session without writing a credential into storage keys.
+    let hash = 2166136261;
+    for (const char of this.token) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
+    return JSON.stringify([this.view.url, (hash >>> 0).toString(16), deviceId, threadId, source]);
+  }
+
+  async openPreview(deviceId: string, threadId: string, url: string, channel: string, state: WidgetState | null, signal: AbortSignal): Promise<string> {
+    const result = await this.api<{ path: string; expiresAt: number }>(`/v1/devices/${encodeURIComponent(deviceId)}/threads/${encodeURIComponent(threadId)}/previews`, {url, channel, state}, 'POST', false, signal);
+    if (!/^\/v1\/previews\/[a-f0-9]{64}\//.test(result.path)) throw new Error('预览地址无效');
+    const source = this.view.url + result.path;
+    try {
+      const response = await fetch(source, { signal });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(error.error ?? '本地网页暂不可用');
+      }
+      await response.body?.cancel();
+      return source;
+    } catch (error) { void this.closePreview(source).catch(() => {}); throw error; }
+  }
+
+  async closePreview(source: string): Promise<void> {
+    const url=new URL(source);
+    if (url.origin!==new URL(this.view.url).origin) return;
+    const match=url.pathname.match(/^\/v1\/previews\/([a-f0-9]{64})\//);
+    if (match) await this.api(`/v1/previews/${match[1]}`,undefined,'DELETE');
   }
 
   async revokeDevice(id: string) { await this.api(`/v1/devices/${encodeURIComponent(id)}`, undefined, 'DELETE'); await this.refreshDevices(); }

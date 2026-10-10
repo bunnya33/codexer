@@ -7,6 +7,7 @@ import { fileName, localFilePath } from "../../client-shared/src/file-links.js";
 import { FILE_CHUNK_BYTES, MAX_FILE_BYTES } from "../../protocol/src/files.js";
 import type { FilePayload } from "../../protocol/src/files.js";
 import type { HistoryTurn, RemoteThread } from "../../protocol/src/index.js";
+import { previewReferences } from "../../client-shared/src/previews.js";
 
 const parser = new MarkdownIt({ html: false });
 parser.validateLink = (value) => localFilePath(value) !== null;
@@ -22,17 +23,25 @@ export class FileRegistry {
     for (const item of turn.items) {
       if (!["agentMessage", "userMessage", "steeringUserMessage"].includes(item.type) || !item.text)
         continue;
+      for (const preview of previewReferences(item.text)) {
+        if (preview.kind !== 'html' || !isAbsolute(preview.source)) continue;
+        this.register(threadId, preview.source);
+      }
       for (const token of parser.parse(item.text, {}))
         for (const child of token.children ?? []) {
           if (child.type !== "link_open") continue;
           const path = localFilePath(String(child.attrGet("href") ?? ""));
           if (!path || !isAbsolute(path) || path.length > 4096) continue;
-          const key = JSON.stringify([threadId, path]);
-          this.sources.delete(key);
-          while (this.sources.size >= 10000) this.sources.delete(this.sources.keys().next().value!);
-          this.sources.set(key, path);
+          this.register(threadId, path);
         }
     }
+  }
+
+  private register(threadId: string, path: string): void {
+    const key = JSON.stringify([threadId, path]);
+    this.sources.delete(key);
+    while (this.sources.size >= 10000) this.sources.delete(this.sources.keys().next().value!);
+    this.sources.set(key, path);
   }
 
   async read(

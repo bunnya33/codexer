@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { fileResponseSchema } from "./files.js";
+import { previewResponseSchema } from './previews.js';
 
 export const PROTOCOL_VERSION = 1;
 export const MAX_MESSAGE_BYTES = 8 * 1024 * 1024;
@@ -231,7 +232,8 @@ export const resultSchema = z.object({
 export type CommandResult = z.infer<typeof resultSchema>;
 
 export const deviceMessageSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("device.capabilities"), features: z.array(z.enum(["files"])).max(1) }),
+  z.object({ type: z.literal("device.capabilities"), features: z.array(z.enum(["files", "previews"])).max(2) }),
+  previewResponseSchema,
   fileResponseSchema,
   z.object({ type: z.literal("device.snapshot"), snapshot: snapshotSchema }),
   z.object({ type: z.literal("device.event"), event: eventSchema }),

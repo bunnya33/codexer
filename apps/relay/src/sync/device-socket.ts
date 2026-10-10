@@ -68,7 +68,7 @@ export function registerSyncDeviceSocket(app: FastifyInstance, context: RelayCon
             type: "device.welcome",
             deviceId,
             protocolVersion: PROTOCOL_VERSION,
-            features: ["catalog", "history", "images", "files"],
+            features: ["catalog", "history", "images", "files", "previews"],
           });
           broadcast(deviceId, { type: "device.presence", deviceId, online: true });
         })
@@ -89,6 +89,12 @@ export function registerSyncDeviceSocket(app: FastifyInstance, context: RelayCon
           socket.close(1008, "invalid-message");
           return;
         }
+        if (message.type === "device.preview") {
+          if (agents.get(deviceId) !== connection || context.closing) return;
+          const pending = context.connections.pendingPreviews.get(message.requestId);
+          if (pending?.deviceId === deviceId) pending.accept(message);
+          return;
+        }
         void queue
           .runDevice(deviceId, async () => {
             if (context.closing) return;
@@ -99,6 +105,7 @@ export function registerSyncDeviceSocket(app: FastifyInstance, context: RelayCon
             }
             if (message.type === "device.capabilities") {
               connection.filesSupported = message.features.includes("files");
+              connection.previewsSupported = message.features.includes("previews");
             } else if (message.type === "device.file") {
               const pending = pendingFiles.get(message.requestId);
               if (

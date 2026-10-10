@@ -14,6 +14,7 @@ import { MAX_IMAGES, MAX_IMAGE_BYTES } from '../../packages/protocol/src/index';
 import type { HistoryTurn, RemoteCommand } from '../../packages/protocol/src/index';
 import { FileChangesPanel, RequestPanel, TurnView } from './src/conversation';
 import { FileViewerProvider } from './src/file-viewer';
+import { PreviewContext } from './src/preview-context';
 import { ConversationHeader } from './src/conversation-header';
 import { conversationSubAgents } from '../../packages/client-shared/src/sub-agents';
 import { ImageViewer } from './src/image-viewer';
@@ -277,7 +278,7 @@ function AppContent() {
   const settings = thread?.settings ?? summary?.settings;
   const model = catalog?.models?.find(option => option.model === settings?.model);
   return <View style={s.safe}><StatusBar style="dark" />
-    <FileViewerProvider deviceId={deviceId} threadId={threadId}><ConversationDrawer wide={wide} open={drawerOpen} onOpenChange={setDrawerOpen} directory={directory}>
+    <FileViewerProvider deviceId={deviceId} threadId={threadId}><PreviewContext.Provider value={{deviceId, threadId}}><ConversationDrawer wide={wide} open={drawerOpen} onOpenChange={setDrawerOpen} directory={directory}>
     <SafeAreaView style={s.page} edges={['top', 'left', 'right', 'bottom']}>
     <KeyboardAvoidingView style={s.page} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <DrawerSwipeArea>
@@ -324,7 +325,7 @@ function AppContent() {
       </View>
     </KeyboardAvoidingView>
     </SafeAreaView>
-    </ConversationDrawer></FileViewerProvider>
+    </ConversationDrawer></PreviewContext.Provider></FileViewerProvider>
     <Modal visible={!!actionThread} transparent animationType="fade" onRequestClose={() => { setActionThread(null); setRenaming(false); }}>
       <Pressable style={s.backdrop} onPress={() => { setActionThread(null); setRenaming(false); }}>
         <Pressable style={[s.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]} onPress={event => event.stopPropagation()}>

@@ -3,6 +3,7 @@ import { MAX_MESSAGE_BYTES } from "../../../../packages/protocol/src/index.js";
 import type { HistoryPage } from "../../../../packages/protocol/src/index.js";
 import type { ImagePayload } from "../../../../packages/protocol/src/index.js";
 import type { FilePayload } from "../../../../packages/protocol/src/files.js";
+import type { PreviewResponse } from "../../../../packages/protocol/src/previews.js";
 import type { Principal } from "../auth/types.js";
 import { HttpError } from "../core/errors.js";
 import { performance } from "node:perf_hooks";
@@ -13,6 +14,7 @@ export type AgentConnection = {
   lastPong: number;
   principal: Principal;
   filesSupported?: boolean;
+  previewsSupported?: boolean;
 };
 
 export type ClientConnection = {
@@ -61,6 +63,16 @@ export function createConnections(metrics?: RelayMetrics) {
   const pendingHistory = new Map<string, PendingHistory>();
   const pendingImages = new Map<string, PendingImage>();
   const pendingFiles = new Map<string, PendingFile>();
+  const pendingPreviews = new Map<
+    string,
+    {
+      deviceId: string;
+      principal: Principal;
+      token: string;
+      accept: (message: PreviewResponse) => void;
+      reject: (error: Error) => void;
+    }
+  >();
   const subscribers = new Map<string, Set<ClientConnection>>();
 
   function send(socket: WebSocket, message: unknown): boolean {
@@ -131,6 +143,11 @@ export function createConnections(metrics?: RelayMetrics) {
   }
 
   function failHistory(deviceId: string, status: number, code: string): void {
+    for (const [id, pending] of pendingPreviews)
+      if (pending.deviceId === deviceId) {
+        pendingPreviews.delete(id);
+        pending.reject(new HttpError(status, code));
+      }
     for (const [id, pending] of pendingFiles)
       if (pending.deviceId === deviceId) {
         clearTimeout(pending.timer);
@@ -152,6 +169,11 @@ export function createConnections(metrics?: RelayMetrics) {
   }
 
   function closeSessions(matches: (principal: Principal) => boolean, reason: string) {
+    for (const [id, pending] of pendingPreviews)
+      if (matches(pending.principal)) {
+        pendingPreviews.delete(id);
+        pending.reject(new HttpError(401, reason));
+      }
     for (const client of clients)
       if (client.principal && matches(client.principal)) {
         removeClient(client);
@@ -172,6 +194,7 @@ export function createConnections(metrics?: RelayMetrics) {
     pendingHistory,
     pendingImages,
     pendingFiles,
+    pendingPreviews,
     send,
     broadcast,
     broadcastAccount,

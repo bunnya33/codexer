@@ -123,6 +123,9 @@ export function registerLifecycle(app: FastifyInstance, context: RelayContext): 
       pending.reject(new HttpError(503, "relay-closing"));
     }
     pendingFiles.clear();
+    for (const pending of context.connections.pendingPreviews.values())
+      pending.reject(new HttpError(503, "relay-closing"));
+    context.connections.pendingPreviews.clear();
     await queue.drain();
   });
 
