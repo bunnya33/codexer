@@ -4,11 +4,11 @@
 
 ## 发布包安装
 
-选择与服务器匹配的 Linux 发布包，例如 x86_64 使用 `codexer-server-0.3.0-linux-amd64.tar.gz`，aarch64 使用 `linux-arm64`。上传包及校验文件：
+选择与服务器匹配的 Linux 发布包，例如 x86_64 使用 `codexer-server-0.3.1-linux-amd64.tar.gz`，aarch64 使用 `linux-arm64`。上传包及校验文件：
 
 ```bash
-sha256sum -c codexer-server-0.3.0-linux-amd64.tar.gz.sha256
-tar -xzf codexer-server-0.3.0-linux-amd64.tar.gz
+sha256sum -c codexer-server-0.3.1-linux-amd64.tar.gz.sha256
+tar -xzf codexer-server-0.3.1-linux-amd64.tar.gz
 cd codexer
 sudo bash install.sh
 ```
@@ -22,6 +22,8 @@ sudo env CODEXER_PUBLIC_URL=http://203.0.113.10:8899 bash install.sh
 示例 IP 需替换为自己的地址。首次生成的管理员密码会在安装时显示；配置位于 `/etc/codexer/relay.env`。后台地址是 `/admin/`，控制端是 `/`。防火墙放行选定端口。普通控制账号在后台创建。
 
 Release 安装不安装 Node。若启用 Git tag 在线构建，需要预先安装 Go、Node、npm、Git，并设置 `CODEXER_GIT_UPDATES=1`；构建运行于专用受限账号。
+
+0.3.1 安装器会自动恢复 `codexer` 的执行权限，复制/解压丢失权限时仍直接使用发布包。目录不完整时提示重新解压，不会误要求安装编译工具。已有 0.3.0 包遇到“从源码构建需要 Go”时，先在包目录执行 `chmod 755 ./codexer`，再运行包内 `install.sh`；同时确认 `server-bundle.json` 存在。
 
 ## 首次从 Node 升级
 
@@ -52,7 +54,7 @@ CODEXER_TARGETS=linux/amd64,linux/arm64,darwin/amd64,darwin/arm64 npm run packag
 从仓库指定稳定 tag 安装：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bunnya33/codexer/v0.3.0/bootstrap.sh | sudo env CODEXER_REPO_URL=https://github.com/bunnya33/codexer.git CODEXER_REF=v0.3.0 bash
+curl -fsSL https://raw.githubusercontent.com/bunnya33/codexer/v0.3.1/bootstrap.sh | sudo env CODEXER_REPO_URL=https://github.com/bunnya33/codexer.git CODEXER_REF=v0.3.1 bash
 ```
 
 此命令需要对应 tag 已发布，并已具备构建工具。bootstrap 也支持明确传入 `CODEXER_ARCHIVE_URL` 和 `CODEXER_ARCHIVE_SHA256` 安装现成发布包。

@@ -2,19 +2,28 @@
 set -Eeuo pipefail
 source_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 fail() { echo "安装失败：$*" >&2; exit 1; }
+select_runtime() {
+  if [[ -f $source_dir/codexer ]]; then
+    [[ ! -L $source_dir/codexer ]] || fail "发布包执行文件不能是符号链接"
+    chmod 0755 "$source_dir/codexer" || fail "无法设置执行权限，请将发布包解压到可执行的本地目录"
+    binary=$source_dir/codexer
+  elif [[ -e $source_dir/server-bundle.json || -e $source_dir/VERSION ]]; then
+    fail "发布包缺少 codexer 执行文件，请完整解压与服务器架构匹配的 Linux 发布包；不需要安装 Go 或 Node"
+  elif [[ -f $source_dir/package.json && -f $source_dir/go.mod && -f $source_dir/cmd/codexer/main.go && -f $source_dir/scripts/build-server.mjs ]]; then
+    command -v go >/dev/null && command -v node >/dev/null && command -v npm >/dev/null || fail "当前目录是源码：构建需要 Go >=1.26、Node >=22.13 和 npm；无需编译请下载 codexer-server-版本-linux-架构.tar.gz 发布包"
+    (cd "$source_dir" && ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci && npm run build:server)
+    binary=$source_dir/dist/codexer
+  else
+    fail "当前目录没有 codexer 执行文件或完整源码，请完整解压 Linux 发布包，并使用包内的 install.sh；不需要安装 Go 或 Node"
+  fi
+}
 [[ $(uname -s) == Linux && $EUID -eq 0 ]] || fail "请在 Linux 上以 root 运行：sudo bash install.sh"
 [[ -d /run/systemd/system ]] || fail "需要正在运行的 systemd"
 case $(uname -m) in x86_64|aarch64) ;; *) fail "仅支持 x86_64 和 aarch64" ;; esac
 for tool in install cp flock useradd tar readlink; do command -v "$tool" >/dev/null || fail "缺少 $tool"; done
 exec 9>/run/codexer-install.lock
 flock -n 9 || fail "另一个安装或更新正在进行"
-if [[ -x $source_dir/codexer && -f $source_dir/server-bundle.json ]]; then
-  binary=$source_dir/codexer
-else
-  command -v go >/dev/null && command -v node >/dev/null && command -v npm >/dev/null || fail "从源码构建需要 Go >=1.26、Node >=22.13 和 npm；安装发布包无需这些工具"
-  (cd "$source_dir" && ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci && npm run build:server)
-  binary=$source_dir/dist/codexer
-fi
+select_runtime
 version=$("$binary" version) || fail "发布包架构不适合这台服务器"
 [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "无效的发布版本"
 app_root=/opt/codexer
