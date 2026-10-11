@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Crosshair, Maximize2, MessageSquare, Minimize2, RefreshCw, SlidersHorizontal, X } from 'lucide-react-native';
 import { buildPreviewDocument } from '../../../packages/client-shared/src/preview-runtime';
 import { MAX_PREVIEW_HTML_BYTES, previewControls, previewFeedback, restoredControlValue, widgetState } from '../../../packages/client-shared/src/previews';
@@ -35,7 +35,7 @@ export function PreviewCard({ reference, deviceId, threadId }: { reference: Prev
     alive.current = true;
     const abort = new AbortController(), nextChannel = randomId(); active.current = nextChannel;
     let serverSource: string | undefined;
-    setLoading(true); setError(''); setDocument(undefined); setUrl(undefined); setControls([]); setChannel(nextChannel); setAnnotating(false); setSelection(null);
+    setLoading(true); setHeight(280); setError(''); setDocument(undefined); setUrl(undefined); setControls([]); setChannel(nextChannel); setAnnotating(false); setSelection(null);
     void (async () => {
       try {
         await storageWrites.current.catch(() => {});
@@ -100,7 +100,7 @@ export function PreviewCard({ reference, deviceId, threadId }: { reference: Prev
     } catch (error) { relay.showNotice(error instanceof Error ? error.message : '反馈发送失败'); }
     finally { setSending(false); }
   };
-  const content = <View style={ps.card}>
+  const content = <View style={[ps.card, expanded && ps.fullCard]}>
     <View style={ps.header}><Text style={ps.title} numberOfLines={1}>{reference.title}</Text><View style={ps.actions}>
       <Pressable accessibilityRole="button" accessibilityLabel="刷新预览" onPress={() => setRevision(value => value + 1)} style={ps.icon}><RefreshCw size={16} color={c.muted} /></Pressable>
       <Pressable accessibilityRole="button" accessibilityLabel="调整预览参数" onPress={() => setTweaking(value => !value)} style={ps.icon}><SlidersHorizontal size={16} color={tweaking ? c.accent : c.muted} /></Pressable>
@@ -110,25 +110,27 @@ export function PreviewCard({ reference, deviceId, threadId }: { reference: Prev
     </View></View>
     {annotating && <View style={ps.annotation}><Text style={ps.link}>点击预览中的元素，选择要调整的位置。</Text></View>}
     {selection && <View style={ps.annotation}><Text style={ps.muted}>已选择 {selection.tag}：{selection.text || selection.selector}</Text><Pressable accessibilityRole="button" onPress={() => setFeedback('')}><Text style={ps.link}>反馈这个元素</Text></Pressable></View>}
-    {loading ? <View style={ps.status}><ActivityIndicator color={c.accent} /><Text style={ps.muted}>正在从电脑加载预览…</Text></View> : error ? <View style={ps.status}><Text style={ps.error}>{error}</Text><Pressable accessibilityRole="button" onPress={() => setRevision(value => value + 1)}><Text style={ps.link}>重试</Text></Pressable></View> : <PreviewSurface surfaceRef={surface} document={document} url={url} channel={channel} height={height} title={reference.title} onMessage={receive} />}
-    {tweaking && <View style={ps.tweaks}><Text style={ps.group}>Tweak · 参数调节</Text>{!controls.length && <Text style={ps.muted}>这个预览没有提供可调参数。可以通过“反馈给 Codex”描述希望增加的控件。</Text>}{controls.map(control => <View key={control.id} style={ps.control}>
+    <View style={expanded && ps.fullPreview}>
+      {loading ? <View style={[ps.status, expanded && ps.fullStatus]}><ActivityIndicator color={c.accent} /><Text style={ps.muted}>正在从电脑加载预览…</Text></View> : error ? <View style={[ps.status, expanded && ps.fullStatus]}><Text style={ps.error}>{error}</Text><Pressable accessibilityRole="button" onPress={() => setRevision(value => value + 1)}><Text style={ps.link}>重试</Text></Pressable></View> : <PreviewSurface key={channel} surfaceRef={surface} document={document} url={url} channel={channel} height={height} expanded={expanded} title={reference.title} onMessage={receive} />}
+    </View>
+    {tweaking && <ScrollView style={[ps.tweakScroll, expanded && ps.fullTweaks]} contentContainerStyle={ps.tweaks}><Text style={ps.group}>Tweak · 参数调节</Text>{!controls.length && <Text style={ps.muted}>这个预览没有提供可调参数。可以通过“反馈给 Codex”描述希望增加的控件。</Text>}{controls.map(control => <View key={control.id} style={ps.control}>
       <View style={ps.controlHead}><Text style={ps.label}>{control.group} · {control.label}</Text><Text style={ps.muted}>{control.kind === 'toggle' ? '' : String(control.value)}</Text></View>
       {control.kind === 'slider' ? <PreviewRange label={control.label} value={Number(control.value)} min={control.min ?? 0} max={control.max ?? 100} step={control.step ?? 1} onChange={value => change(control, value)} /> : control.kind === 'toggle' ? <Switch accessibilityLabel={control.label} value={!!control.value} onValueChange={value => change(control, value)} /> : control.kind === 'select' ? <View style={ps.options}>{control.options?.map(option => <Pressable key={option.value} accessibilityRole="button" accessibilityState={{ selected: option.value === control.value }} onPress={() => change(control, option.value)} style={[ps.option, option.value === control.value && ps.selected]}><Text style={ps.label}>{option.label}</Text></Pressable>)}</View> : <PreviewColor label={control.label} value={String(control.value)} onChange={value => change(control,value)} />}
-    </View>)}{!!controls.length && <View style={ps.options}><Pressable accessibilityRole="button" onPress={() => { controls.forEach(control => change(control, control.initial)); }} style={ps.option}><Text style={ps.label}>恢复初始参数</Text></Pressable><Pressable accessibilityRole="button" onPress={() => setFeedback('请将当前参数调整应用到源文件。')} style={ps.option}><Text style={ps.link}>将调整反馈给 Codex</Text></Pressable></View>}</View>}
+    </View>)}{!!controls.length && <View style={ps.options}><Pressable accessibilityRole="button" onPress={() => { controls.forEach(control => change(control, control.initial)); }} style={ps.option}><Text style={ps.label}>恢复初始参数</Text></Pressable><Pressable accessibilityRole="button" onPress={() => setFeedback('请将当前参数调整应用到源文件。')} style={ps.option}><Text style={ps.link}>将调整反馈给 Codex</Text></Pressable></View>}</ScrollView>}
   </View>;
   return <>
     {!expanded && content}
-    <Modal visible={expanded} animationType="fade" onRequestClose={() => setExpanded(false)}><SafeAreaView style={ps.full}><ScrollView contentContainerStyle={ps.fullContent}>{expanded && content}</ScrollView></SafeAreaView></Modal>
+    <Modal visible={expanded} animationType="fade" onRequestClose={() => { setExpanded(false); setRevision(value => value + 1); }}><SafeAreaProvider style={ps.full}><SafeAreaView style={ps.full} edges={['top', 'bottom']}>{expanded && content}</SafeAreaView></SafeAreaProvider></Modal>
     <Modal visible={feedback !== null} transparent animationType="fade" onRequestClose={() => { if (!sending) setFeedback(null); }}><View style={ps.backdrop}><View style={ps.dialog}><View style={ps.header}><Text style={ps.title}>反馈给 Codex</Text><Pressable accessibilityRole="button" accessibilityLabel="关闭反馈" disabled={sending} onPress={() => setFeedback(null)} style={ps.icon}><X size={18} color={c.muted} /></Pressable></View><ScrollView><TextInput accessibilityLabel="预览反馈内容" multiline value={feedback ?? ''} onChangeText={setFeedback} placeholder="描述希望修改的地方…" style={[ps.field, ps.feedback]} /><Text style={ps.muted}>会附上当前交互选择和参数调整，发送到当前会话。</Text>{controls.some(control => control.value !== control.initial) && <Text style={ps.context}>{controls.filter(control => control.value !== control.initial).map(control => `${control.label}：${control.initial} → ${control.value}`).join('\n')}</Text>}</ScrollView><Pressable accessibilityRole="button" disabled={sending || !feedback?.trim() && !controls.some(control => control.value !== control.initial)} onPress={() => void sendFeedback()} style={[ps.send, sending && { opacity: .5 }]}><Text style={ps.sendText}>{sending ? '正在发送…' : '发送反馈'}</Text></Pressable></View></View></Modal>
   </>;
 }
 const ps = StyleSheet.create({
   card: { width: '100%', borderWidth: 1, borderColor: c.line, borderRadius: 10, overflow: 'hidden', backgroundColor: c.surface, marginVertical: 10 },
-  header: { minHeight: 45, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: 1, borderColor: c.line },
-  title: { color: c.text, fontSize: 13, fontWeight: '600', flex: 1 }, actions: { flexDirection: 'row' }, icon: { width: 36, height: 40, alignItems: 'center', justifyContent: 'center' },
+  header: { minHeight: 45, paddingHorizontal: 10, flexShrink: 0, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: 1, borderColor: c.line },
+  title: { color: c.text, fontSize: 13, fontWeight: '600', flex: 1, minWidth: 0 }, actions: { flexDirection: 'row', flexShrink: 0 }, icon: { width: 36, height: 40, alignItems: 'center', justifyContent: 'center' },
   status: { padding: 22, gap: 12, alignItems: 'center' }, annotation: {padding:10,gap:6,backgroundColor:c.soft}, muted: { color: c.muted, fontSize: 12 }, error: { color: c.danger, fontSize: 13 }, link: { color: c.accent, fontSize: 13 },
-  tweaks: { borderTopWidth: 1, borderColor: c.line, padding: 14, gap: 12 }, group: { fontSize: 13, fontWeight: '600', color: c.text }, control: { gap: 6 }, controlHead: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 }, label: { color: c.text, fontSize: 12, flexShrink: 1 },
+  tweakScroll: { flexGrow: 0, flexShrink: 0 }, fullTweaks: { maxHeight: '40%', flexShrink: 1 }, tweaks: { borderTopWidth: 1, borderColor: c.line, padding: 14, gap: 12 }, group: { fontSize: 13, fontWeight: '600', color: c.text }, control: { gap: 6 }, controlHead: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 }, label: { color: c.text, fontSize: 12, flexShrink: 1 },
   options: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 }, option: { borderWidth: 1, borderColor: c.line, borderRadius: 6, padding: 10 }, selected: { backgroundColor: c.soft, borderColor: c.accent },
   field: { borderWidth: 1, borderColor: c.line, borderRadius: 7, padding: 10, color: c.text, fontSize: 14 }, feedback: { minHeight: 110, textAlignVertical: 'top', marginVertical: 14 }, context: { fontSize: 12, color: c.text, marginTop: 10 },
-  full: { flex: 1, backgroundColor: c.surface }, fullContent: { padding: 12 }, backdrop: { flex: 1, backgroundColor: '#0005', justifyContent: 'center', alignItems: 'center', padding: 20 }, dialog: { width: '100%', maxWidth: 560, maxHeight: '85%', borderRadius: 12, padding: 14, backgroundColor: c.surface }, send: { padding: 12, borderRadius: 7, backgroundColor: c.accent, alignItems: 'center', marginTop: 16 }, sendText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  full: { flex: 1, minHeight: 0, backgroundColor: c.surface }, fullCard: { flex: 1, minHeight: 0, marginVertical: 0, borderWidth: 0, borderRadius: 0 }, fullPreview: { flex: 1, minHeight: 0, minWidth: 0 }, fullStatus: { flex: 1, justifyContent: 'center' }, backdrop: { flex: 1, backgroundColor: '#0005', justifyContent: 'center', alignItems: 'center', padding: 20 }, dialog: { width: '100%', maxWidth: 560, maxHeight: '85%', borderRadius: 12, padding: 14, backgroundColor: c.surface }, send: { padding: 12, borderRadius: 7, backgroundColor: c.accent, alignItems: 'center', marginTop: 16 }, sendText: { color: '#fff', fontSize: 14, fontWeight: '600' },
 });

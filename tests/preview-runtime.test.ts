@@ -1,7 +1,46 @@
 import { expect, it } from 'vitest';
 import { JSDOM } from 'jsdom';
-import { buildPreviewDocument } from '../packages/client-shared/src/preview-runtime.js';
+import { buildPreviewDocument, nativePreviewShell } from '../packages/client-shared/src/preview-runtime.js';
 import { rewritePreviewContent } from './go-preview.js';
+
+it.each([false, true])('keeps native fullscreen previews at viewport height while forwarding interactions (remote=%s)', remote => {
+  const messages: Record<string, unknown>[] = [];
+  const dom = new JSDOM(nativePreviewShell(remote ? 'https://relay.example/preview/' : '<button>内容</button>', 'viewport', remote, true), {
+    runScripts: 'dangerously',
+    beforeParse(window) { Object.assign(window, { ReactNativeWebView: { postMessage: (value: string) => messages.push(JSON.parse(value)) } }); },
+  });
+  try {
+    const { window } = dom;
+    const frame = window.document.querySelector('iframe')!;
+    const receive = (data: Record<string, unknown>, source = frame.contentWindow as unknown as Window) => window.dispatchEvent(new window.MessageEvent('message', { source, data }));
+    receive({ channel: 'viewport', type: 'height', height: 120 });
+    receive({ channel: 'viewport', type: 'height', height: 2400 });
+    expect(window.getComputedStyle(frame).height).toBe('100%');
+    const state = { channel: 'viewport', type: 'state', id: 'save', state: { modelContent: { count: 2 }, privateContent: null } };
+    receive(state);
+    expect(messages).toContainEqual(state);
+    receive({ channel: 'wrong', type: 'state' });
+    receive(state, window as unknown as Window);
+    expect(messages).toHaveLength(3);
+    expect(frame.getAttribute('sandbox')).toBe('allow-scripts allow-forms');
+    expect(window.document.querySelector('meta[name="viewport"]')?.getAttribute('content')).toBe('width=device-width,initial-scale=1');
+  } finally { dom.window.close(); }
+});
+
+it('continues sizing inline native previews to bounded content height', () => {
+  const dom = new JSDOM(nativePreviewShell('<button>内容</button>', 'inline'), {
+    runScripts: 'dangerously', beforeParse(window) { Object.assign(window, { ReactNativeWebView: { postMessage() {} } }); },
+  });
+  try {
+    const { window } = dom;
+    const frame = window.document.querySelector('iframe')!;
+    const height = (value: number) => window.dispatchEvent(new window.MessageEvent('message', { source: frame.contentWindow as unknown as Window, data: { channel: 'inline', type: 'height', height: value } }));
+    height(180); expect(frame.style.height).toBe('180px');
+    height(20); expect(frame.style.height).toBe('120px');
+    height(5000); expect(frame.style.height).toBe('2400px');
+    height(NaN); expect(frame.style.height).toBe('2400px');
+  } finally { dom.window.close(); }
+});
 
 it('runs the dashboard interaction, restores state, applies Tweak changes and sends a feedback draft', async () => {
   const messages: Record<string, unknown>[]=[];
