@@ -4,11 +4,11 @@
 
 ## 发布包安装
 
-选择与服务器匹配的 Linux 发布包，例如 x86_64 使用 `codexer-server-0.3.1-linux-amd64.tar.gz`，aarch64 使用 `linux-arm64`。上传包及校验文件：
+选择与服务器匹配的 Linux 发布包，例如 x86_64 使用 `codexer-server-0.3.2-linux-amd64.tar.gz`，aarch64 使用 `linux-arm64`。上传包及校验文件：
 
 ```bash
-sha256sum -c codexer-server-0.3.1-linux-amd64.tar.gz.sha256
-tar -xzf codexer-server-0.3.1-linux-amd64.tar.gz
+sha256sum -c codexer-server-0.3.2-linux-amd64.tar.gz.sha256
+tar -xzf codexer-server-0.3.2-linux-amd64.tar.gz
 cd codexer
 sudo bash install.sh
 ```
@@ -24,6 +24,8 @@ sudo env CODEXER_PUBLIC_URL=http://203.0.113.10:8899 bash install.sh
 Release 安装不安装 Node。若启用 Git tag 在线构建，需要预先安装 Go、Node、npm、Git，并设置 `CODEXER_GIT_UPDATES=1`；构建运行于专用受限账号。
 
 0.3.1 安装器会自动恢复 `codexer` 的执行权限，复制/解压丢失权限时仍直接使用发布包。目录不完整时提示重新解压，不会误要求安装编译工具。已有 0.3.0 包遇到“从源码构建需要 Go”时，先在包目录执行 `chmod 755 ./codexer`，再运行包内 `install.sh`；同时确认 `server-bundle.json` 存在。
+
+0.3.2 恢复旧安装器对既有管理员密码的兼容：服务及两个网页入口通过健康检查后，若配置凭据登录返回 `401 invalid-credentials`，安装器提示使用后台当前账号密码，保留现有账号并继续安装。它不会宣称管理员认证已通过，也不会重置数据库密码；其他登录错误或健康失败仍回退。命令行账号管理的配置凭据需另行与当前管理员匹配。
 
 ## 首次从 Node 升级
 
@@ -54,7 +56,7 @@ CODEXER_TARGETS=linux/amd64,linux/arm64,darwin/amd64,darwin/arm64 npm run packag
 从仓库指定稳定 tag 安装：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bunnya33/codexer/v0.3.1/bootstrap.sh | sudo env CODEXER_REPO_URL=https://github.com/bunnya33/codexer.git CODEXER_REF=v0.3.1 bash
+curl -fsSL https://raw.githubusercontent.com/bunnya33/codexer/v0.3.2/bootstrap.sh | sudo env CODEXER_REPO_URL=https://github.com/bunnya33/codexer.git CODEXER_REF=v0.3.2 bash
 ```
 
 此命令需要对应 tag 已发布，并已具备构建工具。bootstrap 也支持明确传入 `CODEXER_ARCHIVE_URL` 和 `CODEXER_ARCHIVE_SHA256` 安装现成发布包。
@@ -92,6 +94,6 @@ sudo codexer users
 sudo codexer info
 ```
 
-安装后的无参管理命令打开菜单；独立执行文件无参启动服务。安装验收检查服务、两个网页入口和管理员登录；失败恢复程序、配置、主服务和更新器。数据库内容不自动回滚。
+安装后的无参管理命令打开菜单；独立执行文件无参启动服务。安装验收检查服务、两个网页入口和管理员登录，既有凭据不匹配按上文提示处理；其他失败恢复程序、配置、主服务和更新器。数据库内容不自动回滚。
 
 systemd 安装器直接提供 HTTP 根地址；公网 HTTPS 可使用现有代理或 [Docker + Caddy](operations.md)。本文是安装流程，生产部署仍需在目标机器验收。

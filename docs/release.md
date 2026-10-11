@@ -40,7 +40,7 @@ npm run build:server
 npm run package:server
 ```
 
-输出当前平台的 `release/codexer-server-0.3.1-<os>-<arch>.tar.gz` 和 `.sha256`。包内一个 Go 执行文件已内嵌控制端/后台资源及 Go 更新器，另带安装脚本和文档，不含 Node 运行依赖、真实配置、旧 Git 历史或 Electron。设置 `CODEXER_TARGETS=linux/amd64,linux/arm64,darwin/amd64,darwin/arm64` 可交叉构建四个平台包。
+输出当前平台的 `release/codexer-server-0.3.2-<os>-<arch>.tar.gz` 和 `.sha256`。包内一个 Go 执行文件已内嵌控制端/后台资源及 Go 更新器，另带安装脚本和文档，不含 Node 运行依赖、真实配置、旧 Git 历史或 Electron。设置 `CODEXER_TARGETS=linux/amd64,linux/arm64,darwin/amd64,darwin/arm64` 可交叉构建四个平台包。
 
 同一个包同时升级 Admin 和 Relay，避免接口与 UI 不一致。安装、校验、回退见 [服务器安装](server-install.md)。源码的 Dockerfile 独立执行完整服务器构建，也跳过 Electron 下载。
 
@@ -51,6 +51,8 @@ Web 随统一服务包发布。iOS/Android 由 Expo/EAS 或原生工具构建和
 ## 版本与升级
 
 服务器 0.3.1 修正发布包安装判断：自动恢复执行权限，执行文件存在时直接安装，只有完整源码目录才尝试编译。该修复不改变数据库或服务器协议；0.3.0 包也可先执行 `chmod 755 ./codexer` 再安装。
+
+服务器 0.3.2 补回旧版的安装验收兼容：服务和网页健康、配置凭据登录返回 `401 invalid-credentials` 时保留现有管理员账号并提示使用后台当前密码；健康失败和其他认证错误仍回退。安装器可用于已解压的 0.3.0/0.3.1 Go 包，无需重编译程序。
 
 PC 连接器与服务端可独立升级版本；同步对应 package 和锁文件的 workspace 版本，移动 App 发布时同步移动配置版本；先运行类型、行为、文档与平台检查，记录 [验证范围](validation.md)。PC 连接器仍需手动升级。服务器 `0.2.0` 支持从稳定 Release 更新统一服务器包，见 [服务器更新](server-update.md)。
 

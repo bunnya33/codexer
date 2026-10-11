@@ -179,6 +179,43 @@ func TestStandaloneBinaryWithEmbeddedPages(t *testing.T) {
 			t.Fatalf("native management %v: %s", args, b)
 		}
 	}
+	// A password changed through the admin API must survive installation even
+	// when the environment still contains the original bootstrap credentials.
+	adminID := request("GET", "/v1/me", admin, nil)["userId"].(string)
+	updatedPassword := "updated-binary-admin-password-12345"
+	request("PUT", "/v1/admin/accounts/"+adminID+"/password", admin, map[string]any{"password": updatedPassword})
+	verify := exec.Command(binary, "verify")
+	verify.Dir, verify.Env = dir, env
+	if b, e := verify.CombinedOutput(); e == nil || strings.TrimSpace(string(b)) != "HTTP 401: invalid-credentials" {
+		t.Fatalf("strict verification must report changed credentials: %s (%v)", b, e)
+	}
+	installer, e := os.ReadFile("../../install.sh")
+	if e != nil {
+		t.Fatal(e)
+	}
+	startAt := strings.Index(string(installer), "verify_installation() {\n")
+	if startAt < 0 {
+		t.Fatal("installer verifier missing")
+	}
+	endAt := strings.Index(string(installer[startAt:]), "\n}\n")
+	if endAt < 0 {
+		t.Fatal("installer verifier incomplete")
+	}
+	verifier := string(installer[startAt : startAt+endAt+3])
+	bash, e := exec.LookPath("bash")
+	if e != nil {
+		t.Fatal(e)
+	}
+	program := "set -Eeuo pipefail\nbinary=$TEST_RELEASE_BINARY\nconfig_file=$CODEXER_ENV_FILE\nport=$RELAY_PORT\n" + verifier + "\nverify_installation\n"
+	acceptance := exec.Command(bash, "--noprofile", "--norc", "-c", program)
+	acceptance.Dir = dir
+	acceptance.Env = append(env, "TEST_RELEASE_BINARY="+binary)
+	if b, e := acceptance.CombinedOutput(); e != nil || !strings.Contains(string(b), "使用后台当前账号密码") || strings.Contains(string(b), "管理员登录检查通过") {
+		t.Fatalf("installer must report existing credentials and continue: %s (%v)", b, e)
+	}
+	if request("POST", "/v1/admin/auth/login", "", map[string]any{"username": "binary-admin", "password": updatedPassword})["role"] != "admin" {
+		t.Fatal("installer changed the existing administrator")
+	}
 	if _, e := os.Stat(filepath.Join(dir, "node_modules")); !os.IsNotExist(e) {
 		t.Fatal("unexpected runtime dependencies")
 	}

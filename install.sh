@@ -17,6 +17,19 @@ select_runtime() {
     fail "当前目录没有 codexer 执行文件或完整源码，请完整解压 Linux 发布包，并使用包内的 install.sh；不需要安装 Go 或 Node"
   fi
 }
+verify_installation() {
+  "$binary" health "http://127.0.0.1:$port" || return 1
+  local verification
+  if verification=$(CODEXER_ENV_FILE="$config_file" "$binary" verify 2>&1); then
+    printf '%s\n' "$verification"
+  elif [[ $verification == 'HTTP 401: invalid-credentials' ]]; then
+    echo 'Relay 与网页检查通过；配置中的管理员凭据与现有账号不匹配，请使用后台当前账号密码登录。'
+    echo '已有账号和密码保持不变；命令行账号管理需先同步正确的管理员凭据。'
+  else
+    printf '%s\n' "$verification" >&2
+    return 1
+  fi
+}
 [[ $(uname -s) == Linux && $EUID -eq 0 ]] || fail "请在 Linux 上以 root 运行：sudo bash install.sh"
 [[ -d /run/systemd/system ]] || fail "需要正在运行的 systemd"
 case $(uname -m) in x86_64|aarch64) ;; *) fail "仅支持 x86_64 和 aarch64" ;; esac
@@ -203,8 +216,7 @@ fi
 systemctl daemon-reload
 systemctl enable codexer-relay.service
 systemctl start codexer-relay.service
-"$binary" health "http://127.0.0.1:$port"
-CODEXER_ENV_FILE="$config_file" "$binary" verify
+verify_installation
 "$binary" updater
 systemctl enable --now codexer-updater.timer
 migration_active=0
