@@ -19,7 +19,7 @@ export class ConversationScroll {
     const expectedOffset = Math.min(previous.offset, Math.max(0, metrics.height - metrics.viewport));
     const movedUp = previous.viewport > 0 && metrics.offset < expectedOffset - 1;
     this.metrics = { ...metrics, offset: Math.max(0, metrics.offset) };
-    if (this.distance <= 8) { this.following = true; this.interacting = false; }
+    if (this.distance <= 8 && !movedUp) { this.following = true; this.interacting = false; }
     else if (this.interacting || movedUp) { this.following = false; this.interacting = true; }
     return this.jumpVisible;
   }
@@ -29,7 +29,8 @@ export class ConversationScroll {
   reset() { this.metrics = { height: 0, offset: 0, viewport: 0 }; this.requestBottom(); }
 
   private remeasure() {
-    if (this.metrics.viewport > 0 && this.distance <= 8) { this.following = true; this.interacting = false; }
+    // Layout and streaming measurements can arrive before the first native drag scroll.
+    // Resume following only on a scroll back to the end or an explicit bottom request.
     return this.jumpVisible;
   }
 }

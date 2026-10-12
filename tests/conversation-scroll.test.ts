@@ -14,6 +14,35 @@ it('keeps the jump button visible after a short drag continues as unmarked momen
   expect(scroll.shouldFollow).toBe(false);
 });
 
+it('does not restart following when output or preview sizing changes before a drag scroll event', () => {
+  const scroll = new ConversationScroll();
+  scroll.readScroll(metrics(1500));
+  scroll.beginInteraction();
+  scroll.contentSize(2004);
+  expect(scroll.shouldFollow).toBe(false);
+  scroll.layout(504);
+  expect(scroll.shouldFollow).toBe(false);
+  // Mobile scrolling starts with small movements still inside the bottom tolerance.
+  scroll.readScroll(metrics(1496, 2004, 504));
+  expect(scroll.shouldFollow).toBe(false);
+  scroll.contentSize(2008);
+  expect(scroll.shouldFollow).toBe(false);
+  scroll.readScroll(metrics(1300, 2008, 504));
+  expect(scroll.jumpVisible).toBe(true);
+  scroll.readScroll(metrics(1504, 2008, 504));
+  expect(scroll.shouldFollow).toBe(true);
+});
+
+it('pauses even when the first upward scroll is within eight pixels of the bottom', () => {
+  const scroll = new ConversationScroll();
+  scroll.readScroll(metrics(1500));
+  scroll.beginInteraction();
+  expect(scroll.readScroll(metrics(1494))).toBe(false);
+  expect(scroll.shouldFollow).toBe(false);
+  scroll.layout(500);
+  expect(scroll.shouldFollow).toBe(false);
+});
+
 it('detects upward scrollbar movement without an intent event and resumes only at the end', () => {
   const scroll = new ConversationScroll();
   scroll.readScroll(metrics(1500));
