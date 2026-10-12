@@ -29,6 +29,7 @@ import { ConversationDrawer } from './src/conversation-drawer';
 import { DrawerSwipeArea } from './src/drawer-swipe-area';
 import { DrawerSwipeBlock } from './src/drawer-swipe-block';
 import { ConversationScroll } from '../../packages/client-shared/src/conversation-scroll';
+import { useConversationSelection } from './src/conversation-selection';
 import { WeixinSettings } from './src/weixin-settings';
 
 type DraftImage = { key: number; uri: string; name: string; asset?: ImagePicker.ImagePickerAsset; id?: string; loading: boolean; error?: string };
@@ -61,8 +62,7 @@ function AppContent() {
   const view = useSyncExternalStore(relay.subscribe, relay.getSnapshot);
   const [restoring, setRestoring] = useState(true);
   const [loginBusy, setLoginBusy] = useState(false);
-  const [deviceId, setDeviceId] = useState('');
-  const [threadId, setThreadId] = useState('');
+  const { deviceId, threadId, selectDevice: setDeviceId, selectThread: setThreadId } = useConversationSelection(view);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [expandedProjects, setExpandedProjects] = useState<string[]>([]);
@@ -127,13 +127,8 @@ function AppContent() {
     const listener = AppState.addEventListener('change', state => relay.setForeground(state === 'active'));
     return () => listener.remove();
   }, []);
-  useEffect(() => { if (view.phase === 'locked') { setThreadId(''); setDeviceId(''); setDraft(''); setImages([]); setDrawerOpen(false); setActionThread(null); setPreview(null); setWeixinOpen(false); closeMenu(); } }, [view.phase]);
-  useEffect(() => { if (!view.devices.some(device => device.id === deviceId)) setDeviceId(view.devices[0]?.id ?? ''); }, [view.devices, deviceId]);
+  useEffect(() => { if (view.phase === 'locked') { setDraft(''); setImages([]); setDrawerOpen(false); setActionThread(null); setPreview(null); setWeixinOpen(false); closeMenu(); } }, [view.phase]);
   useEffect(() => { if (view.phase === 'connected' && deviceId && !view.catalogs[deviceId]) void relay.loadCatalog(deviceId); }, [deviceId, view.catalogs, view.phase]);
-  useEffect(() => {
-    const entries = view.catalogs[deviceId]?.threads.filter(item => !item.archived).sort((a, b) => b.updatedAt - a.updatedAt);
-    if (entries?.length && !threadId) setThreadId(entries[0]!.id);
-  }, [deviceId, threadId, view.catalogs]);
   useEffect(() => {
     setPreview(null);
     olderAnchor.current = null;
@@ -205,7 +200,6 @@ function AppContent() {
       if (result.status !== 'succeeded') throw new Error(result.code);
       setActionThread(null); setRenaming(false);
       await relay.loadCatalog(deviceId);
-      if (payload.type !== 'thread.rename' && threadId === payload.threadId) setThreadId('');
     } catch (error) { relay.showNotice(error instanceof Error ? error.message : String(error)); }
     finally { setManaging(false); }
   };
@@ -283,7 +277,7 @@ function AppContent() {
   };
 
   const directory = <Directory view={view} deviceId={deviceId} threadId={threadId} rows={rows} search={search} wide={wide} managing={managing} paddingTop={wide ? 0 : insets.top} paddingBottom={wide ? 0 : insets.bottom} setSearch={setSearch}
-    selectDevice={id => { setDeviceId(id); setThreadId(''); setDraft(''); setImages([]); }} selectThread={selectThread}
+    selectDevice={id => { setDeviceId(id); setDraft(''); setImages([]); }} selectThread={selectThread}
     toggleProject={id => setExpandedProjects(current => current.includes(`${deviceId}:${id}`) ? current.filter(value => value !== `${deviceId}:${id}`) : [...current, `${deviceId}:${id}`])}
     createProject={() => { setProjectDeviceId(deviceId); setDrawerOpen(false); }} createThread={id => void createThread(id)} threadActions={item => { setDrawerOpen(false); setNewName(item.title); setActionThread({ id: item.id, title: item.title }); }}
     close={() => setDrawerOpen(false)} settings={() => { setDrawerOpen(false); openMenu('settings'); }} refresh={() => void relay.refreshDevices()} />;

@@ -41,6 +41,8 @@ npm run mobile:export
 
 Web 输出 `apps/web/dist` 并随服务器发布。`mobile:export` 导出 iOS/Android JavaScript bundle，用于构建检查，**不是 APK/IPA**。
 
+服务器 `0.3.6` 的网页客户端在当前浏览器保存选中的设备和会话，刷新、关闭后重新打开以及同账号重新登录时恢复。记录按服务器和账号隔离，不会同步到其他浏览器。列表加载完成前不会用默认项覆盖记录；离线设备仍保留，设备移除或会话删除/归档后回到可用项。原生 App 的选择仍仅保存在内存中。
+
 Android 内测 APK：在 `apps/mobile` 执行 `npx eas-cli build --platform android --profile preview`。iOS 使用 EAS/Apple Developer 或 macOS/Xcode 完成签名和设备分发。云构建与商店发布由维护者自行操作；本次没有发布 App 或生成商店包。
 
 ## 网络和平台范围

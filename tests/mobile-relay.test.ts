@@ -31,7 +31,7 @@ beforeEach(() => {
     const path = new URL(input).pathname;
     if (path === '/v1/auth/login') return response({ session: 'a'.repeat(40) });
     if (path === '/v1/auth/logout') return response({ loggedOut: true });
-    if (path === '/v1/me') return response({ role: 'user' });
+    if (path === '/v1/me') return response({ role: 'user', userId: 'user-test' });
     if (path === '/v1/auth/active') return response({ expiresAt: Date.now() + 604800000, idleTimeoutMinutes: 10080 });
     if (path === '/v1/devices') return response({ devices: [{ id: 'device-test', name: 'Test Mac', platform: 'darwin', online: true }] });
     if (path === '/v1/devices/device-test/catalog') return response({ catalog: { protocolVersion: 1, deviceId: 'device-test', generatedAt: 1, projects: [], threads: [] } });
@@ -45,6 +45,7 @@ afterEach(() => { client.disconnect(); vi.useRealTimers(); vi.unstubAllGlobals()
 
 async function connectedSocket() {
   await client.connect('http://192.0.2.10:8899', 'test', 'test-password-12345');
+  expect(client.getSnapshot()).toMatchObject({ userId: 'user-test', devicesReady: true });
   const socket = FakeSocket.last;
   socket.open();
   socket.message({ type: 'client.authenticated' });

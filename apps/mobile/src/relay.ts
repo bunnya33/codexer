@@ -15,6 +15,8 @@ export type RelayView = {
   phase: 'locked' | 'connecting' | 'connected' | 'reconnecting';
   url: string;
   role: 'admin' | 'user' | null;
+  userId: string | null;
+  devicesReady: boolean;
   devices: Device[];
   catalogs: Record<string, DeviceCatalog>;
   snapshots: Record<string, DeviceSnapshot>;
@@ -25,7 +27,7 @@ export type RelayView = {
   threadNotifications: Record<string, ThreadNotification>;
 };
 
-const emptyView = (): RelayView => ({ phase: 'locked', url: '', role: null, devices: [], catalogs: {}, snapshots: {}, histories: {}, syncing: {}, notice: '', weixin: null, threadNotifications: {} });
+const emptyView = (): RelayView => ({ phase: 'locked', url: '', role: null, userId: null, devicesReady: false, devices: [], catalogs: {}, snapshots: {}, histories: {}, syncing: {}, notice: '', weixin: null, threadNotifications: {} });
 const SOCKET_AUTH_TIMEOUT_MS = 12000;
 class ApiError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 export const historyKey = (deviceId: string, threadId: string) => `${deviceId}:${threadId}`;
@@ -110,9 +112,9 @@ export class RelayClient {
     this.initialization = initialization;
     const current = () => generation === this.generation && revision === this.connectionRevision;
     try {
-      const me = await this.api<{ role: 'admin' | 'user' }>('/v1/me');
+      const me = await this.api<{ role: 'admin' | 'user'; userId: string }>('/v1/me');
       if (!current()) return;
-      this.set({ role: me.role });
+      this.set({ role: me.role, userId: me.userId });
       if (remember) {
         try { await saveCredentials(JSON.stringify({ url: this.view.url, session: this.token })); }
         catch { this.notice('登录已完成，但当前环境无法保存登录状态'); }
@@ -251,7 +253,7 @@ export class RelayClient {
       const current = this.view.devices.find(value => value.id === device.id);
       return current && presenceVersions.get(device.id) !== this.presenceVersions.get(device.id) ? { ...device, online: current.online } : device;
     });
-    this.set({ devices });
+    this.set({ devices, devicesReady: true });
     for (const device of devices) {
       if (!this.view.catalogs[device.id]) void this.loadCatalog(device.id);
       if (!this.view.snapshots[device.id]) void this.loadSnapshot(device.id);

@@ -4,11 +4,11 @@
 
 ## 发布包安装
 
-选择与服务器匹配的 Linux 发布包，例如 x86_64 使用 `codexer-server-0.3.5-linux-amd64.tar.gz`，aarch64 使用 `linux-arm64`。上传包及校验文件：
+选择与服务器匹配的 Linux 发布包，例如 x86_64 使用 `codexer-server-0.3.6-linux-amd64.tar.gz`，aarch64 使用 `linux-arm64`。上传包及校验文件：
 
 ```bash
-sha256sum -c codexer-server-0.3.5-linux-amd64.tar.gz.sha256
-tar -xzf codexer-server-0.3.5-linux-amd64.tar.gz
+sha256sum -c codexer-server-0.3.6-linux-amd64.tar.gz.sha256
+tar -xzf codexer-server-0.3.6-linux-amd64.tar.gz
 cd codexer
 sudo bash install.sh
 ```
@@ -56,7 +56,7 @@ CODEXER_TARGETS=linux/amd64,linux/arm64,darwin/amd64,darwin/arm64 npm run packag
 从仓库指定稳定 tag 安装：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bunnya33/codexer/v0.3.5/bootstrap.sh | sudo env CODEXER_REPO_URL=https://github.com/bunnya33/codexer.git CODEXER_REF=v0.3.5 bash
+curl -fsSL https://raw.githubusercontent.com/bunnya33/codexer/v0.3.6/bootstrap.sh | sudo env CODEXER_REPO_URL=https://github.com/bunnya33/codexer.git CODEXER_REF=v0.3.6 bash
 ```
 
 此命令需要对应 tag 已发布，并已具备构建工具。bootstrap 也支持明确传入 `CODEXER_ARCHIVE_URL` 和 `CODEXER_ARCHIVE_SHA256` 安装现成发布包。
