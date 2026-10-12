@@ -13,6 +13,7 @@ import { SerialQueue } from "../../../packages/shared/src/queue.js";
 import { CommandJournal } from "./journal.js";
 import type { QueuedMessage } from "./journal.js";
 import { UsageJournal } from "./usage.js";
+import { ProjectDirectories } from './project-directories.js';
 import { validateRelayUrl } from "./auth.js";
 import { ImageRegistry } from "../../../packages/codex-adapter/src/images.js";
 import { FileRegistry } from "../../../packages/codex-adapter/src/files.js";
@@ -58,14 +59,17 @@ export class PcAgent extends EventEmitter {
   private catalogReading = false;
   private catalog: DeviceCatalog | null = null;
   private readonly createdThreads = new Map<string, DeviceCatalog["threads"][number]>();
+  private readonly createdProjects = new Map<string, DeviceCatalog['projects'][number]>();
+  private readonly projectDirectories: ProjectDirectories;
   private catalogSupported = false;
   private relayAllowed = true;
   private remotePaused = false;
   private remoteOperations = 0;
 
-  constructor(private readonly credentials: AgentCredentials, private readonly directory: string, private readonly seedThreads: string[] = [], endpoint?: string, private readonly codexHome?: string, private readonly runtimePreference: "auto" | "desktop" | "headless" = "auto", private readonly catalogReader: { list: (deviceId: string) => Promise<DeviceCatalog>; history: (threadId: string, cursor: string | null, images?: ImageRegistry) => Promise<HistoryPage> } = { list: readOfficialCatalog, history: readOfficialHistory }) {
+  constructor(private readonly credentials: AgentCredentials, private readonly directory: string, private readonly seedThreads: string[] = [], endpoint?: string, private readonly codexHome?: string, private readonly runtimePreference: "auto" | "desktop" | "headless" = "auto", private readonly catalogReader: { list: (deviceId: string) => Promise<DeviceCatalog>; history: (threadId: string, cursor: string | null, images?: ImageRegistry) => Promise<HistoryPage> } = { list: readOfficialCatalog, history: readOfficialHistory }, projectParents: string[] = []) {
     super();
     validateRelayUrl(credentials.relayUrl);
+    this.projectDirectories = new ProjectDirectories(projectParents);
     this.adapter = new DesktopAdapter(endpoint, codexHome);
     this.headless = runtimePreference !== "desktop" && (!endpoint || runtimePreference === "headless") ? new HeadlessAdapter() : undefined;
     this.activeAdapter = this.adapter;
@@ -141,6 +145,7 @@ export class PcAgent extends EventEmitter {
   }
   async start(): Promise<void> {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
+    await this.projectDirectories.initialize();
     if (this.runtimePreference !== "headless") await this.adapter.connect().catch(() => undefined);
     await this.selectRuntime();
     this.connectRelay();
@@ -202,7 +207,9 @@ export class PcAgent extends EventEmitter {
       const catalog = await this.catalogReader.list(this.credentials.deviceId);
       if (this.stopped) return;
       for (const thread of catalog.threads) this.createdThreads.delete(thread.id);
-      this.publishCatalog({ ...catalog, threads: [...this.createdThreads.values(), ...catalog.threads] });
+      for (const project of catalog.projects) this.createdProjects.delete(project.id);
+      const projectCreation = this.headless ? { parents: await this.projectDirectories.list() } : undefined;
+      this.publishCatalog({ ...catalog, projectCreation, projects: [...this.createdProjects.values(), ...catalog.projects], threads: [...this.createdThreads.values(), ...catalog.threads] });
     } catch { this.log("catalog-refresh-failed"); }
     finally { this.catalogReading = false; }
   }
@@ -211,7 +218,7 @@ export class PcAgent extends EventEmitter {
     this.catalog = catalog;
     this.adapter.models = catalog.models ?? [];
     if (this.headless) this.headless.models = catalog.models ?? [];
-    if (this.catalogSupported && (!previous || JSON.stringify([previous.projects, previous.threads, previous.models]) !== JSON.stringify([catalog.projects, catalog.threads, catalog.models]))) this.send({ type: "device.catalog", catalog });
+    if (this.catalogSupported && (!previous || JSON.stringify([previous.projects, previous.threads, previous.models, previous.projectCreation]) !== JSON.stringify([catalog.projects, catalog.threads, catalog.models, catalog.projectCreation]))) this.send({ type: "device.catalog", catalog });
   }
   private pinThread(threadId: string): void {
     this.pinnedThreads.delete(threadId);
@@ -237,6 +244,20 @@ export class PcAgent extends EventEmitter {
     const observed = this.adapterForThread(threadId).getThread(threadId);
     if (observed) this.commit({ type: "thread.updated", thread: threadSchema.parse(this.withQueue(this.usageJournal.enrichThread(observed))) });
     void this.scan();
+  }
+  private async createProject(command: RemoteCommand & { payload: Extract<RemoteCommand['payload'], { type: 'project.create' }> }, current: () => boolean): Promise<Record<string, unknown>> {
+    if (!this.headless || !this.catalog) throw new AdapterError('app-server-unavailable');
+    if (this.catalog.projects.length >= 1000) throw new AdapterError('project-limit');
+    const allowed = () => current() && Date.now() < command.expiresAt;
+    if (!allowed()) throw new AdapterError('remote-disconnected');
+    await this.headless.connect();
+    const { parentId, name, relativePath, mode } = command.payload;
+    const folder = await this.projectDirectories.prepare(parentId, relativePath, mode, allowed);
+    const project = await this.headless.createProject(name, folder.path, `codexer:${command.deviceId}:${command.commandId}`, folder.verify);
+    // A catalog read started before creation must not remove the new project.
+    this.createdProjects.set(project.id, project);
+    this.publishCatalog({ ...this.catalog, generatedAt: Date.now(), projects: [project, ...this.catalog.projects.filter(item => item.id !== project.id)] });
+    return { projectId: project.id, acknowledgedByAppServer: true };
   }
   private async manageThread(payload: Extract<RemoteCommand['payload'], { type: 'thread.create' | 'thread.rename' | 'thread.archive' | 'thread.delete' }>, allowed = () => !this.remotePaused && this.relayAllowed): Promise<Record<string, unknown>> {
     if (!this.headless) throw new AdapterError('app-server-unavailable');
@@ -506,7 +527,9 @@ export class PcAgent extends EventEmitter {
           try {
             if (command.expectedEpoch !== this.state.epoch) throw new AdapterError("stale-device-epoch");
             if (Date.now() >= command.expiresAt) throw new AdapterError("command-expired");
-            const value = command.payload.type === 'thread.create' || command.payload.type === 'thread.rename' || command.payload.type === 'thread.archive' || command.payload.type === 'thread.delete'
+            const value = command.payload.type === 'project.create'
+              ? await this.createProject({ ...command, payload: command.payload }, current)
+              : command.payload.type === 'thread.create' || command.payload.type === 'thread.rename' || command.payload.type === 'thread.archive' || command.payload.type === 'thread.delete'
               ? await this.manageThread(command.payload, current)
               : command.payload.type === "thread.watch"
               ? await this.watchThread(command.payload.threadId).then(() => ({ watched: true }))

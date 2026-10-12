@@ -244,7 +244,7 @@ export class DesktopAdapter extends EventEmitter {
   }
   async execute(command: RemoteCommand, imageInputs: UserInput[] = []): Promise<RecordValue> {
     const payload = command.payload;
-    if (payload.type === "thread.create" || payload.type === "thread.rename" || payload.type === "thread.archive" || payload.type === "thread.delete") throw new AdapterError("unsupported-command");
+    if (!('threadId' in payload) || payload.type === "thread.rename" || payload.type === "thread.archive" || payload.type === "thread.delete") throw new AdapterError("unsupported-command");
     const watched = this.watched.get(payload.threadId);
     const normalized = this.getThread(payload.threadId);
     if (!watched?.compatible || !watched.raw || !normalized || !this.connected) throw new AdapterError("desktop-owner-unavailable");

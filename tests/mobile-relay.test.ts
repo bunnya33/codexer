@@ -53,6 +53,29 @@ async function connectedSocket() {
   return socket;
 }
 
+it('reloads the project catalog when creation is announced during an older REST read', async () => {
+  const socket = await connectedSocket();
+  await vi.waitFor(() => expect(client.getSnapshot().catalogs['device-test']).toBeDefined());
+  const old = client.getSnapshot().catalogs['device-test']!;
+  let finish!: (value: Response) => void;
+  const original = vi.mocked(fetch).getMockImplementation()!;
+  let calls = 0;
+  const project = { id: 'new-project', name: 'New', roots: ['/authorized/new'], position: 0, updatedAt: 2 };
+  vi.mocked(fetch).mockImplementation(async (input, options) => {
+    if (!String(input).endsWith('/catalog')) return original(input, options);
+    calls++;
+    if (calls === 1) return new Promise<Response>(resolve => { finish = resolve; });
+    return response({ catalog: { ...old, generatedAt: 2, projects: [project], projectCreation: { parents: [{ id: 'allowed', path: '/authorized' }] } } });
+  });
+  const reading = client.loadCatalog('device-test');
+  await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+  socket.message({ type: 'catalog.updated', deviceId: 'device-test', generatedAt: 2 });
+  finish(response({ catalog: old })); await reading;
+  await vi.waitFor(() => expect(client.getSnapshot().catalogs['device-test']?.projects).toEqual([project]));
+  expect(calls).toBe(2);
+  expect(client.getSnapshot().catalogs['device-test']?.projectCreation?.parents[0]?.path).toBe('/authorized');
+});
+
 it('keeps synchronized thread and global notification changes when older REST reads finish later', async () => {
   const socket = await connectedSocket();
   const original = vi.mocked(fetch).getMockImplementation()!;

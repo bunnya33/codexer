@@ -40,7 +40,7 @@ npm run build:server
 npm run package:server
 ```
 
-输出当前平台的 `release/codexer-server-0.3.4-<os>-<arch>.tar.gz` 和 `.sha256`。包内一个 Go 执行文件已内嵌控制端/后台资源及 Go 更新器，另带安装脚本和文档，不含 Node 运行依赖、真实配置、旧 Git 历史或 Electron。设置 `CODEXER_TARGETS=linux/amd64,linux/arm64,darwin/amd64,darwin/arm64` 可交叉构建四个平台包。
+输出当前平台的 `release/codexer-server-0.3.5-<os>-<arch>.tar.gz` 和 `.sha256`。包内一个 Go 执行文件已内嵌控制端/后台资源及 Go 更新器，另带安装脚本和文档，不含 Node 运行依赖、真实配置、旧 Git 历史或 Electron。设置 `CODEXER_TARGETS=linux/amd64,linux/arm64,darwin/amd64,darwin/arm64` 可交叉构建四个平台包。
 
 同一个包同时升级 Admin 和 Relay，避免接口与 UI 不一致。安装、校验、回退见 [服务器安装](server-install.md)。源码的 Dockerfile 独立执行完整服务器构建，也跳过 Electron 下载。
 
@@ -57,6 +57,8 @@ Web 随统一服务包发布。iOS/Android 由 Expo/EAS 或原生工具构建和
 服务器 0.3.3 更新内嵌网页控制端的全屏预览：预览占满工具栏下方的屏幕，手机按竖屏宽度显示，长页面内部滚动，参数面板最多占 40% 的高度。原生手机端同步修正 WebView 外壳的高度和滚动方式，需要重新构建手机 App；PC 连接器无需更新。
 
 服务器 0.3.4 修正会话自动跟随与手机滑动的冲突：从底部向上移动很短距离就暂停跟随，消息增长、预览高度和编辑框高度更新不会重新开启跟随；主动滚回末尾或点击下箭头仍恢复跟随。网页客户端随服务器包更新，原生手机 App 需要重新构建。
+
+服务器 `0.3.5` / PC 连接器 `0.1.11` 增加远程新建/添加项目。父目录必须在电脑端本地授权，默认关闭；Agent 检查相对路径与符号链接后创建文件夹，通过 Codex `project/create` 注册，已有注册复用。新会话明确采用工作区写入、按需审批。修复项目创建期间旧列表读取覆盖新项目的同步问题。服务器网页包含入口，原生手机 App 需要重新构建。
 
 PC 连接器与服务端可独立升级版本；同步对应 package 和锁文件的 workspace 版本，移动 App 发布时同步移动配置版本；先运行类型、行为、文档与平台检查，记录 [验证范围](validation.md)。PC 连接器仍需手动升级。服务器 `0.2.0` 支持从稳定 Release 更新统一服务器包，见 [服务器更新](server-update.md)。
 

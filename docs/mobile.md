@@ -8,6 +8,8 @@ Windows 控制端：安装 [RelayDesk](../apps/control-desktop/README.md)，填�
 
 Web：打开 Relay 的根地址，只填写账号密码。页面、REST 与 WebSocket 使用当前站点的协议、域名和端口，登录页不显示服务器地址输入；旧版本保存的其他服务器登录配置会被清除。手机：安装对应 APK/IPA，填写 Relay 根地址和账号密码。功能见 [使用指南](usage.md)。App 与 Web 无需接触访问令牌。
 
+服务器 `0.3.5` 与连接器 `0.1.11` 增加项目列表里的「新建项目」，可在电脑端授权的父目录中创建文件夹或添加已有文件夹。授权和会话执行权限的区别见 [PC 设置](pc-setup.md)。Web 随服务器升级生效，原生 App 需重新构建；不会把 `mobile:export` 导出当作已生成 APK/IPA。
+
 ## 开发
 
 开发者需要 Node 24，仓库根目录执行：

@@ -462,11 +462,28 @@ export class HeadlessAdapter extends EventEmitter {
     return readHistoryPage(this.rpc, threadId, cursor, this.images, this.newThreads.has(threadId));
   }
 
+  async createProject(name: string, path: string, idempotencyKey: string, allowed: () => Promise<void>): Promise<DeviceCatalog['projects'][number]> {
+    if (!this.connected || !this.rpc) throw new AdapterError('app-server-disconnected');
+    if (!isAbsolute(path)) throw new AdapterError('project-path-invalid');
+    try {
+      const projects = await listPages(this.rpc, 'project/list', {});
+      await allowed();
+      const existing = projects.find(project => Array.isArray(project.roots) && project.roots.some(root => typeof record(root).path === 'string' && relative(path, String(record(root).path)) === ''));
+      const raw = existing ?? record((await this.rpc.request('project/create', { name, roots: [{ path }], idempotencyKey }, 30000)).project);
+      if (typeof raw.id !== 'string' || typeof raw.name !== 'string' || !Array.isArray(raw.roots) || !raw.roots.some(root => typeof record(root).path === 'string' && relative(path, String(record(root).path)) === '')) throw new AdapterError('incompatible-app-server-response', true);
+      return normalizeOfficialCatalog('project-create', [raw], []).projects[0]!;
+    } catch (error) {
+      // Codex rejection text may include paths. Return bounded, non-sensitive codes.
+      if (error instanceof AdapterError && error.code.startsWith('project/')) throw new AdapterError(error.uncertain ? 'project-registration-unconfirmed' : 'project-registration-rejected', error.uncertain);
+      throw error;
+    }
+  }
+
   async manage(payload: Extract<RemoteCommand['payload'], { type: 'thread.create' | 'thread.rename' | 'thread.archive' | 'thread.delete' }>, roots?: string[]): Promise<RecordValue> {
     if (!this.connected || !this.rpc) throw new AdapterError("app-server-disconnected");
     if (payload.type === 'thread.create') {
       if (!roots?.length || roots.some(root => !isAbsolute(root))) throw new AdapterError("project-root-unavailable");
-      const result = await this.rpc.request('thread/start', { projectId: payload.projectId, cwd: roots[0], runtimeWorkspaceRoots: roots }, 30000);
+      const result = await this.rpc.request('thread/start', { projectId: payload.projectId, cwd: roots[0], runtimeWorkspaceRoots: roots, sandbox: 'workspace-write', approvalPolicy: 'on-request' }, 30000);
       const threadId = record(result.thread).id;
       if (typeof threadId !== 'string') throw new AdapterError('incompatible-app-server-response', true);
       this.newThreads.set(threadId, result);
@@ -486,7 +503,7 @@ export class HeadlessAdapter extends EventEmitter {
     const rpc = this.rpc;
     if (!rpc || !this.connected) throw new AdapterError("app-server-disconnected");
     const payload = command.payload;
-    if (payload.type === 'thread.create' || payload.type === 'thread.rename' || payload.type === 'thread.archive' || payload.type === 'thread.delete') throw new AdapterError('unsupported-command');
+    if (!('threadId' in payload) || payload.type === 'thread.rename' || payload.type === 'thread.archive' || payload.type === 'thread.delete') throw new AdapterError('unsupported-command');
     if (Date.now() >= command.expiresAt) throw new AdapterError("command-expired");
     await this.follow(payload.threadId);
     const thread = this.watched.get(payload.threadId);

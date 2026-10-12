@@ -56,7 +56,7 @@ func (s *Server) refine(name string, m M) {
 			}
 			p["model"] = model
 		}
-		if p["type"] == "thread.rename" {
+		if p["type"] == "thread.rename" || p["type"] == "project.create" {
 			p["name"] = strings.TrimSpace(str(p["name"]))
 			if p["name"] == "" {
 				fail(400, "invalid-request")
@@ -103,7 +103,8 @@ func commandHash(m M, raw ...[]byte) string {
 	}
 	p := obj(m["payload"])
 	keys := map[string][]string{
-		"thread.create": {"type", "projectId"}, "thread.rename": {"type", "threadId", "name"}, "thread.archive": {"type", "threadId"}, "thread.delete": {"type", "threadId"}, "thread.watch": {"type", "threadId"}, "turn.start": {"type", "threadId", "text", "images"}, "turn.queue": {"type", "threadId", "text", "images"}, "turn.queue.steer": {"type", "threadId", "turnId", "queueId"}, "turn.queue.remove": {"type", "threadId", "queueId"}, "turn.steer": {"type", "threadId", "turnId", "text", "images"}, "thread.model.update": {"type", "threadId", "model", "expectedModel"}, "thread.effort.update": {"type", "threadId", "effort", "expectedModel", "expectedEffort"}, "thread.mode.update": {"type", "threadId", "mode", "expectedMode", "expectedModel", "expectedEffort"}, "turn.interrupt": {"type", "threadId", "turnId"}, "approval.respond": {"type", "threadId", "turnId", "requestId", "decision"}, "input.respond": {"type", "threadId", "turnId", "requestId", "answers"}}
+		"project.create": {"type", "parentId", "name", "relativePath", "mode"},
+		"thread.create":  {"type", "projectId"}, "thread.rename": {"type", "threadId", "name"}, "thread.archive": {"type", "threadId"}, "thread.delete": {"type", "threadId"}, "thread.watch": {"type", "threadId"}, "turn.start": {"type", "threadId", "text", "images"}, "turn.queue": {"type", "threadId", "text", "images"}, "turn.queue.steer": {"type", "threadId", "turnId", "queueId"}, "turn.queue.remove": {"type", "threadId", "queueId"}, "turn.steer": {"type", "threadId", "turnId", "text", "images"}, "thread.model.update": {"type", "threadId", "model", "expectedModel"}, "thread.effort.update": {"type", "threadId", "effort", "expectedModel", "expectedEffort"}, "thread.mode.update": {"type", "threadId", "mode", "expectedMode", "expectedModel", "expectedEffort"}, "turn.interrupt": {"type", "threadId", "turnId"}, "approval.respond": {"type", "threadId", "turnId", "requestId", "decision"}, "input.respond": {"type", "threadId", "turnId", "requestId", "answers"}}
 	prefix := fields(m, []string{"commandId", "deviceId", "expectedEpoch", "expiresAt"})
 	return hash(strings.TrimSuffix(prefix, "}") + ",\"payload\":" + fields(p, keys[str(p["type"])]) + "}")
 }

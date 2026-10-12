@@ -5,11 +5,12 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { validateRelayUrl, type AgentCredentials } from '../../pc-agent/src/auth.js';
 import type { AgentStatus, Settings, ViewState } from './types.js';
+import { canonicalProjectParents } from '../../pc-agent/src/project-directories.js';
 
 export interface Vault { available(): boolean; read(): Promise<AgentCredentials | null>; write(value: AgentCredentials): Promise<void>; clear(): Promise<void> }
 export interface Worker { start(credentials: AgentCredentials, settings: Settings): Promise<void>; disconnect(): Promise<void>; reconnect(): Promise<void>; stop(): Promise<void> }
-const settingsSchema = z.object({ relayUrl: z.string().max(2048), username: z.string().max(100), deviceName: z.string().trim().min(1).max(200), installationId: z.string().uuid(), codexHome: z.string().max(4096), codexBinary: z.string().max(4096), runtime: z.enum(['auto','desktop','headless']), autoConnect: z.boolean(), openAtLogin: z.boolean(), minimizeToTray: z.boolean(), allowHttp: z.boolean() });
-export function defaultSettings(): Settings { return { relayUrl: '', username: '', deviceName: hostname(), installationId: randomUUID(), codexHome: join(homedir(), '.codex'), codexBinary: '', runtime: 'auto', autoConnect: false, openAtLogin: false, minimizeToTray: true, allowHttp: false }; }
+const settingsSchema = z.object({ relayUrl: z.string().max(2048), username: z.string().max(100), deviceName: z.string().trim().min(1).max(200), installationId: z.string().uuid(), codexHome: z.string().max(4096), codexBinary: z.string().max(4096), projectParents: z.array(z.string().min(1).max(4096)).max(20).default([]), runtime: z.enum(['auto','desktop','headless']), autoConnect: z.boolean(), openAtLogin: z.boolean(), minimizeToTray: z.boolean(), allowHttp: z.boolean() });
+export function defaultSettings(): Settings { return { relayUrl: '', username: '', deviceName: hostname(), installationId: randomUUID(), codexHome: join(homedir(), '.codex'), codexBinary: '', projectParents: [], runtime: 'auto', autoConnect: false, openAtLogin: false, minimizeToTray: true, allowHttp: false }; }
 // Diagnostic codes only; never accept arbitrary adapter/network exception messages.
 export function safeCode(value: string): string { return /^[a-z][a-z0-9-]{0,100}$/.test(value) ? value : 'diagnostic-redacted'; }
 export class ConnectorController extends EventEmitter {
@@ -54,7 +55,9 @@ export class ConnectorController extends EventEmitter {
     const next = settingsSchema.parse(raw), before = this.view.settings;
     next.installationId = before.installationId;
     if (next.relayUrl) next.relayUrl = validateRelayUrl(next.relayUrl.trim(), next.allowHttp).origin;
-    const runtimeChanged = ['relayUrl','deviceName','codexHome','codexBinary','runtime','allowHttp'].some(key => next[key as keyof Settings] !== before[key as keyof Settings]);
+    const parentsChanged = JSON.stringify(next.projectParents) !== JSON.stringify(before.projectParents);
+    if (parentsChanged) { this.idleRequired(); next.projectParents = await canonicalProjectParents(next.projectParents); }
+    const runtimeChanged = parentsChanged || ['relayUrl','deviceName','codexHome','codexBinary','runtime','allowHttp'].some(key => next[key as keyof Settings] !== before[key as keyof Settings]);
     if (runtimeChanged) { this.idleRequired(); await this.disconnect(); if (this.workerStarted) { await this.worker.stop(); this.workerStarted = false; this.publish({ status: null }); } }
     if (next.relayUrl !== before.relayUrl || next.deviceName !== before.deviceName) await this.clearLogin();
     await this.persist(next); this.publish({ settings: next }); this.log('settings-saved');

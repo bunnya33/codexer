@@ -21,6 +21,7 @@ import { ImageViewer } from './src/image-viewer';
 import { historyKey, relay } from './src/relay';
 import { c, s } from './src/styles';
 import { Directory } from './src/directory';
+import { ProjectCreate } from './src/project-create';
 import { confirmAction, defaultRelayUrl } from './src/runtime';
 import { ComposerInput } from './src/composer';
 import { ConversationViewport } from './src/conversation-viewport';
@@ -78,6 +79,7 @@ function AppContent() {
   const [renaming, setRenaming] = useState(false);
   const [newName, setNewName] = useState('');
   const [managing, setManaging] = useState(false);
+  const [projectDeviceId, setProjectDeviceId] = useState('');
   const [preview, setPreview] = useState<ImageGallery | null>(null);
   const listRef = useRef<FlatList<HistoryTurn>>(null);
   const streamKey = historyKey(deviceId, threadId);
@@ -170,6 +172,20 @@ function AppContent() {
 
   const connect = async (url: string, username: string, password: string) => { setLoginBusy(true); try { await relay.connect(url, username, password, true); } catch { /* Error appears in the login view. */ } finally { setLoginBusy(false); } };
   const selectThread = (id: string) => { setThreadId(id); setDraft(''); setImages([]); setDrawerOpen(false); };
+  const createProject = async (payload: Extract<RemoteCommand['payload'], { type: 'project.create' }>) => {
+    const target = projectDeviceId;
+    setManaging(true);
+    try {
+      const result = await relay.sendCommand(target, payload);
+      if (result.status !== 'succeeded' || typeof result.result?.projectId !== 'string') throw new Error(result.code);
+      const projectId = result.result.projectId;
+      setSearch('');
+      setExpandedProjects(current => [...new Set([...current, `${target}:${projectId}`])]);
+      setProjectDeviceId('');
+      setDrawerOpen(true);
+      void relay.loadCatalog(target).catch(() => relay.showNotice('项目已创建，列表刷新失败，请重试刷新。'));
+    } finally { setManaging(false); }
+  };
   const createThread = async (projectId: string) => {
     if (managing) return;
     setManaging(true);
@@ -269,7 +285,7 @@ function AppContent() {
   const directory = <Directory view={view} deviceId={deviceId} threadId={threadId} rows={rows} search={search} wide={wide} managing={managing} paddingTop={wide ? 0 : insets.top} paddingBottom={wide ? 0 : insets.bottom} setSearch={setSearch}
     selectDevice={id => { setDeviceId(id); setThreadId(''); setDraft(''); setImages([]); }} selectThread={selectThread}
     toggleProject={id => setExpandedProjects(current => current.includes(`${deviceId}:${id}`) ? current.filter(value => value !== `${deviceId}:${id}`) : [...current, `${deviceId}:${id}`])}
-    createThread={id => void createThread(id)} threadActions={item => { setDrawerOpen(false); setNewName(item.title); setActionThread({ id: item.id, title: item.title }); }}
+    createProject={() => { setProjectDeviceId(deviceId); setDrawerOpen(false); }} createThread={id => void createThread(id)} threadActions={item => { setDrawerOpen(false); setNewName(item.title); setActionThread({ id: item.id, title: item.title }); }}
     close={() => setDrawerOpen(false)} settings={() => { setDrawerOpen(false); openMenu('settings'); }} refresh={() => void relay.refreshDevices()} />;
 
   if (restoring) return <SafeAreaView style={[s.safe, s.center]}><ActivityIndicator color={c.accent} /></SafeAreaView>;
@@ -326,6 +342,7 @@ function AppContent() {
     </KeyboardAvoidingView>
     </SafeAreaView>
     </ConversationDrawer></PreviewContext.Provider></FileViewerProvider>
+    {!!projectDeviceId && <ProjectCreate key={projectDeviceId} catalog={view.catalogs[projectDeviceId]} online={!!view.devices.find(item => item.id === projectDeviceId)?.online} create={createProject} close={() => setProjectDeviceId('')} />}
     <Modal visible={!!actionThread} transparent animationType="fade" onRequestClose={() => { setActionThread(null); setRenaming(false); }}>
       <Pressable style={s.backdrop} onPress={() => { setActionThread(null); setRenaming(false); }}>
         <Pressable style={[s.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]} onPress={event => event.stopPropagation()}>

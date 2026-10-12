@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ConnectorController, defaultSettings, safeCode, type Vault, type Worker } from '../apps/desktop/src/controller.js';
 import type { AgentCredentials } from '../apps/pc-agent/src/auth.js';
@@ -55,6 +58,28 @@ it('cancels a pending login on disconnect and revokes a late response instead of
   expect(vi.mocked(fetch).mock.calls.map(([url]) => (url as URL).pathname)).toEqual(['/v1/agents/login','/v1/auth/logout']);
 });
 it('logs only safe diagnostic codes', () => { expect(safeCode('https://relay.example.com bearer-secret')).toBe('diagnostic-redacted'); expect(safeCode('relay-connected')).toBe('relay-connected'); });
+it('migrates old settings without granting directories and requires idle work before changing authorizations', async () => {
+  const { controller, worker, vault, settings, persist } = fixture();
+  const { projectParents: _parents, ...legacy } = settings;
+  const restored = new ConnectorController(vault, worker, legacy as typeof settings, persist);
+  expect(restored.state().settings.projectParents).toEqual([]);
+  const parent = await realpath(await mkdtemp(join(tmpdir(), 'codexer-authorize-')));
+  try {
+    await controller.login('member', 'password'); controller.update({ ...idle, activeTasks: 1 });
+    await expect(controller.save({ ...settings, projectParents: [parent] })).rejects.toThrow('本机仍有任务');
+    controller.update(idle);
+    await controller.save({ ...controller.state().settings, projectParents: [parent, parent] });
+    expect(controller.state().settings.projectParents).toEqual([parent]);
+    expect(worker.stop).toHaveBeenCalledOnce();
+    expect(controller.state()).toMatchObject({ phase: 'disconnected', loggedIn: true });
+    await controller.connect(); controller.update(idle);
+    vi.mocked(worker.stop).mockClear();
+    await controller.save({ ...controller.state().settings, autoConnect: true });
+    expect(worker.stop).not.toHaveBeenCalled();
+    await controller.save({ ...controller.state().settings, projectParents: [] });
+    expect(worker.stop).toHaveBeenCalledOnce(); expect(controller.state().settings.projectParents).toEqual([]);
+  } finally { await rm(parent, { recursive: true, force: true }); }
+});
 it('shows protocol rejection as paused while retaining the account and resumes without restarting local tasks', async () => {
   const {controller, worker, vault} = fixture(); await controller.login('member', 'password');
   controller.update({...idle, relayConnected: false, paused: true, activeTasks: 1, relayError: 'relay-rejected-invalid-message'});

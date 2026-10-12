@@ -20,7 +20,7 @@ port.on('message', async ({ data }: { data: { id: number; action: string; creden
       try { process.env.CODEX_REMOTE_CODEX_BIN = await resolveCodexBinary(settings.codexBinary || undefined); send({ type: 'diagnostic', code: 'codex-binary-found' }); }
       catch { send({ type: 'diagnostic', code: 'codex-binary-not-found' }); }
       await mkdir(data.directory, { recursive: true });
-      agent = new PcAgent(data.credentials, join(data.directory, data.credentials.deviceId), process.env.CODEX_THREAD_ID ? [process.env.CODEX_THREAD_ID] : [], process.env.CODEX_REMOTE_DESKTOP_ENDPOINT, settings.codexHome, settings.runtime);
+      agent = new PcAgent(data.credentials, join(data.directory, data.credentials.deviceId), process.env.CODEX_THREAD_ID ? [process.env.CODEX_THREAD_ID] : [], process.env.CODEX_REMOTE_DESKTOP_ENDPOINT, settings.codexHome, settings.runtime, undefined, settings.projectParents);
       await mkdir(join(data.directory, data.credentials.deviceId), { recursive: true });
       agent.on('status', status => send({ type: 'status', status }));
       agent.on('diagnostic', ({ code }) => send({ type: 'diagnostic', code }));

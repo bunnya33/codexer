@@ -51,6 +51,7 @@ export class RelayClient {
   private initialization?: { generation: number; revision: number };
   private historyLoading = new Set<string>();
   private catalogLoading = new Set<string>();
+  private catalogReloads = new Set<string>();
   private watched = new Map<string, number>();
   private subscribed = new Set<string>();
   private resyncing = new Set<string>();
@@ -210,7 +211,7 @@ export class RelayClient {
     if (this.socketTimeout) clearTimeout(this.socketTimeout);
     this.socket?.close();
     this.socket = null;
-    this.historyLoading.clear(); this.catalogLoading.clear(); this.watched.clear(); this.subscribed.clear(); this.resyncing.clear(); this.presenceVersions.clear();
+    this.historyLoading.clear(); this.catalogLoading.clear(); this.catalogReloads.clear(); this.watched.clear(); this.subscribed.clear(); this.resyncing.clear(); this.presenceVersions.clear();
     this.notificationVersions.clear();
     this.weixinVersion++;
     for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(new Error('连接已断开，请核对操作结果')); }
@@ -259,16 +260,22 @@ export class RelayClient {
   }
 
   async loadCatalog(deviceId: string): Promise<void> {
-    if (this.view.phase === 'locked' || this.catalogLoading.has(deviceId)) return;
+    if (this.view.phase === 'locked') return;
+    if (this.catalogLoading.has(deviceId)) { this.catalogReloads.add(deviceId); return; }
     this.catalogLoading.add(deviceId);
     const generation = this.generation;
     try {
       const response = await this.api<{ catalog: unknown }>(`/v1/devices/${encodeURIComponent(deviceId)}/catalog`);
       if (generation !== this.generation) return;
       const catalog = catalogSchema.parse(response.catalog);
-      this.set({ catalogs: { ...this.view.catalogs, [deviceId]: catalog } });
+      if (!this.catalogReloads.has(deviceId)) this.set({ catalogs: { ...this.view.catalogs, [deviceId]: catalog } });
     } catch (error) { if (generation === this.generation) this.notice(`项目目录暂不可用：${error instanceof Error ? error.message : String(error)}`); }
-    finally { if (generation === this.generation) this.catalogLoading.delete(deviceId); }
+    finally {
+      if (generation === this.generation) {
+        this.catalogLoading.delete(deviceId);
+        if (this.catalogReloads.delete(deviceId)) void this.loadCatalog(deviceId);
+      }
+    }
   }
 
   async loadSnapshot(deviceId: string): Promise<void> {

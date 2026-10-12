@@ -30,6 +30,44 @@
             "properties": {
               "type": {
                 "type": "string",
+                "const": "project.create"
+              },
+              "parentId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "relativePath": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "new",
+                  "existing"
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "parentId",
+              "name",
+              "relativePath",
+              "mode"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
                 "const": "thread.create"
               },
               "projectId": {
@@ -2834,6 +2872,37 @@
                     "defaultReasoningEffort"
                   ]
                 }
+              },
+              "projectCreation": {
+                "type": "object",
+                "properties": {
+                  "parents": {
+                    "maxItems": 20,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 160
+                        },
+                        "path": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4096
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "path"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "parents"
+                ]
               }
             },
             "required": [
@@ -3543,6 +3612,44 @@
               },
               "payload": {
                 "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "project.create"
+                      },
+                      "parentId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 160
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100
+                      },
+                      "relativePath": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1024
+                      },
+                      "mode": {
+                        "type": "string",
+                        "enum": [
+                          "new",
+                          "existing"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "parentId",
+                      "name",
+                      "relativePath",
+                      "mode"
+                    ]
+                  },
                   {
                     "type": "object",
                     "properties": {

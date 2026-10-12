@@ -154,6 +154,7 @@ export const catalogSchema = z.object({
   projects: z.array(z.object({ id: idSchema, name: z.string().max(1000), roots: z.array(z.string().max(4096)).max(20), position: z.number().int(), updatedAt: z.number() })).max(1000),
   threads: z.array(z.object({ id: idSchema, title: z.string().max(1000), cwd: z.string().max(4096).nullable(), projectId: idSchema.nullable(), updatedAt: z.number(), archived: z.boolean(), settings: modelSettingsSchema.optional() })).max(10000),
   models: z.array(modelOptionSchema).max(200).optional(),
+  projectCreation: z.object({ parents: z.array(z.object({ id: idSchema, path: z.string().min(1).max(4096) })).max(20) }).optional(),
 }).refine(value => jsonBytes(value) <= MAX_CATALOG_BYTES, "catalog-too-large")
   .refine(value => new Set(value.projects.map(project => project.id)).size === value.projects.length && new Set(value.threads.map(thread => thread.id)).size === value.threads.length, "duplicate-catalog-id");
 export type DeviceCatalog = z.infer<typeof catalogSchema>;
@@ -203,6 +204,7 @@ export const commandSchema = z.object({
   expectedEpoch: idSchema,
   expiresAt: z.number().int(),
   payload: z.discriminatedUnion("type", [
+    z.object({ type: z.literal("project.create"), parentId: idSchema, name: z.string().trim().min(1).max(100), relativePath: z.string().min(1).max(1024), mode: z.enum(["new", "existing"]) }),
     z.object({ type: z.literal("thread.create"), projectId: idSchema }),
     z.object({ type: z.literal("thread.rename"), threadId: idSchema, name: z.string().trim().min(1).max(1000) }),
     z.object({ type: z.literal("thread.archive"), threadId: idSchema }),
