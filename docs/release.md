@@ -40,7 +40,7 @@ npm run build:server
 npm run package:server
 ```
 
-输出当前平台的 `release/codexer-server-0.3.6-<os>-<arch>.tar.gz` 和 `.sha256`。包内一个 Go 执行文件已内嵌控制端/后台资源及 Go 更新器，另带安装脚本和文档，不含 Node 运行依赖、真实配置、旧 Git 历史或 Electron。设置 `CODEXER_TARGETS=linux/amd64,linux/arm64,darwin/amd64,darwin/arm64` 可交叉构建四个平台包。
+输出当前平台的 `release/codexer-server-0.3.7-<os>-<arch>.tar.gz` 和 `.sha256`。包内一个 Go 执行文件已内嵌控制端/后台资源及 Go 更新器，另带安装脚本和文档，不含 Node 运行依赖、真实配置、旧 Git 历史或 Electron。设置 `CODEXER_TARGETS=linux/amd64,linux/arm64,darwin/amd64,darwin/arm64` 可交叉构建四个平台包。
 
 同一个包同时升级 Admin 和 Relay，避免接口与 UI 不一致。安装、校验、回退见 [服务器安装](server-install.md)。源码的 Dockerfile 独立执行完整服务器构建，也跳过 Electron 下载。
 
@@ -49,6 +49,8 @@ npm run package:server
 Web 随统一服务包发布。iOS/Android 由 Expo/EAS 或原生工具构建和签名，见 [移动客户端](mobile.md)。JS export 是构建检查，不代替可安装文件或商店审核。
 
 ## 版本与升级
+
+服务器 `0.3.7` 修复 Safari/手机网页预览 Streamlit 等服务时的空白页面：响应头和页面 CSP 显式允许当前随机预览地址下的脚本、样式、字体和其他资源，兼容 HTTP 及 HTTPS 反向代理。保留没有 `allow-same-origin` 的隔离沙盒、账号检查及 Cookie 隔离。更新服务器后重新打开预览即可，PC 连接器无需更新，也不需要重新构建手机 App。
 
 服务器 `0.3.6` 的网页客户端记住上次选中的设备和会话，刷新或重新打开后恢复；记录保存在当前浏览器，按服务器和账号隔离。等待设备及目录加载后才检查记录是否失效，离线设备保留，移除的设备和删除/归档的会话回到可用项。此功能随服务器网页更新生效，PC 连接器无需更新。
 

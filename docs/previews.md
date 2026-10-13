@@ -34,6 +34,8 @@ Relay 通过 PC Agent 已建立的出站 WebSocket 回源，电脑无需增加�
 
 沙盒页面读取 `document.cookie` 时返回空字符串，写入被忽略，不会访问 Relay 的 Cookie。这样 Streamlit 等框架可以在未使用浏览器 Cookie 的情况下启动实时连接；依赖 JavaScript 读写 Cookie 的登录流程仍需要适配。服务端 HTTP Cookie 由 Relay 在预览会话内缓存和转发。
 
+服务器 `0.3.7` 在响应头和页面 CSP 中显式允许当前 `/v1/previews/{token}/` 地址下的资源，修复 Safari 的隔离沙盒无法用 `'self'` 匹配外部模块、样式和字体而导致的空白页面。许可同时包含该地址的 HTTP/HTTPS 形式，支持保留 Host 的 TLS 反向代理，不使用转发头生成许可；预览仍不包含 `allow-same-origin`。此修复只需更新服务器，再重新打开预览。
+
 HTML 资源地址、CSS URL、Vite 模块导入和浏览器 fetch/XHR/WebSocket 会映射到独立的预览路径。路径代理不是一个完整透明的浏览器域名：依赖 `window.location` 原始路径的 SPA 路由、框架硬编码的资源地址、Service Worker、浏览器持久存储和复杂认证流程可能需要适配预览基础路径。原生 WebView 的实际手势、键盘和导航行为仍需 iOS/Android 实机验收。
 
 代理页面提供 `window.__CODEXER_PREVIEW_BASE__`。需要基础路径的前端可以在 React Router 的 `basename` 或 Vue Router 的 history base 中使用它，普通本机访问时回退到 `/`。

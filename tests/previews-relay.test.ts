@@ -43,6 +43,15 @@ it('previews a real local app through Agent/Relay with assets, API bytes, cookie
     const path=result.json().path as string;
     const html=await app.inject({url:path});expect(html.statusCode).toBe(200);expect(html.body).toContain(path+'src/main.js');expect(html.body).toContain('test-channel');
     expect(html.headers['content-security-policy']).toContain('sandbox allow-scripts');expect(html.headers['access-control-allow-origin']).toBe('*');expect(html.headers['set-cookie']).toBeUndefined();
+    // Both CSP layers must permit external module/CSS assets in Safari's opaque sandbox.
+    expect(html.headers['content-security-policy']).toContain(base+path);
+    expect(html.body.match(/<meta http-equiv="Content-Security-Policy" content="([^"]*)"/i)?.[1]).toContain(base+path);
+    const proxied=await app.inject({url:path,headers:{host:'relay.example:8443','x-forwarded-proto':'https','x-forwarded-host':'untrusted.example'}});
+    expect(proxied.statusCode).toBe(200);
+    expect(proxied.headers['content-security-policy']).toContain('https://relay.example:8443'+path);
+    expect(proxied.body.match(/<meta http-equiv="Content-Security-Policy" content="([^"]*)"/i)?.[1]).toContain('https://relay.example:8443'+path);
+    expect(proxied.body).not.toContain('untrusted.example');
+    expect(proxied.headers['content-security-policy']).not.toContain('allow-same-origin');
     const js=await app.inject({url:path+'src/main.js'});expect(js.body).toContain(path+'src/next.js');
     const api=await app.inject({method:'POST',url:path+'api',headers:{'content-type':'application/json',...account.headers},payload:'{ "n": 2 }'});
     expect(api.statusCode).toBe(200);expect(api.json()).toEqual({body:'{ "n": 2 }',cookie:'demo=local',authorization:''});

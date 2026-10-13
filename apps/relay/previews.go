@@ -25,6 +25,7 @@ var previewRuntime string
 //go:embed protocol/preview.css
 var previewCSS string
 var hex64 = regexp.MustCompile(`^[a-f0-9]{64}$`)
+var previewAuthority = regexp.MustCompile(`(?i)^(?:[a-z0-9.-]+|\[[0-9a-f:]+\])(?::[0-9]+)?$`)
 var loopbackURL = regexp.MustCompile(`(?i)^https?://(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:[/?#]|$)`)
 var htmlHead = regexp.MustCompile(`(?i)<head(?:\s[^>]*)?>`)
 var htmlAttrs = regexp.MustCompile(`(?i)(\b(?:src|href|action|poster)\s*=\s*)(['"])(/[^'"]*|https?://(?:localhost|127\.0\.0\.1|\[::1\])[^'"]*)(['"])`)
@@ -94,14 +95,30 @@ func injectHead(text, head string) string {
 	}
 	return text[:at[1]] + head + text[at[1]:]
 }
-func previewDocument(text, channel string, state M) string {
+func previewAssetSources(r *http.Request, token string) string {
+	if !previewAuthority.MatchString(r.Host) || !hex64.MatchString(token) {
+		fail(400, "invalid-request")
+	}
+	// Safari cannot reliably match 'self' in an opaque sandbox. Scope explicit
+	// sources to this token; both schemes also cover TLS-terminating proxies
+	// without trusting forwarded headers or allowing other Relay endpoints.
+	path := r.Host + "/v1/previews/" + token + "/"
+	return "http://" + path + " https://" + path
+}
+
+func previewResponseCSP(local string) string {
+	return "sandbox allow-scripts allow-forms; default-src 'self' " + local + " data: blob: https:; script-src 'self' " + local + " 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' " + local + " 'unsafe-inline' https:; connect-src 'self' " + local + " ws: wss: https:; frame-src 'none'; object-src 'none'"
+}
+
+func previewDocument(text, channel string, state M, local string) string {
 	assets := "https://cdnjs.cloudflare.com https://esm.sh https://cdn.jsdelivr.net https://unpkg.com https://fonts.googleapis.com https://fonts.gstatic.com https://fonts.bunny.net"
-	csp := "default-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval' " + assets + "; style-src 'self' 'unsafe-inline' " + assets + "; img-src 'self' data: blob: " + assets + "; font-src 'self' data: " + assets + "; media-src data: blob: " + assets + "; connect-src 'self' ws: wss: " + assets + "; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'"
+	self := "'self' " + local
+	csp := "default-src 'none'; script-src " + self + " 'unsafe-inline' 'unsafe-eval' " + assets + "; style-src " + self + " 'unsafe-inline' " + assets + "; img-src " + self + " data: blob: " + assets + "; font-src " + self + " data: " + assets + "; media-src " + self + " data: blob: " + assets + "; connect-src " + self + " ws: wss: " + assets + "; frame-src 'none'; object-src 'none'; base-uri " + self + "; form-action " + self
 	var value any
 	if state != nil {
 		value = state
 	}
-	head := `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="` + csp + `"><style>` + previewCSS + `</style><script>(` + strings.ReplaceAll(previewRuntime, "</script", "<\\/script") + `)(` + scriptJSON(channel) + `,` + scriptJSON(value) + `);</script>`
+	head := `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="` + html.EscapeString(csp) + `"><style>` + previewCSS + `</style><script>(` + strings.ReplaceAll(previewRuntime, "</script", "<\\/script") + `)(` + scriptJSON(channel) + `,` + scriptJSON(value) + `);</script>`
 	return injectHead(text, head)
 }
 
@@ -258,6 +275,7 @@ func (s *Server) previewHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	token := r.PathValue("token")
 	prefix := "/v1/previews/" + token + "/"
+	localAssets := previewAssetSources(r, token)
 	path := "/" + strings.TrimPrefix(r.URL.EscapedPath(), prefix)
 	if r.URL.RawQuery != "" {
 		path += "?" + r.URL.RawQuery
@@ -311,7 +329,7 @@ func (s *Server) previewHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Range")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS")
 		w.Header().Set("Referrer-Policy", "no-referrer")
-		w.Header().Set("Content-Security-Policy", "sandbox allow-scripts allow-forms; default-src 'self' data: blob: https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; connect-src 'self' ws: wss: https:; frame-src 'none'; object-src 'none'")
+		w.Header().Set("Content-Security-Policy", previewResponseCSP(localAssets))
 		if loc := str(responseHeaders["location"]); loc != "" {
 			base, _ := url.Parse(p.Origin + path)
 			u, e := base.Parse(loc)
@@ -402,7 +420,7 @@ func (s *Server) previewHTTP(w http.ResponseWriter, r *http.Request) {
 					if strings.Contains(kind, "text/html") || strings.Contains(kind, "javascript") || strings.Contains(kind, "ecmascript") || strings.Contains(kind, "text/css") {
 						text := rewritePreview(string(chunks), kind, prefix, p.Origin, path)
 						if strings.Contains(kind, "text/html") {
-							text = previewDocument(text, p.Channel, p.State)
+							text = previewDocument(text, p.Channel, p.State, localAssets)
 						}
 						chunks = []byte(text)
 					}

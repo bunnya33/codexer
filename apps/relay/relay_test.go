@@ -341,7 +341,7 @@ func TestImageAndPreviewRewriting(t *testing.T) {
 			t.Fatalf("missing %s", v)
 		}
 	}
-	if strings.Contains(previewDocument(text, "</script>", nil), `)("</script>"`) {
+	if strings.Contains(previewDocument(text, "</script>", nil, ""), `)("</script>"`) {
 		t.Fatal("script injection")
 	}
 	if _, e := base64.StdEncoding.DecodeString("%%%%"); e == nil {
