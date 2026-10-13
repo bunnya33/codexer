@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { expect, it } from 'vitest';
 import { FileRegistry } from '../packages/codex-adapter/src/files.js';
-import { fileImageMime, fileReaderKind, localFilePath, readableFileText } from '../packages/client-shared/src/file-links.js';
+import { fileAudioMime, fileImageMime, fileReaderKind, localFilePath, readableFileText } from '../packages/client-shared/src/file-links.js';
 import { renderMarkdown } from '../packages/client-shared/src/markdown.js';
 import { FILE_CHUNK_BYTES, MAX_FILE_BYTES, fileRequestSchema } from '../packages/protocol/src/files.js';
 import { previewFile } from '../apps/mobile/src/file-transfer.js';
@@ -77,6 +77,22 @@ it('rejects an incomplete text response and prevents oversized previews before f
     await expect(previewFile(source,{...info,size:3*1024*1024},new AbortController().signal)).rejects.toThrow('文件较大');
     expect(fetcher).not.toHaveBeenCalled();
   } finally { vi.unstubAllGlobals(); }
+});
+
+it('opens supported audio citations in the player and keeps disguised executables as downloads', () => {
+  for (const [name, mime] of Object.entries({
+    '音乐.MP3':'audio/mpeg', 'music.wav':'audio/wav', 'music.wave':'audio/wav',
+    'music.m4a':'audio/mp4', 'book.m4b':'audio/mp4', 'music.aac':'audio/aac',
+    'music.ogg':'audio/ogg', 'music.oga':'audio/ogg', 'music.opus':'audio/ogg',
+    'music.flac':'audio/flac', 'music.aif':'audio/aiff', 'music.aiff':'audio/aiff', 'music.webm':'audio/webm',
+  })) {
+    expect(fileReaderKind(name)).toBe('audio');
+    expect(fileAudioMime(name)).toBe(mime);
+  }
+  for (const name of ['music.mp3.exe', 'music.wav.zip', 'file.constructor', 'file.__proto__', 'music.wma', 'mp3', 'unknown']) {
+    expect(fileReaderKind(name)).toBe('download');
+    expect(fileAudioMime(name)).toBeNull();
+  }
 });
 
 it('reads only files cited by a message in that thread, in versioned chunks, without embedding bytes', async () => {

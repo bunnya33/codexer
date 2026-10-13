@@ -44,9 +44,22 @@ export function fileImageMime(name: string): string | null {
   return Object.hasOwn(types, extension) ? types[extension]! : null;
 }
 
-export function fileReaderKind(name: string): "image" | "markdown" | "json" | "text" | "download" {
+export function fileAudioMime(name: string): string | null {
+  if (!name.includes(".")) return null;
+  const extension = name.toLowerCase().split(".").at(-1) ?? "";
+  const types: Record<string, string> = {
+    mp3: "audio/mpeg", wav: "audio/wav", wave: "audio/wav",
+    m4a: "audio/mp4", m4b: "audio/mp4", aac: "audio/aac",
+    ogg: "audio/ogg", oga: "audio/ogg", opus: "audio/ogg",
+    flac: "audio/flac", aif: "audio/aiff", aiff: "audio/aiff", webm: "audio/webm",
+  };
+  return Object.hasOwn(types, extension) ? types[extension]! : null;
+}
+
+export function fileReaderKind(name: string): "image" | "audio" | "markdown" | "json" | "text" | "download" {
   const extension = name.toLowerCase().split(".").at(-1);
   if (fileImageMime(name)) return "image";
+  if (fileAudioMime(name)) return "audio";
   if (extension === "md" || extension === "markdown") return "markdown";
   if (extension === "json") return "json";
   if (

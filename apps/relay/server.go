@@ -49,6 +49,7 @@ type Server struct {
 	clients      map[*Peer]bool
 	pending      map[string]*Pending
 	previews     map[string]*Preview
+	audio        map[string]*AudioPlayback
 	lanes        map[string]*deviceLane
 	exclusive    sync.RWMutex
 	auth         sync.Mutex
@@ -73,6 +74,7 @@ type rateWindow struct {
 func New(store *Store, options Options) (*Server, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Server{Store: store, Options: options, mux: http.NewServeMux(), schemas: map[string]*jsonschema.Schema{}, agents: map[string]*Peer{}, clients: map[*Peer]bool{}, pending: map[string]*Pending{}, previews: map[string]*Preview{}, limits: map[string]*rateWindow{}, lanes: map[string]*deviceLane{}, ctx: ctx, cancel: cancel, metrics: store.Metrics}
+	s.audio = map[string]*AudioPlayback{}
 	var values map[string]any
 	if e := json.Unmarshal(schemaFile, &values); e != nil {
 		return nil, e
@@ -468,6 +470,12 @@ func (s *Server) background() {
 						for k, v := range s.previews {
 							if v.Expires <= now() {
 								delete(s.previews, k)
+							}
+						}
+						for k, v := range s.audio {
+							if v.Expires <= now() {
+								v.cancel()
+								delete(s.audio, k)
 							}
 						}
 						s.mu.Unlock()

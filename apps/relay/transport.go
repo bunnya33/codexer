@@ -152,6 +152,12 @@ func (s *Server) CloseSessions(matches func(*Principal) bool, reason string) {
 		}
 	}
 	pending := []*Pending{}
+	for token, v := range s.audio {
+		if matches(v.Principal) {
+			v.cancel()
+			delete(s.audio, token)
+		}
+	}
 	for id, v := range s.pending {
 		if v.Principal != nil && matches(v.Principal) {
 			delete(s.pending, id)

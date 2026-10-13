@@ -499,6 +499,24 @@ export class RelayClient {
     return { uri: `${this.view.url}/v1/devices/${encodeURIComponent(deviceId)}/threads/${encodeURIComponent(threadId)}/files/content?path=${encodeURIComponent(path)}&version=${encodeURIComponent(version)}`, headers: { authorization: `Bearer ${this.token}` } };
   }
 
+  async openAudioSource(deviceId: string, threadId: string, path: string, version: string, signal: AbortSignal) {
+    if (signal.aborted) throw new Error('file-cancelled');
+    const base = this.view.url, session = this.token;
+    // Let this metadata request finish so closing during creation can revoke
+    // the returned playback capability instead of leaving it until expiry.
+    const result = await this.api<{ path: string; expiresAt: number }>(`/v1/devices/${encodeURIComponent(deviceId)}/threads/${encodeURIComponent(threadId)}/files/audio`, { path, version });
+    if (!/^\/v1\/audio\/[a-f0-9]{64}$/.test(result.path)) throw new Error('音频地址无效');
+    const uri = base + result.path;
+    const release = async () => {
+      await fetch(uri, { method: 'DELETE', headers: { authorization: `Bearer ${session}` } });
+    };
+    if (signal.aborted) {
+      await release().catch(() => {});
+      throw new Error('file-cancelled');
+    }
+    return { uri, release };
+  }
+
   previewStateKey(deviceId: string, threadId: string, source: string): string {
     // Separate saved previews by login session without writing a credential into storage keys.
     let hash = 2166136261;

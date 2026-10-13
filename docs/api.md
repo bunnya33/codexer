@@ -27,8 +27,11 @@ Base URL 是 Relay 的 HTTP 或 HTTPS 地址；本机开发默认为 `http://127
 | --- | --- | --- |
 | GET | `/v1/devices/:deviceId/threads/:threadId/files/info?path=...` | 返回 `{name,size,version}`；只读取元数据，不读取内容 |
 | GET | `/v1/devices/:deviceId/threads/:threadId/files/content?path=...&version=...` | 经 PC Agent 分块读取并流式返回二进制附件 |
+| POST | `/v1/devices/:deviceId/threads/:threadId/files/audio` | `{path,version}`：验证已引用音频并返回临时 `{path,expiresAt}` 播放地址 |
+| GET/HEAD | `/v1/audio/:token` | 绑定登录会话的音频；支持单个字节 Range、206/416、元数据检查，按需回源、不保存内容 |
+| DELETE | `/v1/audio/:token` | 原登录会话撤销播放地址并停止进行中的读取 |
 
-两种接口都需要同账号 Bearer 认证。`path` 为 URL 编码后的 PC 绝对路径；只接受当前会话官方消息里实际观察到的 Markdown 文件链接。支持 Windows/Unix 路径、中文与空格，以及本地 `file:` 链接，不接受网络共享路径。PC 必须在线，服务器与 PC 连接器都需更新到支持文件协议的版本。旧连接器返回 409 `agent-update-required`；文件未引用/不可读返回 404 `file-not-in-thread|file-unavailable`；文件变化返回 409 `file-changed`，应重新获取元数据。
+文件信息、下载以及创建/撤销音频地址需要同账号 Bearer 认证；播放器通过临时 token 读取音频，无需把登录凭据放进 URL。token 只允许读取绑定的文件，30 分钟后失效，关闭播放器或原登录会话失效时撤销，应作为临时访问凭据保管。`path` 为 URL 编码后的 PC 绝对路径；只接受当前会话官方消息里实际观察到的 Markdown 文件链接。支持 Windows/Unix 路径、中文与空格，以及本地 `file:` 链接，不接受网络共享路径。PC 必须在线，服务器与 PC 连接器都需更新到支持文件协议的版本。旧连接器返回 409 `agent-update-required`；文件未引用/不可读返回 404 `file-not-in-thread|file-unavailable`；文件变化返回 409 `file-changed`，应重新获取元数据。
 
 文件上限 512 MiB，Agent 每块最多 256 KiB，并校验文件版本和读取偏移。Relay 最多同时转发四个内容传输、每设备两个；超出返回 429 `files-busy`。每块回源等待最多 15 秒，返回 504 `file-timeout`。客户端断开会取消待回源请求；设备离线和服务器关闭会及时失败。**Relay 不缓存、不写入磁盘或数据库，也不把文件字节放入快照或历史。** 内容响应为附件、`no-store`、`nosniff`，浏览器不能在服务器来源下执行文件。传输中变化或断线会终止响应，客户端检查完整长度。
 

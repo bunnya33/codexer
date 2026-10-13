@@ -18,6 +18,7 @@ import { FileLinkContext } from "./file-link-context";
 import { fileError, previewFile } from "./file-transfer";
 import { downloadFile } from "./file-download";
 import { FileImage } from "./file-image";
+import { FileAudio } from "./file-audio";
 import type { FileSource } from "./file-transfer";
 import { Markdown } from "./markdown";
 import { CodeBlock } from "./code-block";
@@ -44,13 +45,20 @@ export function FileViewerProvider({
   threadId: string;
   children: ReactNode;
 }) {
-  const [file, setFile] = useState<OpenFile>();
+  const [storedFile, setStoredFile] = useState<OpenFile & { scope: string }>();
+  const scope = JSON.stringify([deviceId, threadId]);
+  // Hide the previous file in the same render as a conversation switch,
+  // before effects run, so it cannot start requests against the new thread.
+  const file = storedFile?.scope === scope ? storedFile : undefined;
+  const setFile = useCallback((value: OpenFile | undefined) => {
+    setStoredFile(value ? { ...value, scope } : undefined);
+  }, [scope]);
   const operation = useRef<AbortController | undefined>(undefined);
   const close = useCallback(() => {
     operation.current?.abort();
     operation.current = undefined;
     setFile(undefined);
-  }, []);
+  }, [setFile]);
   useEffect(() => {
     close();
     return () => {
@@ -70,6 +78,10 @@ export function FileViewerProvider({
           if (!current()) return;
           if (fileReaderKind(info.name) === "image") {
             setFile({ path, info, phase: "preview", imageSource: relay.fileSource(deviceId, threadId, path, info.version) });
+            return;
+          }
+          if (fileReaderKind(info.name) === "audio") {
+            setFile({ path, info, phase: "preview" });
             return;
           }
           if (fileReaderKind(info.name) === "download" || info.size > MAX_FILE_PREVIEW_BYTES) {
@@ -104,7 +116,7 @@ export function FileViewerProvider({
         }
       })();
     },
-    [deviceId, threadId],
+    [deviceId, threadId, setFile],
   );
 
   const download = async () => {
@@ -170,6 +182,8 @@ export function FileViewerProvider({
             </View>
             {file?.phase === "preview" && file.imageSource ? (
               <FileImage source={file.imageSource} info={file.info!} onClose={close} />
+            ) : file?.phase === "preview" && fileReaderKind(file.info!.name) === "audio" ? (
+              <FileAudio key={file.path + file.info!.version} deviceId={deviceId} threadId={threadId} path={file.path} info={file.info!} />
             ) : <ScrollView style={fs.body} contentContainerStyle={fs.content}>
               {file?.phase === "preview" && (
                 <FileLinkContext.Provider value={undefined}>

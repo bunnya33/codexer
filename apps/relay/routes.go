@@ -219,6 +219,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/ws/device", s.deviceSocket)
 	s.mux.HandleFunc("GET /v1/ws/client", s.clientSocket)
 	s.transferRoutes()
+	s.audioRoutes()
 	s.previewRoutes()
 	s.weixinRoutes()
 	s.updateRoutes()

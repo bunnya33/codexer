@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-var version = "0.3.7-dev"
+var version = "0.3.8-dev"
 
 func main() {
 	defer func() {
