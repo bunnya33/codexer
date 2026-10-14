@@ -508,7 +508,7 @@ export class RelayClient {
     if (!/^\/v1\/audio\/[a-f0-9]{64}$/.test(result.path)) throw new Error('音频地址无效');
     const uri = base + result.path;
     const release = async () => {
-      await fetch(uri, { method: 'DELETE', headers: { authorization: `Bearer ${session}` } });
+      await fetch(uri, { method: 'DELETE', headers: { authorization: `Bearer ${session}` }, signal: AbortSignal.timeout(10000) });
     };
     if (signal.aborted) {
       await release().catch(() => {});

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { AudioPlayerProps } from "./audio-player.types";
 
-export function AudioPlayer({ uri, onError }: AudioPlayerProps) {
+export function AudioPlayer({ uri, onError, onEnded }: AudioPlayerProps) {
   const player = useRef<HTMLAudioElement>(null);
   useEffect(() => {
     const audio = player.current;
@@ -12,5 +12,5 @@ export function AudioPlayer({ uri, onError }: AudioPlayerProps) {
       audio.load();
     };
   }, [uri]);
-  return <audio ref={player} src={uri} controls preload="metadata" aria-label="音频播放控件" onError={onError} style={{ display: "block", width: "100%", minWidth: 0 }} />;
+  return <audio ref={player} src={uri} controls preload="metadata" aria-label="音频播放控件" onError={onError} onEnded={onEnded} style={{ display: "block", width: "100%", minWidth: 0 }} />;
 }

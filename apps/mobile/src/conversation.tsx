@@ -15,6 +15,7 @@ import { c, s } from './styles';
 import { ShimmerLabel } from './shimmer';
 import { DrawerSwipeBlock } from './drawer-swipe-block';
 import { FileDiff } from './file-diff';
+import { localAudioPath, stripInlineImageReferences } from '../../../packages/client-shared/src/audio';
 
 type ImageSource = { uri: string; headers?: Record<string, string> };
 type ImageViewer = (source: ImageSource, name: string) => void;
@@ -27,17 +28,18 @@ function ExecutionIcon({ item }: { item?: RemoteItem }) {
 function Message({ item, running = false, deviceId, threadId, onImage }: { item: RemoteItem; running?: boolean; deviceId: string; threadId: string; onImage: ImageViewer }) {
   const role = messageRole(item);
   const [open, setOpen] = useState(false);
-  const images = item.images ?? [];
+  const images = (item.images ?? []).filter(image => !image.source || !localAudioPath(image.source));
+  const imageSources = images.flatMap(image => image.source ? [image.source] : []);
   const presentation = role === 'user' ? userPresentation(item.text ?? '') : null;
   const body = presentation?.body ?? item.text ?? '';
   const parts = role === 'user' ? item.userMessageParts ?? presentation?.parts : undefined;
-  const display = images.some(image => image.source) ? body.replace(/!\[[^\]]*\]\([^)]*\)/g, '') : body;
+  const display = stripInlineImageReferences(body, imageSources);
   if (role) {
     if (!body && !images.length && !item.files?.length) return null;
     return <View style={[s.message, role === 'user' ? s.userMessage : s.agentMessage]}>
       {parts?.length ? <View style={s.replyParts}>{parts.map((part, index) => part.type === 'questionAnswer'
         ? <View key={index} style={s.replyPair}><Text selectable style={s.replyQuestion}>{part.question}</Text><Text selectable style={s.replyAnswer}>{part.answer}</Text></View>
-        : <Markdown key={index}>{images.some(image => image.source) ? part.text.replace(/!\[[^\]]*\]\([^)]*\)/g, '') : part.text}</Markdown>)}</View> : !!display && <Markdown>{display}</Markdown>}
+        : <Markdown key={index}>{stripInlineImageReferences(part.text, imageSources)}</Markdown>)}</View> : !!display && <Markdown>{display}</Markdown>}
       {!!images.length && <DrawerSwipeBlock style={s.imageRow}>{images.map(image => <Pressable key={image.id} accessibilityRole="button" accessibilityLabel={`查看图片 ${image.name}`} onPress={() => onImage(relay.imageSource(deviceId, threadId, image.id), image.name)}><RelayImage source={relay.imageSource(deviceId, threadId, image.id)} resizeMode="cover" style={s.image} /></Pressable>)}</DrawerSwipeBlock>}
       {!!item.files?.length && <Text style={s.fileNames}>{item.files.join(' · ')}</Text>}
       {!!display && <Pressable accessibilityRole="button" accessibilityLabel="复制消息" style={[s.iconButton, { alignSelf: role === 'user' ? 'flex-end' : 'flex-start', width: 30, height: 28 }]} onPress={() => void copyText(display).catch(() => relay.showNotice('复制失败，请选择文字手动复制'))}><Copy size={14} color={c.muted} /></Pressable>}

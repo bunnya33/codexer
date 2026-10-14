@@ -27,7 +27,7 @@ it('streams and seeks cited audio through a real PC Agent, isolates capabilities
   try {
     await writeFile(path, bytes); await writeFile(archive, 'archive');
     const turns = desktop.state.turnHistory as { history: { entitiesByKey: Record<string, { items: unknown[] }> } };
-    turns.history.entitiesByKey['turn-key']!.items = [{ id: 'audio', type: 'agentMessage', text: `[播放音乐](<${path}>)\n[其他文件](<${archive}>)`, phase: 'final_answer' }];
+    turns.history.entitiesByKey['turn-key']!.items = [{ id: 'audio', type: 'agentMessage', text: `![播放音乐](<${path}>)\n[其他文件](<${archive}>)`, phase: 'final_answer' }];
     await desktop.start();
     const base = await app.listen({ port: 0 }), registered = await testAgent(store, account.id);
     const reader = {

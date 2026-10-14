@@ -7,6 +7,7 @@ import { MAX_IMAGE_BYTES } from "../../protocol/src/index.js";
 import type { ImagePayload, ImageRef } from "../../protocol/src/index.js";
 import { decodeImage, imageMime } from "../../shared/src/images.js";
 import { record } from "./normalize.js";
+import { localAudioPath } from "../../client-shared/src/audio.js";
 
 type Source = { threadId: string; value: string; data: boolean; name: string };
 const markdown = new MarkdownIt({ html: false });
@@ -26,7 +27,7 @@ export class ImageRegistry {
     if (item.type === "agentMessage" && typeof item.text === "string") {
       for (const token of markdown.parse(item.text, {})) for (const child of token.children ?? []) {
         const src = child.type === "image" ? child.attrGet("src") : null;
-        if (typeof src === "string" && src.length <= 4096) { candidates.push(src); inline.add(src); }
+        if (typeof src === "string" && src.length <= 4096 && !localAudioPath(src)) { candidates.push(src); inline.add(src); }
       }
     }
     if (item.type === "imageView" && typeof item.path === "string") candidates.push(item.path);

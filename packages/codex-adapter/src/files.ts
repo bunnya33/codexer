@@ -8,6 +8,7 @@ import { FILE_CHUNK_BYTES, MAX_FILE_BYTES } from "../../protocol/src/files.js";
 import type { FilePayload } from "../../protocol/src/files.js";
 import type { HistoryTurn, RemoteThread } from "../../protocol/src/index.js";
 import { previewReferences } from "../../client-shared/src/previews.js";
+import { audioReferences } from "../../client-shared/src/audio.js";
 
 const parser = new MarkdownIt({ html: false });
 parser.validateLink = (value) => localFilePath(value) !== null;
@@ -26,6 +27,9 @@ export class FileRegistry {
       for (const preview of previewReferences(item.text)) {
         if (preview.kind !== 'html' || !isAbsolute(preview.source)) continue;
         this.register(threadId, preview.source);
+      }
+      for (const audio of audioReferences(item.text)) {
+        if (isAbsolute(audio.source)) this.register(threadId, audio.source);
       }
       for (const token of parser.parse(item.text, {}))
         for (const child of token.children ?? []) {

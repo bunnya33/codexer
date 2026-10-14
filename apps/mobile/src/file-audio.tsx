@@ -1,30 +1,14 @@
-import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { Music2 } from "lucide-react-native";
 import type { FileInfo } from "../../../packages/protocol/src/files";
 import { AudioPlayer } from "./audio-player";
-import { relay } from "./relay";
-import { fileError } from "./file-transfer";
+import { useAudioPlayback } from "./audio-playback";
 import { c } from "./styles";
 
 export function FileAudio({ deviceId, threadId, path, info }: {
   deviceId: string; threadId: string; path: string; info: FileInfo;
 }) {
-  const [attempt, setAttempt] = useState(0);
-  const [player, setPlayer] = useState<{ uri?: string; error?: string }>({});
-  useEffect(() => {
-    const controller = new AbortController();
-    let release: (() => Promise<void>) | undefined;
-    setPlayer({});
-    void relay.openAudioSource(deviceId, threadId, path, info.version, controller.signal).then(source => {
-      if (controller.signal.aborted) { void source.release().catch(() => {}); return; }
-      release = source.release;
-      setPlayer({ uri: source.uri });
-    }).catch(error => {
-      if (!controller.signal.aborted) setPlayer({ error: fileError(error) });
-    });
-    return () => { controller.abort(); void release?.().catch(() => {}); };
-  }, [deviceId, threadId, path, info.version, attempt]);
+  const player = useAudioPlayback(deviceId, threadId, path, info);
   return <View style={as.body}>
     <View style={as.card}>
       <Music2 size={44} color={c.accent} />
@@ -32,13 +16,16 @@ export function FileAudio({ deviceId, threadId, path, info }: {
       {player.error ? <>
         <Text accessibilityRole="alert" style={as.error}>{player.error}</Text>
         <Text style={as.hint}>也可以使用右上角的下载按钮，保存后播放。</Text>
-        <Pressable accessibilityRole="button" onPress={() => setAttempt(value => value + 1)} style={as.retry}>
+        <Pressable accessibilityRole="button" onPress={player.start} style={as.retry}>
           <Text style={as.retryText}>重新加载</Text>
         </Pressable>
       </> : player.uri ? <>
-        <AudioPlayer key={player.uri} uri={player.uri} onError={() => setPlayer({ error: "音频暂时无法播放，请重新加载；格式不支持时可下载后播放。" })} />
+        <AudioPlayer key={player.uri} uri={player.uri} onError={player.fail} onEnded={player.stop} />
         <Text style={as.hint}>点击播放，可拖动进度条跳转。</Text>
-      </> : <ActivityIndicator color={c.accent} accessibilityLabel="正在准备音频" />}
+      </> : player.phase === "loading" ? <ActivityIndicator color={c.accent} accessibilityLabel="正在准备音频" />
+        : <Pressable accessibilityRole="button" accessibilityLabel={`加载音频 ${info.name}`} onPress={player.start} style={as.retry}>
+          <Text style={as.retryText}>加载音频</Text>
+        </Pressable>}
     </View>
   </View>;
 }

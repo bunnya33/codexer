@@ -6,6 +6,8 @@ Electron 客户端同时配置 macOS arm64（Apple Silicon）和 x64（Intel）�
 
 2026-10-12 新建项目版本 `0.1.11` 已生成 Apple Silicon DMG/ZIP，并替换本机 Applications 中的 `0.1.10` 应用文件。目录授权默认空列表，原有配置保留。Mac 锁屏期间保留正在运行的旧进程，解锁后退出并重新打开 Codexer 才生效。签名/归档与包内 worker 已验证；原生窗口/Keychain 启动仍待解锁后检查。
 
+2026-10-14 会话内音频卡片版本 `0.1.12` 已生成 Apple Silicon DMG/ZIP 与 SHA256，并替换本机 `/Applications/Codexer.app`。签名、DMG/ZIP、包内 main/preload/worker/UI 和版本核对通过；已安装包的 worker 在真实 Electron utilityProcess、隔离 Codex 数据目录与仅系统 PATH 下完成启动、SQLite、自动发现和停止检查。原有登录与目录授权的校验值保持一致，旧应用备份保留在本地。旧进程检测到活动会话，正常退出触发任务保护；保留旧进程，需任务结束后退出并重新打开才能启用新版。当前原生窗口工具无法访问界面，未完成新版真实 Keychain/窗口验收。
+
 ## 安装和运行
 
 打开 DMG，把 Codexer 拖到 Applications，启动后按 [PC 连接器](pc-setup.md) 使用账号登录。后台入口在菜单栏，关闭窗口默认保留本机服务。开机启动通过系统登录项配置，用户可在系统设置中管理。本地版本使用 ad-hoc 签名，未做 Apple 公证；对外发行需要开发者签名和公证。
