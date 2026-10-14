@@ -151,4 +151,6 @@ Web/Admin/Go 生产构建及单文件服务器检查通过：仅复制 Go 可执
 
 本轮组件行为由实际 React/React Native Web 组件的 JSDOM 验收及隔离接口测试验证。Safari 验收遇到工具无法绑定可见窗口，未完成本轮真实媒体交互验收；测试服务已停止。服务器发布与本机 PC 更新记录见 [发布文档](release.md) 和 [macOS](mac.md)。未部署用户的生产服务器，也未生成 APK/IPA 安装包。
 
-发布准备的服务器 `0.3.9` 再次完成 Web/Admin/Go 生产构建、版本和空目录单文件服务器检查，最终版本的根/后台/Electron/控制端/React Native 类型检查与文档检查通过。PC `0.1.12` Apple Silicon DMG/ZIP 的签名、归档、SHA256 和包内资源与生产构建一致性通过，安装文件已替换；实际安装包 worker 的真实 utilityProcess 在隔离数据、仅系统 PATH 下完成启动及停止，保留用户登录/设置。旧进程因活动会话保留，需退出重开生效；本轮未完成正常用户配置下的新版 Keychain/窗口检查，见 [macOS](mac.md)。
+发布准备的服务器 `0.3.9` 再次完成 Web/Admin/Go 生产构建、版本和空目录单文件服务器检查，最终版本的根/后台/Electron/控制端/React Native 类型检查与文档检查通过。PC `0.1.12` Apple Silicon DMG/ZIP 的签名、归档、SHA256 和包内资源与生产构建一致性通过，安装文件已替换；实际安装包 worker 的真实 utilityProcess 在隔离数据、仅系统 PATH 下完成启动及停止，保留用户登录/设置。用户随后明确要求关闭旧进程，现已启动新版，实际用户配置下确认控制台就绪、Agent 启动与 Relay/运行服务在线；只保留一个连接器主进程。未完成原生窗口可视及 Keychain 首次授权提示检查，见 [macOS](mac.md)。
+
+GitHub `v0.3.9` 发布工作流已成功完成全部检查和四平台构建，稳定 Release 的四个统一服务器归档及对应 SHA256 共 8 个附件均上传完成。
