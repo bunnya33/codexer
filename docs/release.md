@@ -40,7 +40,7 @@ npm run build:server
 npm run package:server
 ```
 
-输出当前平台的 `release/codexer-server-0.3.9-<os>-<arch>.tar.gz` 和 `.sha256`。包内一个 Go 执行文件已内嵌控制端/后台资源及 Go 更新器，另带安装脚本和文档，不含 Node 运行依赖、真实配置、旧 Git 历史或 Electron。设置 `CODEXER_TARGETS=linux/amd64,linux/arm64,darwin/amd64,darwin/arm64` 可交叉构建四个平台包。
+输出当前平台的 `release/codexer-server-0.3.10-<os>-<arch>.tar.gz` 和 `.sha256`。包内一个 Go 执行文件已内嵌控制端/后台资源及 Go 更新器，另带安装脚本和文档，不含 Node 运行依赖、真实配置、旧 Git 历史或 Electron。设置 `CODEXER_TARGETS=linux/amd64,linux/arm64,darwin/amd64,darwin/arm64` 可交叉构建四个平台包。
 
 同一个包同时升级 Admin 和 Relay，避免接口与 UI 不一致。安装、校验、回退见 [服务器安装](server-install.md)。源码的 Dockerfile 独立执行完整服务器构建，也跳过 Electron 下载。
 
@@ -49,6 +49,10 @@ npm run package:server
 Web 随统一服务包发布。iOS/Android 由 Expo/EAS 或原生工具构建和签名，见 [移动客户端](mobile.md)。JS export 是构建检查，不代替可安装文件或商店审核。
 
 ## 版本与升级
+
+服务器 `0.3.10` 将模型和推理强度合并为一个按钮，向上浮层中选择模型并用分档滑块调整强度。排队消息连接到输入框上方，每行直接提供「引导、删除、编辑」；编辑读取完整正文，保留图片附件，并检查并发修改。未发送图片的缩略图可点击进入缩放及多图预览。
+
+网页及 RelayDesk 随服务器更新生效，RelayDesk 无需重新安装。排队消息编辑还需要运行本版本源码中的 PC Agent，旧版连接器不支持新增的 `turn.queue.read/update` 命令；本次服务器 Release 不自动安装或更新 PC 连接器。原生手机 App 需重新构建。没有新增数据库迁移。
 
 服务器 `0.3.9` / PC 连接器 `0.1.12` 增加会话内音频卡片：仅识别可见 Markdown 音频嵌入标签，普通下载链接保持原样。点击「加载音频」后才申请播放地址；音频卡片与文件弹窗共用单个播放器，切换前等待旧地址撤销，播放结束、关闭、切换会话和退出时清理。修复代码/转义内容及隐藏链接定义被误识别、预览分段后引用式下载链接失效的问题。仅含音频嵌入标签的消息需要新版 PC 连接器；网页随服务器更新，原生手机 App 需重新构建。
 

@@ -41,6 +41,7 @@ export class CommandJournal {
     this.db.prepare("INSERT INTO queued_messages(id,thread_id,text,images,created_at,status) VALUES(?,?,?,?,?,?)").run(message.id, message.threadId, message.text, JSON.stringify(message.images), message.createdAt, message.status);
   }
   queueStatus(id: string, status: QueuedMessage["status"]): void { this.db.prepare("UPDATE queued_messages SET status=? WHERE id=?").run(status, id); }
+  updateQueued(id: string, text: string): void { this.db.prepare("UPDATE queued_messages SET text=? WHERE id=?").run(text, id); }
   removeQueued(id: string): void { this.db.prepare("DELETE FROM queued_messages WHERE id=?").run(id); }
   close(): void { this.db.close(); }
 }

@@ -319,8 +319,7 @@ export class PcAgent extends EventEmitter {
   }
   private async drainQueue(threadId: string): Promise<void> {
     if (this.drainingQueues.has(threadId) || this.awaitingQueuedTurn.has(threadId) || this.stopped || this.remotePaused || !this.relayAllowed) return;
-    const queued = this.journal.queued(threadId).find(message => message.status === "queued");
-    if (!queued) return;
+    if (!this.journal.queued(threadId).some(message => message.status === "queued")) return;
     this.drainingQueues.add(threadId);
     try {
       await this.switchQueue.run(async () => {
@@ -328,6 +327,9 @@ export class PcAgent extends EventEmitter {
         const adapter = this.adapterForThread(threadId);
         const thread = adapter.getThread(threadId);
         if (!thread?.ownerAvailable || thread.status !== "idle") return;
+        // Queue edits and removals may have completed while this lane was busy.
+        const queued = this.journal.queued(threadId).find(message => message.status === "queued");
+        if (!queued) return;
         this.journal.queueStatus(queued.id, "sending");
         this.publishQueue(threadId);
         this.awaitingQueuedTurn.add(threadId);
@@ -349,47 +351,56 @@ export class PcAgent extends EventEmitter {
   }
   private async queueCommand(command: RemoteCommand, allowed = () => !this.remotePaused && this.relayAllowed): Promise<Record<string, unknown>> {
     const payload = command.payload;
-    if (payload.type !== 'turn.queue' && payload.type !== 'turn.queue.steer' && payload.type !== 'turn.queue.remove') throw new AdapterError('unsupported-command');
-    const thread = this.adapterForThread(payload.threadId).getThread(payload.threadId);
-    if (!thread?.ownerAvailable) throw new AdapterError("thread-owner-unavailable");
-    if (payload.type === "turn.queue") {
-      if (thread.status !== "active") throw new AdapterError("thread-not-active");
-      if (this.journal.queued(payload.threadId).length >= 20) throw new AdapterError("queue-full");
-      const message: QueuedMessage = { id: command.commandId, threadId: payload.threadId, text: payload.text, images: payload.images ?? [], createdAt: Date.now(), status: "queued" };
-      this.journal.enqueue(message);
-      this.publishQueue(payload.threadId);
-      return { queueId: message.id };
-    }
-    if (payload.type === "turn.queue.remove") {
-      const message = this.journal.queued(payload.threadId).find(value => value.id === payload.queueId);
-      if (!message || message.status === "sending") throw new AdapterError("queue-item-unavailable");
-      this.journal.removeQueued(message.id);
-      this.publishQueue(payload.threadId);
-      return { queueId: message.id };
-    }
-    if (payload.type === "turn.queue.steer") {
-      const message = this.journal.queued(payload.threadId).find(value => value.id === payload.queueId && value.status === "queued");
-      if (!message) throw new AdapterError("queue-item-unavailable");
-      if (thread.activeTurnId !== payload.turnId) throw new AdapterError("stale-turn");
-      this.journal.queueStatus(message.id, "sending");
-      this.publishQueue(payload.threadId);
-      try {
-        const steer: RemoteCommand = { ...command, commandId: message.id, payload: { type: "turn.steer", threadId: payload.threadId, turnId: payload.turnId, text: message.text, images: message.images } };
-        const result = await this.switchQueue.run(async () => {
-          const inputs = await this.imageInputs(payload.threadId, message.images);
-          if (!allowed()) throw new AdapterError("remote-disconnected");
-          return this.adapterForThread(payload.threadId).execute(steer, inputs);
-        });
+    if (payload.type !== 'turn.queue' && payload.type !== 'turn.queue.steer' && payload.type !== 'turn.queue.remove' && payload.type !== 'turn.queue.read' && payload.type !== 'turn.queue.update') throw new AdapterError('unsupported-command');
+    return this.switchQueue.run(async () => {
+      if (!allowed()) throw new AdapterError('remote-disconnected');
+      const thread = this.adapterForThread(payload.threadId).getThread(payload.threadId);
+      if (!thread?.ownerAvailable) throw new AdapterError("thread-owner-unavailable");
+      if (payload.type === "turn.queue") {
+        if (thread.status !== "active") throw new AdapterError("thread-not-active");
+        if (this.journal.queued(payload.threadId).length >= 20) throw new AdapterError("queue-full");
+        const message: QueuedMessage = { id: command.commandId, threadId: payload.threadId, text: payload.text, images: payload.images ?? [], createdAt: Date.now(), status: "queued" };
+        this.journal.enqueue(message);
+        this.publishQueue(payload.threadId);
+        return { queueId: message.id };
+      }
+      if (payload.type === "turn.queue.remove" || payload.type === "turn.queue.read" || payload.type === "turn.queue.update") {
+        const message = this.journal.queued(payload.threadId).find(value => value.id === payload.queueId);
+        if (!message || message.status === "sending") throw new AdapterError("queue-item-unavailable");
+        if (payload.type === 'turn.queue.read') return { queueId: message.id, text: message.text, images: message.images };
+        if (payload.type === 'turn.queue.update') {
+          if (payload.expectedText !== message.text) throw new AdapterError('queue-item-changed');
+          if (!payload.text.trim() && !message.images.length) throw new AdapterError('empty-input');
+          this.journal.updateQueued(message.id, payload.text);
+          this.publishQueue(payload.threadId);
+          return { queueId: message.id };
+        }
         this.journal.removeQueued(message.id);
         this.publishQueue(payload.threadId);
-        return { ...result, queueId: message.id };
-      } catch (error) {
-        if (error instanceof AdapterError && !error.uncertain) this.journal.queueStatus(message.id, "failed");
-        this.publishQueue(payload.threadId);
-        throw error;
+        return { queueId: message.id };
       }
-    }
-    throw new AdapterError("unsupported-command");
+      if (payload.type === "turn.queue.steer") {
+        const message = this.journal.queued(payload.threadId).find(value => value.id === payload.queueId && value.status === "queued");
+        if (!message) throw new AdapterError("queue-item-unavailable");
+        if (thread.activeTurnId !== payload.turnId) throw new AdapterError("stale-turn");
+        this.journal.queueStatus(message.id, "sending");
+        this.publishQueue(payload.threadId);
+        try {
+          const steer: RemoteCommand = { ...command, commandId: message.id, payload: { type: "turn.steer", threadId: payload.threadId, turnId: payload.turnId, text: message.text, images: message.images } };
+          const inputs = await this.imageInputs(payload.threadId, message.images);
+          if (!allowed()) throw new AdapterError("remote-disconnected");
+          const result = await this.adapterForThread(payload.threadId).execute(steer, inputs);
+          this.journal.removeQueued(message.id);
+          this.publishQueue(payload.threadId);
+          return { ...result, queueId: message.id };
+        } catch (error) {
+          if (error instanceof AdapterError && !error.uncertain) this.journal.queueStatus(message.id, "failed");
+          this.publishQueue(payload.threadId);
+          throw error;
+        }
+      }
+      throw new AdapterError("unsupported-command");
+    });
   }
   private flush(): void {
     this.flushTimer = undefined;
@@ -533,7 +544,7 @@ export class PcAgent extends EventEmitter {
               ? await this.manageThread(command.payload, current)
               : command.payload.type === "thread.watch"
               ? await this.watchThread(command.payload.threadId).then(() => ({ watched: true }))
-              : command.payload.type === "turn.queue" || command.payload.type === "turn.queue.steer" || command.payload.type === "turn.queue.remove"
+              : command.payload.type === "turn.queue" || command.payload.type === "turn.queue.steer" || command.payload.type === "turn.queue.remove" || command.payload.type === "turn.queue.read" || command.payload.type === "turn.queue.update"
                 ? await this.queueCommand(command, current)
                 : await this.switchQueue.run(async () => {
                   if (!current()) throw new AdapterError("remote-disconnected");

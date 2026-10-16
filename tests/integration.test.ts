@@ -53,10 +53,28 @@ it("pairs the agent, streams desktop state, deduplicates controls, and recovers 
 
     desktop.state = rawThread("active"); desktop.publishSnapshot();
     await waitFor(() => agent!.snapshot().threads["thread-test"]?.status === "active");
-    const queued = command({ type: "turn.queue", threadId: "thread-test", text: "Change direction" }, first);
+    const queuedText = '完整排队消息'.repeat(4000);
+    const uploaded = await app.inject({ method: 'POST', url: `/v1/devices/${credentials.deviceId}/threads/thread-test/images`, headers,
+      payload: { name: 'queued.png', mimeType: 'image/png', base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aS1sAAAAASUVORK5CYII=' } });
+    expect(uploaded.statusCode).toBe(200);
+    const imageId = uploaded.json().id as string;
+    const queued = command({ type: "turn.queue", threadId: "thread-test", text: queuedText, images: [imageId] }, first);
     peer.send({ type: "client.command", command: queued });
     expect(record((await peer.wait(value => value.type === "command.result" && record(value.result).commandId === queued.commandId)).result).status).toBe("succeeded");
-    await waitFor(() => agent!.snapshot().threads["thread-test"]?.queuedMessages?.[0]?.text === "Change direction");
+    await waitFor(() => agent!.snapshot().threads["thread-test"]?.queuedMessages?.[0]?.text === queuedText.slice(0, 1000));
+    const readQueued = command({ type: 'turn.queue.read', threadId: 'thread-test', queueId: queued.commandId }, first);
+    peer.send({ type: 'client.command', command: readQueued });
+    expect(record((await peer.wait(value => value.type === 'command.result' && record(value.result).commandId === readQueued.commandId)).result))
+      .toMatchObject({ status: 'succeeded', result: { text: queuedText, images: [imageId] } });
+    const editQueued = command({ type: 'turn.queue.update', threadId: 'thread-test', queueId: queued.commandId, text: 'Change direction', expectedText: queuedText }, first);
+    peer.send({ type: 'client.command', command: editQueued });
+    expect(record((await peer.wait(value => value.type === 'command.result' && record(value.result).commandId === editQueued.commandId)).result).status).toBe('succeeded');
+    expect(agent.snapshot().threads['thread-test']?.queuedMessages?.[0]).toMatchObject({ text: 'Change direction', imageCount: 1 });
+    const staleEdit = command({ ...editQueued.payload, type: 'turn.queue.update', threadId: 'thread-test', queueId: queued.commandId, text: 'Do not overwrite', expectedText: queuedText }, first);
+    peer.send({ type: 'client.command', command: staleEdit });
+    expect(record((await peer.wait(value => value.type === 'command.result' && record(value.result).commandId === staleEdit.commandId)).result))
+      .toMatchObject({ status: 'failed', code: 'queue-item-changed' });
+    expect(agent.snapshot().threads['thread-test']?.queuedMessages?.[0]?.text).toBe('Change direction');
     const steer = command({ type: "turn.queue.steer", threadId: "thread-test", turnId: "turn-A", queueId: queued.commandId }, first);
     peer.send({ type: "client.command", command: steer });
     expect(record((await peer.wait(value => value.type === "command.result" && record(value.result).commandId === steer.commandId)).result).status).toBe("succeeded");

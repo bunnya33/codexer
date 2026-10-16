@@ -1,5 +1,5 @@
 import { clearCredentials as clearSavedCredentials, randomId, readCredentials, saveCredentials } from './runtime';
-import { catalogSchema, eventSchema, historyPageSchema, imageRefSchema, MAX_IMAGE_BYTES, reduceEvent, snapshotSchema } from '../../../packages/protocol/src/index';
+import { catalogSchema, eventSchema, historyPageSchema, imageRefSchema, MAX_IMAGE_BYTES, queuedMessageDetailsSchema, reduceEvent, snapshotSchema } from '../../../packages/protocol/src/index';
 import type { CommandResult, DeviceCatalog, DeviceSnapshot, HistoryTurn, ImageRef, RemoteCommand } from '../../../packages/protocol/src/index';
 import type { WeixinLogin, WeixinStatus } from '../../../packages/protocol/src/weixin';
 import { threadNotificationSchema } from '../../../packages/protocol/src/weixin';
@@ -483,6 +483,12 @@ export class RelayClient {
     if (Math.ceil(value.base64.length * 3 / 4) > MAX_IMAGE_BYTES) throw new Error('图片不能超过 4 MB');
     const result = await this.api<unknown>(`/v1/devices/${encodeURIComponent(deviceId)}/threads/${encodeURIComponent(threadId)}/images`, value);
     return imageRefSchema.parse(result);
+  }
+
+  async queuedMessage(deviceId: string, threadId: string, queueId: string) {
+    const result = await this.sendCommand(deviceId, { type: 'turn.queue.read', threadId, queueId });
+    if (result.status !== 'succeeded') throw new Error(result.code);
+    return queuedMessageDetailsSchema.parse(result.result);
   }
 
   imageSource(deviceId: string, threadId: string, imageId: string) {

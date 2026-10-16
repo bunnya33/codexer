@@ -19,7 +19,11 @@ func validateRefinements(v any) {
 		}
 	case map[string]any:
 		for k, v := range x {
-			if (k == "details" || k == "result") && v != nil && len(js(v)) > 16384 {
+			limit := 16384
+			if k == "result" {
+				limit = 256 * 1024
+			}
+			if (k == "details" || k == "result") && v != nil && len(js(v)) > limit {
 				fail(400, "invalid-message")
 			}
 			if k == "tokenUsage" && x["turns"] != nil && v != nil && len(js(v)) > 4096 {
@@ -103,6 +107,7 @@ func commandHash(m M, raw ...[]byte) string {
 	}
 	p := obj(m["payload"])
 	keys := map[string][]string{
+		"turn.queue.read": {"type", "threadId", "queueId"}, "turn.queue.update": {"type", "threadId", "queueId", "text", "expectedText"},
 		"project.create": {"type", "parentId", "name", "relativePath", "mode"},
 		"thread.create":  {"type", "projectId"}, "thread.rename": {"type", "threadId", "name"}, "thread.archive": {"type", "threadId"}, "thread.delete": {"type", "threadId"}, "thread.watch": {"type", "threadId"}, "turn.start": {"type", "threadId", "text", "images"}, "turn.queue": {"type", "threadId", "text", "images"}, "turn.queue.steer": {"type", "threadId", "turnId", "queueId"}, "turn.queue.remove": {"type", "threadId", "queueId"}, "turn.steer": {"type", "threadId", "turnId", "text", "images"}, "thread.model.update": {"type", "threadId", "model", "expectedModel"}, "thread.effort.update": {"type", "threadId", "effort", "expectedModel", "expectedEffort"}, "thread.mode.update": {"type", "threadId", "mode", "expectedMode", "expectedModel", "expectedEffort"}, "turn.interrupt": {"type", "threadId", "turnId"}, "approval.respond": {"type", "threadId", "turnId", "requestId", "decision"}, "input.respond": {"type", "threadId", "turnId", "requestId", "answers"}}
 	prefix := fields(m, []string{"commandId", "deviceId", "expectedEpoch", "expiresAt"})

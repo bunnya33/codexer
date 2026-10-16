@@ -24,6 +24,8 @@ export function jsonBytes(value: unknown): number { return new TextEncoder().enc
 const boundedRecord = (bytes: number) => z.record(z.string().max(200), z.unknown()).refine(value => jsonBytes(value) <= bytes, "payload-too-large");
 export const idSchema = z.string().min(1).max(160);
 const seqSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+export const queuedMessageDetailsSchema = z.object({ queueId: idSchema, text: z.string().max(32000), images: z.array(imageIdSchema).max(MAX_IMAGES) });
+export type QueuedMessageDetails = z.infer<typeof queuedMessageDetailsSchema>;
 const timingFields = {
   startedAtMs: seqSchema.optional(),
   completedAtMs: seqSchema.optional(),
@@ -214,6 +216,8 @@ export const commandSchema = z.object({
     z.object({ type: z.literal("turn.queue"), threadId: idSchema, text: z.string().max(32000), images: z.array(imageIdSchema).max(MAX_IMAGES).optional() }).refine(value => value.text.trim().length > 0 || Boolean(value.images?.length), "empty-input"),
     z.object({ type: z.literal("turn.queue.steer"), threadId: idSchema, turnId: idSchema, queueId: idSchema }),
     z.object({ type: z.literal("turn.queue.remove"), threadId: idSchema, queueId: idSchema }),
+    z.object({ type: z.literal("turn.queue.read"), threadId: idSchema, queueId: idSchema }),
+    z.object({ type: z.literal("turn.queue.update"), threadId: idSchema, queueId: idSchema, text: z.string().max(32000), expectedText: z.string().max(32000) }),
     z.object({ type: z.literal("turn.steer"), threadId: idSchema, turnId: idSchema, text: z.string().max(32000), images: z.array(imageIdSchema).max(MAX_IMAGES).optional() }).refine(value => value.text.trim().length > 0 || Boolean(value.images?.length), "empty-input"),
     z.object({ type: z.literal("thread.model.update"), threadId: idSchema, model: z.string().trim().min(1).max(200).refine(value => !/[\s\x00-\x1f]/.test(value), "invalid-model"), expectedModel: z.string().min(1).max(200) }),
     z.object({ type: z.literal("thread.effort.update"), threadId: idSchema, effort: z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]), expectedModel: z.string().min(1).max(200), expectedEffort: z.string().max(80).nullable() }),
@@ -229,7 +233,8 @@ export const resultSchema = z.object({
   deviceId: idSchema,
   status: z.enum(["succeeded", "failed", "unknown"]),
   code: z.string().max(100),
-  result: boundedRecord(16384).optional(),
+  // A complete queued prompt may contain 32k characters, including JSON escapes.
+  result: boundedRecord(256 * 1024).optional(),
 });
 export type CommandResult = z.infer<typeof resultSchema>;
 

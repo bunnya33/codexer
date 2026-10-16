@@ -3,7 +3,7 @@ import { build } from 'esbuild';
 import { JSDOM } from 'jsdom';
 import { resolve } from 'node:path';
 import { normalizeThread } from '../packages/codex-adapter/src/normalize';
-import type { DeviceCatalog } from '../packages/protocol/src/index';
+import type { DeviceCatalog, ModelSettings, RemoteCommand } from '../packages/protocol/src/index';
 
 const origin = 'http://selection.test';
 const selectionKey = (userId = 'user-a', url = origin) => 'codexer.web.selection.v1:' + encodeURIComponent(JSON.stringify([url, userId]));
@@ -29,6 +29,7 @@ function gate() {
 type FixtureOptions = {
   storage?: Record<string, string>; userId?: string; devices?: typeof devices; catalogs?: Record<string, DeviceCatalog>;
   delayDevices?: boolean; delayCatalog?: string; blockedStorage?: boolean;
+  controls?: { active: boolean; text: string; images: string[]; failEffort?: boolean };
 };
 type TestRelay = {
   getSnapshot(): { userId: string | null; devicesReady: boolean; phase: string; syncing: Record<string, boolean> };
@@ -37,8 +38,12 @@ type TestRelay = {
 };
 async function fixture(options: FixtureOptions = {}) {
   const current = { userId: options.userId ?? 'user-a', devices: options.devices ?? devices, catalogs: options.catalogs ?? Object.fromEntries(devices.map(device => [device.id, catalog(device.id)])) };
+  const controls = options.controls;
+  const settings: ModelSettings = { model: 'gpt-6.1-sol', modelProvider: 'fixture', reasoningEffort: 'xhigh', collaborationMode: 'default' };
+  if (controls) for (const item of Object.values(current.catalogs)) item.models = ['gpt-6.1-sol', 'gpt-6-astra'].map((model, index) => ({ model, displayName: index ? '6 Astra' : '6.1 Sol', supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'], defaultReasoningEffort: 'high' }));
+  const sockets: { onmessage?: (event: { data: string }) => void }[] = [];
   const deviceGate = gate(), catalogGate = gate();
-  const historyRequests: string[] = [], commands: unknown[] = [], errors: unknown[] = [];
+  const historyRequests: string[] = [], commands: RemoteCommand[] = [], errors: unknown[] = [];
   const dom = new JSDOM(`<style>${css}</style><div id="root"></div>`, {
     url: origin, runScripts: 'dangerously', pretendToBeVisual: true,
     beforeParse(window) {
@@ -61,19 +66,39 @@ async function fixture(options: FixtureOptions = {}) {
           const threadId = suffix.split('/')[1]!;
           return response({ threadId, turns: [], nextCursor: null, generatedAt: 1 });
         }
-        if (deviceId && suffix === 'commands') { commands.push(JSON.parse(String(init?.body))); return response({ commandId: 'fixture-command' }); }
+        if (deviceId && suffix === 'commands') {
+          const command = JSON.parse(String(init?.body)) as RemoteCommand;
+          commands.push(command);
+          if (!controls) return response({ commandId: 'fixture-command' });
+          let result: Record<string, unknown> = {}, code = 'ok';
+          const payload = command.payload;
+          if (payload.type === 'thread.effort.update') {
+            if (controls.failEffort) code = 'stale-settings';
+            else settings.reasoningEffort = payload.effort;
+          }
+          if (payload.type === 'thread.model.update') settings.model = payload.model;
+          if (payload.type === 'turn.queue.read') result = { queueId: payload.queueId, text: controls.text, images: controls.images };
+          if (payload.type === 'turn.queue.update') {
+            if (payload.expectedText !== controls.text) code = 'queue-item-changed';
+            else controls.text = payload.text;
+          }
+          for (const socket of sockets) socket.onmessage?.({ data: JSON.stringify({ type: 'device.snapshot', snapshot: snapshot(deviceId) }) });
+          return response({ type: 'command.result', result: { commandId: command.commandId, deviceId, status: code === 'ok' ? 'succeeded' : 'failed', code, result } });
+        }
         throw new Error(`unexpected-request:${path}`);
       } });
       function snapshot(deviceId: string) {
         return { protocolVersion: 1, deviceId, epoch: 'fixture', lastSeq: 0, generatedAt: 1, hostname: deviceId, platform: 'darwin',
           runtime: { kind: 'official-desktop-ipc', connected: true, experimental: true, capabilities: { observe: true, startTurn: true, interrupt: true, approvals: true, userInput: true } },
-          threads: Object.fromEntries((current.catalogs[deviceId]?.threads ?? []).map(thread => [thread.id, { ...normalizeThread({ ...thread, threadRuntimeStatus: { type: 'idle', activeFlags: [] }, turns: [], requests: [] }, 0), ownerAvailable: true }])) };
+          threads: Object.fromEntries((current.catalogs[deviceId]?.threads ?? []).map(thread => [thread.id, { ...normalizeThread({ ...thread, threadRuntimeStatus: { type: controls?.active ? 'active' : 'idle', activeFlags: [] }, turns: [], requests: [] }, 0), ownerAvailable: true,
+            ...(controls ? { settings, activeTurnId: controls.active ? 'active-turn' : null, queuedMessages: [{ id: 'queue-1', text: controls.text.slice(0, 1000), imageCount: controls.images.length, createdAt: 1, status: 'queued' }] } : {}),
+          }])) };
       }
       class Socket {
         static OPEN = 1;
         readyState = 0;
         onopen?: () => void; onmessage?: (event: { data: string }) => void;
-        constructor() { window.setTimeout(() => { this.readyState = 1; this.onopen?.(); }, 0); }
+        constructor() { sockets.push(this); window.setTimeout(() => { this.readyState = 1; this.onopen?.(); }, 0); }
         send(raw: string) {
           const value = JSON.parse(raw);
           window.setTimeout(() => {
@@ -232,6 +257,80 @@ it.each(['corrupt', 'wrong-shape', 'blocked'])('keeps navigation usable with %s 
   const test = await fixture({ blockedStorage: mode === 'blocked', storage: { [selectionKey()]: mode === 'corrupt' ? '{invalid' : JSON.stringify({ deviceId: 42, threadId: [] }) } });
   try {
     await vi.waitFor(() => expect(test.header()).toContain('recent-pc-a'));
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it('selects reasoning effort and model from the combined composer button', async () => {
+  const test = await fixture({ controls: { active: false, text: '排队消息', images: [] } });
+  try {
+    const label = '模型与推理强度：6.1 Sol，极高';
+    await vi.waitFor(() => { const button = test.dom.window.document.querySelector(`[aria-label="${label}"]`); expect(button).not.toBeNull(); expect(button?.getAttribute('aria-disabled')).not.toBe('true'); });
+    test.click(label);
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('input[aria-label="推理强度"]')).not.toBeNull());
+    const slider = test.dom.window.document.querySelector<HTMLInputElement>('input[aria-label="推理强度"]')!;
+    Object.getOwnPropertyDescriptor(test.dom.window.HTMLInputElement.prototype, 'value')!.set!.call(slider, '4');
+    slider.dispatchEvent(new test.dom.window.Event('input', { bubbles: true }));
+    expect(test.commands.filter(command => command.payload.type === 'thread.effort.update')).toHaveLength(0);
+    slider.dispatchEvent(new test.dom.window.KeyboardEvent('keyup', { key: 'ArrowRight', bubbles: true }));
+    await vi.waitFor(() => expect(test.commands.find(command => command.payload.type === 'thread.effort.update')?.payload).toMatchObject({ effort: 'max', expectedEffort: 'xhigh', expectedModel: 'gpt-6.1-sol' }));
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="模型与推理强度：6.1 Sol，最高"]')).not.toBeNull());
+    test.click('选择模型');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="选择模型 6 Astra"]')).not.toBeNull());
+    test.click('选择模型 6 Astra');
+    await vi.waitFor(() => expect(test.commands.find(command => command.payload.type === 'thread.model.update')?.payload).toMatchObject({ model: 'gpt-6-astra', expectedModel: 'gpt-6.1-sol' }));
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it('restores the saved strength when changing effort fails', async () => {
+  const test = await fixture({ controls: { active: false, text: '排队消息', images: [], failEffort: true } });
+  try {
+    const label = '模型与推理强度：6.1 Sol，极高';
+    await vi.waitFor(() => { const button = test.dom.window.document.querySelector(`[aria-label="${label}"]`); expect(button).not.toBeNull(); expect(button?.getAttribute('aria-disabled')).not.toBe('true'); });
+    test.click(label);
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('input[aria-label="推理强度"]')).not.toBeNull());
+    const slider = test.dom.window.document.querySelector<HTMLInputElement>('input[aria-label="推理强度"]')!;
+    Object.getOwnPropertyDescriptor(test.dom.window.HTMLInputElement.prototype, 'value')!.set!.call(slider, '4');
+    slider.dispatchEvent(new test.dom.window.Event('input', { bubbles: true }));
+    await vi.waitFor(() => expect(slider.getAttribute('aria-valuetext')).toBe('最高'));
+    slider.dispatchEvent(new test.dom.window.KeyboardEvent('keyup', { key: 'ArrowRight', bubbles: true }));
+    await vi.waitFor(() => expect(test.dom.window.document.body.textContent).toContain('stale-settings'));
+    await vi.waitFor(() => expect(slider.getAttribute('aria-valuetext')).toBe('极高'));
+    expect(test.dom.window.document.querySelector(`[aria-label="${label}"]`)).not.toBeNull();
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it('edits complete queued messages without dropping their attachments and rejects concurrent overwrites', async () => {
+  const controls = { active: true, text: '完整消息与末尾内容。'.repeat(1000), images: ['a'.repeat(64)] };
+  const test = await fixture({ controls });
+  try {
+    await vi.waitFor(() => { const button = test.dom.window.document.querySelector('[aria-label="编辑待发送消息"]'); expect(button).not.toBeNull(); expect(button?.getAttribute('aria-disabled')).not.toBe('true'); });
+    test.click('编辑待发送消息');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('textarea[aria-label="编辑待发送消息"]')).not.toBeNull());
+    const input = test.dom.window.document.querySelector<HTMLTextAreaElement>('textarea[aria-label="编辑待发送消息"]')!;
+    expect(input.value).toBe(controls.text);
+    const original = controls.text;
+    Object.getOwnPropertyDescriptor(test.dom.window.HTMLTextAreaElement.prototype, 'value')!.set!.call(input, '编辑后的消息');
+    input.dispatchEvent(new test.dom.window.Event('input', { bubbles: true }));
+    test.click('保存消息');
+    await vi.waitFor(() => expect(test.commands.find(command => command.payload.type === 'turn.queue.update')?.payload).toEqual({ type: 'turn.queue.update', threadId: 'recent-pc-a', queueId: 'queue-1', text: '编辑后的消息', expectedText: original }));
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('textarea[aria-label="编辑待发送消息"]')).toBeNull());
+    expect(controls.images).toEqual(['a'.repeat(64)]);
+    test.click('编辑待发送消息');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector<HTMLTextAreaElement>('textarea[aria-label="编辑待发送消息"]')?.value).toBe('编辑后的消息'));
+    const second = test.dom.window.document.querySelector<HTMLTextAreaElement>('textarea[aria-label="编辑待发送消息"]')!;
+    Object.getOwnPropertyDescriptor(test.dom.window.HTMLTextAreaElement.prototype, 'value')!.set!.call(second, '保留我的草稿');
+    second.dispatchEvent(new test.dom.window.Event('input', { bubbles: true }));
+    controls.text = '另一客户端的新消息';
+    test.click('保存消息');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[role="alert"]')?.textContent).toContain('已在其他地方修改'));
+    expect(second.value).toBe('保留我的草稿');
+    expect(controls.text).toBe('另一客户端的新消息');
+    expect(test.dom.window.document.body.textContent).not.toContain('侧边聊天');
+    expect(test.dom.window.document.body.textContent).not.toContain('关闭排队');
+    expect(test.dom.window.document.querySelector('[aria-label="待发送消息更多操作"]')).toBeNull();
     expect(test.errors).toEqual([]);
   } finally { test.close(); }
 });

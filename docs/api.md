@@ -127,7 +127,7 @@ turn 的可选 `fileChanges` 是最多 40 项的 `{path,additions,deletions,diff
 
 实时 thread 和目录 thread 的可选 `settings` 为 `{model,modelProvider,reasoningEffort,collaborationMode?}`，字段可为 `null`，`collaborationMode` 为 `default`/`plan`。它表示后续轮次的当前配置，不是逐轮最终模型记录。目录值来自官方 `thread/list`；实时桌面设置来自 `latestThreadSettings`，独立运行时来自 `thread/read`、已核对的本机 turn context 和 `thread/settings/updated`。实时值优先于目录缓存。
 
-目录的可选 `models` 来自官方分页 `model/list`，每项是 `{model,displayName,supportedReasoningEfforts,defaultReasoningEffort}`，至多 200 项，不含隐藏模型。模型查询失败时省略该字段，项目和会话列表仍可用。自定义 API 提供方可能支持列表外名称，Web 可输入模型名；真实可用性由该提供方处理请求时决定。
+目录的可选 `models` 来自官方分页 `model/list`，每项是 `{model,displayName,supportedReasoningEfforts,defaultReasoningEffort}`，至多 200 项，不含隐藏模型。模型查询失败时省略该字段，项目和会话列表仍可用。选择器保留当前模型及目录中的模型；自定义 API 提供方的真实可用性由该提供方处理请求时决定。
 
 `snapshot.runtime.capabilities.modelUpdate:true` 表示 Agent 支持 `thread.model.update`。修改仅作用于后续轮次，通过桌面 owner 的 `thread-follower-update-thread-settings` v2 或独立 app-server 的 `thread/settings/update` 执行。会话必须已被实时观察、owner 可用且 `idle`；`expectedModel` 必须匹配当前设置。原提供方、权限、工作区和协作模式保留，协作模式内的模型同步更新。当前推理强度若不在新模型支持列表中，使用新模型默认强度。
 
@@ -221,6 +221,8 @@ Agent 在自身 SQLite `usage.sqlite` 中按 `threadId + turnId` 保存逐轮统
 | `turn.queue` | `threadId,text`，可选 `images` | 会话 `active`；每会话最多 20 条，空闲后自动发送下一条 |
 | `turn.queue.steer` | `threadId,turnId,queueId` | 队列项仍待发送且活动 turn ID 匹配；立即引导当前轮 |
 | `turn.queue.remove` | `threadId,queueId` | 删除仍待发送或结果未确认的队列项 |
+| `turn.queue.read` | `threadId,queueId` | 读取未发送项的完整 `{queueId,text,images}`，拒绝已开始发送的项 |
+| `turn.queue.update` | `threadId,queueId,text,expectedText` | 正文及预期正文各至多 32000 字符；保留图片，预期正文必须匹配；与自动发送串行执行 |
 | `thread.model.update` | `threadId,model,expectedModel` | 会话 `idle`、owner 可用，当前模型匹配 `expectedModel`；模型名称至多 200 字符，不含空白或控制字符 |
 | `thread.effort.update` | `threadId,effort,expectedModel,expectedEffort` | 会话 `idle`，当前模型和档位匹配，目标档位在支持列表中 |
 | `thread.mode.update` | `threadId,mode,expectedMode,expectedModel,expectedEffort` | 会话 `idle`，模型/档位/模式匹配；目标模式为 `default` 或 `plan` |
@@ -231,6 +233,8 @@ Agent 在自身 SQLite `usage.sqlite` 中按 `threadId + turnId` 保存逐轮统
 `input.respond` 同时处理 RPC 提问及消息中的异步提问。消息提问的 `requestId` 以 `async:` 开头，`details.source` 为 `asyncMessage`，问题 ID 为原始下标字符串；客户端使用收到的 ID 原样提交。Agent 校验仍有效的来源轮次及提交的问题 ID，再用官方结构化回答引导当前轮次；消息提问按题回传，RPC 仍需要完整问题集。消息提问在来源轮次完成后失效；RPC 非阻塞请求可在原始轮次结束后继续回答。详见 [会话交互](conversation.md)。
 
 初始响应可能是 `{type:"command.accepted",commandId}`，终态是 `{type:"command.result",result:{commandId,deviceId,status,code}}`。`status` 是 `succeeded`、`failed` 或 `unknown`。`succeeded` 仅表示本机运行时确认操作，模型回复需继续观察事件。结果可以通过命令查询接口恢复。原命令内容不变时可用相同 `commandId` 重试传输；`unknown` 不应自动换 ID 重发。
+
+命令结果的 `result` 对象上限为 256 KiB，以容纳含 JSON 转义的完整排队正文；请求 `details` 保持 16 KiB。编辑使用 `expectedText` 检查并发修改，不匹配返回 `queue-item-changed`；已发送、已移除或发送中的项返回 `queue-item-unavailable`。
 
 ## 静态页面
 
