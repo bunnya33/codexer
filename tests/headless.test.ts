@@ -71,6 +71,72 @@ describe("headless thread settings", () => {
     await expect(savedSettings({ id: "empty", path, modelProvider: "test-provider" }, home)).rejects.toMatchObject({ code: "headless-settings-unavailable" });
   });
 
+  it("resumes newer Codex records using verified session roots and the latest turn permissions", async () => {
+    const home = await mkdtemp(join(tmpdir(), "codex-remote-session-roots-")); directories.push(home);
+    const sessions = join(home, "sessions"); await mkdir(sessions, { recursive: true });
+    const path = join(sessions, "rollout-test-thread.jsonl");
+    const roots = [join(home, "Project with spaces"), join(home, "visualizations")];
+    const context = { cwd: home, model: "gpt-test", effort: "low", approval_policy: "on-request", approvals_reviewer: "user", sandbox_policy: { type: "read-only" } };
+    await writeFile(path, [
+      { type: "session_meta", payload: { id: "test-thread", runtime_workspace_roots: roots } },
+      { type: "turn_context", payload: { ...context, sandbox_policy: { type: "danger-full-access" }, workspace_roots: [home] } },
+      { type: "turn_context", payload: context },
+    ].map(value => JSON.stringify(value) + "\n").join(""));
+    const metadata = { id: "test-thread", path, modelProvider: "test-provider" };
+    const settings = await savedSettings(metadata, home);
+    expect(settings).toMatchObject({ roots, sandbox: "read-only", approvalPolicy: "on-request", approvalsReviewer: "user", model: "gpt-test" });
+    const calls: { method: string; params: Record<string, unknown> }[] = [];
+    const adapter = new HeadlessAdapter();
+    const rpc = { stop: async () => {}, request: async (method: string, params: Record<string, unknown>) => {
+      calls.push({ method, params });
+      if (method === "thread/read") return { thread: metadata };
+      if (method === "thread/resume") return { ...params, sandbox: { type: "readOnly" } };
+      if (method === "turn/start") return { turn: { id: "resumed-turn" } };
+      return {};
+    } };
+    Object.assign(adapter, { connected: true, rpc });
+    adapter.watched.set("test-thread", normalizeThread({ id: "test-thread", threadRuntimeStatus: { type: "idle" }, turns: [] }, 0));
+    vi.spyOn(adapter, "follow").mockResolvedValue(true);
+    vi.stubEnv("CODEX_HOME", home);
+    try {
+      await expect(adapter.execute(command({ type: "turn.start", threadId: "test-thread", text: "Resume the task" }))).resolves.toMatchObject({ turnId: "resumed-turn" });
+      expect(calls.find(value => value.method === "thread/resume")?.params).toMatchObject({ runtimeWorkspaceRoots: roots, approvalPolicy: "on-request", approvalsReviewer: "user", sandbox: "read-only", cwd: home });
+      expect(calls.find(value => value.method === "turn/start")?.params.input).toEqual([{ type: "text", text: "Resume the task", text_elements: [] }]);
+    } finally { await adapter.stop(); vi.unstubAllEnvs(); }
+  });
+
+  it("keeps explicit legacy roots and rejects malformed or missing roots instead of widening access", async () => {
+    const home = await mkdtemp(join(tmpdir(), "codex-remote-root-precedence-")); directories.push(home);
+    const sessions = join(home, "sessions"); await mkdir(sessions, { recursive: true });
+    const path = join(sessions, "rollout-test-thread.jsonl");
+    const metadata = { id: "test-thread", path, modelProvider: "test-provider" };
+    const context = { cwd: home, model: "gpt-test", approval_policy: "on-request", approvals_reviewer: "user", sandbox_policy: { type: "read-only" } };
+    const write = async (roots: unknown, turn: Record<string, unknown>) => writeFile(path, [
+      { type: "session_meta", payload: { id: "test-thread", runtime_workspace_roots: roots } },
+      { type: "turn_context", payload: turn },
+    ].map(value => JSON.stringify(value) + "\n").join(""));
+    for (const roots of [[], [join(home, "narrower")]]) {
+      await write([home], { ...context, workspace_roots: roots });
+      expect((await savedSettings(metadata, home)).roots).toEqual(roots);
+    }
+    await write([], context);
+    expect((await savedSettings(metadata, home)).roots).toEqual([]);
+    for (const invalid of [undefined, null, "bad", ["relative"], [123]]) {
+      await write(invalid, context);
+      await expect(savedSettings(metadata, home)).rejects.toMatchObject({ code: "headless-settings-incomplete" });
+    }
+    for (const invalid of [null, "bad", ["relative"], [123]]) {
+      await write([home], { ...context, workspace_roots: invalid });
+      await expect(savedSettings(metadata, home)).rejects.toMatchObject({ code: "headless-settings-incomplete" });
+    }
+    await write([home], { ...context, approvals_reviewer: undefined });
+    await expect(savedSettings(metadata, home)).rejects.toMatchObject({ code: "headless-settings-incomplete" });
+    const valid = { ...context, workspace_roots: [home] };
+    await write([home], valid);
+    const settings = await savedSettings(metadata, home);
+    expect(matchesSettings({ sandbox: { type: "readOnly" }, approvalPolicy: "on-request", approvalsReviewer: "user", model: "gpt-test", modelProvider: "test-provider", cwd: home, runtimeWorkspaceRoots: [home, join(home, "unexpected")] }, settings)).toBe(false);
+  });
+
   it("accepts namespaced paths and forked rollout names only for the matching session", async () => {
     const home = await mkdtemp(join(tmpdir(), "codex-remote-fork-settings-")); directories.push(home);
     const sessions = join(home, "sessions"); await mkdir(sessions, { recursive: true });

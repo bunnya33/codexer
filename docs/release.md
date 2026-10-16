@@ -19,7 +19,7 @@ npm test
 npm run package:desktop:win
 ```
 
-输出 `apps/desktop/release/Codexer Setup 0.1.10.exe`（NSIS）和 `Codexer 0.1.10.exe`（便携），以及 `win-unpacked` 验收目录。包内是 Electron 的 Node/SQLite、Agent bundle 和 React UI，不要求最终用户安装 Node。两个包未配置发行签名；当前 `signExecutable:false` 保留图标/元数据但跳过应用签名。商业发行需维护者自行配置可信 Windows 签名证书/服务并调整该选项，不能把工具出现 signing 日志当作已签名。
+输出 `apps/desktop/release/Codexer Setup 0.1.13.exe`（NSIS）和 `Codexer 0.1.13.exe`（便携），以及 `win-unpacked` 验收目录。包内是 Electron 的 Node/SQLite、Agent bundle 和 React UI，不要求最终用户安装 Node。两个包未配置发行签名；当前 `signExecutable:false` 保留图标/元数据但跳过应用签名。商业发行需维护者自行配置可信 Windows 签名证书/服务并调整该选项，不能把工具出现 signing 日志当作已签名。
 
 PC 连接器 `0.1.10` 补充子 Agent 本地记录的状态和最近公开回复，包含任务重新开始及无主会话新消息时的独立同步。基础数据兼容服务器 `0.2.7`；服务器 `0.2.8` 修正缺失任务正文的提示，不再误导为等待同步。RelayDesk 仍使用 `0.1.1` 桌面壳，新的紧凑标题栏和 Agent 详情由服务器页面提供，见 [会话界面](conversation.md)。
 
@@ -49,6 +49,8 @@ npm run package:server
 Web 随统一服务包发布。iOS/Android 由 Expo/EAS 或原生工具构建和签名，见 [移动客户端](mobile.md)。JS export 是构建检查，不代替可安装文件或商店审核。
 
 ## 版本与升级
+
+PC 连接器 `0.1.13` 修复新版 Codex 会话续做时的 `headless-settings-incomplete`：最新轮次没有 `workspace_roots` 时，从身份匹配的会话元数据读取 `runtime_workspace_roots`；显式轮次设置优先，缺失或无效设置仍拒绝接管。升级本机连接器后刷新控制端即可，服务器和控制端安装包无需更新。
 
 服务器 `0.3.9` / PC 连接器 `0.1.12` 增加会话内音频卡片：仅识别可见 Markdown 音频嵌入标签，普通下载链接保持原样。点击「加载音频」后才申请播放地址；音频卡片与文件弹窗共用单个播放器，切换前等待旧地址撤销，播放结束、关闭、切换会话和退出时清理。修复代码/转义内容及隐藏链接定义被误识别、预览分段后引用式下载链接失效的问题。仅含音频嵌入标签的消息需要新版 PC 连接器；网页随服务器更新，原生手机 App 需重新构建。
 

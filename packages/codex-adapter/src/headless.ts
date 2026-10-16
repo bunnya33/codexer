@@ -37,6 +37,7 @@ export async function savedSettings(thread: RecordValue, codexHome = process.env
   const within = relative(root, path);
   if (!within || within === ".." || within.startsWith(`..${sep}`) || isAbsolute(within)) throw new AdapterError("headless-session-path-invalid");
   let context: RecordValue | null = null;
+  let sessionMetadata: RecordValue = {};
   let sessionVerified = false;
   try {
     const lines = createInterface({ input: createReadStream(path, { encoding: "utf8" }), crlfDelay: Infinity });
@@ -48,6 +49,11 @@ export async function savedSettings(thread: RecordValue, codexHome = process.env
         if (event.type !== "session_meta" || record(event.payload).id !== thread.id) throw new AdapterError("headless-session-path-invalid");
         sessionVerified = true;
       }
+      if (event.type === "session_meta") {
+        const metadata = record(event.payload);
+        if (metadata.id !== thread.id) throw new AdapterError("headless-session-path-invalid");
+        sessionMetadata = metadata;
+      }
       if (event.type === "turn_context") context = record(event.payload);
     }
   } catch (error) {
@@ -58,13 +64,16 @@ export async function savedSettings(thread: RecordValue, codexHome = process.env
   const policy = record(context.sandbox_policy);
   const sandbox = policy.type;
   if (sandbox !== "read-only" && sandbox !== "workspace-write" && sandbox !== "danger-full-access") throw new AdapterError("headless-sandbox-unsupported");
-  if (typeof context.cwd !== "string" || typeof context.model !== "string" || typeof thread.modelProvider !== "string" || !Array.isArray(context.workspace_roots) || !context.workspace_roots.every(root => typeof root === "string" && isAbsolute(root))) throw new AdapterError("headless-settings-incomplete");
+  // New Codex versions persist roots in session_meta instead of every turn_context.
+  // Explicit turn roots (including []) remain authoritative; never infer extra access.
+  const workspaceRoots = context.workspace_roots === undefined ? sessionMetadata.runtime_workspace_roots : context.workspace_roots;
+  if (typeof context.cwd !== "string" || typeof context.model !== "string" || typeof thread.modelProvider !== "string" || !Array.isArray(workspaceRoots) || !workspaceRoots.every(root => typeof root === "string" && isAbsolute(root))) throw new AdapterError("headless-settings-incomplete");
   if (context.approval_policy === undefined || context.approvals_reviewer === undefined) throw new AdapterError("headless-settings-incomplete");
   const model = typeof thread.model === "string" ? thread.model : context.model;
   const effort = typeof thread.reasoningEffort === "string" ? thread.reasoningEffort : context.effort;
   const mode = record(context.collaboration_mode);
   const collaborationMode = context.collaboration_mode ? { ...mode, settings: { ...record(mode.settings), model, ...(typeof effort === "string" ? { reasoning_effort: effort } : {}) } } : undefined;
-  return { approvalPolicy: context.approval_policy, approvalsReviewer: context.approvals_reviewer, sandbox, sandboxPolicy: policy, cwd: context.cwd, roots: context.workspace_roots as string[], model, modelProvider: thread.modelProvider,
+  return { approvalPolicy: context.approval_policy, approvalsReviewer: context.approvals_reviewer, sandbox, sandboxPolicy: policy, cwd: context.cwd, roots: workspaceRoots as string[], model, modelProvider: thread.modelProvider,
     ...(typeof effort === "string" ? { effort } : {}), ...(typeof context.summary === "string" ? { summary: context.summary } : {}),
     ...(collaborationMode ? { collaborationMode } : {}), ...(typeof context.service_tier === "string" ? { serviceTier: context.service_tier } : {}) };
 }
