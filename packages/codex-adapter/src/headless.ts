@@ -535,7 +535,7 @@ export class HeadlessAdapter extends EventEmitter {
     }
     if (payload.type === "turn.start") {
       if (thread.status !== "idle") throw new AdapterError("thread-not-idle");
-      if ((payload.images?.length ?? 0) !== imageInputs.length) throw new AdapterError("images-not-ready");
+      if ((payload.images?.length ?? 0) !== imageInputs.filter(input => input.type === "localImage").length) throw new AdapterError("images-not-ready");
       const settings = await this.resumeWithSettings(payload.threadId);
       this.pendingStarts++;
       let started: RecordValue;
@@ -551,7 +551,7 @@ export class HeadlessAdapter extends EventEmitter {
     }
     if (payload.type === "turn.steer") {
       if (thread.activeTurnId !== payload.turnId) throw new AdapterError("stale-turn");
-      if ((payload.images?.length ?? 0) !== imageInputs.length) throw new AdapterError("images-not-ready");
+      if ((payload.images?.length ?? 0) !== imageInputs.filter(input => input.type === "localImage").length) throw new AdapterError("images-not-ready");
       const steered = await rpc.request("turn/steer", { threadId: payload.threadId, expectedTurnId: payload.turnId, clientUserMessageId: command.commandId,
         input: [...(payload.text.trim() ? [{ type: "text", text: payload.text, text_elements: [] }] : []), ...imageInputs] }, 30000);
       const turnId = steered.turnId;

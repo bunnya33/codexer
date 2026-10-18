@@ -261,7 +261,7 @@ export class DesktopAdapter extends EventEmitter {
     }
     if (payload.type === "turn.start") {
       if (normalized.status !== "idle") throw new AdapterError("thread-not-idle");
-      if ((payload.images?.length ?? 0) !== imageInputs.length) throw new AdapterError("images-not-ready");
+      if ((payload.images?.length ?? 0) !== imageInputs.filter(input => input.type === "localImage").length) throw new AdapterError("images-not-ready");
       const turnParams: TurnStartParams = { threadId: payload.threadId, input: [...(payload.text.trim() ? [{ type: "text" as const, text: payload.text, text_elements: [] }] : []), ...imageInputs], clientUserMessageId: command.commandId };
       method = "thread-follower-start-turn";
       params = {
@@ -273,7 +273,7 @@ export class DesktopAdapter extends EventEmitter {
       };
     } else if (payload.type === "turn.steer") {
       if (normalized.activeTurnId !== payload.turnId) throw new AdapterError("stale-turn");
-      if ((payload.images?.length ?? 0) !== imageInputs.length) throw new AdapterError("images-not-ready");
+      if ((payload.images?.length ?? 0) !== imageInputs.filter(input => input.type === "localImage").length) throw new AdapterError("images-not-ready");
       const input: UserInput[] = [...(payload.text.trim() ? [{ type: "text", text: payload.text, text_elements: [] } as UserInput] : []), ...imageInputs];
       const replies = parseQuestionReplies(payload.text);
       const prompt = replies ? replies.map(reply => reply.answer).join('\n\n') : payload.text;

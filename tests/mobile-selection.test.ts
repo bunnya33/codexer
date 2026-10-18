@@ -2,10 +2,12 @@ import { beforeAll, expect, it, vi } from 'vitest';
 import { build } from 'esbuild';
 import { JSDOM } from 'jsdom';
 import { resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { normalizeThread } from '../packages/codex-adapter/src/normalize';
 import type { DeviceCatalog, ModelSettings, RemoteCommand } from '../packages/protocol/src/index';
 
 const origin = 'http://selection.test';
+const controlVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version as string;
 const selectionKey = (userId = 'user-a', url = origin) => 'codexer.web.selection.v1:' + encodeURIComponent(JSON.stringify([url, userId]));
 const devices = ['pc-a', 'pc-b'].map(id => ({ id, name: id, platform: 'darwin', online: true }));
 const catalog = (deviceId: string): DeviceCatalog => ({
@@ -16,6 +18,7 @@ let javascript = '', css = '';
 beforeAll(async () => {
   const result = await build({ entryPoints: ['tests/fixtures/selection-app.tsx'], outdir: '.local/selection-tests', bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic',
     resolveExtensions: ['.web.tsx', '.web.ts', '.web.js', '.tsx', '.ts', '.jsx', '.js', '.json'], nodePaths: [resolve('apps/mobile/node_modules')], alias: { 'react-native': 'react-native-web' },
+    plugins: [{ name: 'fixture-file-picker', setup(build) { build.onResolve({ filter: /^\.\/src\/attachment-picker$/ }, () => ({ path: 'picker', namespace: 'fixture' })); build.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({ contents: 'export async function pickAttachments() { return window.__pickAttachments(); }', loader: 'js' })); } }],
     define: { 'process.env.NODE_ENV': '"production"', __DEV__: 'false', global: 'globalThis', 'process.env': '{}' } });
   javascript = result.outputFiles!.find(file => file.path.endsWith('.js'))!.text;
   css = result.outputFiles!.find(file => file.path.endsWith('.css'))?.text ?? '';
@@ -29,6 +32,7 @@ function gate() {
 type FixtureOptions = {
   storage?: Record<string, string>; userId?: string; devices?: typeof devices; catalogs?: Record<string, DeviceCatalog>;
   delayDevices?: boolean; delayCatalog?: string; blockedStorage?: boolean;
+  filePicker?: () => Promise<{ name: string; size: number; mimeType: string; readChunk: (offset: number, length: number) => Promise<string> }[]>;
   controls?: { active: boolean; text: string; images: string[]; failEffort?: boolean };
 };
 type TestRelay = {
@@ -43,15 +47,21 @@ async function fixture(options: FixtureOptions = {}) {
   if (controls) for (const item of Object.values(current.catalogs)) item.models = ['gpt-6.1-sol', 'gpt-6-astra'].map((model, index) => ({ model, displayName: index ? '6 Astra' : '6.1 Sol', supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'], defaultReasoningEffort: 'high' }));
   const sockets: { onmessage?: (event: { data: string }) => void }[] = [];
   const deviceGate = gate(), catalogGate = gate();
+  const uploadRequests: string[] = []; let uploadedFile: { name: string; size: number; mimeType: string };
   const historyRequests: string[] = [], commands: RemoteCommand[] = [], errors: unknown[] = [];
   const dom = new JSDOM(`<style>${css}</style><div id="root"></div>`, {
     url: origin, runScripts: 'dangerously', pretendToBeVisual: true,
     beforeParse(window) {
+      Object.assign(window, { AnimationEvent: window.Event });
       window.addEventListener('error', event => errors.push(event.error));
       window.matchMedia = (() => ({ matches: false, addListener() {}, removeListener() {} })) as unknown as typeof window.matchMedia;
-      Object.assign(window, { ResizeObserver: class { observe() {} unobserve() {} disconnect() {} }, AbortSignal, fetch: async (input: string, init?: RequestInit) => {
+      Object.assign(window, { __pickAttachments: options.filePicker ?? (async () => []), ResizeObserver: class { observe() {} unobserve() {} disconnect() {} }, AbortSignal, fetch: async (input: string, init?: RequestInit) => {
         const path = new URL(input).pathname;
         const response = (value: unknown) => new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json' } });
+        if (path === '/health') return response({ version: '8.7.6' });
+        if (path.endsWith('/attachments') && init?.method === 'POST') { uploadedFile = JSON.parse(String(init.body)); uploadRequests.push(path); return response({ id: 'f'.repeat(64) }); }
+        if (path.includes('/attachments/') && init?.method === 'DELETE') return response({ ok: true });
+        if (path.includes('/attachments/') && init?.method === 'PUT') { const data = JSON.parse(String(init.body)); const offset = data.offset + Buffer.from(data.base64, 'base64').length; uploadRequests.push(path); return response({ offset, attachment: { ...uploadedFile, id: 'f'.repeat(64), sha256: 'e'.repeat(64) } }); }
         if (path === '/v1/auth/login') { current.userId = JSON.parse(String(init?.body)).username; return response({ session: 'fixture-token' }); }
         if (path === '/v1/auth/logout' || path === '/v1/auth/active') return response({});
         if (path === '/v1/me') return response({ role: 'user', userId: current.userId });
@@ -89,7 +99,7 @@ async function fixture(options: FixtureOptions = {}) {
       } });
       function snapshot(deviceId: string) {
         return { protocolVersion: 1, deviceId, epoch: 'fixture', lastSeq: 0, generatedAt: 1, hostname: deviceId, platform: 'darwin',
-          runtime: { kind: 'official-desktop-ipc', connected: true, experimental: true, capabilities: { observe: true, startTurn: true, interrupt: true, approvals: true, userInput: true } },
+          runtime: { kind: 'official-desktop-ipc', connected: true, experimental: true, capabilities: { observe: true, startTurn: true, interrupt: true, approvals: true, userInput: true, images: true, attachments: true, collaborationModeUpdate: true } },
           threads: Object.fromEntries((current.catalogs[deviceId]?.threads ?? []).map(thread => [thread.id, { ...normalizeThread({ ...thread, threadRuntimeStatus: { type: controls?.active ? 'active' : 'idle', activeFlags: [] }, turns: [], requests: [] }, 0), ownerAvailable: true,
             ...(controls ? { settings, activeTurnId: controls.active ? 'active-turn' : null, queuedMessages: [{ id: 'queue-1', text: controls.text.slice(0, 1000), imageCount: controls.images.length, createdAt: 1, status: 'queued' }] } : {}),
           }])) };
@@ -129,8 +139,20 @@ async function fixture(options: FixtureOptions = {}) {
   await vi.waitFor(() => expect(app()).toBeDefined());
   const header = () => dom.window.document.querySelector('[data-testid="conversation-header"]')?.textContent;
   const click = (label: string) => (dom.window.document.querySelector(`[aria-label="${label}"]`) as HTMLElement).click();
+  const closeDialog = async (label: string) => {
+    const button = dom.window.document.querySelector(`[aria-label="${label}"]`)!;
+    click(label);
+    // JSDOM does not advance CSS animations; finish the real RN Web fade-out.
+    await vi.waitFor(() => {
+      let element: Element | null = button;
+      while (element && dom.window.getComputedStyle(element).animationDuration !== '250ms') element = element.parentElement;
+      expect(element).not.toBeNull(); expect(dom.window.getComputedStyle(element!).pointerEvents).toBe('none');
+      element!.dispatchEvent(new dom.window.Event('animationend', { bubbles: true }));
+    });
+    await vi.waitFor(() => expect(dom.window.document.querySelector(`[aria-label="${label}"]`)).toBeNull());
+  };
   const close = () => { deviceGate.release(); catalogGate.release(); app().close(); dom.window.close(); };
-  return { dom, current, historyRequests, commands, errors, app, header, click, close, deviceGate, catalogGate };
+  return { dom, current, historyRequests, uploadRequests, commands, errors, app, header, click, closeDialog, close, deviceGate, catalogGate };
 }
 
 it('remembers a manually selected device and older conversation across a full app reload', async () => {
@@ -333,4 +355,74 @@ it('edits complete queued messages without dropping their attachments and reject
     expect(test.dom.window.document.querySelector('[aria-label="待发送消息更多操作"]')).toBeNull();
     expect(test.errors).toEqual([]);
   } finally { test.close(); }
+});
+
+
+it('uses centered settings and operation dialogs, shows server and loaded-control versions, and puts project creation beside its heading', async () => {
+  const test = await fixture({ controls: { active: false, text: '', images: [] } });
+  try {
+    await vi.waitFor(() => expect(test.header()).toContain('recent-pc-a'));
+    const add = test.dom.window.document.querySelector('[aria-label="新建项目"]')!;
+    expect(add.textContent).toBe(''); expect(add.parentElement?.textContent).toBe('项目');
+    test.click('连接设置');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[data-testid="dialog-card"]')?.textContent).toContain('8.7.6'));
+    const card = test.dom.window.document.querySelector<HTMLElement>('[data-testid="dialog-card"]')!;
+    expect(card.textContent).toContain('服务器版本'); expect(card.textContent).toContain('控制端版本');
+    expect(card.textContent).toContain(controlVersion);
+    expect(test.dom.window.getComputedStyle(card.parentElement!).justifyContent).toBe('center');
+    await test.closeDialog('关闭设置');
+    test.click('工作模式：默认');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[data-testid="dialog-card"]')?.textContent).toContain('Plan Mode'));
+    await test.closeDialog('关闭工作模式');
+    test.click('管理会话 recent-pc-a');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[data-testid="dialog-card"]')?.textContent).toContain('归档'));
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it('opens attachment actions from plus and sends a file-only message after upload', async () => {
+  const bytes = Buffer.from('附件内容');
+  const test = await fixture({ controls: { active: false, text: '', images: [] }, filePicker: async () => [{ name: '说明.txt', size: bytes.length, mimeType: 'text/plain', readChunk: async (offset, length) => bytes.subarray(offset, offset + length).toString('base64') }] });
+  try {
+    await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-a']).toBe(false));
+    test.click('添加附件');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="添加文件"]')).not.toBeNull());
+    expect(test.dom.window.document.body.textContent).toContain('照片');
+    test.click('添加文件');
+    await vi.waitFor(() => expect(test.uploadRequests).toHaveLength(2));
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="发送消息"]')?.getAttribute('aria-disabled')).not.toBe('true'));
+    test.click('发送消息');
+    await vi.waitFor(() => expect(test.commands.some(c => c.payload.type === 'turn.start' && c.payload.text === '' && c.payload.attachments?.[0] === 'f'.repeat(64))).toBe(true));
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="移除文件 说明.txt"]')).toBeNull());
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it('discards a late file selection when the user has switched devices', async () => {
+  const selection = gate();
+  const test = await fixture({ controls: { active: false, text: '', images: [] }, filePicker: async () => { await selection.promise; return [{ name: 'old.txt', size: 1, mimeType: 'text/plain', readChunk: async () => 'YQ==' }]; } });
+  try {
+    await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-a']).toBe(false));
+    test.click('添加附件'); await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="添加文件"]')).not.toBeNull()); test.click('添加文件');
+    test.click('切换 PC Agent，当前：pc-a，在线'); await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="选择设备 pc-b，在线"]')).not.toBeNull()); test.click('选择设备 pc-b，在线');
+    await vi.waitFor(() => expect(test.header()).toContain('recent-pc-b')); selection.release();
+    await new Promise(resolve => setTimeout(resolve, 50)); expect(test.uploadRequests).toEqual([]);
+    expect(test.dom.window.document.querySelector('[aria-label="移除文件 old.txt"]')).toBeNull(); expect(test.errors).toEqual([]);
+  } finally { selection.release(); test.close(); }
+});
+
+it('cancels a chunk read when switching conversations and cannot send an unfinished file', async () => {
+  const chunk = gate();
+  const test = await fixture({ controls: { active: false, text: '', images: [] }, filePicker: async () => [{ name: 'slow.txt', size: 1, mimeType: 'text/plain', readChunk: async () => { await chunk.promise; return 'YQ=='; } }] });
+  try {
+    await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-a']).toBe(false));
+    test.click('添加附件'); await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="添加文件"]')).not.toBeNull()); test.click('添加文件');
+    await vi.waitFor(() => expect(test.uploadRequests).toHaveLength(1));
+    expect(test.dom.window.document.querySelector('[aria-label="发送消息"]')?.getAttribute('aria-disabled')).toBe('true');
+    const row = [...test.dom.window.document.querySelectorAll('[role="button"]')].find(element => element.textContent === 'older-pc-a') as HTMLElement;
+    row.click(); await vi.waitFor(() => expect(test.header()).toContain('older-pc-a'));
+    chunk.release(); await new Promise(resolve => setTimeout(resolve, 50));
+    expect(test.uploadRequests).toHaveLength(1); expect(test.commands.some(command => command.payload.type === 'turn.start')).toBe(false);
+    expect(test.dom.window.document.querySelector('[aria-label="移除文件 slow.txt"]')).toBeNull(); expect(test.errors).toEqual([]);
+  } finally { chunk.release(); test.close(); }
 });

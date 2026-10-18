@@ -5,7 +5,7 @@ import { dirname } from "node:path";
 import type { CommandResult, RemoteCommand } from "../../../packages/protocol/src/index.js";
 
 function key(deviceId: string, commandId: string): string { return JSON.stringify([deviceId, commandId]); }
-export type QueuedMessage = { id: string; threadId: string; text: string; images: string[]; createdAt: number; status: "queued" | "sending" | "failed" };
+export type QueuedMessage = { id: string; threadId: string; text: string; images: string[]; attachments?: string[]; createdAt: number; status: "queued" | "sending" | "failed" };
 
 export class CommandJournal {
   private readonly db: DatabaseSync;
@@ -14,6 +14,7 @@ export class CommandJournal {
     this.db = new DatabaseSync(path);
     this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS commands (key TEXT PRIMARY KEY, hash TEXT NOT NULL, state TEXT NOT NULL, result TEXT)");
     this.db.exec("CREATE TABLE IF NOT EXISTS queued_messages (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, text TEXT NOT NULL, images TEXT NOT NULL, created_at INTEGER NOT NULL, status TEXT NOT NULL)");
+    if (!this.db.prepare("PRAGMA table_info(queued_messages)").all().some(row => row.name === "attachments")) this.db.exec("ALTER TABLE queued_messages ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'");
     this.db.exec("UPDATE commands SET state='unknown' WHERE state='pending'");
     this.db.exec("UPDATE queued_messages SET status='failed' WHERE status='sending'");
   }
@@ -33,12 +34,12 @@ export class CommandJournal {
     this.db.prepare("UPDATE commands SET state=?,result=? WHERE key=?").run(result.status, JSON.stringify(result), key(result.deviceId, result.commandId));
   }
   queued(threadId: string): QueuedMessage[] {
-    return this.db.prepare("SELECT id,thread_id,text,images,created_at,status FROM queued_messages WHERE thread_id=? ORDER BY created_at,id").all(threadId).map(row => ({
-      id: String(row.id), threadId: String(row.thread_id), text: String(row.text), images: JSON.parse(String(row.images)) as string[], createdAt: Number(row.created_at), status: row.status as QueuedMessage["status"],
+    return this.db.prepare("SELECT id,thread_id,text,images,attachments,created_at,status FROM queued_messages WHERE thread_id=? ORDER BY created_at,id").all(threadId).map(row => ({
+      id: String(row.id), threadId: String(row.thread_id), text: String(row.text), images: JSON.parse(String(row.images)) as string[], attachments: JSON.parse(String(row.attachments)) as string[], createdAt: Number(row.created_at), status: row.status as QueuedMessage["status"],
     }));
   }
   enqueue(message: QueuedMessage): void {
-    this.db.prepare("INSERT INTO queued_messages(id,thread_id,text,images,created_at,status) VALUES(?,?,?,?,?,?)").run(message.id, message.threadId, message.text, JSON.stringify(message.images), message.createdAt, message.status);
+    this.db.prepare("INSERT INTO queued_messages(id,thread_id,text,images,attachments,created_at,status) VALUES(?,?,?,?,?,?,?)").run(message.id, message.threadId, message.text, JSON.stringify(message.images), JSON.stringify(message.attachments ?? []), message.createdAt, message.status);
   }
   queueStatus(id: string, status: QueuedMessage["status"]): void { this.db.prepare("UPDATE queued_messages SET status=? WHERE id=?").run(status, id); }
   updateQueued(id: string, text: string): void { this.db.prepare("UPDATE queued_messages SET text=? WHERE id=?").run(text, id); }

@@ -61,6 +61,7 @@ type Server struct {
 	metrics      *Metrics
 	wx           *Weixin
 	updates      *Updates
+	uploads      *uploadStore
 }
 type deviceLane struct {
 	tail chan struct{}
@@ -94,9 +95,16 @@ func New(store *Store, options Options) (*Server, error) {
 		s.schemas[name] = compiled
 	}
 	s.updates = NewUpdates(options.Version, options.UpdateDir, options.UpdateStatus)
+	var uploadErr error
+	s.uploads, uploadErr = newUploadStore(options.DataDir)
+	if uploadErr != nil {
+		cancel()
+		return nil, uploadErr
+	}
 	if options.Weixin {
 		wx, e := NewWeixin(s, options)
 		if e != nil {
+			s.uploads.close()
 			cancel()
 			return nil, e
 		}
@@ -336,7 +344,7 @@ func (s *Server) Validate(name string, m M) {
 		payload := obj(m["payload"])
 		kind := str(payload["type"])
 		if kind == "turn.start" || kind == "turn.queue" || kind == "turn.steer" {
-			if strings.TrimSpace(str(payload["text"])) == "" && len(list(payload["images"])) == 0 {
+			if strings.TrimSpace(str(payload["text"])) == "" && len(list(payload["images"])) == 0 && len(list(payload["attachments"])) == 0 {
 				fail(400, "invalid-request")
 			}
 		}
@@ -402,6 +410,7 @@ func (s *Server) Close() {
 		p.Close(1001, "relay-closing")
 	}
 	s.wg.Wait()
+	s.uploads.close()
 }
 func (s *Server) static(w http.ResponseWriter, r *http.Request) {
 	isAdmin := strings.HasPrefix(r.URL.Path, "/admin/")
@@ -456,6 +465,7 @@ func (s *Server) background() {
 				s.safe(func() {
 					s.maintain(func() {
 						capped := s.Store.Cleanup(s.ctx)
+						s.uploads.cleanup()
 						if capped {
 							clean.Reset(5 * time.Second)
 						} else {

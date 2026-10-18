@@ -7,7 +7,7 @@ import { c, s } from './styles';
 
 export function queueError(error: unknown) {
   const code = error instanceof Error ? error.message : String(error);
-  return ({ 'queue-item-unavailable': '这条消息已发送或已移除，请检查会话记录。', 'queue-item-changed': '这条消息已在其他地方修改，请重新打开后编辑。', 'empty-input': '请输入消息或保留图片附件。' } as Record<string, string>)[code] ?? code;
+  return ({ 'queue-item-unavailable': '这条消息已发送或已移除，请检查会话记录。', 'queue-item-changed': '这条消息已在其他地方修改，请重新打开后编辑。', 'empty-input': '请输入消息或保留附件。' } as Record<string, string>)[code] ?? code;
 }
 
 export function QueueEditor({ deviceId, threadId, queueId, onClose }: { deviceId: string; threadId: string; queueId: string; onClose: () => void }) {
@@ -25,7 +25,7 @@ export function QueueEditor({ deviceId, threadId, queueId, onClose }: { deviceId
     return () => { active = false; };
   }, [deviceId, threadId, queueId]);
   const save = async () => {
-    if (!original || saving || !text.trim() && !original.images.length) return;
+    if (!original || saving || !text.trim() && !original.images.length && !original.attachments?.length) return;
     setSaving(true); setError('');
     try {
       const result = await relay.sendCommand(deviceId, { type: 'turn.queue.update', threadId, queueId, text, expectedText: original.text });
@@ -42,7 +42,8 @@ export function QueueEditor({ deviceId, threadId, queueId, onClose }: { deviceId
         {loading ? <ActivityIndicator style={styles.loading} color={c.accent} /> : original && <>
           <TextInput accessibilityLabel="编辑待发送消息" value={text} onChangeText={setText} editable={!saving} multiline maxLength={32000} autoFocus style={styles.input} />
           {!!original.images.length && <Text style={s.sub}>保留 {original.images.length} 张图片附件</Text>}
-          <Pressable accessibilityRole="button" accessibilityLabel="保存消息" disabled={saving || !text.trim() && !original.images.length} onPress={() => void save()} style={[s.primary, styles.save, (saving || !text.trim() && !original.images.length) && s.disabled]}>
+          {!!original.attachments?.length && <Text style={s.sub}>保留 {original.attachments.length} 个文件附件</Text>}
+          <Pressable accessibilityRole="button" accessibilityLabel="保存消息" disabled={saving || !text.trim() && !original.images.length && !original.attachments?.length} onPress={() => void save()} style={[s.primary, styles.save, (saving || !text.trim() && !original.images.length && !original.attachments?.length) && s.disabled]}>
             {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryText}>保存消息</Text>}
           </Pressable>
         </>}

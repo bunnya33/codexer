@@ -11,6 +11,7 @@ import (
 var uuidPattern = regexp.MustCompile(`^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$`)
 
 func (s *Server) routes() {
+	s.uploadRoutes()
 	s.route("GET /health", "", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
 		return M{"ok": true, "protocolVersion": 1, "version": s.Options.Version}
 	})

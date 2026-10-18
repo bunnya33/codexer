@@ -8,6 +8,8 @@ Electron 客户端同时配置 macOS arm64（Apple Silicon）和 x64（Intel）�
 
 2026-10-14 会话内音频卡片版本 `0.1.12` 已生成 Apple Silicon DMG/ZIP 与 SHA256，并替换本机 `/Applications/Codexer.app`。签名、DMG/ZIP、包内 main/preload/worker/UI 和版本核对通过；已安装包的 worker 在真实 Electron utilityProcess、隔离 Codex 数据目录与仅系统 PATH 下完成启动、SQLite、自动发现和停止检查。原有登录与目录授权的校验值保持一致，旧应用备份保留在本地。旧进程最初因活动会话触发退出保护；用户随后明确要求关闭进程，现已关闭旧进程并启动新版，仅有一个 Codexer 主进程。实际用户配置下日志确认 `agent-started`、`console-ready`，实时状态显示 Relay 与运行服务均已连接，原加密登录与设置校验值一致。未完成原生窗口的可视验收和 Keychain 首次授权提示验收。
 
+2026-10-18 文件附件版本 `0.1.13` 已生成 Apple Silicon DMG/ZIP 和 SHA256，并替换 `/Applications/Codexer.app`。严格签名、DMG/ZIP、包内 7 个资源和真实 Electron utilityProcess worker 的启动/停止、内置 SQLite、系统 PATH 下的 Codex 自动发现检查通过。旧进程已关闭，只保留一个新版主进程；原加密登录与设置的校验值一致。实际用户配置启动时，进程采样显示阻塞在 macOS `SecItemCopyMatching` / 钥匙串读取，尚未出现本次启动的 Agent 连接日志；需要解锁并完成系统钥匙串授权后再确认连接。未使用测试钥匙串替代真实凭据。
+
 ## 安装和运行
 
 打开 DMG，把 Codexer 拖到 Applications，启动后按 [PC 连接器](pc-setup.md) 使用账号登录。后台入口在菜单栏，关闭窗口默认保留本机服务。开机启动通过系统登录项配置，用户可在系统设置中管理。本地版本使用 ad-hoc 签名，未做 Apple 公证；对外发行需要开发者签名和公证。

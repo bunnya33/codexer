@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { ActivityIndicator, AppState, FlatList, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, AppState, FlatList, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { Archive, ArrowDown, ArrowUp, Check, ImagePlus, Info, ListChecks, LogOut, Menu, MessageCircle, Pencil, RefreshCw, Square, Terminal, Trash2, X } from 'lucide-react-native';
+import { Archive, ArrowDown, ArrowUp, Check, ListChecks, Paperclip, Pencil, Square, Terminal, Trash2, X } from 'lucide-react-native';
 import { mergeTurnHistory } from '../../packages/client-shared/src/activity';
 import { conversationImages } from '../../packages/client-shared/src/images';
 import type { ImageDirection, ImageGallery, ImagePreview } from '../../packages/client-shared/src/images';
@@ -33,14 +33,15 @@ import { WeixinSettings } from './src/weixin-settings';
 import { ModelEffortPicker } from './src/model-effort-picker';
 import { QueuedMessages } from './src/queued-messages';
 import { QueueEditor } from './src/queue-editor';
+import { Dialog } from './src/dialog';
+import { ControlSettings } from './src/control-settings';
+import { AttachmentMenu } from './src/attachment-menu';
+import { pickAttachments } from './src/attachment-picker';
+import type { AttachmentAsset } from './src/attachment-picker';
+import { MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES } from '../../packages/protocol/src/uploads';
 
 type DraftImage = { key: number; uri: string; name: string; asset?: ImagePicker.ImagePickerAsset; id?: string; loading: boolean; error?: string };
-type Icon = typeof Menu;
-
-function IconButton({ icon: IconView, label, onPress, disabled = false }: { icon: Icon; label: string; onPress: () => void; disabled?: boolean }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} disabled={disabled} style={({ pressed }) => [s.iconButton, pressed && s.pressed, disabled && s.disabled]}><IconView size={20} color={c.text} strokeWidth={1.8} /></Pressable>;
-}
-
+type DraftAttachment = { key: number; asset: AttachmentAsset; id?: string; loading: boolean; error?: string };
 function Login({ connect, busy, error }: { connect: (url: string, username: string, password: string) => void; busy: boolean; error: string }) {
   const [url, setUrl] = useState(defaultRelayUrl);
   const [username, setUsername] = useState('');
@@ -70,11 +71,12 @@ function AppContent() {
   const [expandedProjects, setExpandedProjects] = useState<string[]>([]);
   const [draft, setDraft] = useState('');
   const [images, setImages] = useState<DraftImage[]>([]);
+  const [files, setFiles] = useState<DraftAttachment[]>([]);
+  const fileUploads = useRef(new Map<number, AbortController>());
   const [busy, setBusy] = useState(false);
-  const [menu, setMenu] = useState<'settings' | 'mode'>('settings');
+  const [menu, setMenu] = useState<'settings' | 'mode' | 'weixin'>('settings');
   const [editingQueueId, setEditingQueueId] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [weixinOpen,setWeixinOpen] = useState(false);
   const openMenu = (kind: typeof menu) => { setMenu(kind); setMenuOpen(true); };
   // Keep the selected content mounted while Modal plays its closing animation.
   const closeMenu = () => setMenuOpen(false);
@@ -109,6 +111,7 @@ function AppContent() {
     if (scrollFrame.current !== null) { cancelAnimationFrame(scrollFrame.current); scrollFrame.current = null; }
   }, []);
   const nextImageKey = useRef(0);
+  useEffect(() => () => { for (const upload of fileUploads.current.values()) upload.abort(); fileUploads.current.clear(); }, []);
   const moveImage = useCallback((direction: ImageDirection) => setPreview(current => {
     if (!current) return null;
     const index = current.index + direction;
@@ -130,10 +133,13 @@ function AppContent() {
     const listener = AppState.addEventListener('change', state => relay.setForeground(state === 'active'));
     return () => listener.remove();
   }, []);
-  useEffect(() => { if (view.phase === 'locked') { setDraft(''); setImages([]); setDrawerOpen(false); setActionThread(null); setPreview(null); setWeixinOpen(false); setEditingQueueId(null); closeMenu(); } }, [view.phase]);
+  useEffect(() => { if (view.phase === 'locked') { setDraft(''); setImages([]); setDrawerOpen(false); setActionThread(null); setPreview(null); setEditingQueueId(null); closeMenu(); } }, [view.phase]);
   useEffect(() => { if (view.phase === 'connected' && deviceId && !view.catalogs[deviceId]) void relay.loadCatalog(deviceId); }, [deviceId, view.catalogs, view.phase]);
   useEffect(() => {
     setPreview(null);
+    setFiles([]);
+    for (const upload of fileUploads.current.values()) upload.abort();
+    fileUploads.current.clear();
     setEditingQueueId(null);
     olderAnchor.current = null;
     scrollPosition.current.reset();
@@ -213,10 +219,11 @@ function AppContent() {
   const send = async (payload: RemoteCommand['payload'], clearDraft = false) => {
     if (busy) return false;
     setBusy(true);
+    const scope = currentStreamKey.current;
     try {
       const result = await relay.sendCommand(deviceId, payload);
       if (result.status !== 'succeeded') throw new Error(result.code);
-      if (clearDraft) { setDraft(''); setImages([]); }
+      if (clearDraft && scope === currentStreamKey.current) { setDraft(''); setImages([]); setFiles([]); }
       return true;
     } catch (error) { relay.showNotice(error instanceof Error ? error.message : String(error)); return false; }
     finally { setBusy(false); }
@@ -261,16 +268,53 @@ function AppContent() {
   };
   const pickImages = async () => {
     if (images.length >= MAX_IMAGES) return;
+    const scope = currentStreamKey.current;
     try {
       const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsMultipleSelection: true, selectionLimit: MAX_IMAGES - images.length, base64: true, quality: 0.85 });
-      if (!result.canceled) addImages(result.assets);
+      if (!result.canceled && scope === currentStreamKey.current) addImages(result.assets);
     } catch (error) { relay.showNotice(error instanceof Error ? error.message : '无法读取图片'); }
   };
+  const pickCamera = async () => {
+    const scope = currentStreamKey.current;
+    try {
+      if (Platform.OS !== 'web' && !(await ImagePicker.requestCameraPermissionsAsync()).granted) { relay.showNotice('请允许相机权限，或选择照片'); return; }
+      const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], base64: true, quality: 0.85 });
+      if (!result.canceled && scope === currentStreamKey.current) addImages(result.assets);
+    } catch (error) { relay.showNotice(error instanceof Error ? error.message : '无法打开相机'); }
+  };
+  const uploadFile = async (file: DraftAttachment, targetDevice = deviceId, targetThread = threadId) => {
+    const abort = new AbortController(); fileUploads.current.get(file.key)?.abort(); fileUploads.current.set(file.key, abort);
+    setFiles(current => current.map(item => item.key === file.key ? { ...item, loading: true, error: undefined } : item));
+    try {
+      const uploaded = await relay.uploadAttachment(targetDevice, targetThread, file.asset, abort.signal);
+      if (!abort.signal.aborted) setFiles(current => current.map(item => item.key === file.key ? { ...item, id: uploaded.id, loading: false } : item));
+    } catch (error) {
+      if (!abort.signal.aborted) setFiles(current => current.map(item => item.key === file.key ? { ...item, loading: false, error: '上传失败，点击重试' } : item));
+    } finally { if (fileUploads.current.get(file.key) === abort) fileUploads.current.delete(file.key); }
+  };
+  const pickFiles = async () => {
+    const scope = currentStreamKey.current, targetDevice = deviceId, targetThread = threadId;
+    try {
+      const assets = await pickAttachments();
+      if (scope !== currentStreamKey.current) return;
+      for (const asset of assets.slice(0, MAX_ATTACHMENTS - files.length)) {
+        if (asset.size > MAX_ATTACHMENT_BYTES) { relay.showNotice(`${asset.name} 超过 20 MB`); continue; }
+        const file: DraftAttachment = { key: ++nextImageKey.current, asset, loading: true };
+        setFiles(current => [...current, file]); void uploadFile(file, targetDevice, targetThread);
+      }
+    } catch (error) { relay.showNotice(error instanceof Error ? error.message : '无法读取文件'); }
+  };
+  const removeFile = (file: DraftAttachment) => {
+    fileUploads.current.get(file.key)?.abort();
+    setFiles(current => current.filter(item => item.key !== file.key));
+    if (file.id) void relay.removeAttachment(deviceId, threadId, file.id).catch(() => {});
+  };
   const submit = () => {
-    if (!thread || busy || !ready || images.some(image => image.loading || image.error)) return;
+    if (!thread || busy || !ready || images.some(image => image.loading || image.error) || files.some(file => file.loading || file.error || !file.id)) return;
     const text = draft.trim(), ids = images.map(image => image.id).filter((id): id is string => !!id);
-    if (!text && !ids.length) { if (thread.status === 'active' && thread.activeTurnId) void send({ type: 'turn.interrupt', threadId, turnId: thread.activeTurnId }); return; }
-    void send({ type: thread.status === 'active' ? 'turn.queue' : 'turn.start', threadId, text, ...(ids.length ? { images: ids } : {}) }, true);
+    const attachments = files.flatMap(file => file.id ? [file.id] : []);
+    if (!text && !ids.length && !attachments.length) { if (thread.status === 'active' && thread.activeTurnId) void send({ type: 'turn.interrupt', threadId, turnId: thread.activeTurnId }); return; }
+    void send({ type: thread.status === 'active' ? 'turn.queue' : 'turn.start', threadId, text, ...(ids.length ? { images: ids } : {}), ...(attachments.length ? { attachments } : {}) }, true);
   };
   const changeModel = async (model: string) => { if (thread?.settings?.model && thread.status === 'idle' && model !== thread.settings.model) await send({ type: 'thread.model.update', threadId, model, expectedModel: thread.settings.model }); };
   const changeEffort = async (effort: string) => { if (thread?.settings?.model && thread.status === 'idle' && effort !== thread.settings.reasoningEffort) return send({ type: 'thread.effort.update', threadId, effort: effort as Extract<RemoteCommand['payload'], { type: 'thread.effort.update' }>['effort'], expectedModel: thread.settings.model, expectedEffort: thread.settings.reasoningEffort }); return false; };
@@ -292,7 +336,7 @@ function AppContent() {
 
   if (restoring) return <SafeAreaView style={[s.safe, s.center]}><ActivityIndicator color={c.accent} /></SafeAreaView>;
   if (view.phase === 'locked') return <Login connect={connect} busy={loginBusy} error={view.notice} />;
-  const stopMode = thread?.status === 'active' && !draft.trim() && !images.length;
+  const stopMode = thread?.status === 'active' && !draft.trim() && !images.length && !files.length;
   const settings = thread?.settings ?? summary?.settings;
   return <View style={s.safe}><StatusBar style="dark" />
     <FileViewerProvider deviceId={deviceId} threadId={threadId}><PreviewContext.Provider value={{deviceId, threadId}}><ConversationDrawer wide={wide} open={drawerOpen} onOpenChange={setDrawerOpen} directory={directory}>
@@ -339,10 +383,16 @@ function AppContent() {
           onSteer={queueId => { if (thread?.activeTurnId) void send({ type: 'turn.queue.steer', threadId, turnId: thread.activeTurnId, queueId }); }}
           onRemove={queueId => void send({ type: 'turn.queue.remove', threadId, queueId })} onEdit={setEditingQueueId} />
       <View style={s.composer}>{!!view.notice && <Text style={s.notice} numberOfLines={2}>{view.notice}</Text>}{!ready && <Text style={s.hint}>{!threadId ? '请选择会话' : view.phase === 'reconnecting' ? '正在重连服务器' : view.phase === 'connecting' ? '正在连接服务器' : !device?.online ? '设备离线' : view.syncing[deviceId] ? '同步中' : '正在接入会话'}</Text>}{!!images.length && <ScrollView horizontal style={s.draftStrip}>{images.map((image, index) => <View key={image.key} style={s.draftImage}><Pressable accessibilityRole="button" accessibilityLabel={`预览待发送图片 ${image.name}`} onPress={() => openDraftImage(index)}><Image source={{ uri: image.uri }} style={s.thumbnail} /></Pressable>{image.loading ? <ActivityIndicator size="small" /> : image.error ? <Pressable accessibilityRole="button" accessibilityLabel={`重试上传 ${image.name}`} disabled={!ready} onPress={() => void uploadDraft(image, deviceId, threadId)}><Text style={s.error}>{image.error} · 重试</Text></Pressable> : <Check size={14} color={c.accent} />}<Pressable accessibilityRole="button" accessibilityLabel={`移除 ${image.name}`} onPress={() => setImages(current => current.filter(item => item.key !== image.key))}><X size={17} color={c.muted} /></Pressable></View>)}</ScrollView>}
+        {!!files.length && <ScrollView horizontal style={s.draftStrip} contentContainerStyle={{ gap: 8, padding: 4 }}>{files.map(file => <View key={file.key} style={s.draftFile}>
+          <Paperclip size={20} color={c.muted} /><View style={{ flex: 1, minWidth: 0 }}><Text numberOfLines={1} style={s.menuText}>{file.asset.name}</Text><Text style={s.sub}>{file.asset.size < 1024 * 1024 ? `${Math.ceil(file.asset.size / 1024)} KB` : `${(file.asset.size / 1024 / 1024).toFixed(1)} MB`}</Text>
+          {!!file.error && <Pressable accessibilityRole="button" accessibilityLabel={`重试上传文件 ${file.asset.name}`} disabled={!ready} onPress={() => void uploadFile(file)}><Text style={s.error}>{file.error}</Text></Pressable>}</View>
+          {file.loading ? <ActivityIndicator size="small" color={c.muted} /> : !file.error && <Check size={15} color={c.accent} />}
+          <Pressable accessibilityRole="button" accessibilityLabel={`移除文件 ${file.asset.name}`} onPress={() => removeFile(file)} style={s.iconButton}><X size={17} color={c.muted} /></Pressable>
+        </View>)}</ScrollView>}
         <ComposerInput accessibilityLabel="给 Codex 发送消息" style={s.composerInput} value={draft} onChangeText={setDraft} multiline maxLength={32000} editable={!!ready && !busy} placeholder="给 Codex 发送消息" placeholderTextColor={c.muted} textAlignVertical="top" onImages={addImages} imagesEnabled={ready && !busy && !!snapshot?.runtime.capabilities.images && images.length < MAX_IMAGES} onImageError={message => relay.showNotice(message)} onKeyPress={event => { const key = event.nativeEvent as { key: string; shiftKey?: boolean; isComposing?: boolean; keyCode?: number }; if (Platform.OS === 'web' && key.key === 'Enter' && !key.shiftKey && !key.isComposing && key.keyCode !== 229) { event.preventDefault(); submit(); } }} />
-        <View style={s.toolbar}><IconButton icon={ImagePlus} label="添加图片" disabled={!ready || busy || !snapshot?.runtime.capabilities.images || images.length >= MAX_IMAGES} onPress={() => void pickImages()} />{!!snapshot?.runtime.capabilities.collaborationModeUpdate && <Pressable accessibilityRole="button" accessibilityLabel={`工作模式：${settings?.collaborationMode === 'plan' ? 'Plan' : '默认'}`} style={[s.pill, s.modePill, settings?.collaborationMode === 'plan' && s.modeActive]} disabled={!ready || busy || thread?.status !== 'idle'} onPress={() => openMenu('mode')}><ListChecks size={15} color={settings?.collaborationMode === 'plan' ? c.accent : c.muted} /><Text style={s.pillText}>{settings?.collaborationMode === 'plan' ? 'Plan' : '默认'}</Text></Pressable>}
+        <View style={s.toolbar}><AttachmentMenu key={`${deviceId}:${threadId}`} enabled={ready && !busy} imagesEnabled={ready && !busy && !!snapshot?.runtime.capabilities.images && images.length < MAX_IMAGES} filesSupported={!!snapshot?.runtime.capabilities.attachments} filesEnabled={ready && !busy && !!snapshot?.runtime.capabilities.attachments && files.length < MAX_ATTACHMENTS} onImages={() => void pickImages()} onCamera={() => void pickCamera()} onFiles={() => void pickFiles()} />{!!snapshot?.runtime.capabilities.collaborationModeUpdate && <Pressable accessibilityRole="button" accessibilityLabel={`工作模式：${settings?.collaborationMode === 'plan' ? 'Plan' : '默认'}`} style={[s.pill, s.modePill, settings?.collaborationMode === 'plan' && s.modeActive]} disabled={!ready || busy || thread?.status !== 'idle'} onPress={() => openMenu('mode')}><ListChecks size={15} color={settings?.collaborationMode === 'plan' ? c.accent : c.muted} /><Text style={s.pillText}>{settings?.collaborationMode === 'plan' ? 'Plan' : '默认'}</Text></Pressable>}
           <View style={s.spacer} /><ModelEffortPicker key={`${deviceId}:${threadId}`} model={settings?.model} effort={settings?.reasoningEffort} options={catalog?.models ?? []} enabled={ready && thread?.status === 'idle'} busy={busy} onModelChange={changeModel} onEffortChange={changeEffort} />
-          <Pressable accessibilityRole="button" accessibilityLabel={stopMode ? '停止当前任务' : thread?.status === 'active' ? '添加到待发送' : '发送消息'} disabled={!ready || busy || images.some(image => image.loading || !!image.error)} onPress={submit} style={[s.send, stopMode && s.stop, (!ready || busy) && s.disabled]}>{busy ? <ActivityIndicator color="#fff" size="small" /> : stopMode ? <Square size={18} color="#fff" fill="#fff" /> : <ArrowUp size={20} color="#fff" />}</Pressable></View>
+          <Pressable accessibilityRole="button" accessibilityLabel={stopMode ? '停止当前任务' : thread?.status === 'active' ? '添加到待发送' : '发送消息'} disabled={!ready || busy || images.some(image => image.loading || !!image.error) || files.some(file => file.loading || !!file.error || !file.id)} onPress={submit} style={[s.send, stopMode && s.stop, (!ready || busy) && s.disabled]}>{busy ? <ActivityIndicator color="#fff" size="small" /> : stopMode ? <Square size={18} color="#fff" fill="#fff" /> : <ArrowUp size={20} color="#fff" />}</Pressable></View>
       </View>
       </View>
       </View>
@@ -351,26 +401,18 @@ function AppContent() {
     </ConversationDrawer></PreviewContext.Provider></FileViewerProvider>
     {editingQueueId && <QueueEditor key={`${deviceId}:${threadId}:${editingQueueId}`} deviceId={deviceId} threadId={threadId} queueId={editingQueueId} onClose={() => setEditingQueueId(null)} />}
     {!!projectDeviceId && <ProjectCreate key={projectDeviceId} catalog={view.catalogs[projectDeviceId]} online={!!view.devices.find(item => item.id === projectDeviceId)?.online} create={createProject} close={() => setProjectDeviceId('')} />}
-    <Modal visible={!!actionThread} transparent animationType="fade" onRequestClose={() => { setActionThread(null); setRenaming(false); }}>
-      <Pressable style={s.backdrop} onPress={() => { setActionThread(null); setRenaming(false); }}>
-        <Pressable style={[s.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]} onPress={event => event.stopPropagation()}>
-          <View style={s.modalHeader}><Text style={s.modalTitle} numberOfLines={1}>{renaming ? '重命名会话' : actionThread?.title}</Text><IconButton icon={X} label="关闭" onPress={() => { setActionThread(null); setRenaming(false); }} /></View>
+    <Dialog open={!!actionThread} title={renaming ? '重命名会话' : actionThread?.title ?? '会话操作'} busy={managing} onClose={() => { setActionThread(null); setRenaming(false); }}>
           {renaming ? <><TextInput style={s.field} value={newName} onChangeText={setNewName} autoFocus maxLength={1000} /><Pressable style={[s.primary, (!newName.trim() || managing) && s.disabled]} disabled={!newName.trim() || managing} onPress={() => actionThread && void manageThread({ type: 'thread.rename', threadId: actionThread.id, name: newName.trim() })}><Text style={s.primaryText}>保存</Text></Pressable></> : <>
             <Pressable style={s.menuOption} disabled={managing} onPress={() => setRenaming(true)}><Pencil size={18} color={c.text} /><Text style={s.menuText}>重命名</Text></Pressable>
             <Pressable style={s.menuOption} disabled={managing} onPress={() => actionThread && void manageThread({ type: 'thread.archive', threadId: actionThread.id })}><Archive size={18} color={c.text} /><Text style={s.menuText}>归档</Text></Pressable>
             <Pressable style={s.menuOption} disabled={managing} onPress={() => { const target = actionThread; if (target) void confirmAction('永久删除会话', `删除“${target.title}”后无法恢复。`).then(confirmed => { if (confirmed) void manageThread({ type: 'thread.delete', threadId: target.id }); }); }}><Trash2 size={18} color={c.danger} /><Text style={s.dangerText}>永久删除</Text></Pressable>
           </>}
-        </Pressable>
-      </Pressable>
-    </Modal>
-    <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={closeMenu}>
-      <Pressable style={s.backdrop} onPress={closeMenu}><Pressable style={[s.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]} onPress={event => event.stopPropagation()}>
-        <View style={s.modalHeader}><Text style={s.modalTitle}>{menu === 'settings' ? '连接' : '工作模式'}</Text><IconButton icon={X} label="关闭" onPress={closeMenu} /></View>
-        {menu === 'settings' ? <><Text style={s.sub}>{view.url}</Text><Pressable accessibilityRole="button" style={s.menuOption} onPress={() => { closeMenu(); setWeixinOpen(true); }}><MessageCircle size={18} color={c.text} /><Text style={s.menuText}>微信 ClawBot</Text></Pressable><Pressable style={s.menuOption} onPress={() => { closeMenu(); void relay.logout().catch(() => undefined); }}><LogOut size={18} color={c.danger} /><Text style={s.dangerText}>退出登录</Text></Pressable></>
+    </Dialog>
+    <Dialog open={menuOpen} title={menu === 'settings' ? '设置' : menu === 'weixin' ? '微信设置' : '工作模式'} onClose={closeMenu}>
+        {menu === 'settings' ? menuOpen && <ControlSettings url={view.url} onWeixin={() => setMenu('weixin')} onLogout={() => { closeMenu(); void relay.logout().catch(() => undefined); }} />
+          : menu === 'weixin' ? menuOpen && <WeixinSettings />
           : <View><Pressable style={s.menuOption} onPress={() => changeMode('default')}><View style={{flex: 1}}><Text style={s.menuText}>默认模式</Text><Text style={s.sub}>按请求执行任务</Text></View>{settings?.collaborationMode === 'default' && <Check size={18} color={c.accent} />}</Pressable><Pressable style={s.menuOption} onPress={() => changeMode('plan')}><View style={{flex: 1}}><Text style={s.menuText}>Plan Mode</Text><Text style={s.sub}>先讨论和形成计划，再切换默认模式执行</Text></View>{settings?.collaborationMode === 'plan' && <Check size={18} color={c.accent} />}</Pressable></View>}
-      </Pressable></Pressable>
-    </Modal>
-    {weixinOpen&&<WeixinSettings onClose={()=>setWeixinOpen(false)}/>}
+    </Dialog>
     <ImageViewer preview={preview} onClose={() => setPreview(null)} onNavigate={moveImage} />
   </View>;
 }

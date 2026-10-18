@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { attachmentIdSchema, MAX_ATTACHMENTS } from "./uploads.js";
 import { fileResponseSchema } from "./files.js";
 import { previewResponseSchema } from './previews.js';
 
@@ -24,7 +25,7 @@ export function jsonBytes(value: unknown): number { return new TextEncoder().enc
 const boundedRecord = (bytes: number) => z.record(z.string().max(200), z.unknown()).refine(value => jsonBytes(value) <= bytes, "payload-too-large");
 export const idSchema = z.string().min(1).max(160);
 const seqSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
-export const queuedMessageDetailsSchema = z.object({ queueId: idSchema, text: z.string().max(32000), images: z.array(imageIdSchema).max(MAX_IMAGES) });
+export const queuedMessageDetailsSchema = z.object({ queueId: idSchema, text: z.string().max(32000), images: z.array(imageIdSchema).max(MAX_IMAGES), attachments: z.array(attachmentIdSchema).max(MAX_ATTACHMENTS).optional() });
 export type QueuedMessageDetails = z.infer<typeof queuedMessageDetailsSchema>;
 const timingFields = {
   startedAtMs: seqSchema.optional(),
@@ -130,7 +131,7 @@ export const threadSchema = z.object({
   truncated: z.boolean(),
   revision: seqSchema,
   activeTurnId: idSchema.nullable(),
-  queuedMessages: z.array(z.object({ id: idSchema, text: z.string().max(1000), imageCount: z.number().int().min(0).max(MAX_IMAGES), createdAt: seqSchema, status: z.enum(["queued", "sending", "failed"]) })).max(20).optional(),
+  queuedMessages: z.array(z.object({ id: idSchema, text: z.string().max(1000), imageCount: z.number().int().min(0).max(MAX_IMAGES), fileCount: z.number().int().min(0).max(MAX_ATTACHMENTS).optional(), createdAt: seqSchema, status: z.enum(["queued", "sending", "failed"]) })).max(20).optional(),
   updatedAt: z.number(),
   settings: modelSettingsSchema.optional(),
   subAgents: subAgentsSchema.optional(),
@@ -180,7 +181,7 @@ export const snapshotSchema = z.object({
     kind: z.enum(["official-desktop-ipc", "official-app-server"]),
     connected: z.boolean(),
     experimental: z.literal(true),
-    capabilities: z.object({ observe: z.boolean(), startTurn: z.boolean(), interrupt: z.boolean(), approvals: z.boolean(), userInput: z.boolean(), modelUpdate: z.boolean().optional(), effortUpdate: z.boolean().optional(), collaborationModeUpdate: z.boolean().optional(), images: z.boolean().optional(), subAgents: z.boolean().optional() }),
+    capabilities: z.object({ observe: z.boolean(), startTurn: z.boolean(), interrupt: z.boolean(), approvals: z.boolean(), userInput: z.boolean(), modelUpdate: z.boolean().optional(), effortUpdate: z.boolean().optional(), collaborationModeUpdate: z.boolean().optional(), images: z.boolean().optional(), attachments: z.boolean().optional(), subAgents: z.boolean().optional() }),
   }),
   threads: z.record(idSchema, threadSchema).refine(threads => Object.keys(threads).length <= MAX_THREADS && Object.entries(threads).every(([id, thread]) => id === thread.id)),
 });
@@ -212,13 +213,13 @@ export const commandSchema = z.object({
     z.object({ type: z.literal("thread.archive"), threadId: idSchema }),
     z.object({ type: z.literal("thread.delete"), threadId: idSchema }),
     z.object({ type: z.literal("thread.watch"), threadId: idSchema }),
-    z.object({ type: z.literal("turn.start"), threadId: idSchema, text: z.string().max(32000), images: z.array(imageIdSchema).max(MAX_IMAGES).optional() }).refine(value => value.text.trim().length > 0 || Boolean(value.images?.length), "empty-input"),
-    z.object({ type: z.literal("turn.queue"), threadId: idSchema, text: z.string().max(32000), images: z.array(imageIdSchema).max(MAX_IMAGES).optional() }).refine(value => value.text.trim().length > 0 || Boolean(value.images?.length), "empty-input"),
+    z.object({ type: z.literal("turn.start"), threadId: idSchema, text: z.string().max(32000), images: z.array(imageIdSchema).max(MAX_IMAGES).optional(), attachments: z.array(attachmentIdSchema).max(MAX_ATTACHMENTS).optional() }).refine(value => value.text.trim().length > 0 || Boolean(value.images?.length) || Boolean(value.attachments?.length), "empty-input"),
+    z.object({ type: z.literal("turn.queue"), threadId: idSchema, text: z.string().max(32000), images: z.array(imageIdSchema).max(MAX_IMAGES).optional(), attachments: z.array(attachmentIdSchema).max(MAX_ATTACHMENTS).optional() }).refine(value => value.text.trim().length > 0 || Boolean(value.images?.length) || Boolean(value.attachments?.length), "empty-input"),
     z.object({ type: z.literal("turn.queue.steer"), threadId: idSchema, turnId: idSchema, queueId: idSchema }),
     z.object({ type: z.literal("turn.queue.remove"), threadId: idSchema, queueId: idSchema }),
     z.object({ type: z.literal("turn.queue.read"), threadId: idSchema, queueId: idSchema }),
     z.object({ type: z.literal("turn.queue.update"), threadId: idSchema, queueId: idSchema, text: z.string().max(32000), expectedText: z.string().max(32000) }),
-    z.object({ type: z.literal("turn.steer"), threadId: idSchema, turnId: idSchema, text: z.string().max(32000), images: z.array(imageIdSchema).max(MAX_IMAGES).optional() }).refine(value => value.text.trim().length > 0 || Boolean(value.images?.length), "empty-input"),
+    z.object({ type: z.literal("turn.steer"), threadId: idSchema, turnId: idSchema, text: z.string().max(32000), images: z.array(imageIdSchema).max(MAX_IMAGES).optional(), attachments: z.array(attachmentIdSchema).max(MAX_ATTACHMENTS).optional() }).refine(value => value.text.trim().length > 0 || Boolean(value.images?.length) || Boolean(value.attachments?.length), "empty-input"),
     z.object({ type: z.literal("thread.model.update"), threadId: idSchema, model: z.string().trim().min(1).max(200).refine(value => !/[\s\x00-\x1f]/.test(value), "invalid-model"), expectedModel: z.string().min(1).max(200) }),
     z.object({ type: z.literal("thread.effort.update"), threadId: idSchema, effort: z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]), expectedModel: z.string().min(1).max(200), expectedEffort: z.string().max(80).nullable() }),
     z.object({ type: z.literal("thread.mode.update"), threadId: idSchema, mode: z.enum(["default", "plan"]), expectedMode: z.enum(["default", "plan"]).nullable(), expectedModel: z.string().min(1).max(200), expectedEffort: z.string().max(80).nullable() }),

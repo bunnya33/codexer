@@ -21,6 +21,21 @@ Base URL 是 Relay 的 HTTP 或 HTTPS 地址；本机开发默认为 `http://127
 
 `notifications:true` 表示通知全部已监听会话；关闭后只通知单独开启的会话。会话偏好可在绑定微信前保存，按账号、设备和会话持久化，不随退出或登录设备改变。修改后控制 WebSocket 发送 `weixin.thread-notification`（`deviceId,threadId,notification`）或 `weixin.settings`（`status`），只发给当前账号。新登录或重连用 REST 校准。关闭总开关会保留单独开启会话的待发送完成通知；关闭单个会话且总开关关闭时移除该会话的待发送完成通知。已发起的微信发送无法撤回。
 
+## 用户文件附件上传
+
+以下控制端接口要求普通账号 Bearer 会话，校验设备归属与当前会话目录。附件 ID 为服务器生成的 64 位十六进制随机值，与图片 ID 独立。
+
+| 方法 | 路径 | 请求与响应 |
+| --- | --- | --- |
+| POST | `/v1/devices/:deviceId/threads/:threadId/attachments` | `{name,size,mimeType}` 预留暂存空间，返回 `{id}` |
+| PUT | `/v1/devices/:deviceId/threads/:threadId/attachments/:id` | `{offset,base64}` 顺序上传最多 512 KiB 原始数据；返回 `{offset,attachment?}`，最后一块包含 `{id,name,size,mimeType,sha256}` |
+| DELETE | `/v1/devices/:deviceId/threads/:threadId/attachments/:id` | 删除未发送/放弃的暂存文件，返回 `{ok:true}` |
+| GET | `/v1/agent/:deviceId/threads/:threadId/attachments/:id?info=1` | 仅目标设备 Agent 会话可读，返回已完成附件的元数据；去掉 `info=1` 流式下载 |
+
+单个文件最多 20 MiB，暂存 24 小时；预留每设备 256 MiB、全局 1 GiB，最多 2000 份。零字节文件提交空块完成流程。大小或文件名非法返回 400 `invalid-attachment`；块非法为 400 `invalid-attachment-chunk`，偏移不符为 409 `attachment-offset-mismatch`；配额不足为 413 `attachment-storage-full`，未完成/过期/跨会话为 404 `attachment-unavailable`。旧 Agent 返回 409 `agent-update-required`。
+
+支持附件的 Relay 在 `device.welcome.features` 广播 `attachments`，新 Agent 协商后在快照公布 `runtime.capabilities.attachments:true`。`turn.start`、`turn.queue`、`turn.steer` 可带 `attachments:string[]`（最多 4 个 ID）；文字、图片、文件至少有一项。队列摘要可带 `fileCount`，完整队列读取保留 `attachments`。Agent 下载时校验大小与 SHA-256，并用官方文本输入中的本地文件引用交给 Codex。排队时即持久化本机副本，编辑正文不改附件。
+
 ## 会话文件读取
 
 | 方法 | 路径 | 用途 |

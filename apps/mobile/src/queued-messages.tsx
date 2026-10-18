@@ -13,7 +13,7 @@ function QueueRow({ item, ...actions }: Actions & { item: QueueItem }) {
   const editable = actions.enabled && item.status !== 'sending';
   return <View style={styles.row}>
     <ListEnd size={16} color={c.muted} />
-    <Text numberOfLines={1} style={styles.text}>{item.text || `${item.imageCount} 张图片`}</Text>
+    <Text numberOfLines={1} style={styles.text}>{item.text || [item.imageCount ? `${item.imageCount} 张图片` : '', item.fileCount ? `${item.fileCount} 个文件` : ''].filter(Boolean).join(' · ')}</Text>
     {item.status === 'sending' ? <><ActivityIndicator size="small" color={c.muted} /><Text style={styles.status}>发送中</Text></>
       : item.status === 'failed' && <Text style={styles.status}>未确认</Text>}
     <Pressable accessibilityRole="button" accessibilityLabel="引导这条消息" disabled={!actions.enabled || !actions.canSteer || item.status !== 'queued'}

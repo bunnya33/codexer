@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Modal, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
-import { X } from 'lucide-react-native';
+import { ActivityIndicator, Image, Pressable, Switch, Text, TextInput, View } from 'react-native';
 import type { WeixinLogin, WeixinStatus } from '../../../packages/protocol/src/weixin';
 import { relay } from './relay';
 import { c, s } from './styles';
@@ -24,7 +23,7 @@ const errorLabels: Record<string,string> = {
 };
 function errorText(error:unknown) {const message=error instanceof Error?error.message:String(error);return errorLabels[message]??'操作未完成，请检查连接后重试。';}
 
-export function WeixinSettings({onClose}:{onClose:()=>void}) {
+export function WeixinSettings() {
   const [status,setStatus]=useState<WeixinStatus|null>(null);
   const [login,setLogin]=useState<WeixinLogin|null>(null);
   const [busy,setBusy]=useState(false);
@@ -62,11 +61,8 @@ export function WeixinSettings({onClose}:{onClose:()=>void}) {
   const unbind=()=>void confirmAction('解除微信绑定','解除后，这个账号将停止接收微信通知和微信指令。').then(confirmed=>{if(confirmed)void run(async()=>{await relay.weixinUnbind();if(mounted.current){setLogin(null);setStatus(await relay.weixinStatus());setNotice('已解除绑定。');}});});
   const test=()=>void run(async()=>{await relay.weixinTest();if(mounted.current){setNotice('测试通知已加入发送队列，请到微信检查是否收到。');setStatus(await relay.weixinStatus());}});
   const label=!status?.bound?'未绑定':!status.activated?'已绑定 · 等待微信消息激活':status.connected?'已连接':'正在恢复连接';
-  return <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-    <Pressable style={s.backdrop} onPress={onClose}>
-      <Pressable style={[s.sheet,{maxHeight:'90%',maxWidth:520,width:'100%',alignSelf:'center'}]} onPress={event=>event.stopPropagation()}>
-        <View style={s.modalHeader}><Text style={s.modalTitle}>微信 ClawBot</Text><Pressable accessibilityRole="button" accessibilityLabel="关闭微信设置" style={s.iconButton} onPress={onClose}><X size={20} color={c.text}/></Pressable></View>
-        <ScrollView contentContainerStyle={{gap:16,paddingBottom:20}}>
+  return <>
+        <Text style={s.menuText}>微信 ClawBot</Text>
           <Text style={s.sub}>一个账号绑定一个 Bot，汇总本账号所有电脑的通知。你可以在微信里与它一对一聊天并继续指定会话。</Text>
           {!status?<ActivityIndicator color={c.accent}/>:!status.available?<Text style={s.sub}>当前服务器未开启微信接入。</Text>:<>
             <Text style={s.menuText}>{label}</Text>
@@ -89,8 +85,5 @@ export function WeixinSettings({onClose}:{onClose:()=>void}) {
             <Text style={s.sub}>微信可能限制主动通知的次数和有效时间。收不到通知时，先给机器人发一条消息刷新会话。</Text>
           </>}
           {!!notice&&<Text style={s.sub}>{notice}</Text>}{!!error&&<Text style={s.error}>{error}</Text>}
-        </ScrollView>
-      </Pressable>
-    </Pressable>
-  </Modal>;
+  </>;
 }

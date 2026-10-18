@@ -16,6 +16,7 @@ import { UsageJournal } from "./usage.js";
 import { ProjectDirectories } from './project-directories.js';
 import { validateRelayUrl } from "./auth.js";
 import { ImageRegistry } from "../../../packages/codex-adapter/src/images.js";
+import { AttachmentInputs } from "../../../packages/codex-adapter/src/attachments.js";
 import { FileRegistry } from "../../../packages/codex-adapter/src/files.js";
 import { PreviewAgent, PreviewRegistry } from '../../../packages/codex-adapter/src/previews.js';
 import { fileRequestSchema, fileResponseSchema } from "../../../packages/protocol/src/files.js";
@@ -35,6 +36,7 @@ export class PcAgent extends EventEmitter {
   private readonly imageQueue = new SerialQueue();
   private readonly fileQueue = new SerialQueue();
   private readonly files = new FileRegistry();
+  private readonly attachments: AttachmentInputs;
   private readonly previews = new PreviewRegistry();
   private readonly images = new ImageRegistry();
   private readonly switchQueue = new SerialQueue();
@@ -73,6 +75,7 @@ export class PcAgent extends EventEmitter {
     this.adapter = new DesktopAdapter(endpoint, codexHome);
     this.headless = runtimePreference !== "desktop" && (!endpoint || runtimePreference === "headless") ? new HeadlessAdapter() : undefined;
     this.activeAdapter = this.adapter;
+    this.attachments = new AttachmentInputs(join(directory, "attachments"), (threadId, id) => ({ url: new URL(`/v1/agent/${encodeURIComponent(credentials.deviceId)}/threads/${encodeURIComponent(threadId)}/attachments/${id}`, credentials.relayUrl), token: credentials.session }));
     this.adapter.images = this.images;
     if (this.headless) this.headless.images = this.images;
     this.journal = new CommandJournal(join(directory, "commands.sqlite"));
@@ -297,13 +300,13 @@ export class PcAgent extends EventEmitter {
     return value;
   }
   private withQueue(thread: RemoteThread): RemoteThread {
-    return { ...thread, queuedMessages: this.journal.queued(thread.id).slice(0, 20).map(message => ({ id: message.id, text: message.text.slice(0, 1000), imageCount: message.images.length, createdAt: message.createdAt, status: message.status })) };
+    return { ...thread, queuedMessages: this.journal.queued(thread.id).slice(0, 20).map(message => ({ id: message.id, text: message.text.slice(0, 1000), imageCount: message.images.length, ...(this.state.runtime.capabilities.attachments ? { fileCount: message.attachments?.length ?? 0 } : {}), createdAt: message.createdAt, status: message.status })) };
   }
   private publishQueue(threadId: string): void {
     const thread = this.pendingThreads.get(threadId) ?? this.state.threads[threadId] ?? this.adapterForThread(threadId).getThread(threadId);
     if (thread) this.commit({ type: "thread.updated", thread: this.withQueue(thread) });
   }
-  private async imageInputs(threadId: string, ids: string[]): Promise<UserInput[]> {
+  private async imageInputs(threadId: string, ids: string[], attachments: string[] = []): Promise<UserInput[]> {
     const inputs: UserInput[] = [];
     for (const id of ids) {
       const url = new URL(`/v1/agent/${encodeURIComponent(this.credentials.deviceId)}/threads/${encodeURIComponent(threadId)}/images/${id}`, this.credentials.relayUrl);
@@ -315,6 +318,7 @@ export class PcAgent extends EventEmitter {
       await writeFile(path, bytes, { mode: 0o600 });
       inputs.push({ type: "localImage", path });
     }
+    try { inputs.push(...await this.attachments.prepare(threadId, attachments)); } catch { throw new AdapterError("attachments-not-ready"); }
     return inputs;
   }
   private async drainQueue(threadId: string): Promise<void> {
@@ -335,8 +339,8 @@ export class PcAgent extends EventEmitter {
         this.awaitingQueuedTurn.add(threadId);
         try {
           const command: RemoteCommand = { commandId: queued.id, deviceId: this.credentials.deviceId, expectedEpoch: this.state.epoch, expiresAt: Date.now() + 60000,
-            payload: { type: "turn.start", threadId, text: queued.text, images: queued.images } };
-          const inputs = await this.imageInputs(threadId, queued.images);
+            payload: { type: "turn.start", threadId, text: queued.text, images: queued.images, attachments: queued.attachments } };
+          const inputs = await this.imageInputs(threadId, queued.images, queued.attachments);
           if (this.remotePaused || !this.relayAllowed || this.stopped) { this.journal.queueStatus(queued.id, "queued"); this.awaitingQueuedTurn.delete(threadId); return; }
           await adapter.execute(command, inputs);
           this.journal.removeQueued(queued.id);
@@ -359,7 +363,10 @@ export class PcAgent extends EventEmitter {
       if (payload.type === "turn.queue") {
         if (thread.status !== "active") throw new AdapterError("thread-not-active");
         if (this.journal.queued(payload.threadId).length >= 20) throw new AdapterError("queue-full");
-        const message: QueuedMessage = { id: command.commandId, threadId: payload.threadId, text: payload.text, images: payload.images ?? [], createdAt: Date.now(), status: "queued" };
+        const message: QueuedMessage = { id: command.commandId, threadId: payload.threadId, text: payload.text, images: payload.images ?? [], attachments: payload.attachments ?? [], createdAt: Date.now(), status: "queued" };
+        // Resolve while the upload is fresh; queued messages then survive Relay cleanup/restart.
+        try { await this.attachments.prepare(payload.threadId, message.attachments ?? []); } catch { throw new AdapterError("attachments-not-ready"); }
+        if (!allowed()) throw new AdapterError("remote-disconnected");
         this.journal.enqueue(message);
         this.publishQueue(payload.threadId);
         return { queueId: message.id };
@@ -367,10 +374,10 @@ export class PcAgent extends EventEmitter {
       if (payload.type === "turn.queue.remove" || payload.type === "turn.queue.read" || payload.type === "turn.queue.update") {
         const message = this.journal.queued(payload.threadId).find(value => value.id === payload.queueId);
         if (!message || message.status === "sending") throw new AdapterError("queue-item-unavailable");
-        if (payload.type === 'turn.queue.read') return { queueId: message.id, text: message.text, images: message.images };
+        if (payload.type === 'turn.queue.read') return { queueId: message.id, text: message.text, images: message.images, attachments: message.attachments ?? [] };
         if (payload.type === 'turn.queue.update') {
           if (payload.expectedText !== message.text) throw new AdapterError('queue-item-changed');
-          if (!payload.text.trim() && !message.images.length) throw new AdapterError('empty-input');
+          if (!payload.text.trim() && !message.images.length && !message.attachments?.length) throw new AdapterError('empty-input');
           this.journal.updateQueued(message.id, payload.text);
           this.publishQueue(payload.threadId);
           return { queueId: message.id };
@@ -386,8 +393,8 @@ export class PcAgent extends EventEmitter {
         this.journal.queueStatus(message.id, "sending");
         this.publishQueue(payload.threadId);
         try {
-          const steer: RemoteCommand = { ...command, commandId: message.id, payload: { type: "turn.steer", threadId: payload.threadId, turnId: payload.turnId, text: message.text, images: message.images } };
-          const inputs = await this.imageInputs(payload.threadId, message.images);
+          const steer: RemoteCommand = { ...command, commandId: message.id, payload: { type: "turn.steer", threadId: payload.threadId, turnId: payload.turnId, text: message.text, images: message.images, attachments: message.attachments } };
+          const inputs = await this.imageInputs(payload.threadId, message.images, message.attachments);
           if (!allowed()) throw new AdapterError("remote-disconnected");
           const result = await this.adapterForThread(payload.threadId).execute(steer, inputs);
           this.journal.removeQueued(message.id);
@@ -423,6 +430,7 @@ export class PcAgent extends EventEmitter {
   private connectRelay(): void {
     if (this.stopped || this.remotePaused || !this.relayAllowed || this.socket) return;
     this.catalogSupported = false;
+    delete this.state.runtime.capabilities.attachments;
     const url = new URL("/v1/ws/device", this.credentials.relayUrl);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     const socket = new WebSocket(url, { headers: { authorization: `Bearer ${this.credentials.session}`, "x-device-id": this.credentials.deviceId }, maxPayload: MAX_MESSAGE_BYTES, perMessageDeflate: false });
@@ -464,6 +472,9 @@ export class PcAgent extends EventEmitter {
         this.relayError = null;
         this.log("relay-connected");
         void this.writeStatus();
+        if (Array.isArray(message.features) && message.features.includes("attachments")) this.state.runtime.capabilities.attachments = true;
+        else delete this.state.runtime.capabilities.attachments;
+        this.send({ type: "device.snapshot", snapshot: this.state });
         this.catalogSupported = Array.isArray(message.features) && message.features.includes("catalog");
         if (this.catalogSupported && this.catalog) this.send({ type: "device.catalog", catalog: this.catalog });
         for (const thread of Object.values(this.state.threads)) if (thread.status === "idle") void this.drainQueue(thread.id);
@@ -550,7 +561,7 @@ export class PcAgent extends EventEmitter {
                   if (!current()) throw new AdapterError("remote-disconnected");
                   const payload = command.payload;
                   if (!('threadId' in payload)) throw new AdapterError('unsupported-command');
-                  const inputs = await this.imageInputs(payload.threadId, payload.type === "turn.start" || payload.type === "turn.steer" ? payload.images ?? [] : []);
+                  const inputs = await this.imageInputs(payload.threadId, payload.type === "turn.start" || payload.type === "turn.steer" ? payload.images ?? [] : [], payload.type === "turn.start" || payload.type === "turn.steer" ? payload.attachments ?? [] : []);
                   if (!current()) throw new AdapterError("remote-disconnected");
                   return this.adapterForThread(payload.threadId).execute(command, inputs);
                 });

@@ -3,8 +3,8 @@ import type { ReactNode, RefObject } from 'react';
 import { Modal, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { c } from './styles';
 
-export function ComposerPopover({ anchor, open, onClose, width = 320, children }: {
-  anchor: RefObject<View | null>; open: boolean; onClose: () => void; width?: number; children: ReactNode;
+export function ComposerPopover({ anchor, open, onClose, onDismiss, width = 320, align = 'end', children }: {
+  anchor: RefObject<View | null>; open: boolean; onClose: () => void; onDismiss?: () => void; width?: number; align?: 'start' | 'end'; children: ReactNode;
 }) {
   const viewport = useWindowDimensions();
   const [position, setPosition] = useState<{ x: number; y: number; width: number } | null>(null);
@@ -14,8 +14,8 @@ export function ComposerPopover({ anchor, open, onClose, width = 320, children }
     anchor.current?.measureInWindow((x, y, measuredWidth) => setPosition({ x, y, width: measuredWidth }));
   }, [anchor, open, viewport.width, viewport.height]);
   const panelWidth = Math.min(width, viewport.width - 24);
-  const left = Math.max(12, Math.min(viewport.width - panelWidth - 12, (position?.x ?? 12) + (position?.width ?? panelWidth) - panelWidth));
-  return <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
+  const left = Math.max(12, Math.min(viewport.width - panelWidth - 12, (position?.x ?? 12) + (align === 'end' ? (position?.width ?? panelWidth) - panelWidth : 0)));
+  return <Modal visible={open} transparent animationType="fade" onRequestClose={onClose} onDismiss={onDismiss}>
     <View style={styles.overlay}>
       <Pressable accessibilityRole="button" accessibilityLabel="关闭菜单" style={StyleSheet.absoluteFill} onPress={onClose} />
       <View accessibilityViewIsModal onLayout={event => setPanelHeight(event.nativeEvent.layout.height)} style={[styles.panel, {

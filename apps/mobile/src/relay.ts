@@ -8,6 +8,9 @@ import { mergeTurnHistory } from '../../../packages/client-shared/src/activity';
 import { fileInfoSchema } from '../../../packages/protocol/src/files';
 import type { FileInfo } from '../../../packages/protocol/src/files';
 import type { WidgetState } from '../../../packages/client-shared/src/previews';
+import { attachmentSchema, MAX_ATTACHMENT_BYTES, UPLOAD_CHUNK_BYTES } from '../../../packages/protocol/src/uploads';
+import type { Attachment } from '../../../packages/protocol/src/uploads';
+import type { AttachmentAsset } from './attachment-picker';
 
 export type Device = { id: string; name: string; platform: string; online: boolean; owner_user_id?: string | null; last_seen_at?: number | string | null };
 export type HistoryState = { turns: HistoryTurn[]; nextCursor: string | null; loading: boolean; error?: string };
@@ -483,6 +486,42 @@ export class RelayClient {
     if (Math.ceil(value.base64.length * 3 / 4) > MAX_IMAGE_BYTES) throw new Error('图片不能超过 4 MB');
     const result = await this.api<unknown>(`/v1/devices/${encodeURIComponent(deviceId)}/threads/${encodeURIComponent(threadId)}/images`, value);
     return imageRefSchema.parse(result);
+  }
+
+  async serverVersion(signal: AbortSignal): Promise<string> {
+    const result = await this.api<{ version?: unknown }>('/health', undefined, 'GET', false, signal);
+    if (typeof result.version !== 'string' || !result.version || result.version.length > 100) throw new Error('invalid-version');
+    return result.version;
+  }
+
+  async uploadAttachment(deviceId: string, threadId: string, file: AttachmentAsset, signal: AbortSignal): Promise<Attachment> {
+    if (!Number.isSafeInteger(file.size) || file.size < 0 || file.size > MAX_ATTACHMENT_BYTES) throw new Error('文件不能超过 20 MB');
+    const generation = this.generation, base = this.view.url, token = this.token;
+    const path = `/v1/devices/${encodeURIComponent(deviceId)}/threads/${encodeURIComponent(threadId)}/attachments`;
+    let id = '', completed = false;
+    const check = () => { if (signal.aborted || generation !== this.generation) throw new Error('上传已取消'); };
+    try {
+      check();
+      const started = await this.api<{ id: string }>(path, { name: file.name, mimeType: file.mimeType, size: file.size }, 'POST', false, signal);
+      id = started.id; check();
+      let offset = 0;
+      do {
+        const length = Math.min(UPLOAD_CHUNK_BYTES, file.size - offset), base64 = await file.readChunk(offset, length);
+        check();
+        const result = await this.api<{ offset: number; attachment?: unknown }>(`${path}/${id}`, { offset, base64 }, 'PUT', false, signal);
+        check();
+        if (result.offset !== offset + length || result.offset > file.size) throw new Error('上传未完成，请重试');
+        offset = result.offset;
+        if (offset === file.size) { const attachment = attachmentSchema.parse(result.attachment); completed = true; return attachment; }
+      } while (offset < file.size);
+      throw new Error('上传未完成，请重试');
+    } finally {
+      if (id && !completed) void fetch(`${base}${path}/${id}`, { method: 'DELETE', headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10000) }).catch(() => {});
+    }
+  }
+
+  async removeAttachment(deviceId: string, threadId: string, id: string): Promise<void> {
+    await this.api(`/v1/devices/${encodeURIComponent(deviceId)}/threads/${encodeURIComponent(threadId)}/attachments/${id}`, undefined, 'DELETE');
   }
 
   async queuedMessage(deviceId: string, threadId: string, queueId: string) {

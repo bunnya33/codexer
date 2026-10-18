@@ -182,6 +182,14 @@
                   "type": "string",
                   "pattern": "^[a-f0-9]{64}$"
                 }
+              },
+              "attachments": {
+                "maxItems": 4,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
               }
             },
             "required": [
@@ -207,6 +215,14 @@
                 "maxLength": 32000
               },
               "images": {
+                "maxItems": 4,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "attachments": {
                 "maxItems": 4,
                 "type": "array",
                 "items": {
@@ -355,6 +371,14 @@
                 "maxLength": 32000
               },
               "images": {
+                "maxItems": 4,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "attachments": {
                 "maxItems": 4,
                 "type": "array",
                 "items": {
@@ -996,6 +1020,9 @@
                       "images": {
                         "type": "boolean"
                       },
+                      "attachments": {
+                        "type": "boolean"
+                      },
                       "subAgents": {
                         "type": "boolean"
                       }
@@ -1103,6 +1130,11 @@
                             "maxLength": 1000
                           },
                           "imageCount": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 4
+                          },
+                          "fileCount": {
                             "type": "integer",
                             "minimum": 0,
                             "maximum": 4
@@ -1949,6 +1981,11 @@
                                   "maxLength": 1000
                                 },
                                 "imageCount": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 4
+                                },
+                                "fileCount": {
                                   "type": "integer",
                                   "minimum": 0,
                                   "maximum": 4
@@ -3827,6 +3864,14 @@
                           "type": "string",
                           "pattern": "^[a-f0-9]{64}$"
                         }
+                      },
+                      "attachments": {
+                        "maxItems": 4,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[a-f0-9]{64}$"
+                        }
                       }
                     },
                     "required": [
@@ -3852,6 +3897,14 @@
                         "maxLength": 32000
                       },
                       "images": {
+                        "maxItems": 4,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[a-f0-9]{64}$"
+                        }
+                      },
+                      "attachments": {
                         "maxItems": 4,
                         "type": "array",
                         "items": {
@@ -4000,6 +4053,14 @@
                         "maxLength": 32000
                       },
                       "images": {
+                        "maxItems": 4,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[a-f0-9]{64}$"
+                        }
+                      },
+                      "attachments": {
                         "maxItems": 4,
                         "type": "array",
                         "items": {
