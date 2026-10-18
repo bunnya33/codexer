@@ -18,6 +18,8 @@ Web/Admin/Go 生产构建、PC worker 构建及 iOS/Android JavaScript 导出通
 
 2026-10-18 发布构建：服务器和网页版本 `0.3.11`、Mac PC 连接器 `0.1.13`。版本调整后 21 项相关回归、根/Admin/PC/控制端类型、文档和脚本语法检查通过，Web/Admin/Go 生产构建及独立 Go 执行文件验收通过。Mac ARM64 DMG/ZIP、SHA256、严格签名及包内 7 个构建资源核对通过；实际打包 worker 在 Electron utilityProcess、隔离 Codex 数据目录和仅系统 PATH 下验证 SQLite、程序自动发现及启动/停止。已备份旧应用、关闭旧进程并替换 Applications 中的应用，登录和设置校验值保留，现只有一个新版主进程。真实启动阻塞于系统钥匙串读取（进程采样确认），没有把升级前的状态文件视为新版连接成功；等待解锁和系统授权。该本地包为 ad-hoc 签名，未 Apple 公证。
 
+服务器 [v0.3.11 Release](https://github.com/bunnya33/codexer/releases/tag/v0.3.11) 已发布，标签对应 `973a12e`；GitHub Actions 的完整测试（含 PostgreSQL）、类型/文档、Go race、生产构建、独立二进制和四平台打包全部通过。四个归档及四个 SHA256 文件均已上传；实际下载 Linux amd64 发布包，确认 SHA256、`VERSION`/包清单均为 `0.3.11`、ELF 架构为 Linux x86-64、执行权限 `0755`。此操作只发布更新包，未登录或更改远程生产服务器。
+
 2026-10-17 服务器 `0.3.10`：模型与强度合并浮层、滑块松手提交及保存失败回退、完整排队正文编辑、图片保留与并发覆盖拒绝已通过实际 App 组件测试。Go Relay + PC Agent 集成验证长中文正文读取/修改、附件保留、冲突拒绝及编辑后引导。Windows 完整回归为 332 项通过、1 项失败（50 个文件）；失败为既有 macOS 用户 Applications 发现用例在 Windows 路径分隔符下不匹配，与本次改动无关。Go 测试、根/后台/Electron/控制端/移动端类型检查、文档及协议检查、Web/Admin/Go 生产构建和 Linux amd64 打包通过。隔离的实际组件网页检查合并模型面板、模型列表及直接编辑保存；原生手机交互未做实机验收。
 
 服务器包包含网页改动和新增队列命令协议，不会更新已安装的 PC 连接器。排队消息编辑需要本版本 PC Agent 源码，原生 App 需要重新构建；服务器发布由 Linux CI 运行完整测试、Go race、单文件服务器检查和四平台打包。
