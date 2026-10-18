@@ -40,7 +40,7 @@ npm run build:server
 npm run package:server
 ```
 
-输出当前平台的 `release/codexer-server-0.3.11-<os>-<arch>.tar.gz` 和 `.sha256`。包内一个 Go 执行文件已内嵌控制端/后台资源及 Go 更新器，另带安装脚本和文档，不含 Node 运行依赖、真实配置、旧 Git 历史或 Electron。设置 `CODEXER_TARGETS=linux/amd64,linux/arm64,darwin/amd64,darwin/arm64` 可交叉构建四个平台包。
+输出当前平台的 `release/codexer-server-0.3.12-<os>-<arch>.tar.gz` 和 `.sha256`。包内一个 Go 执行文件已内嵌控制端/后台资源及 Go 更新器，另带安装脚本和文档，不含 Node 运行依赖、真实配置、旧 Git 历史或 Electron。设置 `CODEXER_TARGETS=linux/amd64,linux/arm64,darwin/amd64,darwin/arm64` 可交叉构建四个平台包。
 
 同一个包同时升级 Admin 和 Relay，避免接口与 UI 不一致。安装、校验、回退见 [服务器安装](server-install.md)。源码的 Dockerfile 独立执行完整服务器构建，也跳过 Electron 下载。
 
@@ -49,6 +49,8 @@ npm run package:server
 Web 随统一服务包发布。iOS/Android 由 Expo/EAS 或原生工具构建和签名，见 [移动客户端](mobile.md)。JS export 是构建检查，不代替可安装文件或商店审核。
 
 ## 版本与升级
+
+服务器 `0.3.12` 修复切换会话或设备后输入框的附件加号不断增加：为附件菜单与模型选择使用各自独立的组件标识，旧按钮随会话切换正常移除。服务器升级后刷新网页即可，PC 连接器无需重新安装。
 
 服务器 `0.3.11` 将设置、会话管理、工作模式和微信设置改为居中弹窗，保留原有手机侧栏；新建项目为「项目」标题行右侧的图标。设置分别显示当前服务器版本与已加载的控制端版本。输入框「＋」打开相机、照片和文件浮层；支持每条最多 4 个、单个最多 20 MiB 的通用文件附件及文件单独发送。队列编辑保留文件和图片。
 

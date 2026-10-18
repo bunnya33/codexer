@@ -380,6 +380,41 @@ it('uses centered settings and operation dialogs, shows server and loaded-contro
   } finally { test.close(); }
 });
 
+it('keeps one attachment and model button after restoring, reopening menus and switching conversations or devices', async () => {
+  const test = await fixture({ controls: { active: false, text: '', images: [] } });
+  const document = test.dom.window.document;
+  const expectSingleToolbar = () => {
+    expect(document.querySelectorAll('[aria-label="添加附件"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[aria-label^="模型与推理强度："]')).toHaveLength(1);
+  };
+  try {
+    await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-a']).toBe(false));
+    expectSingleToolbar();
+    for (const threadId of ['older-pc-a', 'recent-pc-a', 'older-pc-a']) {
+      test.click('添加附件');
+      await vi.waitFor(() => expect(document.querySelector('[aria-label="添加文件"]')).not.toBeNull());
+      await test.closeDialog('关闭菜单');
+      expectSingleToolbar();
+      test.click('模型与推理强度：6.1 Sol，极高');
+      await vi.waitFor(() => expect(document.querySelector('input[aria-label="推理强度"]')).not.toBeNull());
+      await test.closeDialog('关闭菜单');
+      const row = [...document.querySelectorAll('[role="button"]')].find(element => element.textContent === threadId) as HTMLElement;
+      row.click();
+      await vi.waitFor(() => expect(test.header()).toContain(threadId));
+      expectSingleToolbar();
+    }
+    for (const [from, to] of [['pc-a', 'pc-b'], ['pc-b', 'pc-a']]) {
+      test.click(`切换 PC Agent，当前：${from}，在线`);
+      await vi.waitFor(() => expect(document.querySelector(`[aria-label="选择设备 ${to}，在线"]`)).not.toBeNull());
+      test.click(`选择设备 ${to}，在线`);
+      await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing[to!]).toBe(false));
+      await vi.waitFor(() => expect(test.header()).toContain(`recent-${to}`));
+      expectSingleToolbar();
+    }
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
 it('opens attachment actions from plus and sends a file-only message after upload', async () => {
   const bytes = Buffer.from('附件内容');
   const test = await fixture({ controls: { active: false, text: '', images: [] }, filePicker: async () => [{ name: '说明.txt', size: bytes.length, mimeType: 'text/plain', readChunk: async (offset, length) => bytes.subarray(offset, offset + length).toString('base64') }] });
