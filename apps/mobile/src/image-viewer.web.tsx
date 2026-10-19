@@ -5,9 +5,10 @@ import { imageSwipe } from '../../../packages/client-shared/src/images';
 import type { ImageDirection, ImageGallery, ImagePreview } from '../../../packages/client-shared/src/images';
 import { ImageViewerHeader, ImageViewerNavigation } from './image-viewer-controls';
 import { useImageUrl } from './relay-image.web';
-import { s } from './styles';
+import { useTheme } from './styles';
 
 export function ImageViewerImage({ preview, onClose, onNavigate }: { preview: ImagePreview; onClose: () => void; onNavigate?: (direction: ImageDirection) => void }) {
+  const { s } = useTheme();
   const image = useImageUrl(preview.source);
   const [decodeError, setDecodeError] = useState(false);
   useEffect(() => setDecodeError(false), [image.uri]);
@@ -69,6 +70,7 @@ export function ImageViewerImage({ preview, onClose, onNavigate }: { preview: Im
   </View>;
 }
 export function ImageViewer({ preview, onClose, onNavigate }: { preview: ImageGallery | null; onClose: () => void; onNavigate: (direction: ImageDirection) => void }) {
+  const { s } = useTheme();
   const image = preview?.images[preview.index];
   const visible = !!preview;
   useEffect(() => {

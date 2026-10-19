@@ -1,12 +1,15 @@
+import { themedStyles } from './theme';
 import type { ReactNode } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { X } from 'lucide-react-native';
-import { c, s } from './styles';
+import { useTheme } from './styles';
 
 export function Dialog({ title, open = true, onClose, children, busy = false }: {
   title: string; open?: boolean; onClose: () => void; children: ReactNode; busy?: boolean;
 }) {
+  const { c, s } = useTheme();
+  const styles = useLocalStyles();
   const close = () => { if (!busy) onClose(); };
   return <Modal visible={open} transparent animationType="fade" onRequestClose={close}>
     <SafeAreaView style={styles.overlay}>
@@ -21,9 +24,9 @@ export function Dialog({ title, open = true, onClose, children, busy = false }: 
   </Modal>;
 }
 
-const styles = StyleSheet.create({
+const useLocalStyles = themedStyles(c => StyleSheet.create({
   overlay: { flex: 1, backgroundColor: '#0004' }, frame: { flex: 1, padding: 20, justifyContent: 'center', alignItems: 'center' },
   card: { width: '100%', maxWidth: 520, maxHeight: '90%', backgroundColor: c.surface, borderRadius: 24, paddingHorizontal: 20,
-    shadowColor: '#182127', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.12, shadowRadius: 28, elevation: 12 },
+    shadowColor: c.shadow, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.12, shadowRadius: 28, elevation: 12 },
   title: { flex: 1 }, content: { flexGrow: 0, flexShrink: 1 }, body: { paddingBottom: 20, gap: 12 },
-});
+}));

@@ -3,12 +3,13 @@ import { Animated, Easing, FlatList, Platform, Pressable, Text, TextInput, View 
 import { FolderClosed, FolderOpen, FolderPlus, MoreHorizontal, RefreshCw, Search, Settings2, SquarePen, X } from 'lucide-react-native';
 import type { DirectoryProject, DirectoryRow, DirectoryThread } from '../../../packages/client-shared/src/directory';
 import type { RelayView } from './relay';
-import { c, directoryThreadHeight, s } from './styles';
+import { directoryThreadHeight, useTheme } from './styles';
 import { DevicePicker } from './device-picker';
 import { DrawerSwipeBlock } from './drawer-swipe-block';
 type Props = { view: RelayView; deviceId: string; threadId: string; rows: DirectoryRow[]; search: string; wide: boolean; managing: boolean; paddingTop: number; paddingBottom: number; setSearch: (value: string) => void; selectDevice: (id: string) => void; selectThread: (id: string) => void; toggleProject: (id: string) => void; createProject: () => void; createThread: (id: string) => void; threadActions: (thread: { id: string; title: string }) => void; close: () => void; settings: () => void; refresh: () => void };
 
 function RunningIndicator({label}: {label: string}) {
+  const { s } = useTheme();
   const rotation = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const animation = Animated.loop(Animated.timing(rotation, {toValue: 1, duration: 900, easing: Easing.linear, useNativeDriver: Platform.OS !== 'web'}));
@@ -18,6 +19,7 @@ function RunningIndicator({label}: {label: string}) {
 }
 
 function ThreadRow({item, props, showActivity = true}: {item: DirectoryThread; props: Props; showActivity?: boolean}) {
+  const { c, s } = useTheme();
   return <View style={[s.threadRow, item.nested && s.threadNested, props.threadId === item.id && s.threadRowSelected]}>
     <Pressable accessibilityRole="button" onPress={() => props.selectThread(item.id)} onLongPress={() => props.threadActions(item)} delayLongPress={450} style={s.threadSelect}><Text numberOfLines={1} style={s.threadName}>{item.title}</Text>{item.active && showActivity && <RunningIndicator label={`正在运行：${item.title}`} />}</Pressable>
     {['web', 'windows', 'macos'].includes(Platform.OS) && <Pressable accessibilityRole="button" accessibilityLabel={`管理会话 ${item.title}`} onPress={() => props.threadActions(item)} style={s.projectAction}><MoreHorizontal size={16} color={c.muted} /></Pressable>}
@@ -25,6 +27,7 @@ function ThreadRow({item, props, showActivity = true}: {item: DirectoryThread; p
 }
 
 function ProjectRow({project, props}: {project: DirectoryProject; props: Props}) {
+  const { c, s } = useTheme();
   const bodyHeight = Math.max(1, project.threads.length) * directoryThreadHeight;
   const height = useRef(new Animated.Value(project.expanded ? bodyHeight : 0)).current;
   const [mounted, setMounted] = useState(project.expanded);
@@ -50,6 +53,7 @@ function ProjectRow({project, props}: {project: DirectoryProject; props: Props})
 }
 
 export function Directory(props: Props) {
+  const { c, s } = useTheme();
   const { view, deviceId, rows, wide } = props;
   return <View style={[s.drawer, wide && s.sidebar, { paddingTop: props.paddingTop, paddingBottom: props.paddingBottom }]}>
     <View style={s.drawerHeader}><Text style={s.brand}>Codexer</Text>{!wide && <Pressable accessibilityRole="button" accessibilityLabel="关闭会话列表" onPress={props.close} style={s.iconButton}><X size={20} color={c.text} /></Pressable>}</View>

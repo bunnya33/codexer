@@ -4,10 +4,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Check, FolderPlus, X } from 'lucide-react-native';
 import type { DeviceCatalog, RemoteCommand } from '../../../packages/protocol/src/index';
 import { projectCreationError, validProjectPath } from '../../../packages/client-shared/src/project-creation';
-import { c, s } from './styles';
+import { useTheme } from './styles';
 
 type Payload = Extract<RemoteCommand['payload'], { type: 'project.create' }>;
 export function ProjectCreate({ catalog, online, create, close }: { catalog?: DeviceCatalog; online: boolean; create: (payload: Payload) => Promise<void>; close: () => void }) {
+  const { c, s } = useTheme();
   const parents = catalog?.projectCreation?.parents ?? [];
   const [parentId, setParentId] = useState(parents[0]?.id ?? '');
   const [mode, setMode] = useState<'new' | 'existing'>('new');
@@ -42,7 +43,7 @@ export function ProjectCreate({ catalog, online, create, close }: { catalog?: De
             </>}
             {!!error && <Text accessibilityRole="alert" style={s.error}>{error}</Text>}
           </ScrollView>
-          <Pressable accessibilityRole="button" disabled={!valid || busy} onPress={() => void submit()} style={[s.primary, { marginTop: 16, flexDirection: 'row', gap: 8 }, (!valid || busy) && s.disabled]}>{busy ? <ActivityIndicator color="#fff"/> : <><FolderPlus size={18} color="#fff"/><Text style={s.primaryText}>{mode === 'new' ? '创建项目' : '添加项目'}</Text></>}</Pressable>
+          <Pressable accessibilityRole="button" disabled={!valid || busy} onPress={() => void submit()} style={[s.primary, { marginTop: 16, flexDirection: 'row', gap: 8 }, (!valid || busy) && s.disabled]}>{busy ? <ActivityIndicator color={c.onAccent}/> : <><FolderPlus size={18} color={c.onAccent}/><Text style={s.primaryText}>{mode === 'new' ? '创建项目' : '添加项目'}</Text></>}</Pressable>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>

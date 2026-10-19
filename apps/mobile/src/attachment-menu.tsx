@@ -1,12 +1,15 @@
+import { themedStyles } from './theme';
 import { useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Camera, Image, Paperclip, Plus } from 'lucide-react-native';
 import { ComposerPopover } from './composer-popover';
-import { c, s } from './styles';
+import { useTheme } from './styles';
 
 export function AttachmentMenu({ enabled, imagesEnabled, filesEnabled, filesSupported, onImages, onCamera, onFiles }: {
   enabled: boolean; imagesEnabled: boolean; filesEnabled: boolean; filesSupported: boolean; onImages: () => void; onCamera: () => void; onFiles: () => void;
 }) {
+  const { c, s } = useTheme();
+  const styles = useLocalStyles();
   const anchor = useRef<View>(null), [open, setOpen] = useState(false);
   const pending = useRef<(() => void) | null>(null);
   const select = (action: () => void) => {
@@ -25,8 +28,8 @@ export function AttachmentMenu({ enabled, imagesEnabled, filesEnabled, filesSupp
     </ComposerPopover>
   </>;
 }
-const styles = StyleSheet.create({
+const useLocalStyles = themedStyles(c => StyleSheet.create({
   option: { minHeight: 56, paddingHorizontal: 10, gap: 14, flexDirection: 'row', alignItems: 'center', borderRadius: 14 },
-  icon: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#f5f5f5', alignItems: 'center', justifyContent: 'center' },
+  icon: { width: 36, height: 36, borderRadius: 18, backgroundColor: c.code, alignItems: 'center', justifyContent: 'center' },
   label: { fontSize: 16, color: c.text }, hint: { paddingHorizontal: 10, paddingVertical: 8, color: c.muted, fontSize: 12, lineHeight: 18 },
-});
+}));

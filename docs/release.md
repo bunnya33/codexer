@@ -1,5 +1,10 @@
 # 本地发布与打包
 
+## 服务器 0.3.15：控制端三套皮肤
+
+设置新增默认、暖白纸张、暖棕暗色三张预览卡片，选择立即应用并保存在当前浏览器。消息、侧栏、输入框、浮层、文件阅读和代码差异使用一致配色；切换保留当前会话和草稿。代码新增／删除行按皮肤调整明暗，保留绿／红含义。网页安装本版服务器后刷新生效，PC Agent 无需更新，没有数据库迁移；Windows Native 和手机 App 需独立构建更新。
+
+
 本地打包命令只生成文件，Electron 固定 `--publish never`。服务器新增 GitHub Release 更新功能；维护者推送版本标签才会触发发布，普通 main 提交不触发发布。
 
 ## Windows
@@ -40,7 +45,7 @@ npm run build:server
 npm run package:server
 ```
 
-输出当前平台的 `release/codexer-server-0.3.13-<os>-<arch>.tar.gz` 和 `.sha256`。包内一个 Go 执行文件已内嵌控制端/后台资源及 Go 更新器，另带安装脚本和文档，不含 Node 运行依赖、真实配置、旧 Git 历史或 Electron。设置 `CODEXER_TARGETS=linux/amd64,linux/arm64,darwin/amd64,darwin/arm64` 可交叉构建四个平台包。
+输出当前平台的 `release/codexer-server-0.3.14-<os>-<arch>.tar.gz` 和 `.sha256`。包内一个 Go 执行文件已内嵌控制端/后台资源及 Go 更新器，另带安装脚本和文档，不含 Node 运行依赖、真实配置、旧 Git 历史或 Electron。设置 `CODEXER_TARGETS=linux/amd64,linux/arm64,darwin/amd64,darwin/arm64` 可交叉构建四个平台包。
 
 同一个包同时升级 Admin 和 Relay，避免接口与 UI 不一致。安装、校验、回退见 [服务器安装](server-install.md)。源码的 Dockerfile 独立执行完整服务器构建，也跳过 Electron 下载。
 
@@ -49,6 +54,8 @@ npm run package:server
 Web 随统一服务包发布。iOS/Android 由 Expo/EAS 或原生工具构建和签名，见 [移动客户端](mobile.md)。JS export 是构建检查，不代替可安装文件或商店审核。
 
 ## 版本与升级
+
+服务器 `0.3.14` 修复在底部发送多行消息后停止自动滚动的问题：输入框清空收缩与新消息、分段回复的高度回调交错时，保留尺寸调整造成的合法位置回退，并容忍 4px 内的被动偏移；主动向上阅读仍暂停跟随，回到底部恢复。更新统一服务器包后刷新网页生效，PC Agent 无需更新；Windows 原生 RelayDesk 使用独立的 `0.2.1` 安装包，原生手机 App 需重新构建。本次没有协议或数据库变更。
 
 服务器 `0.3.13` 修复会话底部自动跟随：底部判断允许 24px 误差，跟随期间容忍 4px 内被动偏移，停在底部继续向下滚轮、按键或滑动不会误暂停；主动向上阅读仍暂停。上滚到距顶部约 64px 内自动加载更早记录，Web 停在顶部继续向上操作也能触发，加载时防重复、保留阅读位置，失败可重试。此版以 `0.3.12` 为基础，保留居中菜单、文件附件及切换会话后附件按钮去重。网页和 RelayDesk 随服务器更新；PC 连接器无需更新，原生手机 App 需重新构建。没有新增协议或数据库迁移。
 

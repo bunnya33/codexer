@@ -4,9 +4,9 @@ import { JSDOM } from 'jsdom';
 import { resolve } from 'node:path';
 let javascript = '';
 beforeAll(async () => {
-  const result = await build({ entryPoints: ['tests/fixtures/project-create.tsx'], bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic',
+  const result = await build({ entryPoints: ['tests/fixtures/project-create.tsx'], outdir: '.local/project-create-tests', bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic',
     resolveExtensions: ['.web.tsx', '.web.ts', '.web.js', '.tsx', '.ts', '.jsx', '.js', '.json'], nodePaths: [resolve('apps/mobile/node_modules')], alias: { 'react-native': 'react-native-web' }, define: { 'process.env.NODE_ENV': '"production"', __DEV__: 'false', global: 'globalThis' } });
-  javascript = result.outputFiles![0]!.text;
+  javascript = result.outputFiles!.find(file => file.path.endsWith('.js'))!.text;
 });
 async function fixture() {
   const dom = new JSDOM('<div id="root"></div>', { runScripts: 'dangerously', pretendToBeVisual: true, beforeParse(window) { window.matchMedia = (() => ({ matches: false, addListener() {}, removeListener() {} })) as unknown as typeof window.matchMedia; } });

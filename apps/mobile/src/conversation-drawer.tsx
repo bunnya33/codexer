@@ -1,3 +1,4 @@
+import { themedStyles } from './theme';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { AccessibilityInfo, Animated, BackHandler, Easing, Keyboard, Platform, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
@@ -9,6 +10,7 @@ import { DrawerAccessibility } from './drawer-accessibility';
 export function ConversationDrawer({ wide, open, onOpenChange, directory, children }: {
   wide: boolean; open: boolean; onOpenChange: (open: boolean) => void; directory: ReactNode; children: ReactNode;
 }) {
+  const styles = useLocalStyles();
   const { width } = useWindowDimensions();
   const travel = drawerWidth(width);
   const progress = useRef(new Animated.Value(0)).current;
@@ -108,9 +110,9 @@ export function ConversationDrawer({ wide, open, onOpenChange, directory, childr
   </View></DrawerMotionContext.Provider>;
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, overflow: 'hidden', backgroundColor: '#fff' }, wide: { flexDirection: 'row' },
+const useLocalStyles = themedStyles(c => StyleSheet.create({
+  root: { flex: 1, overflow: 'hidden', backgroundColor: c.bg }, wide: { flexDirection: 'row' },
   directory: { position: 'absolute', top: 0, bottom: 0, left: 0 }, desktopDirectory: { width: 300 },
-  card: { flex: 1, minWidth: 0, backgroundColor: '#fff' },
-  content: { flex: 1, overflow: 'hidden' }, cover: { flex: 1, backgroundColor: '#fff' },
-});
+  card: { flex: 1, minWidth: 0, backgroundColor: c.bg },
+  content: { flex: 1, overflow: 'hidden' }, cover: { flex: 1, backgroundColor: c.bg },
+}));

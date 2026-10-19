@@ -1,3 +1,4 @@
+import { ThemeProvider } from './src/theme';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, AppState, FlatList, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,7 +19,7 @@ import { ConversationHeader } from './src/conversation-header';
 import { conversationSubAgents } from '../../packages/client-shared/src/sub-agents';
 import { ImageViewer } from './src/image-viewer';
 import { historyKey, relay } from './src/relay';
-import { c, s } from './src/styles';
+import { useTheme } from './src/styles';
 import { Directory } from './src/directory';
 import { ProjectCreate } from './src/project-create';
 import { confirmAction, defaultRelayUrl } from './src/runtime';
@@ -44,22 +45,24 @@ import { MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES } from '../../packages/protocol/s
 type DraftImage = { key: number; uri: string; name: string; asset?: ImagePicker.ImagePickerAsset; id?: string; loading: boolean; error?: string };
 type DraftAttachment = { key: number; asset: AttachmentAsset; id?: string; loading: boolean; error?: string };
 function Login({ connect, busy, error }: { connect: (url: string, username: string, password: string) => void; busy: boolean; error: string }) {
+  const { c, s, theme } = useTheme();
   const [url, setUrl] = useState(defaultRelayUrl);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const relayUrl = Platform.OS === 'web' ? defaultRelayUrl() : url;
-  return <SafeAreaView style={s.safe}><StatusBar style="dark" /><View style={s.login}>
-    <View style={s.brandRow}><View style={s.brandMark}><Terminal size={24} color="#fff" /></View><Text style={s.brand}>Codexer</Text></View>
+  return <SafeAreaView style={s.safe}><StatusBar style={theme.dark ? "light" : "dark"} /><View style={s.login}>
+    <View style={s.brandRow}><View style={s.brandMark}><Terminal size={24} color={c.onSolid} /></View><Text style={s.brand}>Codexer</Text></View>
     <Text style={s.heading}>账号登录</Text><Text style={s.sub}>登录后选择同账号的 PC Agent</Text>
     {Platform.OS !== 'web' && <><Text style={s.label}>服务器地址</Text><TextInput accessibilityLabel="服务器地址" style={s.field} value={url} onChangeText={setUrl} autoCapitalize="none" autoCorrect={false} keyboardType="url" placeholder="http://服务器地址:端口" placeholderTextColor={c.muted} /></>}
     <Text style={s.label}>账号</Text><TextInput accessibilityLabel="账号" style={s.field} value={username} onChangeText={setUsername} autoCapitalize="none" autoCorrect={false} autoComplete="username" placeholder="账号名称" placeholderTextColor={c.muted} />
     <Text style={s.label}>密码</Text><TextInput accessibilityLabel="密码" style={s.field} value={password} onChangeText={setPassword} autoCapitalize="none" autoCorrect={false} autoComplete="current-password" secureTextEntry placeholder="密码" placeholderTextColor={c.muted} />
     {!!error && <Text style={s.error}>{error}</Text>}
-    <Pressable accessibilityRole="button" onPress={() => connect(relayUrl, username, password)} disabled={busy || !relayUrl.trim() || !username.trim() || !password} style={[s.primary, (busy || !relayUrl.trim() || !username.trim() || !password) && s.disabled]}>{busy ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryText}>登录</Text>}</Pressable>
+    <Pressable accessibilityRole="button" onPress={() => connect(relayUrl, username, password)} disabled={busy || !relayUrl.trim() || !username.trim() || !password} style={[s.primary, (busy || !relayUrl.trim() || !username.trim() || !password) && s.disabled]}>{busy ? <ActivityIndicator color={c.onAccent} /> : <Text style={s.primaryText}>登录</Text>}</Pressable>
   </View></SafeAreaView>;
 }
 
 function AppContent() {
+  const { c, s, theme } = useTheme();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const wide = ['web', 'windows', 'macos'].includes(Platform.OS) && width >= 900;
@@ -362,7 +365,7 @@ function AppContent() {
   if (view.phase === 'locked') return <Login connect={connect} busy={loginBusy} error={view.notice} />;
   const stopMode = thread?.status === 'active' && !draft.trim() && !images.length && !files.length;
   const settings = thread?.settings ?? summary?.settings;
-  return <View style={s.safe}><StatusBar style="dark" />
+  return <View style={s.safe}><StatusBar style={theme.dark ? "light" : "dark"} />
     <FileViewerProvider deviceId={deviceId} threadId={threadId}><PreviewContext.Provider value={{deviceId, threadId}}><ConversationDrawer wide={wide} open={drawerOpen} onOpenChange={setDrawerOpen} directory={directory}>
     <SafeAreaView style={s.page} edges={['top', 'left', 'right', 'bottom']}>
     <KeyboardAvoidingView style={s.page} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -418,7 +421,7 @@ function AppContent() {
         <ComposerInput accessibilityLabel="给 Codex 发送消息" style={s.composerInput} value={draft} onChangeText={setDraft} multiline maxLength={32000} editable={!!ready && !busy} placeholder="给 Codex 发送消息" placeholderTextColor={c.muted} textAlignVertical="top" onImages={addImages} imagesEnabled={ready && !busy && !!snapshot?.runtime.capabilities.images && images.length < MAX_IMAGES} onImageError={message => relay.showNotice(message)} onSubmitEditing={Platform.OS === 'windows' ? () => submit() : undefined} onKeyPress={event => { const key = event.nativeEvent as { key: string; shiftKey?: boolean; isComposing?: boolean; keyCode?: number }; if (Platform.OS === 'web' && key.key === 'Enter' && !key.shiftKey && !key.isComposing && key.keyCode !== 229) { event.preventDefault(); submit(); } }} />
         <View style={s.toolbar}><AttachmentMenu key={`attachments:${deviceId}:${threadId}`} enabled={ready && !busy} imagesEnabled={ready && !busy && !!snapshot?.runtime.capabilities.images && images.length < MAX_IMAGES} filesSupported={!!snapshot?.runtime.capabilities.attachments} filesEnabled={ready && !busy && !!snapshot?.runtime.capabilities.attachments && files.length < MAX_ATTACHMENTS} onImages={() => void pickImages()} onCamera={() => void pickCamera()} onFiles={() => void pickFiles()} />{!!snapshot?.runtime.capabilities.collaborationModeUpdate && <Pressable accessibilityRole="button" accessibilityLabel={`工作模式：${settings?.collaborationMode === 'plan' ? 'Plan' : '默认'}`} style={[s.pill, s.modePill, settings?.collaborationMode === 'plan' && s.modeActive]} disabled={!ready || busy || thread?.status !== 'idle'} onPress={() => openMenu('mode')}><ListChecks size={15} color={settings?.collaborationMode === 'plan' ? c.accent : c.muted} /><Text style={s.pillText}>{settings?.collaborationMode === 'plan' ? 'Plan' : '默认'}</Text></Pressable>}
           <View style={s.spacer} /><ModelEffortPicker key={`model:${deviceId}:${threadId}`} model={settings?.model} effort={settings?.reasoningEffort} options={catalog?.models ?? []} enabled={ready && thread?.status === 'idle'} busy={busy} onModelChange={changeModel} onEffortChange={changeEffort} />
-          <Pressable accessibilityRole="button" accessibilityLabel={stopMode ? '停止当前任务' : thread?.status === 'active' ? '添加到待发送' : '发送消息'} disabled={!ready || busy || images.some(image => image.loading || !!image.error) || files.some(file => file.loading || !!file.error || !file.id)} onPress={submit} style={[s.send, stopMode && s.stop, (!ready || busy) && s.disabled]}>{busy ? <ActivityIndicator color="#fff" size="small" /> : stopMode ? <Square size={18} color="#fff" fill="#fff" /> : <ArrowUp size={20} color="#fff" />}</Pressable></View>
+          <Pressable accessibilityRole="button" accessibilityLabel={stopMode ? '停止当前任务' : thread?.status === 'active' ? '添加到待发送' : '发送消息'} disabled={!ready || busy || images.some(image => image.loading || !!image.error) || files.some(file => file.loading || !!file.error || !file.id)} onPress={submit} style={[s.send, stopMode && s.stop, (!ready || busy) && s.disabled]}>{busy ? <ActivityIndicator color={c.onSolid} size="small" /> : stopMode ? <Square size={18} color={c.onSolid} fill={c.onSolid} /> : <ArrowUp size={20} color={c.onSolid} />}</Pressable></View>
       </View>
       </View>
       </View>
@@ -443,4 +446,4 @@ function AppContent() {
   </View>;
 }
 
-export default function App() { return <SafeAreaProvider><AppContent /></SafeAreaProvider>; }
+export default function App() { return <ThemeProvider><SafeAreaProvider><AppContent /></SafeAreaProvider></ThemeProvider>; }

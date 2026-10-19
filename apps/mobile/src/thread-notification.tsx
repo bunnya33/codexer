@@ -1,7 +1,8 @@
+import { themedStyles } from './theme';
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Pressable, StyleSheet, Switch, Text, View } from "react-native";
 import { historyKey, relay } from "./relay";
-import { c } from "./styles";
+import { useTheme } from "./styles";
 
 export function useThreadNotification({
   deviceId,
@@ -88,6 +89,8 @@ export function ThreadNotificationToggle({
 }: {
   control: ReturnType<typeof useThreadNotification>;
 }) {
+  const { c } = useTheme();
+  const ns = useNsStyles();
   if (!control.visible) return null;
   return (
     <View style={ns.container}>
@@ -112,7 +115,7 @@ export function ThreadNotificationToggle({
   );
 }
 
-const ns = StyleSheet.create({
+const useNsStyles = themedStyles(c => StyleSheet.create({
   container: { gap: 6, paddingVertical: 14 },
   row: {
     flexDirection: "row",
@@ -121,4 +124,4 @@ const ns = StyleSheet.create({
   },
   description: { fontSize: 12, lineHeight: 18, color: c.muted },
   label: { flex: 1, fontSize: 14, color: c.text },
-});
+}));

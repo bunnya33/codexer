@@ -1,9 +1,10 @@
 import { Pressable, Text, View } from 'react-native';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react-native';
 import type { ImageDirection, ImageGallery } from '../../../packages/client-shared/src/images';
-import { s } from './styles';
+import { useTheme } from './styles';
 
 export function ImageViewerHeader({ name, onClose }: { name?: string; onClose: () => void }) {
+  const { s } = useTheme();
   return <View style={s.viewerHeader}>
     <Text style={s.viewerTitle} numberOfLines={1}>{name}</Text>
     <Pressable accessibilityRole="button" accessibilityLabel="关闭图片" onPress={onClose} style={s.viewerClose}><X size={22} color="#fff" /></Pressable>
@@ -11,6 +12,7 @@ export function ImageViewerHeader({ name, onClose }: { name?: string; onClose: (
 }
 
 export function ImageViewerNavigation({ gallery, onNavigate }: { gallery: ImageGallery; onNavigate: (direction: ImageDirection) => void }) {
+  const { s } = useTheme();
   if (gallery.images.length < 2) return null;
   return <View style={s.viewerNavigation}>
     <Pressable accessibilityRole="button" accessibilityLabel="上一张图片" disabled={gallery.index === 0}

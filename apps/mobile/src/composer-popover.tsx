@@ -1,11 +1,13 @@
+import { themedStyles } from './theme';
 import { useLayoutEffect, useState } from 'react';
 import type { ReactNode, RefObject } from 'react';
-import { Modal, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
-import { c } from './styles';
+import { Modal, Platform, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
+
 
 export function ComposerPopover({ anchor, open, onClose, onDismiss, width = 320, align = 'end', children }: {
   anchor: RefObject<View | null>; open: boolean; onClose: () => void; onDismiss?: () => void; width?: number; align?: 'start' | 'end'; children: ReactNode;
 }) {
+  const styles = useLocalStyles();
   const viewport = useWindowDimensions();
   const [position, setPosition] = useState<{ x: number; y: number; width: number } | null>(null);
   const [panelHeight, setPanelHeight] = useState(0);
@@ -18,7 +20,7 @@ export function ComposerPopover({ anchor, open, onClose, onDismiss, width = 320,
   return <Modal visible={open} transparent animationType="fade" onRequestClose={onClose} onDismiss={onDismiss}>
     <View style={styles.overlay}>
       <Pressable accessibilityRole="button" accessibilityLabel="关闭菜单" style={StyleSheet.absoluteFill} onPress={onClose} />
-      <View accessibilityViewIsModal onLayout={event => setPanelHeight(event.nativeEvent.layout.height)} style={[styles.panel, {
+      <View {...(Platform.OS === 'web' ? { dataSet: { controlGlass: 'true' } } : {})} accessibilityViewIsModal onLayout={event => setPanelHeight(event.nativeEvent.layout.height)} style={[styles.panel, {
         width: panelWidth, maxHeight: Math.max(120, (position?.y ?? viewport.height) - 24), left,
         top: Math.max(12, (position?.y ?? viewport.height) - panelHeight - 8), opacity: position && panelHeight ? 1 : 0,
       }]}>{children}</View>
@@ -26,8 +28,8 @@ export function ComposerPopover({ anchor, open, onClose, onDismiss, width = 320,
   </Modal>;
 }
 
-const styles = StyleSheet.create({
+const useLocalStyles = themedStyles(c => StyleSheet.create({
   overlay: { flex: 1 },
-  panel: { position: 'absolute', backgroundColor: c.surface, borderWidth: 1, borderColor: '#eceeee', borderRadius: 20, padding: 10,
-    shadowColor: '#182127', shadowOffset: { width: 0, height: 7 }, shadowOpacity: 0.12, shadowRadius: 20, elevation: 10, overflow: 'hidden' },
-});
+  panel: { position: 'absolute', backgroundColor: c.glass, borderWidth: 1, borderColor: c.glassBorder, borderRadius: 20, padding: 10,
+    shadowColor: c.shadow, shadowOffset: { width: 0, height: 7 }, shadowOpacity: 0.12, shadowRadius: 20, elevation: 10, overflow: 'hidden' },
+}));

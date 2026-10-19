@@ -1,12 +1,12 @@
-.effort-slider { position: relative; height: 40px; border-radius: 22px; background: linear-gradient(to right, #2d88d4 var(--effort-progress), #e9e9eb var(--effort-progress)); margin: 10px 4px 4px; }
+.effort-slider { position: relative; height: 40px; border-radius: 22px; background: linear-gradient(to right, var(--control-slider, #2d88d4) var(--effort-progress), var(--control-sliderTrack, #e9e9eb) var(--effort-progress)); margin: 10px 4px 4px; }
 .effort-slider-dots { position: absolute; inset: 0 20px; display: flex; align-items: center; justify-content: space-between; pointer-events: none; }
-.effort-slider-dots span { width: 6px; height: 6px; border-radius: 50%; background: #c7c8ca; }
-.effort-slider-dots .selected { background: #75b4e7; }
+.effort-slider-dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--control-sliderDot, #c7c8ca); }
+.effort-slider-dots .selected { background: var(--control-sliderSelectedDot, #75b4e7); }
 .effort-slider input { appearance: none; -webkit-appearance: none; position: absolute; inset: 0; box-sizing: border-box; width: 100%; height: 40px; padding: 0; margin: 0; border: 0; border-radius: 22px; background: transparent; cursor: pointer; }
 .effort-slider input::-webkit-slider-runnable-track { height: 40px; background: transparent; }
 .effort-slider input::-moz-range-track { height: 40px; background: transparent; }
-.effort-slider input::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; width: 40px; height: 40px; border-radius: 50%; border: 1px solid #ecedef; background: #fff; box-shadow: 0 1px 6px #0002; }
-.effort-slider input::-moz-range-thumb { box-sizing: border-box; width: 40px; height: 40px; border-radius: 50%; border: 1px solid #ecedef; background: #fff; box-shadow: 0 1px 6px #0002; }
-.effort-slider input:focus-visible { outline: 2px solid #147bb5; outline-offset: 4px; }
+.effort-slider input::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--control-thumbBorder, #ecedef); background: var(--control-thumb, #fff); box-shadow: 0 1px 6px #0002; }
+.effort-slider input::-moz-range-thumb { box-sizing: border-box; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--control-thumbBorder, #ecedef); background: var(--control-thumb, #fff); box-shadow: 0 1px 6px #0002; }
+.effort-slider input:focus-visible { outline: 2px solid var(--control-accent, #147bb5); outline-offset: 4px; }
 .effort-slider:has(input:disabled) { opacity: .5; }
 .effort-slider input:disabled { cursor: default; }

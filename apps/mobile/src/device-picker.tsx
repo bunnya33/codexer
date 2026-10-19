@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { FlatList, Modal, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { Check, ChevronDown, Monitor, Search, X } from 'lucide-react-native';
 import type { RelayView } from './relay';
-import { c, s } from './styles';
+import { useTheme } from './styles';
 
 export function DevicePicker({ devices, deviceId, selectDevice }: { devices: RelayView['devices']; deviceId: string; selectDevice: (id: string) => void }) {
+  const { c, s } = useTheme();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const { width, height } = useWindowDimensions();

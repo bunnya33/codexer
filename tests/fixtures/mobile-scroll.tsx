@@ -5,7 +5,7 @@ import { ConversationDrawer } from '../../apps/mobile/src/conversation-drawer';
 import { ConversationViewport } from '../../apps/mobile/src/conversation-viewport';
 import { Directory } from '../../apps/mobile/src/directory';
 import { DrawerSwipeArea } from '../../apps/mobile/src/drawer-swipe-area';
-import { s } from '../../apps/mobile/src/styles';
+import { useTheme } from '../../apps/mobile/src/styles';
 import type { DirectoryRow } from '../../packages/client-shared/src/directory';
 import type { RelayView } from '../../apps/mobile/src/relay';
 import { ConversationScroll } from '../../packages/client-shared/src/conversation-scroll';
@@ -17,6 +17,7 @@ const rows: DirectoryRow[] = [{ type: 'project', id: 'work', name: '滚动验证
 const view = { phase: 'connected', devices: [], catalogs: {} } as unknown as RelayView;
 
 function Fixture() {
+  const { s } = useTheme();
   const [open, setOpen] = useState(true);
   const [selected, setSelected] = useState('thread-0');
   const [intents, setIntents] = useState(0);
