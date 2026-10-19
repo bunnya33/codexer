@@ -183,6 +183,9 @@ async function pagingFixture(paging: NonNullable<FixtureOptions['paging']>) {
     clientHeight: { configurable: true, value: 500 },
   });
   const scroll = async (offset: number) => {
+    // A physical scroll carries input intent. Layout-only notifications must
+    // no longer masquerade as an unmarked scrollbar drag.
+    stream.dispatchEvent(new test.dom.window.KeyboardEvent('keydown', { bubbles: true, key: offset <= stream.scrollTop ? 'ArrowUp' : 'ArrowDown' }));
     stream.scrollTop = offset;
     stream.dispatchEvent(new test.dom.window.Event('scroll', { bubbles: true }));
     // React Native Web publishes its final position after a 100ms scroll debounce.
@@ -191,6 +194,37 @@ async function pagingFixture(paging: NonNullable<FixtureOptions['paging']>) {
   const wheel = (deltaY: number) => stream.dispatchEvent(new test.dom.window.WheelEvent('wheel', { bubbles: true, deltaY }));
   return { ...test, stream, scroll, wheel };
 }
+
+it('keeps the real conversation list at the true end after tall content and delayed resize scrolls', async () => {
+  const test = await pagingFixture({ exhausted: true });
+  try {
+    let height = 2000;
+    Object.defineProperty(test.stream, 'scrollHeight', { configurable: true, get: () => height });
+    const scrollToEnd = vi.fn(({ top }: { top: number }) => { test.stream.scrollTop = Math.max(0, Math.min(top, height - 500)); });
+    Object.defineProperty(test.stream, 'scroll', { configurable: true, value: scrollToEnd });
+    await test.scroll(1500);
+    scrollToEnd.mockClear();
+    // A layout-only callback reports an older, smaller offset while a card
+    // much taller than the viewport has already been inserted.
+    height = 8000;
+    test.stream.scrollTop = 1300;
+    test.stream.dispatchEvent(new test.dom.window.Event('scroll'));
+    await vi.waitFor(() => expect(test.stream.scrollTop).toBe(7500));
+    expect(scrollToEnd).toHaveBeenCalledWith(expect.objectContaining({ top: 8000 }));
+    height = 20000;
+    test.stream.scrollTop = 1200;
+    test.stream.dispatchEvent(new test.dom.window.Event('scroll'));
+    await vi.waitFor(() => expect(test.stream.scrollTop).toBe(19500));
+    // Explicit upward input must win even over a delayed end-position event.
+    test.wheel(-80);
+    scrollToEnd.mockClear();
+    test.stream.scrollTop = 19499;
+    test.stream.dispatchEvent(new test.dom.window.Event('scroll'));
+    await new Promise(resolve => test.dom.window.setTimeout(resolve, 150));
+    expect(scrollToEnd).not.toHaveBeenCalled();
+    expect(test.stream.scrollTop).toBe(19499);
+  } finally { test.close(); }
+});
 
 it('automatically loads earlier history on upward scrolling near the top and deduplicates while loading', async () => {
   const test = await pagingFixture({ delay: true });

@@ -58,6 +58,7 @@ it('keeps intentional small upward movement paused and does not mistake scrollba
   expect(scroll.shouldFollow).toBe(false);
   scroll.requestBottom();
   scroll.readScroll(metrics(1502, 2002));
+  scroll.beginInteraction('up');
   scroll.readScroll(metrics(1487, 2002));
   expect(scroll.shouldFollow).toBe(false);
 });
@@ -102,11 +103,13 @@ it('pauses even when the first upward scroll is within eight pixels of the botto
   expect(scroll.shouldFollow).toBe(false);
 });
 
-it('detects upward scrollbar movement without an intent event and resumes only at the end', () => {
+it('pauses on scrollbar input and resumes only when the user scrolls back to the end', () => {
   const scroll = new ConversationScroll();
   scroll.readScroll(metrics(1500));
+  scroll.beginInteraction('up');
   expect(scroll.readScroll(metrics(900))).toBe(true);
   expect(scroll.shouldFollow).toBe(false);
+  scroll.beginInteraction('down');
   expect(scroll.readScroll(metrics(1430))).toBe(false);
   expect(scroll.shouldFollow).toBe(false);
   expect(scroll.readScroll(metrics(1500))).toBe(false);
@@ -175,15 +178,48 @@ it('honors an upward gesture during a multiline send resize and subsequent strea
   expect(scroll.shouldFollow).toBe(false);
 });
 
-it('still detects an unmarked scrollbar drag after a resize has settled', () => {
+it('still honors scrollbar input after a resize has settled', () => {
   const scroll = new ConversationScroll();
   scroll.readScroll(metrics(1500));
   scroll.layout(548);
   scroll.contentSize(2120);
   scroll.readScroll(metrics(1452, 2120, 548));
   scroll.readScroll(metrics(1572, 2120, 548));
+  scroll.beginInteraction('up');
   scroll.readScroll(metrics(1557, 2120, 548));
   expect(scroll.shouldFollow).toBe(false);
+});
+
+it('preserves pre-insertion following through a very tall card and out-of-order resize callbacks', () => {
+  const scroll = new ConversationScroll();
+  scroll.readScroll(metrics(535, 938, 403));
+  // An 80-line card is measured and followed before clearing the composer.
+  scroll.contentSize(3115);
+  scroll.readScroll(metrics(2712, 3115, 403));
+  scroll.layout(541);
+  scroll.contentSize(3318);
+  scroll.readScroll(metrics(2777, 3318, 541));
+  // A stale clamped offset arrives after the newer scroll-to-end callback.
+  scroll.readScroll(metrics(2574, 3318, 541));
+  expect(scroll.shouldFollow).toBe(true);
+  scroll.contentSize(8318);
+  expect(scroll.shouldFollow).toBe(true);
+  scroll.readScroll(metrics(7777, 8318, 541));
+  expect(scroll.jumpVisible).toBe(false);
+});
+
+it('does not resume an explicit upward gesture from a delayed bottom callback', () => {
+  const scroll = new ConversationScroll();
+  scroll.readScroll(metrics(1500));
+  scroll.contentSize(8000);
+  scroll.beginInteraction('up');
+  scroll.readScroll(metrics(7500, 8000));
+  expect(scroll.shouldFollow).toBe(false);
+  scroll.contentSize(14000);
+  expect(scroll.shouldFollow).toBe(false);
+  scroll.beginInteraction('down');
+  scroll.readScroll(metrics(13499, 14000));
+  expect(scroll.shouldFollow).toBe(true);
 });
 
 it('preserves the reader during history prepending and resets for a different conversation', () => {
