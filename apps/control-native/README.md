@@ -4,7 +4,7 @@ RelayDesk 控制端和 Codexer PC Agent 管理界面共用 React Native for Wind
 
 ## 安装与使用
 
-控制端运行 `RelayDesk-Native-Setup-0.2.2-x64.exe`；PC Agent 可继续使用 `Codexer-Native-Setup-0.2.0-x64.exe`。0.2.2 在设置中新增默认、暖白纸张和暖棕暗色皮肤，选择立即生效并保存在本机，代码、文件差异和窗口标题栏一同换色；包含 0.2.1 的多行消息发送后底部跟随修复。支持 Windows 10 1809 及以上 x64；打包附带 Windows App Runtime 和 Node，无需安装开发工具。HTML/音频内容预览使用系统 Microsoft Edge WebView2 Runtime，主界面不依赖 WebView2。
+控制端运行 `RelayDesk-Native-Setup-0.2.3-x64.exe`；PC Agent 可继续使用 `Codexer-Native-Setup-0.2.0-x64.exe`。0.2.3 修复很长的多行消息插入时丢失底部跟随的问题：插入前处于底部就持续跟随，只有明确向上滚动才暂停。保留默认、暖白纸张和暖棕暗色皮肤，代码、文件差异和窗口标题栏一同换色。支持 Windows 10 1809 及以上 x64；打包附带 Windows App Runtime 和 Node，无需安装开发工具。HTML/音频内容预览使用系统 Microsoft Edge WebView2 Runtime，主界面不依赖 WebView2。
 
 升级前请从旧版托盘退出对应客户端，避免同一设备运行两套 Agent。安装程序支持选择目录；卸载默认保留账号配置。RelayDesk 与 Agent 分别使用 `%APPDATA%\CodexerControl`、`%APPDATA%\Codexer`，兼容旧版地址、设备身份、设置及可解密的登录凭据；原生凭据由 Windows DPAPI 加密。服务端已经撤销或过期的会话仍需重新登录。
 
