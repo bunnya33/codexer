@@ -30,6 +30,13 @@ thread.turns=[{id:'turn-5',status:'completed',items:[{id:'agent-5',type:'agentMe
 snapshotSchema.parse(state);
 const catalog=catalogSchema.parse({protocolVersion:1,deviceId:state.deviceId,generatedAt:Date.now(),projects:[{id:'native-project',name:'原生验收项目',roots:['C:/Synthetic'],position:0,updatedAt:1}],threads:[{id:thread.id,title:thread.title,cwd:'C:/Synthetic',projectId:'native-project',updatedAt:1,archived:false,settings:thread.settings}],models:[{model:'fixture-model',displayName:'Fixture Model',supportedReasoningEfforts:['low','medium','high'],defaultReasoningEffort:'medium'}]});
 const history=historyPageSchema.parse({threadId:thread.id,turns:Array.from({length:5},(_,index)=>({id:'turn-'+(5-index),status:'completed',items:[{id:'item-'+index,type:'agentMessage',text:('原生历史消息 '+(5-index)+'\n\n').repeat(20),truncated:false}],truncated:false})),nextCursor:'older-page',generatedAt:Date.now()});
+if (process.argv.includes('--themes')) {
+  thread.turns = [{id:'turn-5',status:'completed',truncated:false,plan:[],diff:'',items:[
+    {id:'theme-user',type:'userMessage',text:'请将控制端皮肤统一到代码和文件差异。',truncated:false},
+    {id:'theme-answer',type:'agentMessage',phase:'final_answer',text:'# 控制端皮肤验收\n\n三套皮肤即时切换，保留当前会话和草稿。\n\n```typescript\n// 偏好保存在当前设备\nconst skin = "paper";\nconst count = 3;\n```\n\n> 代码与文件差异统一配色。',truncated:false},
+  ],fileChanges:[{path:'theme.ts',additions:1,deletions:1,diff:'--- a/theme.ts\n+++ b/theme.ts\n@@ -1 +1 @@\n-const skin = "default";\n+const skin = "paper";',truncated:false}]}];
+  history.turns = thread.turns; history.nextCursor = null;
+}
 const olderHistory=historyPageSchema.parse({threadId:thread.id,turns:Array.from({length:3},(_,index)=>({id:'older-'+index,status:'completed',items:[{id:'older-item-'+index,type:'agentMessage',text:('自动加载的更早消息 '+(3-index)+'\n\n').repeat(10),truncated:false}],truncated:false})),nextCursor:null,generatedAt:Date.now()});
 const commands:{type:string;lines?:number}[]=[];
 let sent=0;
@@ -55,7 +62,7 @@ const server=createServer(async(request,response)=>{
     response.writeHead(200,{'content-type':'application/json'});
     response.end(JSON.stringify({type:'command.result',result:{commandId:command.commandId,deviceId:state.deviceId,status:'succeeded',code:'ok'}}));return;
   }
-  const value=path==='/v1/me'?{role:'user',userId:'native-fixture-user'}
+  const value=path==='/health'?{version:'0.3.15'}:path==='/v1/me'?{role:'user',userId:'native-fixture-user'}
     :path==='/v1/auth/active'?{expiresAt:Date.now()+604800000,idleTimeoutMinutes:10080}
     :path==='/v1/devices'?{devices:[{id:state.deviceId,name:'Native Test PC',platform:'win32',online:true}]}
     :path.endsWith('/catalog')?{catalog}
@@ -126,7 +133,7 @@ try{
       await waitFor(async()=>{
         assert.equal(child.exitCode,null,'Native host exited during live sync');
         const renderer=JSON.parse(await readFile(join(profile,'native-renderer-state.json'),'utf8').catch(()=>'{}'));
-        return subscribed&&paths.some(path=>path.endsWith('/turns'))&&renderer.snapshots?.[0]?.seq===2&&renderer.histories?.[0]?.count===5&&!renderer.histories[0].loading;
+        return subscribed&&paths.some(path=>path.endsWith('/turns'))&&renderer.snapshots?.[0]?.seq===2&&renderer.histories?.[0]?.count===history.turns.length&&!renderer.histories[0].loading;
       },30000);
       const encrypted=await readFile(join(profile,'control-session.native.enc'));
       assert.ok(!encrypted.includes(Buffer.from('synthetic-native-control-session')));

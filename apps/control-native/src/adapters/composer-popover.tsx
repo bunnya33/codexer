@@ -1,12 +1,13 @@
 import { useLayoutEffect, useState } from 'react';
 import type { ReactNode, RefObject } from 'react';
 import { Modal, Pressable, StyleSheet, View } from 'react-native';
-import { c } from '../../../mobile/src/styles';
+import { themedStyles } from '../../../mobile/src/theme';
 import { useModalDimensions } from './modal';
 
 export function ComposerPopover({ anchor, open, onClose, onDismiss, width = 320, align = 'end', children }: {
   anchor: RefObject<View | null>; open: boolean; onClose: () => void; onDismiss?: () => void; width?: number; align?: 'start' | 'end'; children: ReactNode;
 }) {
+  const styles = useLocalStyles();
   const viewport = useModalDimensions();
   const [position, setPosition] = useState<{ x: number; y: number; width: number } | null>(null);
   const [panelHeight, setPanelHeight] = useState(0);
@@ -27,8 +28,8 @@ export function ComposerPopover({ anchor, open, onClose, onDismiss, width = 320,
   </Modal>;
 }
 
-const styles = StyleSheet.create({
+const useLocalStyles = themedStyles(c => StyleSheet.create({
   overlay: { flex: 1 },
-  panel: { position: 'absolute', backgroundColor: c.surface, borderWidth: 1, borderColor: '#eceeee', borderRadius: 20, padding: 10,
-    shadowColor: '#182127', shadowOffset: { width: 0, height: 7 }, shadowOpacity: 0.12, shadowRadius: 20, elevation: 10, overflow: 'hidden' },
-});
+  panel: { position: 'absolute', backgroundColor: c.surface, borderWidth: 1, borderColor: c.glassBorder, borderRadius: 20, padding: 10,
+    shadowColor: c.shadow, shadowOffset: { width: 0, height: 7 }, shadowOpacity: 0.12, shadowRadius: 20, elevation: 10, overflow: 'hidden' },
+}));

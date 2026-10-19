@@ -12,7 +12,7 @@ import {readLegacyControl} from './legacy-control';
 
 const mode = process.env.CODEXER_NATIVE_MODE === 'agent' ? 'agent' : 'control';
 const directory = process.env.CODEXER_NATIVE_DATA_DIR || join(process.env.APPDATA || homedir(), mode === 'agent' ? 'Codexer' : 'CodexerControl');
-const version = '0.2.1';
+const version = '0.2.2';
 const send = (value: unknown) => process.stdout.write(JSON.stringify(value) + '\n');
 const pending = new Map<number, {resolve: (value: any) => void; reject: (error: Error) => void}>();
 let sequence = 0;
@@ -148,6 +148,11 @@ async function dispatch(method: string, value: any) {
       try {const bytes = Buffer.alloc(value.length); const result = await file.read(bytes, 0, value.length, value.position); return bytes.subarray(0,result.bytesRead).toString('base64');} finally {await file.close();}
     }
     case 'image.convert': if (!selected.has(value.path)) throw new Error('invalid-image'); return native('image.convert', value);
+    case 'window.theme': {
+      const { controlTheme } = await import('../../../packages/client-shared/src/themes.js');
+      const theme = controlTheme(value.id);
+      return native(method, { dark: theme.dark, background: parseInt(theme.colors.bg.slice(1), 16), text: parseInt(theme.colors.text.slice(1), 16) });
+    }
     case 'clipboard.write': return native('clipboard.write', value);
     case 'randomId': return randomUUID();
     case 'preview.open': if (typeof value.html !== 'string' || value.html.length > 3 * 1024 * 1024) throw new Error('invalid-preview'); return native(method,value);

@@ -17,7 +17,7 @@ const rnwPath = fs.realpathSync(
  */
 
 const root = path.resolve(__dirname, '../..');
-const adapters = new Set(['runtime','attachment-picker','file-download','preview-storage','selection-storage','image-viewer','effort-slider','preview-range','preview-surface','audio-player','build-info','conversation-viewport','control-settings','composer-popover']);
+const adapters = new Set(['runtime','attachment-picker','file-download','preview-storage','selection-storage','theme-storage','theme-platform','image-viewer','effort-slider','preview-range','preview-surface','audio-player','build-info','conversation-viewport','control-settings','composer-popover']);
 const modules = {'react-native-safe-area-context':'safe-area.tsx','expo-status-bar':'status-bar.tsx','expo-image-picker':'image-picker.ts','expo-image-manipulator':'image-manipulator.ts','react-native-gesture-handler':'gesture-root.tsx'};
 const config = {
   watchFolders:[path.join(root,'apps/mobile'),path.join(root,'packages')],

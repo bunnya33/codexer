@@ -4,6 +4,8 @@
 #include <winrt/Windows.Security.Cryptography.h>
 #include <winrt/Windows.Storage.Streams.h>
 #include <shellapi.h>
+#include <dwmapi.h>
+#pragma comment(lib, "dwmapi.lib")
 #include <shobjidl.h>
 #include <commctrl.h>
 #include <wincrypt.h>
@@ -250,6 +252,33 @@ class Host {
 inline Host* host{};
 
 inline void Host::platform(std::wstring const& method, JsonObject const& value, Reply done) {
+  if (method==L"window.theme") {
+    BOOL dark = value.GetNamedBoolean(L"dark", false);
+    auto color = [&](wchar_t const* key) { auto rgb = static_cast<unsigned int>(value.GetNamedNumber(key)); return RGB((rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255); };
+    COLORREF background = color(L"background"), foreground = color(L"text");
+    struct Palette { HWND owner; BOOL dark; COLORREF background, foreground; } palette{hwnd, dark, background, foreground};
+    // Include RNW-owned modal windows. Their custom AppWindow title bars need
+    // the Windowing API in addition to DWM's system title bar attributes.
+    EnumWindows([](HWND target, LPARAM data)->BOOL {
+      auto& palette = *reinterpret_cast<Palette*>(data);
+      DWORD process{}; GetWindowThreadProcessId(target, &process);
+      if (process != GetCurrentProcessId() || GetAncestor(target, GA_ROOTOWNER) != palette.owner) return TRUE;
+      DwmSetWindowAttribute(target, 20, &palette.dark, sizeof(palette.dark));
+      DwmSetWindowAttribute(target, 35, &palette.background, sizeof(palette.background));
+      DwmSetWindowAttribute(target, 36, &palette.foreground, sizeof(palette.foreground));
+      try {
+        auto bar = winrt::Microsoft::UI::Windowing::AppWindow::GetFromWindowId(winrt::Microsoft::UI::GetWindowIdFromWindow(target)).TitleBar();
+        auto color = [](COLORREF value) { return winrt::Windows::UI::Color{255, GetRValue(value), GetGValue(value), GetBValue(value)}; };
+        auto background = color(palette.background), foreground = color(palette.foreground);
+        bar.BackgroundColor(background); bar.ForegroundColor(foreground);
+        bar.InactiveBackgroundColor(background); bar.InactiveForegroundColor(foreground);
+        bar.ButtonBackgroundColor(background); bar.ButtonForegroundColor(foreground);
+        bar.ButtonInactiveBackgroundColor(background); bar.ButtonInactiveForegroundColor(foreground);
+      } catch (...) { /* Older Windows versions may only support DWM colors. */ }
+      return TRUE;
+    }, reinterpret_cast<LPARAM>(&palette));
+    done(boolean(true), {}); return;
+  }
   if (method==L"protect" || method==L"unprotect") { done(crypt(value,method==L"protect"),{}); return; }
   if (method==L"image.convert") { done(convertImage(value),{}); return; }
   if (method==L"pick" || method==L"saveDialog") {
@@ -331,7 +360,7 @@ struct RelayDesktop {
   void Initialize(winrt::Microsoft::ReactNative::ReactContext const& context) noexcept {desktop::host->context=context;}
   REACT_SYNC_METHOD(boot)
   std::string boot() noexcept {
-    desktop::JsonObject value; value.Insert(L"mode",desktop::str(desktop::host->mode)); value.Insert(L"version",desktop::str(L"0.2.1")); value.Insert(L"closeExits",desktop::boolean(desktop::host->closeExits)); value.Insert(L"serverUrl",desktop::str(L"")); return winrt::to_string(value.Stringify());
+    desktop::JsonObject value; value.Insert(L"mode",desktop::str(desktop::host->mode)); value.Insert(L"version",desktop::str(L"0.2.2")); value.Insert(L"closeExits",desktop::boolean(desktop::host->closeExits)); value.Insert(L"serverUrl",desktop::str(L"")); return winrt::to_string(value.Stringify());
   }
   REACT_METHOD(request)
   void request(std::string method,std::string payload,winrt::Microsoft::ReactNative::ReactPromise<std::string> promise) noexcept {
