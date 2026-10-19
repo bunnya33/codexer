@@ -13,6 +13,7 @@ if(Number(process.versions.node.split('.')[0])<24)throw new Error('Node 24+ is r
 async function run(file,args,cwd=root){await new Promise((done,fail)=>{const child=spawn(file,args,{cwd,stdio:'inherit',windowsHide:true});child.once('error',fail);child.once('exit',code=>code===0?done():fail(new Error(`${file} exited ${code}`)));});}
 if(!flags.has('--skip-build')){
   await run(process.execPath,[join(app,'check-types.cjs')],app);
+  await run(process.execPath,[join(app,'node_modules/@react-native-community/cli/build/bin.js'),'autolink-windows','--sln','windows/RelayDesk.sln','--proj','windows/RelayDesk/RelayDesk.vcxproj'],app);
   let msbuild=process.env.CODEXER_MSBUILD;
   if(!msbuild){
     const vswhere=join(process.env['ProgramFiles(x86)']||'C:/Program Files (x86)','Microsoft Visual Studio/Installer/vswhere.exe');

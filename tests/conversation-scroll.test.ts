@@ -136,6 +136,56 @@ it('continues automatic following during output growth and ignores shrink clampi
   expect(scroll.shouldFollow).toBe(true);
 });
 
+it('keeps following when clearing a multiline draft clamps the offset before the new message is measured', () => {
+  const scroll = new ConversationScroll();
+  scroll.readScroll(metrics(1500));
+  // Clearing three input lines grows the viewport. The native offset is clamped
+  // to 1452, but its scroll callback arrives after the new message adds 120px.
+  scroll.layout(548);
+  scroll.contentSize(2120);
+  scroll.readScroll(metrics(1500, 2120, 548));
+  scroll.readScroll(metrics(1497, 2120, 548));
+  scroll.beginInteraction('down');
+  scroll.readScroll(metrics(1451.5, 2120, 548));
+  expect(scroll.shouldFollow).toBe(true);
+  scroll.readScroll(metrics(1572, 2120, 548));
+  expect(scroll.shouldFollow).toBe(true);
+  scroll.contentSize(2300);
+  expect(scroll.shouldFollow).toBe(true);
+});
+
+it('keeps following across a temporary content shrink before appended output is measured', () => {
+  const scroll = new ConversationScroll();
+  scroll.readScroll(metrics(1500));
+  scroll.contentSize(1900);
+  scroll.contentSize(2120);
+  scroll.readScroll(metrics(1400, 2120));
+  expect(scroll.shouldFollow).toBe(true);
+});
+
+it('honors an upward gesture during a multiline send resize and subsequent streaming', () => {
+  const scroll = new ConversationScroll();
+  scroll.readScroll(metrics(1500));
+  scroll.layout(548);
+  scroll.contentSize(2120);
+  scroll.beginInteraction('up');
+  scroll.readScroll(metrics(1449, 2120, 548));
+  expect(scroll.shouldFollow).toBe(false);
+  scroll.contentSize(2300);
+  expect(scroll.shouldFollow).toBe(false);
+});
+
+it('still detects an unmarked scrollbar drag after a resize has settled', () => {
+  const scroll = new ConversationScroll();
+  scroll.readScroll(metrics(1500));
+  scroll.layout(548);
+  scroll.contentSize(2120);
+  scroll.readScroll(metrics(1452, 2120, 548));
+  scroll.readScroll(metrics(1572, 2120, 548));
+  scroll.readScroll(metrics(1557, 2120, 548));
+  expect(scroll.shouldFollow).toBe(false);
+});
+
 it('preserves the reader during history prepending and resets for a different conversation', () => {
   const scroll = new ConversationScroll();
   scroll.readScroll(metrics(700));

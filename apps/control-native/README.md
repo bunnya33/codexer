@@ -4,7 +4,7 @@ RelayDesk 控制端和 Codexer PC Agent 管理界面共用 React Native for Wind
 
 ## 安装与使用
 
-分别运行 `RelayDesk-Native-Setup-0.2.0-x64.exe` 和 `Codexer-Native-Setup-0.2.0-x64.exe`。支持 Windows 10 1809 及以上 x64；打包附带 Windows App Runtime 和 Node，无需安装开发工具。HTML/音频内容预览使用系统 Microsoft Edge WebView2 Runtime，主界面不依赖 WebView2。
+控制端运行 `RelayDesk-Native-Setup-0.2.1-x64.exe`；PC Agent 可继续使用 `Codexer-Native-Setup-0.2.0-x64.exe`。0.2.1 修复多行消息发送后输入框收缩与新消息高度回调交错导致的自动滚动中断。支持 Windows 10 1809 及以上 x64；打包附带 Windows App Runtime 和 Node，无需安装开发工具。HTML/音频内容预览使用系统 Microsoft Edge WebView2 Runtime，主界面不依赖 WebView2。
 
 升级前请从旧版托盘退出对应客户端，避免同一设备运行两套 Agent。安装程序支持选择目录；卸载默认保留账号配置。RelayDesk 与 Agent 分别使用 `%APPDATA%\CodexerControl`、`%APPDATA%\Codexer`，兼容旧版地址、设备身份、设置及可解密的登录凭据；原生凭据由 Windows DPAPI 加密。服务端已经撤销或过期的会话仍需重新登录。
 
@@ -22,7 +22,7 @@ npm ci --prefix apps/control-native
 node scripts/build-native-windows.mjs
 ```
 
-输出在 `apps/control-native/release`；`stage/RelayDesk-0.2.0` 和 `stage/Codexer-0.2.0` 是完整可运行目录。`--stage-only` 只生成运行目录，`--skip-build` 复用已有 Release。独立的 native 项目不进入根 workspace，以隔离移动端 RN 版本。
+输出在 `apps/control-native/release`；`stage/<产品名>-<版本号>` 是完整可运行目录。`--control` 只构建控制端，`--agent` 只构建 Agent，`--stage-only` 只生成运行目录，`--skip-build` 复用已有 Release。独立的 native 项目不进入根 workspace，以隔离移动端 RN 版本。
 
 安装 EXE 使用 NSIS，electron-builder 仅负责压缩安装文件；运行目录没有 Electron/Chromium 应用运行时。不要单独复制小型宿主 EXE，必须保留同目录的运行库、Bundle、runtime 和 service。
 
@@ -37,5 +37,7 @@ npx tsx scripts/accept-native-windows.ts
 验收使用 `CODEXER_NATIVE_DATA_DIR` 指定独立测试目录；此模式不会写入 Windows 开机启动项。`CODEXER_NATIVE_MODE=control|agent` 可覆盖 EXE 名称识别。实际安装请保持 EXE 名称为 `RelayDesk.exe` / `Codexer.exe`。
 
 隔离验收脚本会把完整运行目录复制到系统临时目录，使用本机模拟服务器与合成账号验证两套原生宿主启动、真实 DPAPI 凭据迁移、历史读取及 WebSocket。验收记录和当前限制见 [验收记录](VALIDATION.md)。
+
+`npx tsx scripts/accept-native-windows.ts --control --keep` 仅打开隔离控制端并保留窗口，支持发送合成消息和分段回复，便于检查多行发送后的底部跟随。测试消息只发送到本机模拟服务。
 
 本项目当前交付 Windows；macOS、iOS 和 Android 使用各自的宿主与发布流程，本次没有生成它们的安装包。
