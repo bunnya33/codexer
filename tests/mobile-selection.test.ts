@@ -34,6 +34,7 @@ type FixtureOptions = {
   delayDevices?: boolean; delayCatalog?: string; blockedStorage?: boolean;
   filePicker?: () => Promise<{ name: string; size: number; mimeType: string; readChunk: (offset: number, length: number) => Promise<string> }[]>;
   controls?: { active: boolean; text: string; images: string[]; failEffort?: boolean };
+  paging?: { delay?: boolean; fail?: boolean; exhausted?: boolean };
 };
 type TestRelay = {
   getSnapshot(): { userId: string | null; devicesReady: boolean; phase: string; syncing: Record<string, boolean> };
@@ -46,8 +47,9 @@ async function fixture(options: FixtureOptions = {}) {
   const settings: ModelSettings = { model: 'gpt-6.1-sol', modelProvider: 'fixture', reasoningEffort: 'xhigh', collaborationMode: 'default' };
   if (controls) for (const item of Object.values(current.catalogs)) item.models = ['gpt-6.1-sol', 'gpt-6-astra'].map((model, index) => ({ model, displayName: index ? '6 Astra' : '6.1 Sol', supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'], defaultReasoningEffort: 'high' }));
   const sockets: { onmessage?: (event: { data: string }) => void }[] = [];
-  const deviceGate = gate(), catalogGate = gate();
+  const deviceGate = gate(), catalogGate = gate(), historyGate = gate();
   const uploadRequests: string[] = []; let uploadedFile: { name: string; size: number; mimeType: string };
+  const earlierRequests: string[] = [];
   const historyRequests: string[] = [], commands: RemoteCommand[] = [], errors: unknown[] = [];
   const dom = new JSDOM(`<style>${css}</style><div id="root"></div>`, {
     url: origin, runScripts: 'dangerously', pretendToBeVisual: true,
@@ -74,6 +76,16 @@ async function fixture(options: FixtureOptions = {}) {
         if (deviceId && suffix?.endsWith('/turns')) {
           historyRequests.push(path);
           const threadId = suffix.split('/')[1]!;
+          if (options.paging) {
+            const cursor = new URL(input).searchParams.get('cursor');
+            if (cursor) {
+              earlierRequests.push(cursor);
+              if (options.paging.delay) await historyGate.promise;
+              if (options.paging.fail) return new Response('history-unavailable', { status: 503 });
+              return response({ threadId, turns: [{ id: 'older-turn', status: 'completed', truncated: false, items: [{ id: 'older-message', type: 'agentMessage', phase: 'final_answer', text: '自动加载的更早记录', truncated: false }] }], nextCursor: null, generatedAt: 1 });
+            }
+            return response({ threadId, turns: [], nextCursor: options.paging.exhausted ? null : 'earlier-page', generatedAt: 1 });
+          }
           return response({ threadId, turns: [], nextCursor: null, generatedAt: 1 });
         }
         if (deviceId && suffix === 'commands') {
@@ -151,9 +163,81 @@ async function fixture(options: FixtureOptions = {}) {
     });
     await vi.waitFor(() => expect(dom.window.document.querySelector(`[aria-label="${label}"]`)).toBeNull());
   };
-  const close = () => { deviceGate.release(); catalogGate.release(); app().close(); dom.window.close(); };
-  return { dom, current, historyRequests, uploadRequests, commands, errors, app, header, click, closeDialog, close, deviceGate, catalogGate };
+  const close = () => { deviceGate.release(); catalogGate.release(); historyGate.release(); app().close(); dom.window.close(); };
+  return { dom, current, historyRequests, uploadRequests, earlierRequests, commands, errors, app, header, click, closeDialog, close, deviceGate, catalogGate, historyGate };
 }
+
+async function pagingFixture(paging: NonNullable<FixtureOptions['paging']>) {
+  const test = await fixture({ paging });
+  await vi.waitFor(() => expect(test.header()).toContain('recent-pc-a'));
+  await vi.waitFor(() => expect(test.historyRequests.length).toBeGreaterThan(0));
+  await new Promise(resolve => test.dom.window.requestAnimationFrame(() => test.dom.window.requestAnimationFrame(resolve)));
+  const stream = test.dom.window.document.querySelector('[data-testid="conversation-stream"]') as HTMLElement;
+  Object.defineProperties(stream, {
+    scrollHeight: { configurable: true, value: 2000 },
+    offsetHeight: { configurable: true, value: 500 },
+    clientHeight: { configurable: true, value: 500 },
+  });
+  const scroll = async (offset: number) => {
+    stream.scrollTop = offset;
+    stream.dispatchEvent(new test.dom.window.Event('scroll', { bubbles: true }));
+    // React Native Web publishes its final position after a 100ms scroll debounce.
+    await new Promise(resolve => test.dom.window.setTimeout(resolve, 120));
+  };
+  const wheel = (deltaY: number) => stream.dispatchEvent(new test.dom.window.WheelEvent('wheel', { bubbles: true, deltaY }));
+  return { ...test, stream, scroll, wheel };
+}
+
+it('automatically loads earlier history on upward scrolling near the top and deduplicates while loading', async () => {
+  const test = await pagingFixture({ delay: true });
+  try {
+    expect(test.earlierRequests).toEqual([]);
+    await test.scroll(400);
+    test.wheel(-80);
+    await test.scroll(30);
+    await vi.waitFor(() => expect(test.earlierRequests).toEqual(['earlier-page']));
+    test.wheel(-80);
+    await test.scroll(0);
+    test.wheel(-80);
+    expect(test.earlierRequests).toHaveLength(1);
+    test.historyGate.release();
+    await vi.waitFor(() => expect(test.dom.window.document.body.textContent).toContain('自动加载的更早记录'));
+    expect(test.dom.window.document.querySelector('[aria-label="加载更早消息"]')).toBeNull();
+    test.wheel(-80);
+    expect(test.earlierRequests).toHaveLength(1);
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it('loads on an upward gesture while already at the top even if no new scroll event is emitted', async () => {
+  const test = await pagingFixture({});
+  try {
+    await test.scroll(0);
+    test.wheel(80);
+    expect(test.earlierRequests).toEqual([]);
+    test.wheel(-80);
+    await vi.waitFor(() => expect(test.earlierRequests).toEqual(['earlier-page']));
+    await vi.waitFor(() => expect(test.dom.window.document.body.textContent).toContain('自动加载的更早记录'));
+  } finally { test.close(); }
+});
+
+it('allows another upward gesture to retry a failed history request and does not load without a cursor', async () => {
+  const test = await pagingFixture({ fail: true });
+  try {
+    await test.scroll(0);
+    test.wheel(-80);
+    await vi.waitFor(() => expect(test.dom.window.document.body.textContent).toContain('HTTP 503'));
+    test.wheel(-80);
+    await vi.waitFor(() => expect(test.earlierRequests).toEqual(['earlier-page', 'earlier-page']));
+  } finally { test.close(); }
+  const exhausted = await pagingFixture({ exhausted: true });
+  try {
+    await exhausted.scroll(0);
+    exhausted.wheel(-80);
+    await new Promise(resolve => exhausted.dom.window.requestAnimationFrame(resolve));
+    expect(exhausted.earlierRequests).toEqual([]);
+  } finally { exhausted.close(); }
+});
 
 it('remembers a manually selected device and older conversation across a full app reload', async () => {
   const first = await fixture();

@@ -36,7 +36,7 @@ function Fixture() {
         <Pressable accessibilityRole="button" accessibilityLabel="打开会话列表" onPress={() => setOpen(true)} style={s.header}>
           <Text>{selected}</Text>
         </Pressable>
-        <ConversationViewport onScrollIntent={() => { scroll.current!.beginInteraction(); setIntents(value => value + 1); }}>
+        <ConversationViewport onScrollIntent={direction => { scroll.current!.beginInteraction(direction); setIntents(value => value + 1); }}>
           <FlatList testID="conversation-stream" style={s.stream} contentContainerStyle={s.streamContent}
             data={threads} keyExtractor={item => item.id} renderItem={({ item }) => <View style={s.turn}>
               <Text style={s.agentMessage}>{item.title}：消息滚动验证。{ '长消息，向上滑动查看历史。'.repeat(30) }</Text>

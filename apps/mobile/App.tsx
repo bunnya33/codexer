@@ -28,6 +28,7 @@ import { ConversationDrawer } from './src/conversation-drawer';
 import { DrawerSwipeArea } from './src/drawer-swipe-area';
 import { DrawerSwipeBlock } from './src/drawer-swipe-block';
 import { ConversationScroll } from '../../packages/client-shared/src/conversation-scroll';
+import type { ScrollDirection } from '../../packages/client-shared/src/conversation-scroll';
 import { useConversationSelection } from './src/conversation-selection';
 import { WeixinSettings } from './src/weixin-settings';
 import { ModelEffortPicker } from './src/model-effort-picker';
@@ -92,6 +93,8 @@ function AppContent() {
   currentStreamKey.current = streamKey;
   const scrollPosition = useRef(new ConversationScroll());
   const olderAnchor = useRef<{height: number; offset: number} | null>(null);
+  const earlierRequest = useRef<{key: string; cursor: string} | null>(null);
+  const loadEarlierRef = useRef<() => void>(() => {});
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
   const scrollFrame = useRef<number | null>(null);
   const scrollToBottom = useCallback(() => {
@@ -106,10 +109,16 @@ function AppContent() {
       responder?.scrollToEnd({ animated: false });
     });
   }, []);
-  const markScrollIntent = useCallback(() => {
-    scrollPosition.current.beginInteraction();
+  const markScrollIntent = useCallback((direction?: ScrollDirection) => {
+    const followed = scrollPosition.current.shouldFollow;
+    scrollPosition.current.beginInteraction(direction);
+    if (scrollPosition.current.shouldFollow) {
+      if (!followed) scrollToBottom();
+      return;
+    }
     if (scrollFrame.current !== null) { cancelAnimationFrame(scrollFrame.current); scrollFrame.current = null; }
-  }, []);
+    if (direction === 'up' && scrollPosition.current.nearTop) loadEarlierRef.current();
+  }, [scrollToBottom]);
   const nextImageKey = useRef(0);
   useEffect(() => () => { for (const upload of fileUploads.current.values()) upload.abort(); fileUploads.current.clear(); }, []);
   const moveImage = useCallback((direction: ImageDirection) => setPreview(current => {
@@ -142,6 +151,7 @@ function AppContent() {
     fileUploads.current.clear();
     setEditingQueueId(null);
     olderAnchor.current = null;
+    earlierRequest.current = null;
     scrollPosition.current.reset();
     scrollToBottom();
     if (deviceId && threadId) void relay.loadHistory(deviceId, threadId);
@@ -323,10 +333,24 @@ function AppContent() {
     if (thread?.settings?.model && thread.status === 'idle' && snapshot?.runtime.capabilities.collaborationModeUpdate && mode !== thread.settings.collaborationMode) void send({ type: 'thread.mode.update', threadId, mode, expectedMode: thread.settings.collaborationMode ?? null, expectedModel: thread.settings.model, expectedEffort: thread.settings.reasoningEffort });
   };
   const loadEarlier = () => {
+    if (!deviceId || !threadId || !device?.online || view.phase !== 'connected' || !history?.nextCursor || history.loading || earlierRequest.current || olderAnchor.current) return;
+    const request = { key: streamKey, cursor: history.nextCursor };
+    earlierRequest.current = request;
     scrollPosition.current.pause();
-    if (Platform.OS === 'web') olderAnchor.current = {...scrollPosition.current.metrics};
-    void relay.loadHistory(deviceId, threadId, true);
+    if (scrollFrame.current !== null) { cancelAnimationFrame(scrollFrame.current); scrollFrame.current = null; }
+    const anchor = Platform.OS === 'web' ? {...scrollPosition.current.metrics} : null;
+    olderAnchor.current = anchor;
+    const firstTurn = history.turns[0]?.id;
+    void relay.loadHistory(deviceId, threadId, true).finally(() => {
+      if (earlierRequest.current !== request) return;
+      earlierRequest.current = null;
+      const latest = relay.getSnapshot().histories[request.key];
+      if (latest?.error || latest?.turns[0]?.id === firstTurn) {
+        if (olderAnchor.current === anchor) olderAnchor.current = null;
+      }
+    });
   };
+  loadEarlierRef.current = loadEarlier;
 
   const directory = <Directory view={view} deviceId={deviceId} threadId={threadId} rows={rows} search={search} wide={wide} managing={managing} paddingTop={wide ? 0 : insets.top} paddingBottom={wide ? 0 : insets.bottom} setSearch={setSearch}
     selectDevice={id => { setDeviceId(id); setDraft(''); setImages([]); }} selectThread={selectThread}
@@ -353,9 +377,11 @@ function AppContent() {
         onScroll={event => {
           if (currentStreamKey.current !== streamKey) return;
           const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+          const previousOffset = scrollPosition.current.metrics.offset;
           setShowJumpToBottom(scrollPosition.current.readScroll({height: contentSize.height, offset: contentOffset.y, viewport: layoutMeasurement.height}));
+          if (contentOffset.y < previousOffset - 1 && scrollPosition.current.nearTop) loadEarlierRef.current();
         }} scrollEventThrottle={32}
-        onScrollBeginDrag={markScrollIntent}
+        onScrollBeginDrag={Platform.OS === 'web' ? undefined : () => markScrollIntent()}
         onLayout={event => {
           if (currentStreamKey.current !== streamKey) return;
           setShowJumpToBottom(scrollPosition.current.layout(event.nativeEvent.layout.height));

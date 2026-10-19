@@ -3,6 +3,65 @@ import { ConversationScroll } from '../packages/client-shared/src/conversation-s
 
 const metrics = (offset: number, height = 2000, viewport = 500) => ({ offset, height, viewport });
 
+it('resumes within the bottom tolerance after scrolling down and follows later output', () => {
+  const scroll = new ConversationScroll();
+  scroll.readScroll(metrics(1500));
+  scroll.beginInteraction();
+  scroll.readScroll(metrics(1200));
+  expect(scroll.shouldFollow).toBe(false);
+  scroll.readScroll(metrics(1478));
+  expect(scroll.shouldFollow).toBe(true);
+  scroll.contentSize(2600);
+  expect(scroll.shouldFollow).toBe(true);
+});
+
+it('keeps following through a few pixels of passive bottom drift and fractional rounding', () => {
+  const scroll = new ConversationScroll();
+  scroll.readScroll(metrics(1500));
+  scroll.readScroll(metrics(1496.5));
+  expect(scroll.shouldFollow).toBe(true);
+  scroll.contentSize(2600);
+  expect(scroll.shouldFollow).toBe(true);
+  scroll.readScroll(metrics(2096.5, 2600));
+  expect(scroll.shouldFollow).toBe(true);
+});
+
+it('does not pause when scrolling down at the end without a resulting scroll event', () => {
+  const scroll = new ConversationScroll();
+  scroll.readScroll(metrics(1500));
+  scroll.beginInteraction('down');
+  scroll.contentSize(2600);
+  expect(scroll.shouldFollow).toBe(true);
+  scroll.layout(480);
+  expect(scroll.shouldFollow).toBe(true);
+});
+
+it('restores following after a downward gesture cancels an upward gesture that did not move the viewport', () => {
+  const scroll = new ConversationScroll();
+  scroll.readScroll(metrics(1500));
+  scroll.beginInteraction('up');
+  expect(scroll.shouldFollow).toBe(false);
+  scroll.beginInteraction('down');
+  expect(scroll.shouldFollow).toBe(true);
+});
+
+it('keeps intentional small upward movement paused and does not mistake scrollbar drags for rounding', () => {
+  const scroll = new ConversationScroll();
+  scroll.readScroll(metrics(1500));
+  scroll.beginInteraction('up');
+  scroll.readScroll(metrics(1497.5));
+  expect(scroll.shouldFollow).toBe(false);
+  // Browsers send another scroll notification after the gesture settles.
+  scroll.readScroll(metrics(1497.5));
+  expect(scroll.shouldFollow).toBe(false);
+  scroll.contentSize(2002);
+  expect(scroll.shouldFollow).toBe(false);
+  scroll.requestBottom();
+  scroll.readScroll(metrics(1502, 2002));
+  scroll.readScroll(metrics(1487, 2002));
+  expect(scroll.shouldFollow).toBe(false);
+});
+
 it('keeps the jump button visible after a short drag continues as unmarked momentum', () => {
   const scroll = new ConversationScroll();
   scroll.readScroll(metrics(1500));
