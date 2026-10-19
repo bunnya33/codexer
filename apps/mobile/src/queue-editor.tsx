@@ -1,9 +1,10 @@
+import { themedStyles } from './theme';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { X } from 'lucide-react-native';
 import type { QueuedMessageDetails } from '../../../packages/protocol/src/index';
 import { relay } from './relay';
-import { c, s } from './styles';
+import { useTheme } from './styles';
 
 export function queueError(error: unknown) {
   const code = error instanceof Error ? error.message : String(error);
@@ -11,6 +12,8 @@ export function queueError(error: unknown) {
 }
 
 export function QueueEditor({ deviceId, threadId, queueId, onClose }: { deviceId: string; threadId: string; queueId: string; onClose: () => void }) {
+  const { c, s } = useTheme();
+  const styles = useLocalStyles();
   const [original, setOriginal] = useState<QueuedMessageDetails | null>(null);
   const [text, setText] = useState('');
   const [error, setError] = useState('');
@@ -44,7 +47,7 @@ export function QueueEditor({ deviceId, threadId, queueId, onClose }: { deviceId
           {!!original.images.length && <Text style={s.sub}>保留 {original.images.length} 张图片附件</Text>}
           {!!original.attachments?.length && <Text style={s.sub}>保留 {original.attachments.length} 个文件附件</Text>}
           <Pressable accessibilityRole="button" accessibilityLabel="保存消息" disabled={saving || !text.trim() && !original.images.length && !original.attachments?.length} onPress={() => void save()} style={[s.primary, styles.save, (saving || !text.trim() && !original.images.length && !original.attachments?.length) && s.disabled]}>
-            {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryText}>保存消息</Text>}
+            {saving ? <ActivityIndicator color={c.onAccent} /> : <Text style={s.primaryText}>保存消息</Text>}
           </Pressable>
         </>}
         {!!error && <Text accessibilityRole="alert" selectable style={s.error}>{error}</Text>}
@@ -53,9 +56,9 @@ export function QueueEditor({ deviceId, threadId, queueId, onClose }: { deviceId
   </Modal>;
 }
 
-const styles = StyleSheet.create({
+const useLocalStyles = themedStyles(c => StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: '#0003', justifyContent: 'center', alignItems: 'center', padding: 20 },
   card: { width: '100%', maxWidth: 560, maxHeight: '85%', backgroundColor: c.surface, borderRadius: 20, paddingHorizontal: 18, paddingBottom: 18, gap: 8 },
   input: { minHeight: 140, maxHeight: 300, color: c.text, fontSize: 15, lineHeight: 23, padding: 12, borderWidth: 1, borderColor: c.line, borderRadius: 12, textAlignVertical: 'top' },
   save: { marginTop: 6 }, loading: { paddingVertical: 32 },
-});
+}));

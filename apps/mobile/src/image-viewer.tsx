@@ -9,9 +9,10 @@ import { StatusBar } from 'expo-status-bar';
 import { imageSwipe } from '../../../packages/client-shared/src/images';
 import type { ImageDirection, ImageGallery, ImagePreview } from '../../../packages/client-shared/src/images';
 import { ImageViewerHeader, ImageViewerNavigation } from './image-viewer-controls';
-import { s } from './styles';
+import { useTheme } from './styles';
 
 export function ImageViewerImage({ preview, onClose, onNavigate }: { preview: ImagePreview; onClose: () => void; onNavigate?: (direction: ImageDirection) => void }) {
+  const { s } = useTheme();
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [loading, setLoading] = useState(!preview.svgXml);
   const [error, setError] = useState(false);
@@ -39,6 +40,7 @@ export function ImageViewerImage({ preview, onClose, onNavigate }: { preview: Im
 }
 
 export function ImageViewer({ preview, onClose, onNavigate }: { preview: ImageGallery | null; onClose: () => void; onNavigate: (direction: ImageDirection) => void }) {
+  const { s } = useTheme();
   const image = preview?.images[preview.index];
   return <Modal visible={!!preview} transparent animationType="fade" onRequestClose={onClose}>
     <GestureHandlerRootView style={s.viewer}>

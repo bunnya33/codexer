@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, Switch, Text, TextInput, View } from 'react-native';
 import type { WeixinLogin, WeixinStatus } from '../../../packages/protocol/src/weixin';
 import { relay } from './relay';
-import { c, s } from './styles';
+import { useTheme } from './styles';
 import { confirmAction } from './runtime';
 
 const errorLabels: Record<string,string> = {
@@ -24,6 +24,7 @@ const errorLabels: Record<string,string> = {
 function errorText(error:unknown) {const message=error instanceof Error?error.message:String(error);return errorLabels[message]??'操作未完成，请检查连接后重试。';}
 
 export function WeixinSettings() {
+  const { c, s } = useTheme();
   const [status,setStatus]=useState<WeixinStatus|null>(null);
   const [login,setLogin]=useState<WeixinLogin|null>(null);
   const [busy,setBusy]=useState(false);

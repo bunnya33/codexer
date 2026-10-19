@@ -11,7 +11,7 @@ import { Markdown } from './markdown';
 import { RelayImage } from './relay-image';
 import { CodeBlock } from './code-block';
 import { copyText } from './runtime';
-import { c, s } from './styles';
+import { useTheme } from './styles';
 import { ShimmerLabel } from './shimmer';
 import { DrawerSwipeBlock } from './drawer-swipe-block';
 import { FileDiff } from './file-diff';
@@ -21,11 +21,13 @@ type ImageSource = { uri: string; headers?: Record<string, string> };
 type ImageViewer = (source: ImageSource, name: string) => void;
 
 function ExecutionIcon({ item }: { item?: RemoteItem }) {
+  const { c } = useTheme();
   const Icon = item?.subAgents?.length ? Bot : !item || item.type === 'reasoning' ? Sparkles : item.files?.length || item.type === 'fileChange' ? Pencil : Terminal;
   return <Icon size={14} color={c.muted} />;
 }
 
 function Message({ item, running = false, deviceId, threadId, onImage }: { item: RemoteItem; running?: boolean; deviceId: string; threadId: string; onImage: ImageViewer }) {
+  const { c, s } = useTheme();
   const role = messageRole(item);
   const [open, setOpen] = useState(false);
   const images = (item.images ?? []).filter(image => !image.source || !localAudioPath(image.source));
@@ -54,6 +56,7 @@ function Message({ item, running = false, deviceId, threadId, onImage }: { item:
 }
 
 function ExecutionGroup({ section, deviceId, threadId, onImage }: { section: ExecutionSection; deviceId: string; threadId: string; onImage: ImageViewer }) {
+  const { c, s } = useTheme();
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [contentHeight, setContentHeight] = useState(0);
@@ -82,6 +85,7 @@ function ExecutionGroup({ section, deviceId, threadId, onImage }: { section: Exe
 
 type ActivityBlock = Extract<ReturnType<typeof buildActivityBlocks>[number], { kind: 'activity' }>;
 function Activity({ block, deviceId, threadId, onImage, questionRequestIds }: { block: ActivityBlock; deviceId: string; threadId: string; onImage: ImageViewer; questionRequestIds: string[] }) {
+  const { c, s } = useTheme();
   const [now, setNow] = useState(Date.now());
   useEffect(() => { if (block.state !== 'running') return; const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, [block.state]);
   return <View style={s.activity}>
@@ -98,6 +102,7 @@ function Activity({ block, deviceId, threadId, onImage, questionRequestIds }: { 
 }
 
 export function FileChangesPanel({ changes, compact = true }: { changes: NonNullable<HistoryTurn['fileChanges']>; compact?: boolean }) {
+  const { c, s } = useTheme();
   const [diffOpen, setDiffOpen] = useState(false);
   const [expandedPath, setExpandedPath] = useState<string | null>(null);
   useEffect(() => { if (expandedPath && !changes.some(change => change.path === expandedPath)) setExpandedPath(null); }, [changes, expandedPath]);
@@ -116,6 +121,7 @@ export function FileChangesPanel({ changes, compact = true }: { changes: NonNull
 }
 
 export const TurnView = memo(function TurnView({ turn, active, deviceId, threadId, onImage, questionRequestIds }: { turn: HistoryTurn; active: boolean; deviceId: string; threadId: string; onImage: ImageViewer; questionRequestIds: string[] }) {
+  const { s } = useTheme();
   return <View style={s.turn}>
     {buildActivityBlocks(turn, active).map(block => block.kind === 'message' ? <Message key={block.item.id} item={block.item} deviceId={deviceId} threadId={threadId} onImage={onImage} /> : <Activity key={block.id} block={block} deviceId={deviceId} threadId={threadId} onImage={onImage} questionRequestIds={questionRequestIds} />)}
     {!active && !!turn.fileChanges?.length && <FileChangesPanel changes={turn.fileChanges} compact={false} />}
@@ -124,6 +130,7 @@ export const TurnView = memo(function TurnView({ turn, active, deviceId, threadI
 });
 
 export function RequestPanel({ request, threadId, send, enabled }: { request: InteractiveRequest; threadId: string; enabled: boolean; send: (payload: RemoteCommand['payload']) => Promise<void> }) {
+  const { c, s } = useTheme();
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [choices, setChoices] = useState<Record<string, number>>({});
   const [pending, setPending] = useState(false);
@@ -174,9 +181,9 @@ export function RequestPanel({ request, threadId, send, enabled }: { request: In
       {question.options.map((option, optionIndex) => <Pressable key={option.label} accessibilityRole="radio" aria-checked={choices[question.id] === optionIndex} aria-disabled={!canAnswer} disabled={!canAnswer} onPress={() => selectOption(question.id, optionIndex)} style={[s.option, choices[question.id] === optionIndex && s.optionSelected]}><View style={s.optionBody}><Text style={s.requestText}>{option.label}</Text>{!!option.description && <Text style={s.optionDescription}>{option.description}</Text>}</View>{choices[question.id] === optionIndex ? <Check size={17} color={c.accent} /> : <View style={s.optionCircle} />}</Pressable>)}
       {!!question.options.length && question.isOther && <Pressable accessibilityRole="radio" accessibilityLabel={`自定义回答：${question.header || question.question}`} aria-checked={choices[question.id] === -1} aria-disabled={!canAnswer} disabled={!canAnswer} onPress={() => setChoices(value => ({...value, [question.id]: -1}))} style={[s.option, choices[question.id] === -1 && s.optionSelected]}><Text style={s.requestText}>自定义回答</Text>{choices[question.id] === -1 ? <Check size={17} color={c.accent} /> : <View style={s.optionCircle} />}</Pressable>}
       {(!question.options.length || question.isOther && choices[question.id] === -1) && <TextInput accessibilityLabel={`回答：${question.header || question.question}`} style={s.answerInput} value={answers[question.id] ?? ''} onChangeText={value => setAnswers(current => ({...current, [question.id]: value}))} editable={canAnswer} placeholder="输入你的回答" placeholderTextColor={c.muted} multiline={!question.isSecret} secureTextEntry={question.isSecret} autoCorrect={!question.isSecret} autoComplete="off" maxLength={8192} />}
-      {perQuestion && manualAnswer(question) && <Pressable accessibilityRole="button" accessibilityLabel={`提交回答：${question.question}`} style={[s.smallPrimary, (!canAnswer || !answerFor(question.id).trim()) && s.disabled]} disabled={!canAnswer || !answerFor(question.id).trim()} onPress={() => void sendAnswers([question.id])}>{pending ? <ActivityIndicator color="#fff" size="small" /> : <Text style={s.primaryText}>提交回答</Text>}</Pressable>}
+      {perQuestion && manualAnswer(question) && <Pressable accessibilityRole="button" accessibilityLabel={`提交回答：${question.question}`} style={[s.smallPrimary, (!canAnswer || !answerFor(question.id).trim()) && s.disabled]} disabled={!canAnswer || !answerFor(question.id).trim()} onPress={() => void sendAnswers([question.id])}>{pending ? <ActivityIndicator color={c.onAccent} size="small" /> : <Text style={s.primaryText}>提交回答</Text>}</Pressable>}
     </View>)}
-    {submitted || perQuestion && !remainingQuestions.length ? <Text style={s.sub}>回答已提交，等待 Codex 更新…</Text> : request.kind === 'userInput' && !perQuestion && questions.length > 0 && hasManualAnswer ? <Pressable accessibilityRole="button" accessibilityLabel="提交回答" style={[s.smallPrimary, (!canAnswer || questions.some(question => !answerFor(question.id).trim())) && s.disabled]} disabled={!canAnswer || questions.some(question => !answerFor(question.id).trim())} onPress={() => void sendAnswers(questions.map(question => question.id))}>{pending ? <ActivityIndicator color="#fff" size="small" /> : <Text style={s.primaryText}>提交回答</Text>}</Pressable> : approval ? <View style={s.decisionRow}>{(['accept', 'decline', 'cancel'] as const).filter(decision => allowed.includes(decision)).map(decision => <Pressable accessibilityRole="button" key={decision} disabled={!canAnswer} onPress={() => void submit({type: 'approval.respond', threadId, turnId: request.turnId!, requestId: request.id, decision})} style={[s.decision, decision === 'accept' && s.decisionAccept, !canAnswer && s.disabled]}><Text style={decision === 'accept' ? s.primaryText : s.requestText}>{decision === 'accept' ? '允许' : decision === 'decline' ? '拒绝' : '取消'}</Text></Pressable>)}</View> : null}
+    {submitted || perQuestion && !remainingQuestions.length ? <Text style={s.sub}>回答已提交，等待 Codex 更新…</Text> : request.kind === 'userInput' && !perQuestion && questions.length > 0 && hasManualAnswer ? <Pressable accessibilityRole="button" accessibilityLabel="提交回答" style={[s.smallPrimary, (!canAnswer || questions.some(question => !answerFor(question.id).trim())) && s.disabled]} disabled={!canAnswer || questions.some(question => !answerFor(question.id).trim())} onPress={() => void sendAnswers(questions.map(question => question.id))}>{pending ? <ActivityIndicator color={c.onAccent} size="small" /> : <Text style={s.primaryText}>提交回答</Text>}</Pressable> : approval ? <View style={s.decisionRow}>{(['accept', 'decline', 'cancel'] as const).filter(decision => allowed.includes(decision)).map(decision => <Pressable accessibilityRole="button" key={decision} disabled={!canAnswer} onPress={() => void submit({type: 'approval.respond', threadId, turnId: request.turnId!, requestId: request.id, decision})} style={[s.decision, decision === 'accept' && s.decisionAccept, !canAnswer && s.disabled]}><Text style={decision === 'accept' ? s.primaryText : s.requestText}>{decision === 'accept' ? '允许' : decision === 'decline' ? '拒绝' : '取消'}</Text></Pressable>)}</View> : null}
     {pending && request.kind === 'userInput' && <Text accessibilityLiveRegion="polite" style={s.sub}>正在发送回答…</Text>}
     {(!request.respondable || !request.turnId || request.kind === 'userInput' && !questions.length || !approval && request.kind !== 'userInput') && <Text style={s.sub}>此请求暂不能在远程回答，请在 PC 的 Codex 中处理。</Text>}
     {!!error && <Text accessibilityRole="alert" style={s.error}>{error}</Text>}

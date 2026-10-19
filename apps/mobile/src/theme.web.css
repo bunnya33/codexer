@@ -1,0 +1,15 @@
+html, body { background: var(--control-bg, #fff); color: var(--control-text, #191d1e); }
+::selection { background: var(--control-soft); color: var(--control-text); }
+input, textarea { caret-color: var(--control-accent); }
+:focus-visible { outline-color: var(--control-accent); }
+* { scrollbar-color: var(--control-ring) var(--control-bg); }
+[data-control-glass="true"] { backdrop-filter: blur(22px) saturate(125%); -webkit-backdrop-filter: blur(22px) saturate(125%); }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  [data-control-glass="true"] { background-color: var(--control-surface) !important; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  [data-control-glass="true"] { backdrop-filter: none; -webkit-backdrop-filter: none; background-color: var(--control-surface) !important; }
+}
+@media (forced-colors: active) {
+  [data-control-glass="true"] { backdrop-filter: none; -webkit-backdrop-filter: none; }
+}

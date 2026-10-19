@@ -3,7 +3,7 @@
   max-height: 280px;
   overflow: auto;
   overscroll-behavior: contain;
-  background: #f8f9fa;
+  background: var(--control-diffBg, #f8f9fa);
 }
 .codexer-file-diff pre {
   margin: 0;
@@ -12,7 +12,7 @@
   min-width: 100%;
   box-sizing: border-box;
   font: 12px/20px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: #191d1e;
+  color: var(--control-text, #191d1e);
   tab-size: 4;
 }
 .codexer-file-diff code { font: inherit; }
@@ -22,7 +22,7 @@
   padding: 0 10px;
   white-space: pre;
 }
-.codexer-diff-addition { color: #116329; background: #dafbe1; }
-.codexer-diff-deletion { color: #a40e26; background: #ffebe9; }
-.codexer-diff-metadata { color: #687275; }
-.codexer-diff-hunk { color: #576f80; background: #eef4f8; }
+.codexer-diff-addition { color: var(--control-diffAddedText, #116329); background: var(--control-diffAddedBg, #dafbe1); }
+.codexer-diff-deletion { color: var(--control-diffDeletedText, #a40e26); background: var(--control-diffDeletedBg, #ffebe9); }
+.codexer-diff-metadata { color: var(--control-muted, #687275); }
+.codexer-diff-hunk { color: var(--control-diffHunkText, #576f80); background: var(--control-diffHunkBg, #eef4f8); }

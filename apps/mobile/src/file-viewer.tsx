@@ -1,3 +1,4 @@
+import { themedStyles } from './theme';
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
@@ -22,8 +23,9 @@ import { FileAudio } from "./file-audio";
 import type { FileSource } from "./file-transfer";
 import { Markdown } from "./markdown";
 import { CodeBlock } from "./code-block";
+import { codeLanguage } from '../../../packages/client-shared/src/code-highlighting';
 import { relay } from "./relay";
-import { c } from "./styles";
+import { useTheme } from "./styles";
 
 type OpenFile = {
   path: string;
@@ -45,6 +47,8 @@ export function FileViewerProvider({
   threadId: string;
   children: ReactNode;
 }) {
+  const { c } = useTheme();
+  const fs = useFsStyles();
   const [storedFile, setStoredFile] = useState<OpenFile & { scope: string }>();
   const scope = JSON.stringify([deviceId, threadId]);
   // Hide the previous file in the same render as a conversation switch,
@@ -189,8 +193,8 @@ export function FileViewerProvider({
                 <FileLinkContext.Provider value={undefined}>
                   {fileReaderKind(file.info!.name) === "markdown" ? (
                     <Markdown>{file.text ?? ""}</Markdown>
-                  ) : fileReaderKind(file.info!.name) === "json" ? (
-                    <CodeBlock language="json">{file.text ?? ""}</CodeBlock>
+                  ) : !['txt', 'log', 'csv', 'tsv', 'text'].includes(codeLanguage(file.info!.name)) ? (
+                    <CodeBlock language={codeLanguage(file.info!.name)}>{file.text ?? ""}</CodeBlock>
                   ) : (
                     <Text selectable style={fs.text}>
                       {file.text}
@@ -248,7 +252,7 @@ export function FileViewerProvider({
   );
 }
 
-const fs = StyleSheet.create({
+const useFsStyles = themedStyles(c => StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)", justifyContent: "center", padding: 12 },
   reader: {
     width: "100%",
@@ -283,7 +287,7 @@ const fs = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 6,
   },
-  primaryText: { color: "#fff", fontSize: 16 },
+  primaryText: { color: c.onAccent, fontSize: 16 },
   secondary: {
     borderWidth: 1,
     borderColor: c.line,
@@ -292,4 +296,4 @@ const fs = StyleSheet.create({
     borderRadius: 6,
     alignSelf: "flex-start",
   },
-});
+}));

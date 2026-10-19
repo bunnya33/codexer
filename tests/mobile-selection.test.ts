@@ -31,7 +31,7 @@ function gate() {
 }
 type FixtureOptions = {
   storage?: Record<string, string>; userId?: string; devices?: typeof devices; catalogs?: Record<string, DeviceCatalog>;
-  delayDevices?: boolean; delayCatalog?: string; blockedStorage?: boolean;
+  delayDevices?: boolean; delayCatalog?: string; blockedStorage?: boolean; blockedThemeStorage?: boolean;
   filePicker?: () => Promise<{ name: string; size: number; mimeType: string; readChunk: (offset: number, length: number) => Promise<string> }[]>;
   controls?: { active: boolean; text: string; images: string[]; failEffort?: boolean };
   paging?: { delay?: boolean; fail?: boolean; exhausted?: boolean };
@@ -142,6 +142,10 @@ async function fixture(options: FixtureOptions = {}) {
         const get = window.Storage.prototype.getItem, set = window.Storage.prototype.setItem;
         window.Storage.prototype.getItem = function(key) { if (key.startsWith('codexer.web.selection.')) throw new Error('storage-blocked'); return get.call(this, key); };
         window.Storage.prototype.setItem = function(key, value) { if (key.startsWith('codexer.web.selection.')) throw new Error('storage-blocked'); set.call(this, key, value); };
+      }
+      if (options.blockedThemeStorage) {
+        const set = window.Storage.prototype.setItem;
+        window.Storage.prototype.setItem = function(key, value) { if (key === 'codexer.control.theme.v1') throw new Error('storage-blocked'); set.call(this, key, value); };
       }
     },
   });
@@ -460,6 +464,54 @@ it('uses centered settings and operation dialogs, shows server and loaded-contro
     await test.closeDialog('关闭工作模式');
     test.click('管理会话 recent-pc-a');
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[data-testid="dialog-card"]')?.textContent).toContain('归档'));
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it('switches three skins through settings without remounting the composer or losing its draft', async () => {
+  const test = await fixture({ controls: { active: false, text: '', images: [] } });
+  try {
+    await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-a']).toBe(false));
+    const input = test.dom.window.document.querySelector<HTMLTextAreaElement>('[aria-label="给 Codex 发送消息"]')!;
+    const text = '保留草稿\n第二行\n第三行';
+    Object.getOwnPropertyDescriptor(test.dom.window.HTMLTextAreaElement.prototype, 'value')!.set!.call(input, text);
+    input.dispatchEvent(new test.dom.window.Event('input', { bubbles: true }));
+    test.click('连接设置');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[role="radiogroup"]')).not.toBeNull());
+    expect(test.dom.window.document.querySelectorAll('[role="radiogroup"] [role="radio"]')).toHaveLength(3);
+    for (const [label, id, color] of [['暖白纸张', 'paper', '#faf7f1'], ['暖棕暗色', 'warm-dark', '#262322'], ['默认', 'default', '#ffffff']]) {
+      test.click(label!);
+      await vi.waitFor(() => expect(test.dom.window.document.documentElement.dataset.controlTheme).toBe(id));
+      expect(test.dom.window.document.documentElement.style.getPropertyValue('--control-bg')).toBe(color);
+      expect(test.dom.window.document.querySelector(`[aria-label="${label}"]`)!.getAttribute('aria-checked')).toBe('true');
+      await vi.waitFor(() => expect(test.dom.window.localStorage.getItem('codexer.control.theme.v1')).toBe(id));
+      expect(test.dom.window.document.querySelector('[aria-label="给 Codex 发送消息"]')).toBe(input);
+      expect(input.value).toBe(text);
+      expect(test.header()).toContain('recent-pc-a');
+    }
+    expect(test.commands).toEqual([]); expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it.each(['paper', 'warm-dark', 'unknown'])('restores the saved skin safely (%s)', async id => {
+  const test = await fixture({ storage: { 'codexer.control.theme.v1': id } });
+  try {
+    await vi.waitFor(() => expect(test.header()).toContain('recent-pc-a'));
+    expect(test.dom.window.document.documentElement.dataset.controlTheme).toBe(id === 'unknown' ? 'default' : id);
+    expect(test.dom.window.document.documentElement.style.colorScheme).toBe(id === 'warm-dark' ? 'dark' : 'light');
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it('keeps a selected skin usable and explains a failed preference save', async () => {
+  const test = await fixture({ blockedThemeStorage: true });
+  try {
+    await vi.waitFor(() => expect(test.header()).toContain('recent-pc-a'));
+    test.click('连接设置');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="暖棕暗色"]')).not.toBeNull());
+    test.click('暖棕暗色');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[role="alert"]')?.textContent).toContain('偏好未能保存'));
+    expect(test.dom.window.document.documentElement.dataset.controlTheme).toBe('warm-dark');
     expect(test.errors).toEqual([]);
   } finally { test.close(); }
 });

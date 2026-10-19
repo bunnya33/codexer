@@ -1,3 +1,4 @@
+import { themedStyles } from './theme';
 import { useEffect, useState } from "react";
 import {
   Modal,
@@ -17,19 +18,21 @@ import {
   subAgentStatusLabel,
 } from "../../../packages/client-shared/src/sub-agents";
 import { ThreadNotificationToggle, useThreadNotification } from "./thread-notification";
-import { c, s } from "./styles";
-
-function statusColor(agent: RemoteSubAgent) {
-  return agent.status === "errored" || agent.status === "notFound"
-    ? c.danger
-    : agent.status === "running" || agent.status === "pendingInit"
-      ? c.accent
-      : agent.status === "completed"
-        ? "#248353"
-        : c.muted;
-}
+import { useTheme } from "./styles";
 
 function AgentCard({ agent }: { agent: RemoteSubAgent }) {
+  const { c, s } = useTheme();
+  const hs = useHsStyles();
+  function statusColor(agent: RemoteSubAgent) {
+    return agent.status === "errored" || agent.status === "notFound"
+      ? c.danger
+      : agent.status === "running" || agent.status === "pendingInit"
+        ? c.accent
+        : agent.status === "completed"
+          ? c.success
+          : c.muted;
+  }
+
   const [expanded, setExpanded] = useState(false);
   return (
     <View style={hs.card}>
@@ -104,6 +107,8 @@ export function ConversationHeader({
   onRefresh: () => void;
   onInfo: () => void;
 }) {
+  const { c, s } = useTheme();
+  const hs = useHsStyles();
   const [panel, setPanel] = useState<"options" | "agents" | null>(null);
   const [panelContent, setPanelContent] = useState<"options" | "agents">("options");
   const { width, height } = useWindowDimensions();
@@ -288,7 +293,7 @@ export function ConversationHeader({
   );
 }
 
-const hs = StyleSheet.create({
+const useHsStyles = themedStyles(c => StyleSheet.create({
   agentButton: {
     minHeight: 36,
     minWidth: 52,
@@ -308,7 +313,7 @@ const hs = StyleSheet.create({
     width: 5,
     height: 5,
     borderRadius: 3,
-    backgroundColor: "#248353",
+    backgroundColor: c.success,
   },
   overlay: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#0005" },
   dialog: { backgroundColor: c.surface, borderRadius: 16, overflow: "hidden" },
@@ -344,4 +349,4 @@ const hs = StyleSheet.create({
   resultLabel: { fontSize: 12, color: c.muted },
   empty: { fontSize: 14, color: c.muted, lineHeight: 22, paddingVertical: 25, textAlign: "center" },
   footnote: { fontSize: 11, lineHeight: 17, color: c.muted, paddingVertical: 6 },
-});
+}));

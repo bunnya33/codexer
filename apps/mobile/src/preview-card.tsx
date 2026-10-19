@@ -1,3 +1,4 @@
+import { themedStyles } from './theme';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -13,10 +14,12 @@ import { PreviewSurface } from './preview-surface';
 import type { PreviewSurfaceHandle } from './preview-surface.types';
 import { PreviewRange } from './preview-range';
 import { PreviewColor } from './preview-color';
-import { c } from './styles';
+import { useTheme } from './styles';
 
 const controlKey = (control: TweakControl) => `${control.group}:${control.label}:${control.kind}`;
 export function PreviewCard({ reference, deviceId, threadId }: { reference: PreviewReference; deviceId: string; threadId: string }) {
+  const { c } = useTheme();
+  const ps = usePsStyles();
   const [revision, setRevision] = useState(0), [expanded, setExpanded] = useState(false), [tweaking, setTweaking] = useState(false);
   const [document, setDocument] = useState<string>(), [url, setUrl] = useState<string>(), [channel, setChannel] = useState('');
   const [height, setHeight] = useState(280), [error, setError] = useState(''), [loading, setLoading] = useState(true);
@@ -124,7 +127,7 @@ export function PreviewCard({ reference, deviceId, threadId }: { reference: Prev
     <Modal visible={feedback !== null} transparent animationType="fade" onRequestClose={() => { if (!sending) setFeedback(null); }}><View style={ps.backdrop}><View style={ps.dialog}><View style={ps.header}><Text style={ps.title}>反馈给 Codex</Text><Pressable accessibilityRole="button" accessibilityLabel="关闭反馈" disabled={sending} onPress={() => setFeedback(null)} style={ps.icon}><X size={18} color={c.muted} /></Pressable></View><ScrollView><TextInput accessibilityLabel="预览反馈内容" multiline value={feedback ?? ''} onChangeText={setFeedback} placeholder="描述希望修改的地方…" style={[ps.field, ps.feedback]} /><Text style={ps.muted}>会附上当前交互选择和参数调整，发送到当前会话。</Text>{controls.some(control => control.value !== control.initial) && <Text style={ps.context}>{controls.filter(control => control.value !== control.initial).map(control => `${control.label}：${control.initial} → ${control.value}`).join('\n')}</Text>}</ScrollView><Pressable accessibilityRole="button" disabled={sending || !feedback?.trim() && !controls.some(control => control.value !== control.initial)} onPress={() => void sendFeedback()} style={[ps.send, sending && { opacity: .5 }]}><Text style={ps.sendText}>{sending ? '正在发送…' : '发送反馈'}</Text></Pressable></View></View></Modal>
   </>;
 }
-const ps = StyleSheet.create({
+const usePsStyles = themedStyles(c => StyleSheet.create({
   card: { width: '100%', borderWidth: 1, borderColor: c.line, borderRadius: 10, overflow: 'hidden', backgroundColor: c.surface, marginVertical: 10 },
   header: { minHeight: 45, paddingHorizontal: 10, flexShrink: 0, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: 1, borderColor: c.line },
   title: { color: c.text, fontSize: 13, fontWeight: '600', flex: 1, minWidth: 0 }, actions: { flexDirection: 'row', flexShrink: 0 }, icon: { width: 36, height: 40, alignItems: 'center', justifyContent: 'center' },
@@ -132,5 +135,5 @@ const ps = StyleSheet.create({
   tweakScroll: { flexGrow: 0, flexShrink: 0 }, fullTweaks: { maxHeight: '40%', flexShrink: 1 }, tweaks: { borderTopWidth: 1, borderColor: c.line, padding: 14, gap: 12 }, group: { fontSize: 13, fontWeight: '600', color: c.text }, control: { gap: 6 }, controlHead: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 }, label: { color: c.text, fontSize: 12, flexShrink: 1 },
   options: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 }, option: { borderWidth: 1, borderColor: c.line, borderRadius: 6, padding: 10 }, selected: { backgroundColor: c.soft, borderColor: c.accent },
   field: { borderWidth: 1, borderColor: c.line, borderRadius: 7, padding: 10, color: c.text, fontSize: 14 }, feedback: { minHeight: 110, textAlignVertical: 'top', marginVertical: 14 }, context: { fontSize: 12, color: c.text, marginTop: 10 },
-  full: { flex: 1, minHeight: 0, backgroundColor: c.surface }, fullCard: { flex: 1, minHeight: 0, marginVertical: 0, borderWidth: 0, borderRadius: 0 }, fullPreview: { flex: 1, minHeight: 0, minWidth: 0 }, fullStatus: { flex: 1, justifyContent: 'center' }, backdrop: { flex: 1, backgroundColor: '#0005', justifyContent: 'center', alignItems: 'center', padding: 20 }, dialog: { width: '100%', maxWidth: 560, maxHeight: '85%', borderRadius: 12, padding: 14, backgroundColor: c.surface }, send: { padding: 12, borderRadius: 7, backgroundColor: c.accent, alignItems: 'center', marginTop: 16 }, sendText: { color: '#fff', fontSize: 14, fontWeight: '600' },
-});
+  full: { flex: 1, minHeight: 0, backgroundColor: c.surface }, fullCard: { flex: 1, minHeight: 0, marginVertical: 0, borderWidth: 0, borderRadius: 0 }, fullPreview: { flex: 1, minHeight: 0, minWidth: 0 }, fullStatus: { flex: 1, justifyContent: 'center' }, backdrop: { flex: 1, backgroundColor: '#0005', justifyContent: 'center', alignItems: 'center', padding: 20 }, dialog: { width: '100%', maxWidth: 560, maxHeight: '85%', borderRadius: 12, padding: 14, backgroundColor: c.surface }, send: { padding: 12, borderRadius: 7, backgroundColor: c.accent, alignItems: 'center', marginTop: 16 }, sendText: { color: c.onAccent, fontSize: 14, fontWeight: '600' },
+}));

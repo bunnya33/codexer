@@ -1,13 +1,16 @@
+import { themedStyles } from './theme';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { Music2 } from "lucide-react-native";
 import type { FileInfo } from "../../../packages/protocol/src/files";
 import { AudioPlayer } from "./audio-player";
 import { useAudioPlayback } from "./audio-playback";
-import { c } from "./styles";
+import { useTheme } from "./styles";
 
 export function FileAudio({ deviceId, threadId, path, info }: {
   deviceId: string; threadId: string; path: string; info: FileInfo;
 }) {
+  const { c } = useTheme();
+  const as = useAsStyles();
   const player = useAudioPlayback(deviceId, threadId, path, info);
   return <View style={as.body}>
     <View style={as.card}>
@@ -30,12 +33,12 @@ export function FileAudio({ deviceId, threadId, path, info }: {
   </View>;
 }
 
-const as = StyleSheet.create({
+const useAsStyles = themedStyles(c => StyleSheet.create({
   body: { flex: 1, justifyContent: "center", alignItems: "center", padding: 20 },
   card: { width: "100%", maxWidth: 560, alignItems: "center", gap: 20, padding: 20, borderWidth: 1, borderColor: c.line, borderRadius: 12, backgroundColor: c.surface },
   title: { color: c.text, fontSize: 19, fontWeight: "600" },
   hint: { color: c.muted, fontSize: 13, lineHeight: 21, textAlign: "center" },
   error: { color: c.danger, fontSize: 15, lineHeight: 23, textAlign: "center" },
   retry: { borderRadius: 6, paddingVertical: 10, paddingHorizontal: 18, backgroundColor: c.accent },
-  retryText: { color: "#fff", fontSize: 15 },
-});
+  retryText: { color: c.onAccent, fontSize: 15 },
+}));

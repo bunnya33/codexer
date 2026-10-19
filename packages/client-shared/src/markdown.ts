@@ -27,9 +27,14 @@ markdown.validateLink = value => {
   catch { return false; }
 };
 
+export function highlightCode(source: string, info = ""): string {
+  const language = info.trim().split(/\s+/)[0] ?? "";
+  return hljs.getLanguage(language) ? hljs.highlight(source, { language, ignoreIllegals: true }).value : escape(source);
+}
+
 export function renderCodeBlock(source: string, info = ""): string {
   const language = info.trim().split(/\s+/)[0] ?? "";
-  const highlighted = hljs.getLanguage(language) ? hljs.highlight(source, { language, ignoreIllegals: true }).value : escape(source);
+  const highlighted = highlightCode(source, info);
   return `<div class="code-block"><div class="code-toolbar"><span>${escape(language || "text")}</span><button class="icon-button copy-code" type="button" data-action="copy-code" title="复制代码" aria-label="复制代码">复制</button></div><pre><code class="hljs">${highlighted}</code></pre></div>`;
 }
 

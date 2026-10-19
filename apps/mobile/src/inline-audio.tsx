@@ -1,14 +1,17 @@
+import { themedStyles } from './theme';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { Music2 } from "lucide-react-native";
 import type { AudioReference } from "../../../packages/client-shared/src/audio";
 import { fileName, fileSize } from "../../../packages/client-shared/src/file-links";
 import { AudioPlayer } from "./audio-player";
 import { useAudioPlayback } from "./audio-playback";
-import { c } from "./styles";
+import { useTheme } from "./styles";
 
 export function InlineAudio({ reference, deviceId, threadId }: {
   reference: AudioReference; deviceId: string; threadId: string;
 }) {
+  const { c } = useTheme();
+  const as = useAsStyles();
   const player = useAudioPlayback(deviceId, threadId, reference.source);
   const name = player.info?.name ?? fileName(reference.source);
   const format = name.split(".").at(-1)?.toUpperCase();
@@ -35,7 +38,7 @@ export function InlineAudio({ reference, deviceId, threadId }: {
   </View>;
 }
 
-const as = StyleSheet.create({
+const useAsStyles = themedStyles(c => StyleSheet.create({
   card: { width: "100%", maxWidth: 736, minWidth: 0, borderWidth: 1, borderColor: c.line, borderRadius: 12, backgroundColor: c.surface, marginVertical: 10, overflow: "hidden" },
   header: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderBottomWidth: 1, borderColor: c.line },
   icon: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 10, backgroundColor: c.soft },
@@ -45,4 +48,4 @@ const as = StyleSheet.create({
   controls: { padding: 10, gap: 10, minHeight: 64 },
   error: { color: c.danger, fontSize: 13, lineHeight: 20 },
   retry: { color: c.accent, fontSize: 13, paddingVertical: 6 },
-});
+}));

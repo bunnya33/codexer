@@ -1,7 +1,8 @@
+import { themedStyles } from './theme';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { CornerDownRight, ListEnd, Pencil, Trash2 } from 'lucide-react-native';
 import type { RemoteThread } from '../../../packages/protocol/src/index';
-import { c, s } from './styles';
+import { useTheme } from './styles';
 
 type QueueItem = NonNullable<RemoteThread['queuedMessages']>[number];
 type Actions = {
@@ -10,6 +11,8 @@ type Actions = {
 };
 
 function QueueRow({ item, ...actions }: Actions & { item: QueueItem }) {
+  const { c, s } = useTheme();
+  const styles = useLocalStyles();
   const editable = actions.enabled && item.status !== 'sending';
   return <View style={styles.row}>
     <ListEnd size={16} color={c.muted} />
@@ -30,13 +33,14 @@ function QueueRow({ item, ...actions }: Actions & { item: QueueItem }) {
 }
 
 export function QueuedMessages({ items, ...actions }: Actions & { items: QueueItem[] }) {
+  const styles = useLocalStyles();
   if (!items.length) return null;
   return <ScrollView style={styles.queue} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" nestedScrollEnabled>{items.map(item => <QueueRow key={item.id} item={item} {...actions} />)}</ScrollView>;
 }
 
-const styles = StyleSheet.create({
-  queue: { maxHeight: 180, flexGrow: 0, borderBottomWidth: 1, borderColor: '#eceeee' }, content: { paddingHorizontal: 10, paddingTop: 3 },
+const useLocalStyles = themedStyles(c => StyleSheet.create({
+  queue: { maxHeight: 180, flexGrow: 0, borderBottomWidth: 1, borderColor: c.glassBorder }, content: { paddingHorizontal: 10, paddingTop: 3 },
   row: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 6 }, text: { flex: 1, minWidth: 0, color: c.text, fontSize: 13 }, status: { fontSize: 11, color: c.muted },
   steer: { minHeight: 32, paddingHorizontal: 5, flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 8 }, actionText: { color: c.muted, fontSize: 13 },
   icon: { width: 30, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-});
+}));
