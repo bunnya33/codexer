@@ -20,7 +20,7 @@ function RunningIndicator({label}: {label: string}) {
 function ThreadRow({item, props, showActivity = true}: {item: DirectoryThread; props: Props; showActivity?: boolean}) {
   return <View style={[s.threadRow, item.nested && s.threadNested, props.threadId === item.id && s.threadRowSelected]}>
     <Pressable accessibilityRole="button" onPress={() => props.selectThread(item.id)} onLongPress={() => props.threadActions(item)} delayLongPress={450} style={s.threadSelect}><Text numberOfLines={1} style={s.threadName}>{item.title}</Text>{item.active && showActivity && <RunningIndicator label={`正在运行：${item.title}`} />}</Pressable>
-    {Platform.OS === 'web' && <Pressable accessibilityRole="button" accessibilityLabel={`管理会话 ${item.title}`} onPress={() => props.threadActions(item)} style={s.projectAction}><MoreHorizontal size={16} color={c.muted} /></Pressable>}
+    {['web', 'windows', 'macos'].includes(Platform.OS) && <Pressable accessibilityRole="button" accessibilityLabel={`管理会话 ${item.title}`} onPress={() => props.threadActions(item)} style={s.projectAction}><MoreHorizontal size={16} color={c.muted} /></Pressable>}
   </View>;
 }
 

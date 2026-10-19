@@ -1,12 +1,16 @@
+# Windows 原生版
+
+Windows 新版 PC Agent 管理界面和 RelayDesk 控制端使用 React Native for Windows，安装包为 `Codexer-Native-Setup-0.2.0-x64.exe`、`RelayDesk-Native-Setup-0.2.0-x64.exe`。安装及原生构建请先看 [Windows 原生项目](../apps/control-native/README.md)。下文涉及 Electron 的构建说明仅适用于旧版与 macOS 维护。
+
 # PC 连接器：安装与使用
 
 ## 普通用户安装
 
-Windows x64 使用 `Codexer Setup 0.1.4.exe` 安装，或运行 `Codexer 0.1.4.exe` 便携版。产物位于 `apps/desktop/release`。无需安装 Node、npm、Git 或下载项目源码。安装包未配置商业代码签名；发行前签名流程见 [发布文档](release.md)。
+Windows x64 使用 `Codexer-Native-Setup-0.2.0-x64.exe` 安装。原生安装包位于 `apps/control-native/release`。无需安装 Node、npm、Git 或下载项目源码。安装包未配置商业代码签名；发行前签名流程见 [发布文档](release.md)。
 
 本机必须已安装并登录官方 Codex，任务使用该电脑原有的模型、账号/密钥、工作目录和权限。连接器不代替官方 Codex。macOS 安装和验证见 [macOS 文档](mac.md)。
 
-窗口使用应用自己的简洁标题栏，左侧显示“Codexer · 桌面连接器”，右侧提供最小化、最大化/还原和关闭。拖动标题区域移动窗口；关闭按钮按后台运行设置进入托盘或走退出流程。
+Windows 原生版使用系统标题栏，支持拖动、最小化、最大化/还原和关闭。默认关闭缩小到托盘；在设置中启用“关闭窗口时退出进程”后，每次关闭均需确认。
 
 ## 首次连接
 
@@ -43,7 +47,7 @@ Windows x64 使用 `Codexer Setup 0.1.4.exe` 安装，或运行 `Codexer 0.1.4.e
 - **运行方式**：自动优先桌面 IPC，桌面不可用时尝试本机 App Server；也可只用桌面或 App Server。
 - **开机启动**：登录操作系统后启动连接器。便携版需要保持可执行文件路径固定。
 - **自动连接**：启动时恢复有效账号会话并连接，密码不会保存。
-- **后台运行**：开启后关窗口进入托盘；关闭后关窗口走退出流程。
+- **关闭窗口时退出进程**：默认关闭，关窗口进入托盘；启用后关窗口确认退出。
 
 运行配置修改前会检查本机任务，有任务或状态尚未确认时阻止修改/重新登录，避免关闭运行服务。启动偏好可以独立调整；运行配置保存后需主动连接。
 
@@ -65,6 +69,6 @@ Windows x64 使用 `Codexer Setup 0.1.4.exe` 安装，或运行 `Codexer 0.1.4.e
 
 “诊断日志”展示安全存储、登录、Relay、本机 Codex 的检查结果；导出仅含版本、平台、连接状态和诊断代码。不会导出服务器地址、账号、密码、会话、任务内容或本地目录。磁盘日志超过约 1 MiB 轮换一份。
 
-本地数据位于系统应用数据目录下 `@codexer/desktop`：Windows 通常 `%APPDATA%\@codexer\desktop`，macOS 通常 `~/Library/Application Support/@codexer/desktop`。`settings.json` 保存地址、账号名等设置，`session.enc` 保存加密会话，`agent/<deviceId>` 保存本机命令/用量数据库。卸载前先退出登录；诊断或导出时不分享整个应用数据目录。
+Windows 原生版本地数据位于 `%APPDATA%\Codexer`，兼容现有 Windows 安装版；macOS 旧版通常位于 `~/Library/Application Support/@codexer/desktop`。`settings.json` 保存地址、账号名等设置，`session.enc` 保存加密会话，`agent/<deviceId>` 保存本机命令/用量数据库。卸载前先退出登录；诊断或导出时不分享整个应用数据目录。
 
 “已连接”只说明远程通道可用；本机运行环境若仍在等待，查看诊断、确认官方 Codex 已登录、程序和数据路径正确。完整排查见 [运维](operations.md)。源码开发入口见 [开发文档](development.md)。

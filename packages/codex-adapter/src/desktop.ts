@@ -74,7 +74,7 @@ export class DesktopAdapter extends EventEmitter {
     this.socket = socket;
     const decoder = new FrameDecoder();
     socket.on("data", chunk => {
-      try { for (const value of decoder.push(chunk)) this.handle(record(value)); }
+      try { for (const value of decoder.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk)) this.handle(record(value)); }
       catch { this.emit("diagnostic", { code: "invalid-ipc-message" }); socket.destroy(); }
     });
     socket.on("error", () => this.emit("diagnostic", { code: "desktop-ipc-unavailable" }));

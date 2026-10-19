@@ -1,0 +1,9 @@
+import React,{useEffect,useState} from 'react';
+import {ActivityIndicator,Pressable,Switch,Text,View} from 'react-native';
+import {relay} from '../../../mobile/src/relay';
+import {request,subscribe} from '../bridge';
+export function ControlSettings({url,onWeixin,onLogout}:{url:string;onWeixin:()=>void;onLogout:()=>void}){
+  const [version,setVersion]=useState(''),[loading,setLoading]=useState(true),[closeExits,setCloseExits]=useState(false),[error,setError]=useState('');
+  useEffect(()=>{const abort=new AbortController();void relay.serverVersion(abort.signal).then(setVersion).catch(()=>setVersion('读取失败')).finally(()=>setLoading(false));void request<{closeExits:boolean}>('preferences.read').then(value=>setCloseExits(value.closeExits));const off=subscribe('preferences',value=>setCloseExits(value.closeExits));return()=>{abort.abort();off();};},[url]);
+  return <View style={{gap:20}}><Text selectable>{url}</Text><View style={{gap:12,padding:16,backgroundColor:'#f1f3f4',borderRadius:12}}><View style={{flexDirection:'row',alignItems:'center',gap:8}}><Text>服务器版本：{loading?'正在读取…':version}</Text>{loading&&<ActivityIndicator/>}</View><Text>RelayDesk Windows · 0.2.0</Text></View><View style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:12}}><View style={{flex:1,gap:6}}><Text>关闭窗口时退出进程</Text><Text style={{fontSize:12,color:'#687579'}}>默认缩小到托盘。启用后，每次退出均需确认。</Text></View><Switch accessibilityLabel="关闭窗口时退出进程" value={closeExits} onValueChange={value=>{void request('preferences.save',{closeExits:value}).then(()=>{setCloseExits(value);setError('');}).catch(()=>setError('设置保存失败，请重试'));}}/></View>{!!error&&<Text accessibilityRole="alert">{error}</Text>}<Pressable accessibilityRole="button" onPress={onWeixin} style={{padding:14}}><Text>微信 ClawBot</Text></Pressable><Pressable accessibilityRole="button" onPress={onLogout} style={{padding:14}}><Text style={{color:'#b33942'}}>退出登录</Text></Pressable></View>;
+}

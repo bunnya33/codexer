@@ -1,0 +1,45 @@
+{
+  "name": "relaydesk-native",
+  "version": "0.2.0",
+  "description": "RelayDesk and PC Agent native Windows clients",
+  "author": "Codexer contributors",
+  "private": true,
+  "scripts": {
+    "start": "react-native start",
+    "windows": "npx @react-native-community/cli run-windows",
+    "bundle": "react-native bundle --platform windows --dev false --entry-file index.js --bundle-output windows/RelayDesk/Bundle/index.windows.bundle --assets-dest windows/RelayDesk/Bundle",
+    "test:windows": "jest --config jest.config.windows.js"
+  },
+  "dependencies": {
+    "classic-level": "^3.0.0",
+    "fast-text-encoding": "1.0.6",
+    "highlight.js": "11.12.0",
+    "immer": "11.1.18",
+    "lucide-react-native": "1.49.0",
+    "markdown-it": "15.0.2",
+    "markdown-it-task-lists": "2.1.1",
+    "react": "19.2.3",
+    "react-native": "0.84.1",
+    "react-native-svg": "15.15.4",
+    "react-native-windows": "0.84.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@babel/plugin-transform-export-namespace-from": "^7.29.7",
+    "@react-native-community/cli": "20.0.2",
+    "@react-native-community/cli-platform-android": "20.0.2",
+    "@react-native-community/cli-platform-ios": "20.0.2",
+    "@react-native/babel-preset": "0.84.1",
+    "@react-native/metro-config": "0.84.1",
+    "@rnx-kit/jest-preset": "^0.3.1",
+    "@types/react": "19.2.2",
+    "typescript": "6.0.3"
+  },
+  "react-native-windows": {
+    "init-windows": {
+      "name": "RelayDesk",
+      "namespace": "RelayDesk",
+      "template": "cpp-app"
+    }
+  }
+}

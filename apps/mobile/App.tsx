@@ -62,7 +62,7 @@ function Login({ connect, busy, error }: { connect: (url: string, username: stri
 function AppContent() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const wide = Platform.OS === 'web' && width >= 900;
+  const wide = ['web', 'windows', 'macos'].includes(Platform.OS) && width >= 900;
   const view = useSyncExternalStore(relay.subscribe, relay.getSnapshot);
   const [restoring, setRestoring] = useState(true);
   const [loginBusy, setLoginBusy] = useState(false);
@@ -338,7 +338,7 @@ function AppContent() {
     earlierRequest.current = request;
     scrollPosition.current.pause();
     if (scrollFrame.current !== null) { cancelAnimationFrame(scrollFrame.current); scrollFrame.current = null; }
-    const anchor = Platform.OS === 'web' ? {...scrollPosition.current.metrics} : null;
+    const anchor = ['web', 'windows', 'macos'].includes(Platform.OS) ? {...scrollPosition.current.metrics} : null;
     olderAnchor.current = anchor;
     const firstTurn = history.turns[0]?.id;
     void relay.loadHistory(deviceId, threadId, true).finally(() => {
@@ -415,7 +415,7 @@ function AppContent() {
           {file.loading ? <ActivityIndicator size="small" color={c.muted} /> : !file.error && <Check size={15} color={c.accent} />}
           <Pressable accessibilityRole="button" accessibilityLabel={`移除文件 ${file.asset.name}`} onPress={() => removeFile(file)} style={s.iconButton}><X size={17} color={c.muted} /></Pressable>
         </View>)}</ScrollView>}
-        <ComposerInput accessibilityLabel="给 Codex 发送消息" style={s.composerInput} value={draft} onChangeText={setDraft} multiline maxLength={32000} editable={!!ready && !busy} placeholder="给 Codex 发送消息" placeholderTextColor={c.muted} textAlignVertical="top" onImages={addImages} imagesEnabled={ready && !busy && !!snapshot?.runtime.capabilities.images && images.length < MAX_IMAGES} onImageError={message => relay.showNotice(message)} onKeyPress={event => { const key = event.nativeEvent as { key: string; shiftKey?: boolean; isComposing?: boolean; keyCode?: number }; if (Platform.OS === 'web' && key.key === 'Enter' && !key.shiftKey && !key.isComposing && key.keyCode !== 229) { event.preventDefault(); submit(); } }} />
+        <ComposerInput accessibilityLabel="给 Codex 发送消息" style={s.composerInput} value={draft} onChangeText={setDraft} multiline maxLength={32000} editable={!!ready && !busy} placeholder="给 Codex 发送消息" placeholderTextColor={c.muted} textAlignVertical="top" onImages={addImages} imagesEnabled={ready && !busy && !!snapshot?.runtime.capabilities.images && images.length < MAX_IMAGES} onImageError={message => relay.showNotice(message)} onSubmitEditing={Platform.OS === 'windows' ? () => submit() : undefined} onKeyPress={event => { const key = event.nativeEvent as { key: string; shiftKey?: boolean; isComposing?: boolean; keyCode?: number }; if (Platform.OS === 'web' && key.key === 'Enter' && !key.shiftKey && !key.isComposing && key.keyCode !== 229) { event.preventDefault(); submit(); } }} />
         <View style={s.toolbar}><AttachmentMenu key={`attachments:${deviceId}:${threadId}`} enabled={ready && !busy} imagesEnabled={ready && !busy && !!snapshot?.runtime.capabilities.images && images.length < MAX_IMAGES} filesSupported={!!snapshot?.runtime.capabilities.attachments} filesEnabled={ready && !busy && !!snapshot?.runtime.capabilities.attachments && files.length < MAX_ATTACHMENTS} onImages={() => void pickImages()} onCamera={() => void pickCamera()} onFiles={() => void pickFiles()} />{!!snapshot?.runtime.capabilities.collaborationModeUpdate && <Pressable accessibilityRole="button" accessibilityLabel={`工作模式：${settings?.collaborationMode === 'plan' ? 'Plan' : '默认'}`} style={[s.pill, s.modePill, settings?.collaborationMode === 'plan' && s.modeActive]} disabled={!ready || busy || thread?.status !== 'idle'} onPress={() => openMenu('mode')}><ListChecks size={15} color={settings?.collaborationMode === 'plan' ? c.accent : c.muted} /><Text style={s.pillText}>{settings?.collaborationMode === 'plan' ? 'Plan' : '默认'}</Text></Pressable>}
           <View style={s.spacer} /><ModelEffortPicker key={`model:${deviceId}:${threadId}`} model={settings?.model} effort={settings?.reasoningEffort} options={catalog?.models ?? []} enabled={ready && thread?.status === 'idle'} busy={busy} onModelChange={changeModel} onEffortChange={changeEffort} />
           <Pressable accessibilityRole="button" accessibilityLabel={stopMode ? '停止当前任务' : thread?.status === 'active' ? '添加到待发送' : '发送消息'} disabled={!ready || busy || images.some(image => image.loading || !!image.error) || files.some(file => file.loading || !!file.error || !file.id)} onPress={submit} style={[s.send, stopMode && s.stop, (!ready || busy) && s.disabled]}>{busy ? <ActivityIndicator color="#fff" size="small" /> : stopMode ? <Square size={18} color="#fff" fill="#fff" /> : <ArrowUp size={20} color="#fff" />}</Pressable></View>

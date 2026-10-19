@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { validateRelayUrl, type AgentCredentials } from '../../pc-agent/src/auth.js';
 import type { AgentStatus, Settings, ViewState } from './types.js';
 import { canonicalProjectParents } from '../../pc-agent/src/project-directories.js';
+import { NEVER_EXPIRES_AT } from '../../../packages/shared/src/session-policy.js';
 
 export interface Vault { available(): boolean; read(): Promise<AgentCredentials | null>; write(value: AgentCredentials): Promise<void>; clear(): Promise<void> }
 export interface Worker { start(credentials: AgentCredentials, settings: Settings): Promise<void>; disconnect(): Promise<void>; reconnect(): Promise<void>; stop(): Promise<void> }
@@ -39,9 +40,9 @@ export class ConnectorController extends EventEmitter {
   async initialize() {
     try {
       const credentials = await this.vault.read();
-      if (credentials && credentials.expiresAt > Date.now() && credentials.installationId === this.view.settings.installationId && credentials.relayUrl === this.view.settings.relayUrl) {
+      if (credentials?.session && credentials.installationId === this.view.settings.installationId && credentials.relayUrl === this.view.settings.relayUrl) {
         this.credentials = credentials; this.publish({ loggedIn: true, phase: 'disconnected', expiresAt: credentials.expiresAt });
-        if (this.view.settings.autoConnect) await this.connect();
+        if (this.view.settings.autoConnect) await this.connect().catch(() => undefined);
       } else if (credentials) await this.vault.clear();
     } catch { this.publish({ error: '无法恢复系统加密的登录状态，请重新登录。' }); }
   }
@@ -91,12 +92,37 @@ export class ConnectorController extends EventEmitter {
       throw new Error(error instanceof Error && error.message.endsWith('。') ? error.message : '登录失败，请检查服务器地址和网络后重试。');
     } finally { clearTimeout(timer); this.loginAbort = undefined; }
   }); }
-  private async revoke(credentials: AgentCredentials) { await fetch(new URL('/v1/auth/logout', credentials.relayUrl), { method: 'POST', redirect: 'error', headers: { authorization: `Bearer ${credentials.session}` }, signal: AbortSignal.timeout(5000) }); }
+  private async revoke(credentials: AgentCredentials) { const response = await fetch(new URL('/v1/auth/logout', credentials.relayUrl), { method: 'POST', redirect: 'error', headers: { authorization: `Bearer ${credentials.session}`, 'x-device-id': credentials.deviceId }, signal: AbortSignal.timeout(5000) }); if (!response.ok) throw new Error('logout-rejected'); }
   private async clearLogin() { const credentials = this.credentials; this.credentials = null; await this.credentialClearing; await this.vault.clear(); this.publish({ loggedIn: false, phase: 'signed-out', expiresAt: null }); if (credentials) await this.revoke(credentials).catch(() => this.log('logout-server-unreachable')); }
   async logout() { await this.operation(async () => { await this.disconnect(); await this.clearLogin(); this.log('account-logged-out'); }); }
   private async startConnection() {
-    if (!this.credentials || this.credentials.expiresAt <= Date.now()) throw new Error('请先登录账号。');
-    const generation = this.generation; this.paused = false; this.publish({ phase: 'connecting' });
+    if (!this.credentials) throw new Error('请先登录账号。');
+    const generation = this.generation, credentials = this.credentials;
+    // The administrator can extend an existing login after its cached expiry.
+    // Authentication and the current expiry are authoritative on the server.
+    let response: Response;
+    try {
+      response = await fetch(new URL(`/v1/agent/${encodeURIComponent(credentials.deviceId)}/session`, credentials.relayUrl), { headers: { authorization: `Bearer ${credentials.session}` }, redirect: 'error', signal: AbortSignal.timeout(10000) });
+    } catch { throw new Error('无法确认登录状态，请检查网络后重试。'); }
+    if (generation !== this.generation || this.credentials !== credentials) return;
+    if (response.status === 401) {
+      this.credentials = null; this.paused = true;
+      if (this.workerStarted) await this.worker.disconnect();
+      await this.vault.clear();
+      this.publish({ loggedIn: false, phase: 'signed-out', expiresAt: null });
+      throw new Error('登录已失效，请重新登录；本机任务会继续运行。');
+    }
+    if (!response.ok) throw new Error('无法确认登录状态，请检查服务器后重试。');
+    const session = z.object({ active: z.literal(true), expiresAt: z.number().int().positive().max(NEVER_EXPIRES_AT).optional() }).parse(await response.json());
+    if (generation !== this.generation || this.credentials !== credentials) return;
+    if (session.expiresAt !== undefined && session.expiresAt !== credentials.expiresAt) {
+      const updated = { ...credentials, expiresAt: session.expiresAt };
+      await this.vault.write(updated);
+      if (this.credentials !== credentials) { await this.credentialClearing; await this.vault.clear(); return; }
+      this.credentials = updated; this.publish({ expiresAt: updated.expiresAt });
+    }
+    if (generation !== this.generation) return;
+    this.paused = false; this.publish({ phase: 'connecting' });
     if (this.workerStarted) await this.worker.reconnect();
     else { this.workerStarted = true; try { await this.worker.start(this.credentials, this.view.settings); } catch { await this.worker.stop().catch(() => undefined); this.workerStarted = false; this.paused = true; this.publish({ phase: 'disconnected' }); throw new Error('本机服务启动失败，请查看诊断。'); } }
     if (generation !== this.generation) await this.worker.disconnect();

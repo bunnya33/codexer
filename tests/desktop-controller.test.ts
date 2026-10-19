@@ -13,7 +13,7 @@ function fixture() {
   const vault: Vault = { available: () => true, read: async () => value, write: vi.fn(async next => { value = next; }), clear: vi.fn(async () => { value = null; }) };
   const worker: Worker = { start: vi.fn(async () => undefined), stop: vi.fn(async () => undefined), disconnect: vi.fn(async () => undefined), reconnect: vi.fn(async () => undefined) };
   const persist = vi.fn(async () => undefined), controller = new ConnectorController(vault, worker, settings, persist);
-  vi.stubGlobal('fetch', vi.fn(async (url: URL) => new Response(JSON.stringify(url.pathname.endsWith('login') ? { session: 'synthetic-session-secret', expiresAt: Date.now() + 100000, deviceId: randomUUID() } : { loggedOut: true }), { status: 200 })));
+  vi.stubGlobal('fetch', vi.fn(async (url: URL) => new Response(JSON.stringify(url.pathname.endsWith('login') ? { session: 'synthetic-session-secret', expiresAt: Date.now() + 100000, deviceId: randomUUID() } : url.pathname.endsWith('/session') ? { active: true } : { loggedOut: true }), { status: 200 })));
   return { vault, worker, persist, controller, settings, read: () => value };
 }
 afterEach(() => vi.unstubAllGlobals());
@@ -93,4 +93,43 @@ it('does not reconnect if disconnected while writing the final login settings', 
   persist.mockImplementationOnce(async () => { await new Promise<void>(resolve => { release = resolve; }); });
   const login = controller.login('member','password'); await vi.waitFor(() => expect(release).toBeTypeOf('function'));
   await controller.disconnect(); release(); await login; expect(read()).toBeNull(); expect(worker.start).not.toHaveBeenCalled();
+});
+
+it('restores a login extended on the server despite an expired local timestamp', async () => {
+  const { vault, worker, settings, controller, read } = fixture();
+  await controller.login('member', 'password'); await controller.shutdown();
+  const saved = { ...read()!, expiresAt: Date.now() - 1 };
+  vi.mocked(worker.start).mockClear(); vi.mocked(vault.clear).mockClear();
+  const renewedExpiry = 8640000000000000;
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ active: true, expiresAt: renewedExpiry }))));
+  const restored = new ConnectorController({ ...vault, read: async () => saved }, worker, { ...settings, autoConnect: true }, async () => undefined);
+  await restored.initialize();
+  expect(restored.state()).toMatchObject({ loggedIn: true, expiresAt: renewedExpiry });
+  expect(vault.write).toHaveBeenLastCalledWith({ ...saved, expiresAt: renewedExpiry });
+  expect(worker.start).toHaveBeenCalledWith({ ...saved, expiresAt: renewedExpiry }, expect.anything());
+  expect(vault.clear).not.toHaveBeenCalled();
+});
+
+it('clears saved authentication only on an authoritative rejection, preserving it on network failures', async () => {
+  const { controller, vault, worker } = fixture();
+  await controller.login('member', 'password'); controller.update({ ...idle, activeTasks: 1 });
+  await controller.disconnect(); vi.mocked(vault.clear).mockClear();
+  vi.mocked(fetch).mockRejectedValueOnce(new TypeError('offline'));
+  await expect(controller.connect()).rejects.toThrow('检查网络');
+  expect(controller.state().loggedIn).toBe(true); expect(vault.clear).not.toHaveBeenCalled();
+  vi.mocked(fetch).mockResolvedValueOnce(new Response('{}', { status: 401 }));
+  await expect(controller.connect()).rejects.toThrow('登录已失效');
+  expect(controller.state().loggedIn).toBe(false); expect(vault.clear).toHaveBeenCalledOnce();
+  expect(worker.stop).not.toHaveBeenCalled();
+});
+
+it('does not resume a connection cancelled during server verification', async () => {
+  const { controller, worker } = fixture(); await controller.login('member', 'password');
+  await controller.disconnect(); vi.mocked(worker.reconnect).mockClear();
+  let resolve!: (response: Response) => void;
+  vi.mocked(fetch).mockImplementationOnce(async () => await new Promise<Response>(done => { resolve = done; }));
+  const connecting = controller.connect(); await vi.waitFor(() => expect(resolve).toBeTypeOf('function'));
+  await controller.disconnect(); resolve(new Response(JSON.stringify({ active: true, expiresAt: 8640000000000000 })));
+  await connecting;
+  expect(controller.state().phase).toBe('disconnected'); expect(worker.reconnect).not.toHaveBeenCalled();
 });

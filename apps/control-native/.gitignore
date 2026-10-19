@@ -1,0 +1,20 @@
+windows/x64/
+windows/ARM64/
+windows/Debug/
+windows/Release/
+windows/RelayDesk/x64/
+windows/RelayDesk/ARM64/
+windows/RelayDesk/Bundle/
+windows/RelayDesk/Generated Files/
+windows/RelayDesk/obj/
+windows/RelayDesk.Package/bin/
+windows/RelayDesk.Package/obj/
+windows/.vs/
+windows/packages/
+service/
+*.log
+*.binlog
+*.user
+release/
+stage/
+stage-smoke-pid.txt
