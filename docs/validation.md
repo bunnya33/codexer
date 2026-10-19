@@ -12,6 +12,8 @@ PATH 仅含系统目录时，包内 Electron 44.5.1 / Node 24.21.0 的 SQLite �
 
 ## 已验证的行为
 
+服务器 [v0.3.14 Release](https://github.com/bunnya33/codexer/releases/tag/v0.3.14) 已发布，标签对应 `8d2e269`。GitHub Actions 的完整 Linux/PostgreSQL 测试、类型及文档检查、Go race、生产构建、独立二进制和四平台打包全部通过。8 个发布文件齐全，四个平台校验文件与 GitHub SHA256 元数据一致；实际下载的 Linux amd64 包通过 SHA256、版本清单、ELF 架构、0755 权限及私密文件排除检查。本次发布更新包，未连接或重启远程生产服务器；后台准备并安装此版本、重启服务器后刷新网页生效。
+
 2026-10-19 服务器 `0.3.14`：修复在底部发送三行消息后，输入框收缩与新消息高度回调交错导致的自动跟随中断。新增四项回归覆盖延迟回调、内容临时收缩、真实上翻和尺寸稳定后的滚动条拖动；相关 72 项测试、根项目及移动端类型、Go 测试、文档、生产 Web/Admin 与内嵌 Go 构建、独立二进制页面验收通过。
 
 Windows 本地完整 Vitest 回归中 353/354 项通过；既有的 macOS 用户 Applications 目录查找测试在模拟 darwin 时仍使用 Windows `path.join`，路径分隔符导致一项失败，该测试与产品逻辑均未在本次修改。完整 Linux/PostgreSQL 及 Go race 结果以服务器发布工作流为准。
