@@ -38,6 +38,35 @@ async function conversationFixture() {
   return dom;
 }
 
+it('pauses on scrollbar track clicks and thumb drags while leaving content clicks alone', async () => {
+  const dom = await conversationFixture();
+  try {
+    const { window } = dom, document = window.document;
+    const stream = document.querySelector('[data-testid="conversation-stream"]') as HTMLElement;
+    Object.defineProperties(stream, { scrollHeight: { value: 2000 }, clientHeight: { value: 500 }, offsetWidth: { value: 390 }, clientWidth: { value: 380 } });
+    stream.getBoundingClientRect = () => ({ top: 0, left: 0, right: 390, bottom: 500, width: 390, height: 500, x: 0, y: 0, toJSON() {} });
+    stream.scrollTop = 1500;
+    const pointer = (type: string, x: number, y: number, buttons = 1) => {
+      const event = new window.Event(type, { bubbles: true });
+      Object.assign(event, { pointerId: 1, pointerType: 'mouse', button: 0, buttons, clientX: x, clientY: y });
+      stream.dispatchEvent(event);
+    };
+    pointer('pointerdown', 100, 250);
+    pointer('pointermove', 100, 100);
+    expect(document.querySelector('[data-testid="scroll-intents"]')!.textContent).toBe('滚动意图：0');
+    // Clicking the thumb does not pause until the pointer actually moves.
+    pointer('pointerdown', 387, 450);
+    stream.scrollTop = 1400;
+    stream.dispatchEvent(new window.Event('scroll', { bubbles: false }));
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="following"]')!.textContent).toBe('自动跟随：false'));
+    pointer('pointermove', 387, 460);
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="following"]')!.textContent).toBe('自动跟随：true'));
+    pointer('pointerup', 387, 460, 0);
+    pointer('pointerdown', 387, 100);
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="following"]')!.textContent).toBe('自动跟随：false'));
+  } finally { dom.window.close(); }
+});
+
 it('keeps following after downward wheel and keyboard input at the bottom without a scroll event', async () => {
   const dom = await conversationFixture();
   try {

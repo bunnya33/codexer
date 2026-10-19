@@ -1,5 +1,5 @@
 import { ThemeProvider } from './src/theme';
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, AppState, FlatList, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -175,6 +175,11 @@ function AppContent() {
   const turns = useMemo(() => {
     return mergeTurnHistory(history?.turns ?? [], thread?.turns ?? []);
   }, [history?.turns, thread?.turns]);
+  // Preserve the pre-update follow state across card insertion. Size callbacks
+  // repeat this after virtualized rows and asynchronous content are measured.
+  useLayoutEffect(() => {
+    if (scrollPosition.current.shouldFollow) scrollToBottom();
+  }, [turns, thread?.requests, scrollToBottom]);
   const galleryContext = useRef({ turns, deviceId, threadId });
   galleryContext.current = { turns, deviceId, threadId };
   const openImage = useCallback((source: ImagePreview['source'], name: string) => {
@@ -382,7 +387,9 @@ function AppContent() {
           const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
           const previousOffset = scrollPosition.current.metrics.offset;
           setShowJumpToBottom(scrollPosition.current.readScroll({height: contentSize.height, offset: contentOffset.y, viewport: layoutMeasurement.height}));
-          if (contentOffset.y < previousOffset - 1 && scrollPosition.current.nearTop) loadEarlierRef.current();
+          if (scrollPosition.current.shouldFollow) {
+            if (contentSize.height - layoutMeasurement.height - contentOffset.y > 1) scrollToBottom();
+          } else if (contentOffset.y < previousOffset - 1 && scrollPosition.current.nearTop) loadEarlierRef.current();
         }} scrollEventThrottle={32}
         onScrollBeginDrag={Platform.OS === 'web' ? undefined : () => markScrollIntent()}
         onLayout={event => {
