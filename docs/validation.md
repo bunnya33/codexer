@@ -1,5 +1,13 @@
 # 当前 Go 迁移验证
 
+## 2026-10-20 Android 控制端 APK
+
+基于服务器源码 `0.3.16` 构建 Android 控制端 `0.1.0`（versionCode 1），包名 `com.bunnya33.codexer.remote`。React Native 原生 release 构建通过，包含三套皮肤及长消息底部跟随修复；ARM64 手机与 x86_64 模拟器共用安装包，最低 Android 7.0（API 24）。使用独立 RSA 3072 发布密钥完成 APK v2 签名，未使用模板 debug 密钥；签名、SHA256、16 KB ZIP 对齐、非调试 Manifest、HTTP 兼容标志、权限排除、双 ABI 原生库及内置 Hermes 字节码检查通过。移动端类型与文档检查通过。
+
+输出 `release/android-0.1.0/Codexer-Control-0.1.0.apk`，57,132,666 字节，SHA256 为 `6d5cddb5dc4064eabe170d866a1aed00fd4e706dbf2484f9c5551cd42c0d0bde`。密钥和 DPAPI 保护的密码保留在源码目录外，未放入交付目录。
+
+本机新建的独立 Android 36.1 模拟器在安装应用前即发生 SurfaceFlinger 图形服务崩溃（`hasReadColorBufferDma` 断言），切换图形后端后仍未恢复，因此本轮未完成安装、启动、登录及原生交互验收。未操作用户手机或真实账号；隔离模拟器和合成服务已停止。APK 包检查不代替真机手势、后台联网、权限、上传和媒体行为验收。
+
 ## 2026-10-19 长消息底部跟随
 
 服务器 `0.3.16` 将跟随状态与插入后的几何位置分离，移除被动位置回退暂停和 clamp 容差推断。54 项滚动、实际 App、设置与选择回归通过，根项目及移动端类型检查通过。新增回归覆盖大于一屏的卡片、乱序的旧尺寸回调、实际列表 8000／20000px 内容更新、主动上翻优先，以及没有 pointermove 的原生滚动条拖动。
@@ -164,7 +172,7 @@ Windows `0.1.2` 打包后的真实 utilityProcess + 临时 Relay + FakeDesktop �
 | --- | --- |
 | Windows | 本地打包和窗口验证；发行签名、全新机器安装/卸载、系统登录项注册与实际官方 Codex 版本任务验收；隔离测试跳过真实登录项修改 |
 | macOS | Apple Silicon `0.1.9` DMG/ZIP、本地签名、包内 Node/SQLite、隔离配置下应用启动、Codex 自动发现和真实 IPC 握手已验证；新版完整远程任务、Keychain、登录项、休眠、Intel 与发行签名/公证仍需验收 |
-| Android/iOS | 类型和 JS 导出；真实 APK/IPA、设备手势、后台联网、系统权限和商店发行未验收 |
+| Android/iOS | Android 签名 release APK、Manifest、双 ABI、Hermes 与 16 KB ZIP 对齐已检查；Android 安装/运行与真机交互未完成，iOS IPA、后台联网、系统权限和商店发行未验收 |
 | Linux systemd | 真实 systemd 非 root 构建沙箱和隔离分步更新通过；实际安装器首装/升级、生产 Relay unit、arm64 和断电恢复仍需验收 |
 | Docker/HTTPS | Dockerfile/Compose/Caddy 配置；需要具备 Docker 的环境及真实域名证书验收 |
 

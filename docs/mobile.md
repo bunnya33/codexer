@@ -51,7 +51,13 @@ Web 输出 `apps/web/dist` 并随服务器发布。`mobile:export` 导出 iOS/An
 
 服务器 `0.3.6` 的网页客户端在当前浏览器保存选中的设备和会话，刷新、关闭后重新打开以及同账号重新登录时恢复。记录按服务器和账号隔离，不会同步到其他浏览器。列表加载完成前不会用默认项覆盖记录；离线设备仍保留，设备移除或会话删除/归档后回到可用项。原生 App 的选择仍仅保存在内存中。
 
-Android 内测 APK：在 `apps/mobile` 执行 `npx eas-cli build --platform android --profile preview`。iOS 使用 EAS/Apple Developer 或 macOS/Xcode 完成签名和设备分发。云构建与商店发布由维护者自行操作；本次没有发布 App 或生成商店包。
+Android 内测 APK：在 `apps/mobile` 执行 `npx eas-cli build --platform android --profile preview`；也可用本机 Android SDK、JDK 21 和 `npx expo prebuild --platform android --no-install` 生成工程，再执行 Gradle `:app:assembleRelease`。本机发布构建必须将生成工程的 release signingConfig 改为维护者的专用密钥，不得沿用模板中的 debug 签名。密钥和密码只保存在源码目录外，后续更新沿用同一密钥。生成工程及本机构建配置不提交仓库。
+
+Android 配置通过 `expo-build-properties` 将 HTTP 兼容设置写入实际 Manifest，并关闭不使用的录音和悬浮窗权限。首次本机构建使用 NDK 27.3.13750724、CMake 3.22.1 和项目内 Ninja 1.13.1；Windows 深层工作树需复制到短路径后重新生成原生构建缓存，避免 CMake 依赖文件超过路径限制后不断重新生成。单纯映射盘符仍可能被自动链接还原成长路径。没有替换共享 SDK 的工具。
+
+2026-10-20 已生成签名 release APK `release/android-0.1.0/Codexer-Control-0.1.0.apk`，最低 Android 7.0，包含 ARM64 与 x86_64。界面和 Hermes 代码随安装包交付，不依赖 Metro 或服务器网页；连接 Relay 后使用现有控制端账号登录。本轮包检查通过，模拟器系统图形服务异常导致安装和运行验收未完成，具体范围见 [验证记录](validation.md)。
+
+iOS 使用 EAS/Apple Developer 或 macOS/Xcode 完成签名和设备分发。云构建与商店发布由维护者自行操作，本地 APK 不代表商店发布或 iOS 验收。
 
 ## 网络和平台范围
 

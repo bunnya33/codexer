@@ -16,7 +16,7 @@
     },
     "android": {
       "package": "com.bunnya33.codexer.remote",
-      "usesCleartextTraffic": true,
+      "blockedPermissions": ["android.permission.RECORD_AUDIO", "android.permission.SYSTEM_ALERT_WINDOW"],
       "adaptiveIcon": {
         "backgroundColor": "#192426",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -25,7 +25,11 @@
       },
       "predictiveBackGestureEnabled": false
     },
-    "plugins": ["expo-secure-store", "expo-image-picker"],
+    "plugins": [
+      "expo-secure-store",
+      ["expo-image-picker", { "microphonePermission": false }],
+      ["expo-build-properties", { "android": { "usesCleartextTraffic": true } }]
+    ],
     "web": {
       "favicon": "./assets/favicon.png",
       "bundler": "metro",
