@@ -373,7 +373,7 @@ function AppContent() {
   return <View style={s.safe}><StatusBar style={theme.dark ? "light" : "dark"} />
     <FileViewerProvider deviceId={deviceId} threadId={threadId}><PreviewContext.Provider value={{deviceId, threadId}}><ConversationDrawer wide={wide} open={drawerOpen} onOpenChange={setDrawerOpen} directory={directory}>
     <SafeAreaView style={s.page} edges={['top', 'left', 'right', 'bottom']}>
-    <KeyboardAvoidingView style={s.page} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView style={s.page} behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}>
       <DrawerSwipeArea>
       <ConversationHeader title={summary?.title ?? thread?.title ?? 'Codexer'} subtitle={`${project?.name ?? device?.name ?? '选择设备'}${threadId ? ` · ${thread?.status === 'active' ? '进行中' : thread?.status === 'idle' ? '空闲' : '接入中'}` : ''}`}
         deviceId={deviceId} threadId={threadId} agents={conversationSubAgents(thread, turns)} supported={!!snapshot?.runtime.capabilities.subAgents}

@@ -43,6 +43,44 @@ beforeEach(() => {
 });
 afterEach(() => { client.disconnect(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
+it('logs in when the native AbortSignal has no static timeout method', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('AbortSignal', class {});
+  await client.connect('http://192.0.2.10:8899', 'test', 'test-password-12345');
+  expect(client.getSnapshot()).toMatchObject({ userId: 'user-test', devicesReady: true });
+  const login = vi.mocked(fetch).mock.calls.find(([input]) => String(input).endsWith('/v1/auth/login'))!;
+  expect(login[1]?.signal?.aborted).toBe(false);
+  expect(saveCredentials).toHaveBeenCalled();
+  client.disconnect();
+  await vi.advanceTimersByTimeAsync(10000);
+  expect(login[1]?.signal?.aborted).toBe(false);
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it('reports rejected credentials without retaining the native login deadline', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('AbortSignal', class {});
+  vi.mocked(fetch).mockResolvedValueOnce(new Response('{}', { status: 401 }));
+  await expect(client.connect('http://192.0.2.10:8899', 'test', 'wrong-password')).rejects.toThrow('账号或密码错误');
+  expect(client.getSnapshot()).toMatchObject({ phase: 'locked', notice: '账号或密码错误' });
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it('aborts a stalled native login after ten seconds and releases its deadline', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('AbortSignal', class {});
+  vi.mocked(fetch).mockImplementationOnce((_input, options) => new Promise((_resolve, reject) => {
+    options!.signal!.addEventListener('abort', () => reject(new Error('request-aborted')), { once: true });
+  }));
+  const failed = expect(client.connect('http://192.0.2.10:8899', 'test', 'test-password-12345')).rejects.toThrow('request-aborted');
+  await vi.advanceTimersByTimeAsync(9999);
+  expect(vi.mocked(fetch).mock.calls[0]![1]?.signal?.aborted).toBe(false);
+  await vi.advanceTimersByTimeAsync(1);
+  await failed;
+  expect(client.getSnapshot()).toMatchObject({ phase: 'locked', notice: 'request-aborted' });
+  expect(vi.getTimerCount()).toBe(0);
+});
+
 async function connectedSocket() {
   await client.connect('http://192.0.2.10:8899', 'test', 'test-password-12345');
   expect(client.getSnapshot()).toMatchObject({ userId: 'user-test', devicesReady: true });

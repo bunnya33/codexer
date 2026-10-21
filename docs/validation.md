@@ -1,5 +1,11 @@
 # 当前 Go 迁移验证
 
+## 2026-10-21 Android 样式与键盘布局
+
+Android 控制端 `0.1.1`（versionCode 2）release 构建通过。76 项相关测试、React Native 类型检查和 Web 生产导出通过；新增测试覆盖原生滑块点击、拖动、取消、禁用、端点和无障碍操作，以及弹窗在安全区域、窄屏和缩小视口内的定位。包签名、16 KB ZIP 对齐、双 ABI、内置 Hermes 字节码、非调试 Manifest、HTTP 标志和权限检查通过。输出 `release/android-0.1.1/Codexer-Control-0.1.1.apk`，57,138,478 字节，SHA256 `c6d16ecbbc3cf31dc35c6ae86e08e40fcccc661cd1be7fb6c08d8b8ee42dbde4`。
+
+改用独立 Android 15（API 35）模拟器，完成旧版至新版覆盖安装、合成账号登录及重启后登录／皮肤恢复。实际触摸验证强度点击至 ultra、拖动至 low、模型切换及命令保存；检查默认、暖白纸张、暖棕暗色设置页、模型／附件菜单、代码和差异配色。发现并修复键盘遮住输入框，以及打开菜单后键盘收起导致旧按钮坐标残留的问题，最终包复测通过；崩溃日志为空。测试服务仅使用合成数据，没有连接真实账号或操作 PC Agent。Web 本轮完成组件回归和导出，浏览器工具调用超时，未完成额外的真实浏览器验收。真机厂商字体、触摸、后台联网、权限和媒体行为未在本轮验证。
+
 ## 2026-10-20 Android 控制端 APK
 
 基于服务器源码 `0.3.16` 构建 Android 控制端 `0.1.0`（versionCode 1），包名 `com.bunnya33.codexer.remote`。React Native 原生 release 构建通过，包含三套皮肤及长消息底部跟随修复；ARM64 手机与 x86_64 模拟器共用安装包，最低 Android 7.0（API 24）。使用独立 RSA 3072 发布密钥完成 APK v2 签名，未使用模板 debug 密钥；签名、SHA256、16 KB ZIP 对齐、非调试 Manifest、HTTP 兼容标志、权限排除、双 ABI 原生库及内置 Hermes 字节码检查通过。移动端类型与文档检查通过。

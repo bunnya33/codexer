@@ -61,11 +61,11 @@ export function ModelEffortPicker({ model, effort, options, enabled, busy, onMod
 
 const useLocalStyles = themedStyles(c => StyleSheet.create({
   button: { height: 32, maxWidth: 250, paddingHorizontal: 8, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 5 },
-  model: { flexShrink: 1, color: c.text, fontSize: 13 }, effort: { color: c.muted, fontSize: 13 },
-  strengthPanel: { padding: 6, paddingBottom: 8 }, strength: { textAlign: 'center', color: c.slider, fontSize: 21, fontWeight: '600', marginTop: 2 },
-  modelLink: { alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 3, minHeight: 30, marginBottom: 4 }, modelLinkText: { color: c.muted, fontSize: 14 },
+  model: { flexShrink: 1, color: c.text, fontSize: 13, lineHeight: 18, includeFontPadding: false }, effort: { color: c.muted, fontSize: 13, lineHeight: 18, includeFontPadding: false },
+  strengthPanel: { padding: 6, paddingBottom: 8 }, strength: { textAlign: 'center', color: c.slider, fontSize: 21, lineHeight: 26, includeFontPadding: false, fontWeight: '600', marginTop: 2 },
+  modelLink: { alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 3, minHeight: 30, marginBottom: 4 }, modelLinkText: { color: c.muted, fontSize: 14, lineHeight: 20, includeFontPadding: false },
   unavailable: { color: c.muted, fontSize: 12, textAlign: 'center', paddingVertical: 14 },
-  heading: { color: c.muted, fontSize: 13, paddingHorizontal: 10, paddingTop: 4, paddingBottom: 8 },
-  models: { flexGrow: 0, maxHeight: 360 }, modelOption: { minHeight: 42, paddingHorizontal: 10, borderRadius: 10, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  optionText: { flex: 1, color: c.text, fontSize: 15 },
+  heading: { color: c.muted, fontSize: 13, lineHeight: 18, includeFontPadding: false, paddingHorizontal: 10, paddingTop: 4, paddingBottom: 8 },
+  models: { flexGrow: 0, flexShrink: 1, minHeight: 0, maxHeight: 360 }, modelOption: { minHeight: 42, paddingHorizontal: 10, borderRadius: 10, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  optionText: { flex: 1, color: c.text, fontSize: 15, lineHeight: 22, includeFontPadding: false },
 }));

@@ -57,6 +57,8 @@ Android 配置通过 `expo-build-properties` 将 HTTP 兼容设置写入实际 M
 
 2026-10-20 已生成签名 release APK `release/android-0.1.0/Codexer-Control-0.1.0.apk`，最低 Android 7.0，包含 ARM64 与 x86_64。界面和 Hermes 代码随安装包交付，不依赖 Metro 或服务器网页；连接 Relay 后使用现有控制端账号登录。本轮包检查通过，模拟器系统图形服务异常导致安装和运行验收未完成，具体范围见 [验证记录](validation.md)。
 
+2026-10-21 Android `0.1.1`（versionCode 2）统一模型／强度选择器的粗轨道、圆形滑块、刻度、文字行高和主题配色；模型与附件菜单按自身窗口、安全区域和按钮坐标定位。原生菜单使用皮肤实体背景，Web 保留玻璃背景；原生不模拟浏览器的背景模糊。设置等弹窗遮罩随皮肤切换。Android 输入区及对话弹窗增加键盘避让，菜单在键盘布局更新后重新测量。此包同时包含不依赖 `AbortSignal.timeout` 的原生登录兼容修复。安装 `release/android-0.1.1/Codexer-Control-0.1.1.apk` 即可生效，无需更新 Relay 或 PC Agent；沿用原发布密钥，可覆盖旧包。已在独立 Android 15 模拟器验证安装、登录、强度点击／拖动保存、模型切换、三套皮肤、键盘及菜单布局；硬件和系统媒体行为另需真机验收。
+
 iOS 使用 EAS/Apple Developer 或 macOS/Xcode 完成签名和设备分发。云构建与商店发布由维护者自行操作，本地 APK 不代表商店发布或 iOS 验收。
 
 ## 网络和平台范围

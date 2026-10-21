@@ -108,7 +108,7 @@ const useBaseStyles = themedStyles(c => StyleSheet.create({
   directorySectionTitle: { color: c.text, fontSize: 13, fontWeight: '600' },
   drawerFooter: { minHeight: 58, paddingHorizontal: 12, borderTopWidth: 1, borderColor: c.line, flexDirection: 'row', alignItems: 'center' },
   drawerStatus: { flex: 1, paddingLeft: 7, color: c.muted, fontSize: 12 }, chevronDown: { transform: [{ rotate: '90deg' }] },
-  modalHeader: { minHeight: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, modalTitle: { color: c.text, fontSize: 17, fontWeight: '700' },
+  modalHeader: { minHeight: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, modalTitle: { color: c.text, fontSize: 17, lineHeight: 24, includeFontPadding: false, fontWeight: '700' },
   menuOption: { minHeight: 48, borderTopWidth: 1, borderColor: c.line, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   menuText: { flex: 1, color: c.text, fontSize: 14 }, dangerText: { flex: 1, color: c.danger, fontSize: 14 }, optionList: { flexGrow: 0 },
   viewer: { flex: 1, backgroundColor: '#101616' }, viewerHeader: { minHeight: 65, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, viewerTitle: { flex: 1, color: '#fff', fontSize: 14 },
