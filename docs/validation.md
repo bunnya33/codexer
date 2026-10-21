@@ -8,6 +8,8 @@ Web/Admin/Go 与 Mac 生产构建、空目录单文件服务器检查通过。�
 
 Mac ARM64 DMG/ZIP、SHA256、严格签名及包内 7 个资源一致性检查通过。已停止旧 Codexer 进程、备份旧应用并替换 `/Applications/Codexer.app` 为 `0.1.15`，原加密登录和设置校验值相同，仅一个新主进程。本次启动采样停在 `SecItemCopyMatching`，电脑处于锁屏状态，尚无启动后的连接日志；需解锁并处理钥匙串授权，不能把旧状态文件视为新版已连接。本地包为 ad-hoc 签名，未 Apple 公证。
 
+服务器 [v0.3.17 Release](https://github.com/bunnya33/codexer/releases/tag/v0.3.17) 已发布，标签对应 `fbdd6ae`。[发布工作流 39693195163](https://github.com/bunnya33/codexer/actions/runs/39693195163) 的完整 Linux/PostgreSQL 测试、类型/文档、Go race、生产构建、单文件服务器和四平台打包均成功。8 个附件齐全，四份校验文件与 GitHub SHA256 元数据一致；实际下载的 Linux amd64 包通过 SHA256、版本清单、ELF x86-64、0755 权限与私有文件排除检查。本次发布更新包，尚未安装或重启远程生产服务器。
+
 ## 2026-10-21 Codex 压缩会话兼容
 
 本机 Codex `0.162.0-alpha.17.2` 将较旧的 rollout 保存为 `.jsonl.zst`，但 `thread/read` 和会话索引仍给出不存在的 `.jsonl` 路径，旧 PC 连接器据此报 `headless-settings-unreadable`。只读检查确认六个实际压缩会话可通过修复后的读取器取得原有设置；未解压改写官方历史，也未发送真实模型任务。
