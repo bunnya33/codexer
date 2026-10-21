@@ -7,12 +7,47 @@ import { HeadlessAdapter, matchesSettings, savedSettings } from "../packages/cod
 import { normalizeThread, record } from "../packages/codex-adapter/src/normalize.js";
 import { command } from "./helpers.js";
 import { parseQuestionReplies } from '../packages/protocol/src/user-presentation.js';
+import {permissionPreset, permissionSettings} from '../packages/codex-adapter/src/permissions.js';
 
 const directories: string[] = [];
 const sessionMeta = (id: string) => JSON.stringify({ type: "session_meta", payload: { id } }) + "\n";
 afterEach(async () => { for (const path of directories.splice(0)) await rm(path, { recursive: true, force: true }); });
 
 describe("headless thread settings", () => {
+  it('keeps remotely selected permissions for the next turn instead of restoring the old rollout policy', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'codexer-permissions-')); directories.push(home);
+    const sessions = join(home, 'sessions'); await mkdir(sessions);
+    const path = join(sessions, 'rollout-test-thread.jsonl');
+    await writeFile(path, sessionMeta('test-thread') + JSON.stringify({type: 'turn_context', payload: {model: 'gpt-test', effort: 'high', approval_policy: 'on-request', approvals_reviewer: 'user', sandbox_policy: {type: 'read-only'}, cwd: home, workspace_roots: [home]}}) + '\n');
+    const adapter = new HeadlessAdapter(), initial = permissionPreset('read-only', [home]);
+    const settings = new Map([['test-thread', initial]]);
+    const metadata = {id: 'test-thread', path, model: 'gpt-test', modelProvider: 'provider', cwd: home};
+    adapter.watched.set('test-thread', normalizeThread({...metadata, latestThreadSettings: initial, threadRuntimeStatus: {type: 'idle'}, turns: []}, 0));
+    const request = vi.fn(async (method: string, params: Record<string, unknown>) => {
+      if (method === 'thread/read') return {thread: metadata};
+      if (method === 'thread/resume') return {...params, sandbox: params.sandbox === 'danger-full-access' ? {type: 'dangerFullAccess'} : {type: 'readOnly'}};
+      if (method === 'thread/settings/update') {
+        // Official response is empty; effective settings arrive separately.
+        settings.set('test-thread', {...initial, ...params}); return {};
+      }
+      if (method === 'turn/start') return {turn: {id: 'new-turn'}};
+      return {};
+    });
+    Object.assign(adapter, {connected: true, settings, rpc: {request, stop: async () => {}}});
+    vi.spyOn(adapter, 'follow').mockImplementation(async () => {
+      adapter.watched.set('test-thread', normalizeThread({...metadata, latestThreadSettings: settings.get('test-thread'), threadRuntimeStatus: {type: 'idle'}, turns: []}, 0)); return true;
+    });
+    vi.stubEnv('CODEX_HOME', home);
+    try {
+      await expect(adapter.execute(command({type: 'thread.permissions.update', threadId: 'test-thread', mode: 'full-access', expectedPermissions: permissionSettings(initial)!.fingerprint}))).resolves.toMatchObject({permissions: {mode: 'full-access'}});
+      await adapter.execute(command({type: 'turn.start', threadId: 'test-thread', text: 'Test'}));
+      const resumes = request.mock.calls.filter(([method]) => method === 'thread/resume');
+      expect(resumes).toHaveLength(2);
+      expect(resumes[0]![1]).toMatchObject({sandbox: 'read-only', approvalPolicy: 'on-request'});
+      expect(resumes[1]![1]).toMatchObject({sandbox: 'danger-full-access', approvalPolicy: 'never', approvalsReviewer: 'user', runtimeWorkspaceRoots: [home], model: 'gpt-test', modelProvider: 'provider'});
+      expect(request).toHaveBeenCalledWith('turn/start', expect.objectContaining({effort: 'high'}), 30000);
+    } finally {await adapter.stop(); vi.unstubAllEnvs();}
+  });
   it('steers structured replies for message questions instead of answering a nonexistent RPC', async () => {
     const adapter = new HeadlessAdapter();
     const request = vi.fn().mockResolvedValue({turnId: 'turn-A'}), respond = vi.fn();

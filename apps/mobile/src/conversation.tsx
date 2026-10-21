@@ -141,7 +141,8 @@ export function RequestPanel({ request, threadId, send, enabled }: { request: In
   const questions = inputQuestions(request.details);
   const perQuestion = request.details.source === 'asyncMessage';
   const approval = request.kind === 'commandApproval' || request.kind === 'fileApproval';
-  const canAnswer = enabled && request.respondable && !!request.turnId && !pending && !submitted && (approval || request.kind === 'userInput' && questions.length > 0);
+  const accessApproval = request.kind === 'mcpElicitation' ? request.approval : undefined;
+  const canAnswer = enabled && request.respondable && (!!request.turnId || !!accessApproval) && !pending && !submitted && (approval || !!accessApproval || request.kind === 'userInput' && questions.length > 0);
   const answerFor = (id: string, selected = choices) => {
     const question = questions.find(item => item.id === id)!;
     const choice = selected[id];
@@ -174,6 +175,8 @@ export function RequestPanel({ request, threadId, send, enabled }: { request: In
   const allowed = Array.isArray(request.details.availableDecisions) ? request.details.availableDecisions : ['accept', 'decline', 'cancel'];
   return <View style={[s.request, request.kind === 'userInput' && s.questionCard]}>
     <View style={s.requestHeading}><HelpCircle size={16} color={c.muted} /><Text style={s.requestTitle}>{request.kind === 'userInput' ? '回答问题' : '待处理请求'}</Text>{request.kind === 'userInput' && request.details.isBlocking === false && <Text style={s.sub}>任务可继续执行</Text>}</View>
+    {accessApproval && <View><Text style={s.requestTitle}>{accessApproval.kind === 'browser' ? 'Browser 网站授权' : 'Computer Use 应用授权'}</Text><Text selectable style={s.requestText}>{accessApproval.kind === 'browser' ? '允许 ChatGPT 访问网站：' : '允许 ChatGPT 使用应用：'}{accessApproval.target}</Text>{!!accessApproval.message && <Text selectable style={s.sub}>{accessApproval.message}</Text>}{accessApproval.kind === 'computer' && <Text style={s.sub}>允许后可查看该应用内容、截图并执行操作。</Text>}{accessApproval.elevatedRisk && <Text style={s.error}>此请求被官方标记为高风险，请核对访问目标及操作说明。</Text>}</View>}
+    {accessApproval && !submitted && <View style={s.decisionRow}>{accessApproval.scopes.map(scope => <Pressable key={scope} accessibilityRole="button" disabled={!canAnswer} style={[s.decision, s.decisionAccept, !canAnswer && s.disabled]} onPress={() => void submit({type: 'elicitation.respond', threadId, turnId: request.turnId, requestId: request.id, decision: 'accept', scope})}><Text style={s.primaryText}>{scope === 'always' ? accessApproval.kind === 'browser' ? '始终允许此网站' : '始终允许此应用' : scope === 'session' ? '允许本次会话' : '允许一次'}</Text></Pressable>)}<Pressable accessibilityRole="button" disabled={!canAnswer} style={[s.decision, !canAnswer && s.disabled]} onPress={() => void submit({type: 'elicitation.respond', threadId, turnId: request.turnId, requestId: request.id, decision: 'decline', scope: 'once'})}><Text style={s.requestText}>拒绝</Text></Pressable></View>}
     {!!request.reason && <Text style={s.requestText}>{request.reason}</Text>}{!!request.command && <Text style={s.code}>{request.command}</Text>}
     {request.kind === 'userInput' && !submitted && remainingQuestions.map((question, index) => <View key={question.id} style={s.question}>
       {!!question.header && <Text style={s.questionHeader}>{questions.length > 1 ? `${index + 1}/${questions.length} · ` : ''}{question.header}</Text>}
@@ -185,7 +188,7 @@ export function RequestPanel({ request, threadId, send, enabled }: { request: In
     </View>)}
     {submitted || perQuestion && !remainingQuestions.length ? <Text style={s.sub}>回答已提交，等待 Codex 更新…</Text> : request.kind === 'userInput' && !perQuestion && questions.length > 0 && hasManualAnswer ? <Pressable accessibilityRole="button" accessibilityLabel="提交回答" style={[s.smallPrimary, (!canAnswer || questions.some(question => !answerFor(question.id).trim())) && s.disabled]} disabled={!canAnswer || questions.some(question => !answerFor(question.id).trim())} onPress={() => void sendAnswers(questions.map(question => question.id))}>{pending ? <ActivityIndicator color={c.onAccent} size="small" /> : <Text style={s.primaryText}>提交回答</Text>}</Pressable> : approval ? <View style={s.decisionRow}>{(['accept', 'decline', 'cancel'] as const).filter(decision => allowed.includes(decision)).map(decision => <Pressable accessibilityRole="button" key={decision} disabled={!canAnswer} onPress={() => void submit({type: 'approval.respond', threadId, turnId: request.turnId!, requestId: request.id, decision})} style={[s.decision, decision === 'accept' && s.decisionAccept, !canAnswer && s.disabled]}><Text style={decision === 'accept' ? s.primaryText : s.requestText}>{decision === 'accept' ? '允许' : decision === 'decline' ? '拒绝' : '取消'}</Text></Pressable>)}</View> : null}
     {pending && request.kind === 'userInput' && <Text accessibilityLiveRegion="polite" style={s.sub}>正在发送回答…</Text>}
-    {(!request.respondable || !request.turnId || request.kind === 'userInput' && !questions.length || !approval && request.kind !== 'userInput') && <Text style={s.sub}>此请求暂不能在远程回答，请在 PC 的 Codex 中处理。</Text>}
+    {(!request.respondable || !request.turnId && !accessApproval || request.kind === 'userInput' && !questions.length || !approval && !accessApproval && request.kind !== 'userInput') && <Text style={s.sub}>此请求暂不能在远程回答，请在 PC 的 Codex 中处理。</Text>}
     {!!error && <Text accessibilityRole="alert" style={s.error}>{error}</Text>}
   </View>;
 }

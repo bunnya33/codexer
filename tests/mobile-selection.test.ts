@@ -4,7 +4,8 @@ import { JSDOM } from 'jsdom';
 import { resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { normalizeThread } from '../packages/codex-adapter/src/normalize';
-import type { DeviceCatalog, ModelSettings, RemoteCommand } from '../packages/protocol/src/index';
+import type { DeviceCatalog, InteractiveRequest, ModelSettings, RemoteCommand } from '../packages/protocol/src/index';
+import { permissionPreset, permissionSettings } from '../packages/codex-adapter/src/permissions';
 
 const origin = 'http://selection.test';
 const controlVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version as string;
@@ -30,6 +31,7 @@ function gate() {
   return { promise, release };
 }
 type FixtureOptions = {
+  permissions?: boolean; requests?: InteractiveRequest[];
   storage?: Record<string, string>; userId?: string; devices?: typeof devices; catalogs?: Record<string, DeviceCatalog>;
   delayDevices?: boolean; delayCatalog?: string; blockedStorage?: boolean; blockedThemeStorage?: boolean;
   filePicker?: () => Promise<{ name: string; size: number; mimeType: string; readChunk: (offset: number, length: number) => Promise<string> }[]>;
@@ -45,6 +47,8 @@ async function fixture(options: FixtureOptions = {}) {
   const current = { userId: options.userId ?? 'user-a', devices: options.devices ?? devices, catalogs: options.catalogs ?? Object.fromEntries(devices.map(device => [device.id, catalog(device.id)])) };
   const controls = options.controls;
   const settings: ModelSettings = { model: 'gpt-6.1-sol', modelProvider: 'fixture', reasoningEffort: 'xhigh', collaborationMode: 'default' };
+  if (options.permissions) settings.permissions = permissionSettings(permissionPreset('ask', ['/fixture']));
+  let pendingRequests = options.requests ?? [];
   if (controls) for (const item of Object.values(current.catalogs)) item.models = ['gpt-6.1-sol', 'gpt-6-astra'].map((model, index) => ({ model, displayName: index ? '6 Astra' : '6.1 Sol', supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'], defaultReasoningEffort: 'high' }));
   const sockets: { onmessage?: (event: { data: string }) => void }[] = [];
   const deviceGate = gate(), catalogGate = gate(), historyGate = gate();
@@ -91,16 +95,21 @@ async function fixture(options: FixtureOptions = {}) {
         if (deviceId && suffix === 'commands') {
           const command = JSON.parse(String(init?.body)) as RemoteCommand;
           commands.push(command);
-          if (!controls) return response({ commandId: 'fixture-command' });
+          if (!controls && !options.permissions && !options.requests) return response({ commandId: 'fixture-command' });
           let result: Record<string, unknown> = {}, code = 'ok';
           const payload = command.payload;
           if (payload.type === 'thread.effort.update') {
-            if (controls.failEffort) code = 'stale-settings';
+            if (controls?.failEffort) code = 'stale-settings';
             else settings.reasoningEffort = payload.effort;
           }
           if (payload.type === 'thread.model.update') settings.model = payload.model;
-          if (payload.type === 'turn.queue.read') result = { queueId: payload.queueId, text: controls.text, images: controls.images };
-          if (payload.type === 'turn.queue.update') {
+          if (payload.type === 'thread.permissions.update') {
+            if (settings.permissions?.fingerprint !== payload.expectedPermissions) code = 'stale-permissions';
+            else settings.permissions = permissionSettings(permissionPreset(payload.mode, ['/fixture']));
+          }
+          if (payload.type === 'elicitation.respond') pendingRequests = pendingRequests.filter(r => r.id !== payload.requestId);
+          if (payload.type === 'turn.queue.read' && controls) result = { queueId: payload.queueId, text: controls.text, images: controls.images };
+          if (payload.type === 'turn.queue.update' && controls) {
             if (payload.expectedText !== controls.text) code = 'queue-item-changed';
             else controls.text = payload.text;
           }
@@ -111,9 +120,10 @@ async function fixture(options: FixtureOptions = {}) {
       } });
       function snapshot(deviceId: string) {
         return { protocolVersion: 1, deviceId, epoch: 'fixture', lastSeq: 0, generatedAt: 1, hostname: deviceId, platform: 'darwin',
-          runtime: { kind: 'official-desktop-ipc', connected: true, experimental: true, capabilities: { observe: true, startTurn: true, interrupt: true, approvals: true, userInput: true, images: true, attachments: true, collaborationModeUpdate: true } },
+          runtime: { kind: 'official-desktop-ipc', connected: true, experimental: true, capabilities: { observe: true, startTurn: true, interrupt: true, approvals: true, userInput: true, images: true, attachments: true, collaborationModeUpdate: true, permissionsUpdate: !!options.permissions, mcpApprovals: true } },
           threads: Object.fromEntries((current.catalogs[deviceId]?.threads ?? []).map(thread => [thread.id, { ...normalizeThread({ ...thread, threadRuntimeStatus: { type: controls?.active ? 'active' : 'idle', activeFlags: [] }, turns: [], requests: [] }, 0), ownerAvailable: true,
             ...(controls ? { settings, activeTurnId: controls.active ? 'active-turn' : null, queuedMessages: [{ id: 'queue-1', text: controls.text.slice(0, 1000), imageCount: controls.images.length, createdAt: 1, status: 'queued' }] } : {}),
+            ...(options.permissions ? {settings} : {}), requests: pendingRequests,
           }])) };
       }
       class Socket {
@@ -630,4 +640,40 @@ it('cancels a chunk read when switching conversations and cannot send an unfinis
     expect(test.uploadRequests).toHaveLength(1); expect(test.commands.some(command => command.payload.type === 'turn.start')).toBe(false);
     expect(test.dom.window.document.querySelector('[aria-label="移除文件 slow.txt"]')).toBeNull(); expect(test.errors).toEqual([]);
   } finally { chunk.release(); test.close(); }
+});
+
+it('changes real App permission controls only after explicit full-access confirmation', async () => {
+  const test = await fixture({permissions: true});
+  try {
+    await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-a']).toBe(false));
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="会话权限：请求批准"]')).not.toBeNull());
+    test.click('会话权限：请求批准');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="权限：完全访问"]')).not.toBeNull());
+    test.click('权限：完全访问');
+    expect(test.commands.filter(c => c.payload.type === 'thread.permissions.update')).toHaveLength(0);
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="确认使用完全访问"]')).not.toBeNull());
+    test.click('确认使用完全访问');
+    await vi.waitFor(() => expect(test.commands.filter(c => c.payload.type === 'thread.permissions.update')).toHaveLength(1));
+    const update = test.commands.find(c => c.payload.type === 'thread.permissions.update')!;
+    expect(update.payload).toMatchObject({type: 'thread.permissions.update', mode: 'full-access', threadId: 'recent-pc-a'});
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="会话权限：完全访问"]')).not.toBeNull());
+    expect(test.errors).toEqual([]);
+  } finally {test.close();}
+});
+
+it.each(['browser', 'computer'] as const)('answers %s access requests from the actual App, including standalone browser requests', async kind => {
+  const request: InteractiveRequest = {id: 'access-1', kind: 'mcpElicitation', turnId: kind === 'browser' ? null : 'active-turn', details: {}, detailsTruncated: false, respondable: true,
+    approval: {kind, target: kind === 'browser' ? 'http://localhost:5173' : 'Fixture App', scopes: kind === 'browser' ? ['once', 'always'] : ['once', 'session', 'always']}};
+  const test = await fixture({requests: [request], controls: {active: true, text: '', images: []}});
+  try {
+    await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-a']).toBe(false));
+    const label = kind === 'browser' ? '始终允许此网站' : '允许本次会话';
+    const find = () => [...test.dom.window.document.querySelectorAll('[role="button"]')].find(e => e.textContent === label) as HTMLElement | undefined;
+    await vi.waitFor(() => expect(find()).toBeDefined());
+    const button = find()!; button.click(); button.click();
+    await vi.waitFor(() => expect(test.commands.filter(c => c.payload.type === 'elicitation.respond')).toHaveLength(1));
+    expect(test.commands.find(c => c.payload.type === 'elicitation.respond')!.payload).toEqual({type: 'elicitation.respond', threadId: 'recent-pc-a', turnId: request.turnId, requestId: 'access-1', decision: 'accept', scope: kind === 'browser' ? 'always' : 'session'});
+    await vi.waitFor(() => expect(find()).toBeUndefined());
+    expect(test.errors).toEqual([]);
+  } finally {test.close();}
 });

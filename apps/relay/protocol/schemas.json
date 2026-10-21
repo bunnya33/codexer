@@ -562,6 +562,94 @@
             "properties": {
               "type": {
                 "type": "string",
+                "const": "thread.permissions.update"
+              },
+              "threadId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "read-only",
+                  "ask",
+                  "auto-review",
+                  "full-access"
+                ]
+              },
+              "expectedPermissions": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            },
+            "required": [
+              "type",
+              "threadId",
+              "mode",
+              "expectedPermissions"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "elicitation.respond"
+              },
+              "threadId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "turnId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "requestId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "decision": {
+                "type": "string",
+                "enum": [
+                  "accept",
+                  "decline",
+                  "cancel"
+                ]
+              },
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "threadId",
+              "turnId",
+              "requestId",
+              "decision",
+              "scope"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
                 "const": "approval.respond"
               },
               "threadId": {
@@ -1017,6 +1105,12 @@
                       "collaborationModeUpdate": {
                         "type": "boolean"
                       },
+                      "permissionsUpdate": {
+                        "type": "boolean"
+                      },
+                      "mcpApprovals": {
+                        "type": "boolean"
+                      },
                       "images": {
                         "type": "boolean"
                       },
@@ -1214,6 +1308,44 @@
                             {
                               "type": "null"
                             }
+                          ]
+                        },
+                        "permissions": {
+                          "type": "object",
+                          "properties": {
+                            "mode": {
+                              "type": "string",
+                              "enum": [
+                                "read-only",
+                                "ask",
+                                "auto-review",
+                                "full-access",
+                                "custom"
+                              ]
+                            },
+                            "sandbox": {
+                              "type": "string",
+                              "maxLength": 80
+                            },
+                            "approval": {
+                              "type": "string",
+                              "maxLength": 80
+                            },
+                            "reviewer": {
+                              "type": "string",
+                              "maxLength": 80
+                            },
+                            "fingerprint": {
+                              "type": "string",
+                              "pattern": "^[a-f0-9]{64}$"
+                            }
+                          },
+                          "required": [
+                            "mode",
+                            "sandbox",
+                            "approval",
+                            "reviewer",
+                            "fingerprint"
                           ]
                         }
                       },
@@ -1796,6 +1928,48 @@
                           },
                           "respondable": {
                             "type": "boolean"
+                          },
+                          "approval": {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "browser",
+                                  "computer"
+                                ]
+                              },
+                              "target": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 2048
+                              },
+                              "scopes": {
+                                "minItems": 1,
+                                "maxItems": 3,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "enum": [
+                                    "once",
+                                    "session",
+                                    "always"
+                                  ]
+                                }
+                              },
+                              "message": {
+                                "type": "string",
+                                "maxLength": 8192
+                              },
+                              "elevatedRisk": {
+                                "type": "boolean"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "target",
+                              "scopes"
+                            ]
                           }
                         },
                         "required": [
@@ -2065,6 +2239,44 @@
                                   {
                                     "type": "null"
                                   }
+                                ]
+                              },
+                              "permissions": {
+                                "type": "object",
+                                "properties": {
+                                  "mode": {
+                                    "type": "string",
+                                    "enum": [
+                                      "read-only",
+                                      "ask",
+                                      "auto-review",
+                                      "full-access",
+                                      "custom"
+                                    ]
+                                  },
+                                  "sandbox": {
+                                    "type": "string",
+                                    "maxLength": 80
+                                  },
+                                  "approval": {
+                                    "type": "string",
+                                    "maxLength": 80
+                                  },
+                                  "reviewer": {
+                                    "type": "string",
+                                    "maxLength": 80
+                                  },
+                                  "fingerprint": {
+                                    "type": "string",
+                                    "pattern": "^[a-f0-9]{64}$"
+                                  }
+                                },
+                                "required": [
+                                  "mode",
+                                  "sandbox",
+                                  "approval",
+                                  "reviewer",
+                                  "fingerprint"
                                 ]
                               }
                             },
@@ -2647,6 +2859,48 @@
                                 },
                                 "respondable": {
                                   "type": "boolean"
+                                },
+                                "approval": {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": [
+                                        "browser",
+                                        "computer"
+                                      ]
+                                    },
+                                    "target": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 2048
+                                    },
+                                    "scopes": {
+                                      "minItems": 1,
+                                      "maxItems": 3,
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "enum": [
+                                          "once",
+                                          "session",
+                                          "always"
+                                        ]
+                                      }
+                                    },
+                                    "message": {
+                                      "type": "string",
+                                      "maxLength": 8192
+                                    },
+                                    "elevatedRisk": {
+                                      "type": "boolean"
+                                    }
+                                  },
+                                  "required": [
+                                    "kind",
+                                    "target",
+                                    "scopes"
+                                  ]
                                 }
                               },
                               "required": [
@@ -2912,6 +3166,44 @@
                             {
                               "type": "null"
                             }
+                          ]
+                        },
+                        "permissions": {
+                          "type": "object",
+                          "properties": {
+                            "mode": {
+                              "type": "string",
+                              "enum": [
+                                "read-only",
+                                "ask",
+                                "auto-review",
+                                "full-access",
+                                "custom"
+                              ]
+                            },
+                            "sandbox": {
+                              "type": "string",
+                              "maxLength": 80
+                            },
+                            "approval": {
+                              "type": "string",
+                              "maxLength": 80
+                            },
+                            "reviewer": {
+                              "type": "string",
+                              "maxLength": 80
+                            },
+                            "fingerprint": {
+                              "type": "string",
+                              "pattern": "^[a-f0-9]{64}$"
+                            }
+                          },
+                          "required": [
+                            "mode",
+                            "sandbox",
+                            "approval",
+                            "reviewer",
+                            "fingerprint"
                           ]
                         }
                       },
@@ -4237,6 +4529,94 @@
                       "type",
                       "threadId",
                       "turnId"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "thread.permissions.update"
+                      },
+                      "threadId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 160
+                      },
+                      "mode": {
+                        "type": "string",
+                        "enum": [
+                          "read-only",
+                          "ask",
+                          "auto-review",
+                          "full-access"
+                        ]
+                      },
+                      "expectedPermissions": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "threadId",
+                      "mode",
+                      "expectedPermissions"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "elicitation.respond"
+                      },
+                      "threadId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 160
+                      },
+                      "turnId": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 160
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "requestId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 160
+                      },
+                      "decision": {
+                        "type": "string",
+                        "enum": [
+                          "accept",
+                          "decline",
+                          "cancel"
+                        ]
+                      },
+                      "scope": {
+                        "type": "string",
+                        "enum": [
+                          "once",
+                          "session",
+                          "always"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "threadId",
+                      "turnId",
+                      "requestId",
+                      "decision",
+                      "scope"
                     ]
                   },
                   {

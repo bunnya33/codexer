@@ -271,6 +271,31 @@ func TestProtocolStripsUnknownFieldsAndCountsUTF16(t *testing.T) {
 	expectFault(t, "invalid-message", func() { s.Validate("command", command) })
 }
 
+func TestRemotePermissionCommandHashBoundaries(t *testing.T) {
+	_, s, _, device := fixture(t)
+	command := M{"commandId": "permission-command", "deviceId": device, "expectedEpoch": "e", "expiresAt": now() + 60000}
+	hashes := map[string]bool{}
+	check := func(payload M) {
+		command["payload"] = payload
+		s.Validate("command", command)
+		h := commandHash(command)
+		if hashes[h] {
+			t.Fatal("distinct permission commands share a hash")
+		}
+		hashes[h] = true
+	}
+	for _, mode := range []string{"read-only", "ask", "auto-review", "full-access"} {
+		check(M{"type": "thread.permissions.update", "threadId": "t", "mode": mode, "expectedPermissions": strings.Repeat("a", 64)})
+	}
+	for _, scope := range []string{"once", "session", "always"} {
+		check(M{"type": "elicitation.respond", "threadId": "t", "turnId": nil, "requestId": "42", "decision": "accept", "scope": scope})
+	}
+	check(M{"type": "elicitation.respond", "threadId": "t", "turnId": "active-turn", "requestId": "42", "decision": "accept", "scope": "once"})
+	check(M{"type": "elicitation.respond", "threadId": "t", "turnId": nil, "requestId": "42", "decision": "decline", "scope": "once"})
+	command["payload"] = M{"type": "elicitation.respond", "threadId": "t", "turnId": nil, "requestId": "42", "decision": "accept", "scope": "all-sites"}
+	expectFault(t, "invalid-message", func() { s.Validate("command", command) })
+}
+
 type countedMessage struct{ count *int }
 
 func (m countedMessage) MarshalJSON() ([]byte, error) {

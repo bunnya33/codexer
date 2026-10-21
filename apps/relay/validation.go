@@ -107,6 +107,7 @@ func commandHash(m M, raw ...[]byte) string {
 	}
 	p := obj(m["payload"])
 	keys := map[string][]string{
+		"thread.permissions.update": {"type", "threadId", "mode", "expectedPermissions"}, "elicitation.respond": {"type", "threadId", "turnId", "requestId", "decision", "scope"},
 		"turn.queue.read": {"type", "threadId", "queueId"}, "turn.queue.update": {"type", "threadId", "queueId", "text", "expectedText"},
 		"project.create": {"type", "parentId", "name", "relativePath", "mode"},
 		"thread.create":  {"type", "projectId"}, "thread.rename": {"type", "threadId", "name"}, "thread.archive": {"type", "threadId"}, "thread.delete": {"type", "threadId"}, "thread.watch": {"type", "threadId"}, "turn.start": {"type", "threadId", "text", "images", "attachments"}, "turn.queue": {"type", "threadId", "text", "images", "attachments"}, "turn.queue.steer": {"type", "threadId", "turnId", "queueId"}, "turn.queue.remove": {"type", "threadId", "queueId"}, "turn.steer": {"type", "threadId", "turnId", "text", "images", "attachments"}, "thread.model.update": {"type", "threadId", "model", "expectedModel"}, "thread.effort.update": {"type", "threadId", "effort", "expectedModel", "expectedEffort"}, "thread.mode.update": {"type", "threadId", "mode", "expectedMode", "expectedModel", "expectedEffort"}, "turn.interrupt": {"type", "threadId", "turnId"}, "approval.respond": {"type", "threadId", "turnId", "requestId", "decision"}, "input.respond": {"type", "threadId", "turnId", "requestId", "answers"}}

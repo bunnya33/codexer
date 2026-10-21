@@ -38,6 +38,7 @@ import { QueueEditor } from './src/queue-editor';
 import { Dialog } from './src/dialog';
 import { ControlSettings } from './src/control-settings';
 import { AttachmentMenu } from './src/attachment-menu';
+import { PermissionPicker, permissionLabels } from './src/permission-picker';
 import { pickAttachments } from './src/attachment-picker';
 import type { AttachmentAsset } from './src/attachment-picker';
 import { MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES } from '../../packages/protocol/src/uploads';
@@ -78,7 +79,7 @@ function AppContent() {
   const [files, setFiles] = useState<DraftAttachment[]>([]);
   const fileUploads = useRef(new Map<number, AbortController>());
   const [busy, setBusy] = useState(false);
-  const [menu, setMenu] = useState<'settings' | 'mode' | 'weixin'>('settings');
+  const [menu, setMenu] = useState<'settings' | 'mode' | 'weixin' | 'permissions'>('settings');
   const [editingQueueId, setEditingQueueId] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const openMenu = (kind: typeof menu) => { setMenu(kind); setMenuOpen(true); };
@@ -427,6 +428,7 @@ function AppContent() {
         </View>)}</ScrollView>}
         <ComposerInput accessibilityLabel="给 Codex 发送消息" style={s.composerInput} value={draft} onChangeText={setDraft} multiline maxLength={32000} editable={!!ready && !busy} placeholder="给 Codex 发送消息" placeholderTextColor={c.muted} textAlignVertical="top" onImages={addImages} imagesEnabled={ready && !busy && !!snapshot?.runtime.capabilities.images && images.length < MAX_IMAGES} onImageError={message => relay.showNotice(message)} onKeyPress={event => { const key = event.nativeEvent as { key: string; shiftKey?: boolean; isComposing?: boolean; keyCode?: number }; if (Platform.OS === 'web' && key.key === 'Enter' && !key.shiftKey && !key.isComposing && key.keyCode !== 229) { event.preventDefault(); submit(); } }} />
         <View style={s.toolbar}><AttachmentMenu key={`attachments:${deviceId}:${threadId}`} enabled={ready && !busy} imagesEnabled={ready && !busy && !!snapshot?.runtime.capabilities.images && images.length < MAX_IMAGES} filesSupported={!!snapshot?.runtime.capabilities.attachments} filesEnabled={ready && !busy && !!snapshot?.runtime.capabilities.attachments && files.length < MAX_ATTACHMENTS} onImages={() => void pickImages()} onCamera={() => void pickCamera()} onFiles={() => void pickFiles()} />{!!snapshot?.runtime.capabilities.collaborationModeUpdate && <Pressable accessibilityRole="button" accessibilityLabel={`工作模式：${settings?.collaborationMode === 'plan' ? 'Plan' : '默认'}`} style={[s.pill, s.modePill, settings?.collaborationMode === 'plan' && s.modeActive]} disabled={!ready || busy || thread?.status !== 'idle'} onPress={() => openMenu('mode')}><ListChecks size={15} color={settings?.collaborationMode === 'plan' ? c.accent : c.muted} /><Text style={s.pillText}>{settings?.collaborationMode === 'plan' ? 'Plan' : '默认'}</Text></Pressable>}
+          {!!snapshot?.runtime.capabilities.permissionsUpdate && !!settings?.permissions && <Pressable accessibilityRole="button" accessibilityLabel={`会话权限：${permissionLabels[settings.permissions.mode]}`} style={s.pill} disabled={!ready || busy} onPress={() => openMenu('permissions')}><Text style={s.pillText}>{permissionLabels[settings.permissions.mode]}</Text></Pressable>}
           <View style={s.spacer} /><ModelEffortPicker key={`model:${deviceId}:${threadId}`} model={settings?.model} effort={settings?.reasoningEffort} options={catalog?.models ?? []} enabled={ready && thread?.status === 'idle'} busy={busy} onModelChange={changeModel} onEffortChange={changeEffort} />
           <Pressable accessibilityRole="button" accessibilityLabel={stopMode ? '停止当前任务' : thread?.status === 'active' ? '添加到待发送' : '发送消息'} disabled={!ready || busy || images.some(image => image.loading || !!image.error) || files.some(file => file.loading || !!file.error || !file.id)} onPress={submit} style={[s.send, stopMode && s.stop, (!ready || busy) && s.disabled]}>{busy ? <ActivityIndicator color={c.onSolid} size="small" /> : stopMode ? <Square size={18} color={c.onSolid} fill={c.onSolid} /> : <ArrowUp size={20} color={c.onSolid} />}</Pressable></View>
       </View>
@@ -444,9 +446,15 @@ function AppContent() {
             <Pressable style={s.menuOption} disabled={managing} onPress={() => { const target = actionThread; if (target) void confirmAction('永久删除会话', `删除“${target.title}”后无法恢复。`).then(confirmed => { if (confirmed) void manageThread({ type: 'thread.delete', threadId: target.id }); }); }}><Trash2 size={18} color={c.danger} /><Text style={s.dangerText}>永久删除</Text></Pressable>
           </>}
     </Dialog>
-    <Dialog open={menuOpen} title={menu === 'settings' ? '设置' : menu === 'weixin' ? '微信设置' : '工作模式'} onClose={closeMenu}>
+    <Dialog open={menuOpen} title={menu === 'settings' ? '设置' : menu === 'weixin' ? '微信设置' : menu === 'permissions' ? '会话权限' : '工作模式'} onClose={closeMenu}>
         {menu === 'settings' ? menuOpen && <ControlSettings url={view.url} onWeixin={() => setMenu('weixin')} onLogout={() => { closeMenu(); void relay.logout().catch(() => undefined); }} />
           : menu === 'weixin' ? menuOpen && <WeixinSettings />
+          : menu === 'permissions' ? menuOpen && !!settings?.permissions && <PermissionPicker key={`${deviceId}:${threadId}`} settings={settings.permissions} enabled={ready && !busy && thread?.status === 'idle'} onChange={async mode => {
+            if (!thread?.settings?.permissions) return false;
+            const ok = await send({type: 'thread.permissions.update', threadId, mode, expectedPermissions: thread.settings.permissions.fingerprint});
+            if (ok) closeMenu();
+            return ok;
+          }} />
           : <View><Pressable style={s.menuOption} onPress={() => changeMode('default')}><View style={{flex: 1}}><Text style={s.menuText}>默认模式</Text><Text style={s.sub}>按请求执行任务</Text></View>{settings?.collaborationMode === 'default' && <Check size={18} color={c.accent} />}</Pressable><Pressable style={s.menuOption} onPress={() => changeMode('plan')}><View style={{flex: 1}}><Text style={s.menuText}>Plan Mode</Text><Text style={s.sub}>先讨论和形成计划，再切换默认模式执行</Text></View>{settings?.collaborationMode === 'plan' && <Check size={18} color={c.accent} />}</Pressable></View>}
     </Dialog>
     <ImageViewer preview={preview} onClose={() => setPreview(null)} onNavigate={moveImage} />

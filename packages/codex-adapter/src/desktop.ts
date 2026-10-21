@@ -20,6 +20,8 @@ import { asyncQuestionAnswer } from './async-input.js';
 import { parseQuestionReplies } from '../../protocol/src/user-presentation.js';
 
 import { SubAgentRollouts } from "./sub-agent-rollouts.js";
+import { permissionPreset } from './permissions.js';
+import { mcpApprovalResponse } from './mcp-approvals.js';
 
 enablePatches();
 const versions: Record<string, number> = {
@@ -32,6 +34,7 @@ const versions: Record<string, number> = {
   "thread-follower-file-approval-decision": 1,
   "thread-follower-submit-user-input": 1,
   "thread-follower-update-thread-settings": 2,
+  'thread-follower-submit-mcp-server-elicitation-response': 1,
 };
 type Watched = { ownerId: string; revision: number; raw?: RecordValue; compatible: boolean };
 type Waiter = { resolve: (value: RecordValue) => void; reject: (error: Error) => void; timer: NodeJS.Timeout };
@@ -42,6 +45,7 @@ export class AdapterError extends Error {
 export class DesktopAdapter extends EventEmitter {
   readonly endpoint: string;
   readonly watched = new Map<string, Watched>();
+  private readonly answeredRequests = new Set<string>();
   private socket: Socket | null = null;
   private clientId = "initializing-client";
   private pending = new Map<string, Waiter>();
@@ -233,6 +237,8 @@ export class DesktopAdapter extends EventEmitter {
       } catch { this.emit("diagnostic", { code: "invalid-desktop-patch" }); this.resnapshot(id, watched); return; }
     } else return;
     const normalized = this.getThread(id);
+    const pendingIds = new Set((Array.isArray(watched.raw?.requests) ? watched.raw.requests : []).map(record).filter(r => r.completed !== true).map(r => `${id}:${r.id}`));
+    for (const key of this.answeredRequests) if (key.startsWith(`${id}:`) && !pendingIds.has(key)) this.answeredRequests.delete(key);
     if (normalized) this.emit("thread", normalized);
     void this.refreshSubAgents(false);
   }
@@ -281,6 +287,30 @@ export class DesktopAdapter extends EventEmitter {
       params = { conversationId: payload.threadId, input, clientUserMessageId: command.commandId,
         restoreMessage: { id: command.commandId, text: prompt, context: { prompt, messageThreadId: payload.threadId, turnTrigger: replies ? 'send_user_message_async_question' : 'user', addedFiles: [], fileAttachments: [], ideContext: null, imageAttachments: [], workspaceRoots: normalized.cwd ? [normalized.cwd] : [] }, cwd: normalized.cwd, createdAt: Date.now() },
         attachments: [], serviceTier: null, additionalContext: null, toolOutput: null };
+    } else if (payload.type === 'thread.permissions.update') {
+      if (normalized.status !== 'idle') throw new AdapterError('thread-not-idle');
+      if (normalized.settings?.permissions?.fingerprint !== payload.expectedPermissions) throw new AdapterError('stale-permissions');
+      const raw = record(watched.raw.latestThreadSettings);
+      const roots = Array.isArray(raw.runtimeWorkspaceRoots) && raw.runtimeWorkspaceRoots.every(r => typeof r === 'string') ? raw.runtimeWorkspaceRoots as string[] : normalized.cwd ? [normalized.cwd] : [];
+      if (!roots.length && ['ask', 'auto-review'].includes(payload.mode)) throw new AdapterError('workspace-roots-unavailable');
+      method = 'thread-follower-update-thread-settings';
+      params = {conversationId: payload.threadId, threadSettings: permissionPreset(payload.mode, roots)};
+    } else if (payload.type === 'elicitation.respond') {
+      const request = (Array.isArray(watched.raw.requests) ? watched.raw.requests : []).map(record).find(r => r.completed !== true && String(r.id) === payload.requestId && r.method === 'mcpServer/elicitation/request');
+      if (!request || record(request.params).threadId !== payload.threadId || (record(request.params).turnId ?? null) !== payload.turnId || this.answeredRequests.has(`${payload.threadId}:${payload.requestId}`)) throw new AdapterError('stale-request');
+      if (payload.turnId !== null && normalized.activeTurnId !== payload.turnId) throw new AdapterError('stale-turn');
+      let reply: RecordValue;
+      try { reply = mcpApprovalResponse(record(request.params), payload.decision, payload.scope); }
+      catch { throw new AdapterError('approval-scope-not-available'); }
+      this.answeredRequests.add(`${payload.threadId}:${payload.requestId}`);
+      try {
+        const response = await this.request('thread-follower-submit-mcp-server-elicitation-response', {conversationId: payload.threadId, requestId: request.id, response: reply}, watched.ownerId);
+        if (response.handledByClientId !== watched.ownerId || response.result.ok !== true) throw new AdapterError('incompatible-desktop-response', true);
+        return {acknowledgedByDesktop: true};
+      } catch (error) {
+        if (!(error instanceof AdapterError && error.uncertain)) this.answeredRequests.delete(`${payload.threadId}:${payload.requestId}`);
+        throw error;
+      }
     } else if (payload.type === "thread.model.update" || payload.type === "thread.effort.update" || payload.type === "thread.mode.update") {
       if (normalized.status !== "idle") throw new AdapterError("thread-not-idle");
       if (normalized.settings?.model !== payload.expectedModel) throw new AdapterError("stale-model");
@@ -319,6 +349,18 @@ export class DesktopAdapter extends EventEmitter {
     } else throw new AdapterError("unsupported-command");
     const response = await this.request(method, params, watched.ownerId);
     if (response.handledByClientId !== watched.ownerId) throw new AdapterError("desktop-owner-mismatch", true);
+    if (payload.type === 'thread.permissions.update') {
+      if (response.result.applied === false) throw new AdapterError('stale-permissions');
+      if (response.result.applied !== true) throw new AdapterError('incompatible-desktop-response', true);
+      const deadline = Date.now() + 3000;
+      do {
+        const current = this.getThread(payload.threadId);
+        if (this.watched.get(payload.threadId)?.ownerId !== watched.ownerId) throw new AdapterError('desktop-owner-mismatch', true);
+        if (current?.settings?.permissions?.mode === payload.mode) return {permissions: current.settings.permissions, acknowledgedByDesktop: true};
+        await new Promise(resolve => setTimeout(resolve, 25));
+      } while (Date.now() < deadline);
+      throw new AdapterError('permissions-update-unconfirmed', true);
+    }
     if (payload.type === "thread.model.update" || payload.type === "thread.effort.update" || payload.type === "thread.mode.update") {
       if (response.result.applied === false) throw new AdapterError("stale-model");
       if (response.result.applied !== true) throw new AdapterError("incompatible-desktop-response", true);

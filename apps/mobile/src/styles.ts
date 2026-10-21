@@ -87,7 +87,7 @@ const useBaseStyles = themedStyles(c => StyleSheet.create({
   option: { minHeight: 42, padding: 10, flexDirection: 'row', alignItems: 'center', gap: 10, justifyContent: 'space-between', backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: 8 },
   optionBody: { flex: 1, minWidth: 0, gap: 4 }, optionDescription: { color: c.muted, fontSize: 12, lineHeight: 18 }, optionCircle: { width: 16, height: 16, borderRadius: 8, borderWidth: 1, borderColor: c.optionBorder },
   answerInput: { minHeight: 60, maxHeight: 160, padding: 12, borderWidth: 1, borderColor: c.line, borderRadius: 8, color: c.text, fontSize: 14, backgroundColor: c.surface, textAlignVertical: 'top' },
-  optionSelected: { borderColor: c.accent }, decisionRow: { flexDirection: 'row', gap: 8 },
+  optionSelected: { borderColor: c.accent }, decisionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   decision: { minHeight: 38, paddingHorizontal: 14, borderWidth: 1, borderColor: c.line, borderRadius: 5, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' },
   decisionAccept: { backgroundColor: c.accent, borderColor: c.accent }, smallPrimary: { alignSelf: 'flex-start', minHeight: 38, paddingHorizontal: 16, borderRadius: 5, backgroundColor: c.accent, justifyContent: 'center' },
   composerStack: { marginHorizontal: 12, marginTop: 4, marginBottom: 7, backgroundColor: c.composer, borderWidth: 1, borderColor: c.composerBorder, borderRadius: 24 },
