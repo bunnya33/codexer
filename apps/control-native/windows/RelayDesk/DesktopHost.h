@@ -360,7 +360,7 @@ struct RelayDesktop {
   void Initialize(winrt::Microsoft::ReactNative::ReactContext const& context) noexcept {desktop::host->context=context;}
   REACT_SYNC_METHOD(boot)
   std::string boot() noexcept {
-    desktop::JsonObject value; value.Insert(L"mode",desktop::str(desktop::host->mode)); value.Insert(L"version",desktop::str(L"0.2.3")); value.Insert(L"closeExits",desktop::boolean(desktop::host->closeExits)); value.Insert(L"serverUrl",desktop::str(L"")); return winrt::to_string(value.Stringify());
+    desktop::JsonObject value; value.Insert(L"mode",desktop::str(desktop::host->mode)); value.Insert(L"version",desktop::str(L"0.2.4")); value.Insert(L"closeExits",desktop::boolean(desktop::host->closeExits)); value.Insert(L"serverUrl",desktop::str(L"")); return winrt::to_string(value.Stringify());
   }
   REACT_METHOD(request)
   void request(std::string method,std::string payload,winrt::Microsoft::ReactNative::ReactPromise<std::string> promise) noexcept {

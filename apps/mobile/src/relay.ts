@@ -35,6 +35,14 @@ const SOCKET_AUTH_TIMEOUT_MS = 12000;
 class ApiError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 export const historyKey = (deviceId: string, threadId: string) => `${deviceId}:${threadId}`;
 
+// RN Windows provides AbortController but not AbortSignal.timeout.
+async function requestWithTimeout<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
+  try { return await operation(controller.signal); }
+  finally { clearTimeout(timer); }
+}
+
 export function normalizeRelayUrl(value: string): string {
   const url = new URL(value.trim());
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new Error('请输入 Relay 的完整根地址，例如 http://192.0.2.10:8899');
@@ -91,9 +99,11 @@ export class RelayClient {
     const generation = this.generation;
     try {
       const url = normalizeRelayUrl(rawUrl);
-      const response = await fetch(url + '/v1/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: username.trim(), password }), signal: AbortSignal.timeout(10000) });
-      if (!response.ok) throw new Error(response.status === 429 ? '登录尝试过多，请稍后重试' : response.status === 401 ? '账号或密码错误' : '登录失败：HTTP ' + response.status);
-      const result = await response.json() as { session: string };
+      const result = await requestWithTimeout(async signal => {
+        const response = await fetch(url + '/v1/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: username.trim(), password }), signal });
+        if (!response.ok) throw new Error(response.status === 429 ? '登录尝试过多，请稍后重试' : response.status === 401 ? '账号或密码错误' : '登录失败：HTTP ' + response.status);
+        return response.json() as Promise<{ session: string }>;
+      });
       if (generation !== this.generation) return;
       await this.resume(url, result.session, remember);
     } catch (error) { if (generation === this.generation || this.view.phase === 'locked') this.notice(error instanceof Error ? error.message : '登录失败'); throw error; }
@@ -516,7 +526,7 @@ export class RelayClient {
       } while (offset < file.size);
       throw new Error('上传未完成，请重试');
     } finally {
-      if (id && !completed) void fetch(`${base}${path}/${id}`, { method: 'DELETE', headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10000) }).catch(() => {});
+      if (id && !completed) void requestWithTimeout(signal => fetch(`${base}${path}/${id}`, { method: 'DELETE', headers: { authorization: `Bearer ${token}` }, signal })).catch(() => {});
     }
   }
 
@@ -553,7 +563,7 @@ export class RelayClient {
     if (!/^\/v1\/audio\/[a-f0-9]{64}$/.test(result.path)) throw new Error('音频地址无效');
     const uri = base + result.path;
     const release = async () => {
-      await fetch(uri, { method: 'DELETE', headers: { authorization: `Bearer ${session}` }, signal: AbortSignal.timeout(10000) });
+      await requestWithTimeout(signal => fetch(uri, { method: 'DELETE', headers: { authorization: `Bearer ${session}` }, signal }));
     };
     if (signal.aborted) {
       await release().catch(() => {});

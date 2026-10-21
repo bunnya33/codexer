@@ -4,7 +4,7 @@ RelayDesk 控制端和 Codexer PC Agent 管理界面共用 React Native for Wind
 
 ## 安装与使用
 
-控制端运行 `RelayDesk-Native-Setup-0.2.3-x64.exe`；PC Agent 可继续使用 `Codexer-Native-Setup-0.2.0-x64.exe`。0.2.3 修复很长的多行消息插入时丢失底部跟随的问题：插入前处于底部就持续跟随，只有明确向上滚动才暂停。保留默认、暖白纸张和暖棕暗色皮肤，代码、文件差异和窗口标题栏一同换色。支持 Windows 10 1809 及以上 x64；打包附带 Windows App Runtime 和 Node，无需安装开发工具。HTML/音频内容预览使用系统 Microsoft Edge WebView2 Runtime，主界面不依赖 WebView2。
+控制端运行 `RelayDesk-Native-Setup-0.2.4-x64.exe`；PC Agent 可继续使用 `Codexer-Native-Setup-0.2.0-x64.exe`。0.2.4 修复首次账号密码登录时报 `undefined is not a function`，同时修复附件取消和音频释放中的同类超时兼容问题。保留 0.2.3 的长消息底部跟随，以及默认、暖白纸张和暖棕暗色皮肤；代码、文件差异和窗口标题栏一同换色。支持 Windows 10 1809 及以上 x64；打包附带 Windows App Runtime 和 Node，无需安装开发工具。HTML/音频内容预览使用系统 Microsoft Edge WebView2 Runtime，主界面不依赖 WebView2。
 
 升级前请从旧版托盘退出对应客户端，避免同一设备运行两套 Agent。安装程序支持选择目录；卸载默认保留账号配置。RelayDesk 与 Agent 分别使用 `%APPDATA%\CodexerControl`、`%APPDATA%\Codexer`，兼容旧版地址、设备身份、设置及可解密的登录凭据；原生凭据由 Windows DPAPI 加密。服务端已经撤销或过期的会话仍需重新登录。
 
@@ -39,5 +39,7 @@ npx tsx scripts/accept-native-windows.ts
 隔离验收脚本会把完整运行目录复制到系统临时目录，使用本机模拟服务器与合成账号验证两套原生宿主启动、真实 DPAPI 凭据迁移、历史读取及 WebSocket。验收记录和当前限制见 [验收记录](VALIDATION.md)。
 
 `npx tsx scripts/accept-native-windows.ts --control --keep` 仅打开隔离控制端并保留窗口，支持发送合成消息和分段回复，便于检查多行发送后的底部跟随。测试消息只发送到本机模拟服务。
+
+增加 `--fresh-login` 时不预置会话，需从真实登录表单输入合成账号 `native-fixture`、密码 `native-fixture-password-12345`。脚本验证密码登录请求、加密保存凭据、历史及实时同步，不能用迁移已有登录状态的检查代替首次登录。
 
 本项目当前交付 Windows；macOS、iOS 和 Android 使用各自的宿主与发布流程，本次没有生成它们的安装包。

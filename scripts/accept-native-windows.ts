@@ -21,6 +21,7 @@ const run=join(native,'stage','acceptance-'+Date.now());
 const relocated=await mkdtemp(join(tmpdir(),'codexer-native-acceptance-'));
 await mkdir(run,{recursive:true});
 const paths:string[]=[];
+const freshLogin=process.argv.includes('--fresh-login');
 const state=snapshot();
 const thread=state.threads['thread-test']!;
 thread.status='idle';thread.ownerAvailable=true;thread.title='原生客户端验收';thread.activeTurnId=null;
@@ -43,6 +44,13 @@ let sent=0;
 const server=createServer(async(request,response)=>{
   const requested=new URL(request.url!,'http://localhost');
   const path=requested.pathname;paths.push(path);
+  if(path==='/v1/auth/login'&&request.method==='POST'){
+    const chunks:Buffer[]=[];for await(const chunk of request)chunks.push(Buffer.from(chunk));
+    const value=JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    const valid=value.username==='native-fixture'&&value.password==='native-fixture-password-12345';
+    response.writeHead(valid?200:401,{'content-type':'application/json'});
+    response.end(JSON.stringify(valid?{session:'synthetic-native-control-session'}:{error:'invalid-login'}));return;
+  }
   if(path.endsWith('/commands')&&request.method==='POST'){
     const chunks:Buffer[]=[];for await(const chunk of request)chunks.push(Buffer.from(chunk));
     const command=commandSchema.parse(JSON.parse(Buffer.concat(chunks).toString('utf8')));
@@ -109,9 +117,11 @@ try{
     const profile=join(run,mode);await mkdir(profile);
     if(mode==='control'){
       await writeFile(join(profile,'server.json'),JSON.stringify({url}));
-      const db=new ClassicLevel(join(profile,'Local Storage','leveldb'),{keyEncoding:'buffer',valueEncoding:'buffer'});
-      const key=Buffer.concat([Buffer.from('_'+url+'\0'),Buffer.from([1]),Buffer.from('codexer.web.relay.v1control')]);
-      await db.put(key,Buffer.concat([Buffer.from([1]),Buffer.from(JSON.stringify({url,session:'synthetic-native-control-session'}))]));await db.close();
+      if(!freshLogin){
+        const db=new ClassicLevel(join(profile,'Local Storage','leveldb'),{keyEncoding:'buffer',valueEncoding:'buffer'});
+        const key=Buffer.concat([Buffer.from('_'+url+'\0'),Buffer.from([1]),Buffer.from('codexer.web.relay.v1control')]);
+        await db.put(key,Buffer.concat([Buffer.from([1]),Buffer.from(JSON.stringify({url,session:'synthetic-native-control-session'}))]));await db.close();
+      }
     }else{
       const installationId=randomUUID();
       await writeFile(join(profile,'settings.json'),JSON.stringify({relayUrl:url,username:'native-fixture',deviceName:'Native Test PC',installationId,codexHome:join(profile,'codex'),codexBinary:'',projectParents:[],runtime:'desktop',autoConnect:false,openAtLogin:false,minimizeToTray:true,allowHttp:false}));
@@ -129,12 +139,14 @@ try{
     await waitFor(async()=>{assert.equal(child.exitCode,null,'Native host exited during startup');return !!await readFile(join(profile,'native-startup.json')).catch(()=>null);},30000);
     const startup=JSON.parse(await readFile(join(profile,'native-startup.json'),'utf8'));
     assert.equal(startup.renderer,'react-native-windows');assert.equal(startup.mode,mode);
+    if(mode==='control'&&freshLogin)console.log(JSON.stringify({freshLogin:true,url,profile,pid:child.pid,exe,run}));
     if(mode==='control'){
       await waitFor(async()=>{
         assert.equal(child.exitCode,null,'Native host exited during live sync');
         const renderer=JSON.parse(await readFile(join(profile,'native-renderer-state.json'),'utf8').catch(()=>'{}'));
         return subscribed&&paths.some(path=>path.endsWith('/turns'))&&renderer.snapshots?.[0]?.seq===2&&renderer.histories?.[0]?.count===history.turns.length&&!renderer.histories[0].loading;
-      },30000);
+      },freshLogin?180000:30000);
+      if(freshLogin)assert.ok(paths.includes('/v1/auth/login'),'Fresh login must submit the account form');
       const encrypted=await readFile(join(profile,'control-session.native.enc'));
       assert.ok(!encrypted.includes(Buffer.from('synthetic-native-control-session')));
     }else{
@@ -142,7 +154,7 @@ try{
     }
     const log=await readFile(join(profile,'native-renderer.log'),'utf8');
     assert.doesNotMatch(log,/TypeError|ReferenceError|renderer-failed|isComponentError/);
-    console.log(JSON.stringify({mode,pid:child.pid,profile,startup,nativeCredentialMigration:true,serverConnected:mode==='control'?subscribed:undefined}));
+    console.log(JSON.stringify({mode,pid:child.pid,profile,startup,nativeCredentialMigration:mode==='control'?!freshLogin:true,freshLogin:mode==='control'&&freshLogin,serverConnected:mode==='control'?subscribed:undefined}));
   }
   // Keep the isolated windows available for manual UI acceptance when requested.
   const keep=process.argv.includes('--keep');
