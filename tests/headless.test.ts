@@ -1,6 +1,7 @@
 import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, toNamespacedPath } from "node:path";
+import { zstdCompressSync } from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HeadlessAdapter, matchesSettings, savedSettings } from "../packages/codex-adapter/src/headless.js";
 import { normalizeThread, record } from "../packages/codex-adapter/src/normalize.js";
@@ -69,6 +70,74 @@ describe("headless thread settings", () => {
     const path = join(sessions, "rollout-empty.jsonl");
     await writeFile(path, `${JSON.stringify({ type: "session_meta", payload: { id: "empty" } })}\n`);
     await expect(savedSettings({ id: "empty", path, modelProvider: "test-provider" }, home)).rejects.toMatchObject({ code: "headless-settings-unavailable" });
+  });
+
+  it("reads Codex-compressed history when thread/read still returns the original JSONL path", async () => {
+    const home = await mkdtemp(join(tmpdir(), "codex-remote-compressed-settings-")); directories.push(home);
+    const sessions = join(home, "sessions"); await mkdir(sessions);
+    const path = join(sessions, "rollout-thread.jsonl");
+    const context = (sandbox: string) => JSON.stringify({ type: "turn_context", payload: { model: "gpt-test", effort: "high", approval_policy: "on-request", approvals_reviewer: "user", sandbox_policy: { type: sandbox }, cwd: home, workspace_roots: [home] } }) + "\n";
+    await writeFile(path + ".zst", zstdCompressSync(sessionMeta("test-thread") + context("danger-full-access") + context("read-only")));
+    const metadata = { id: "test-thread", path, modelProvider: "test-provider" };
+    await expect(savedSettings(metadata, home)).resolves.toMatchObject({ sandbox: "read-only", approvalPolicy: "on-request", approvalsReviewer: "user", roots: [home], model: "gpt-test", effort: "high" });
+    await expect(savedSettings({ ...metadata, path: path + ".zst" }, home)).resolves.toMatchObject({ sandbox: "read-only" });
+    await expect(savedSettings({ ...metadata, id: "another-thread" }, home)).rejects.toMatchObject({ code: "headless-session-path-invalid" });
+    // A materialized rollout is newer than its old compressed copy; never fall
+    // back to the compressed permissions if the current file cannot be parsed.
+    await writeFile(path, sessionMeta("test-thread") + context("workspace-write"));
+    await expect(savedSettings(metadata, home)).resolves.toMatchObject({ sandbox: "workspace-write" });
+    await writeFile(path, sessionMeta("test-thread") + "invalid-json\n");
+    await expect(savedSettings(metadata, home)).rejects.toMatchObject({ code: "headless-settings-unreadable" });
+  });
+
+  it("rejects broken, incomplete and out-of-root compressed session records", async () => {
+    const home = await mkdtemp(join(tmpdir(), "codex-remote-compressed-boundary-")); directories.push(home);
+    const sessions = join(home, "sessions"); await mkdir(sessions);
+    const path = join(sessions, "rollout-thread.jsonl");
+    const metadata = { id: "test-thread", path, modelProvider: "test-provider" };
+    await expect(savedSettings(metadata, home)).rejects.toMatchObject({ code: "headless-settings-unreadable" });
+    await writeFile(path + ".zst", "not-a-zstd-frame");
+    await expect(savedSettings(metadata, home)).rejects.toMatchObject({ code: "headless-settings-unreadable" });
+    const context = JSON.stringify({ type: "turn_context", payload: { model: "gpt-test", approval_policy: "on-request", approvals_reviewer: "user", sandbox_policy: { type: "read-only" }, cwd: home, workspace_roots: [home] } }) + "\n";
+    const valid = zstdCompressSync(sessionMeta("test-thread") + context);
+    await writeFile(path + ".zst", valid.subarray(0, valid.length - 3));
+    await expect(savedSettings(metadata, home)).rejects.toMatchObject({ code: "headless-settings-unreadable" });
+    // A complete earlier context must not hide an unfinished later frame.
+    const next = zstdCompressSync(context.repeat(3000));
+    await writeFile(path + ".zst", Buffer.concat([valid, next.subarray(0, next.length - 3)]));
+    await expect(savedSettings(metadata, home)).rejects.toMatchObject({ code: "headless-settings-unreadable" });
+    await writeFile(path + ".zst", Buffer.concat([valid, next]));
+    await expect(savedSettings(metadata, home)).resolves.toMatchObject({ sandbox: "read-only" });
+    await writeFile(path + ".zst", zstdCompressSync(sessionMeta("test-thread")));
+    await expect(savedSettings(metadata, home)).rejects.toMatchObject({ code: "headless-settings-unavailable" });
+    await rm(path + ".zst");
+    const outside = join(home, "outside.jsonl.zst"); await writeFile(outside, valid);
+    await symlink(outside, path + ".zst");
+    await expect(savedSettings(metadata, home)).rejects.toMatchObject({ code: "headless-session-path-invalid" });
+  });
+
+  it("resumes a compressed thread with its saved permissions before sending a turn", async () => {
+    const home = await mkdtemp(join(tmpdir(), "codex-remote-compressed-resume-")); directories.push(home);
+    const sessions = join(home, "sessions"); await mkdir(sessions);
+    const path = join(sessions, "rollout-thread.jsonl");
+    await writeFile(path + ".zst", zstdCompressSync(sessionMeta("test-thread") + JSON.stringify({ type: "turn_context", payload: { model: "gpt-test", effort: "high", approval_policy: "on-request", approvals_reviewer: "user", sandbox_policy: { type: "read-only" }, cwd: home, workspace_roots: [home] } }) + "\n"));
+    const adapter = new HeadlessAdapter();
+    const metadata = { id: "test-thread", path, model: "gpt-test", modelProvider: "provider" };
+    adapter.watched.set("test-thread", normalizeThread({ ...metadata, threadRuntimeStatus: { type: "idle" }, turns: [] }, 0));
+    const request = vi.fn(async (method: string) => {
+      if (method === "thread/read") return { thread: metadata };
+      if (method === "thread/resume") return { sandbox: { type: "readOnly" }, approvalPolicy: "on-request", approvalsReviewer: "user", model: "gpt-test", modelProvider: "provider", cwd: home, runtimeWorkspaceRoots: [home] };
+      if (method === "turn/start") return { turn: { id: "new-turn" } };
+      return {};
+    });
+    Object.assign(adapter, { connected: true, rpc: { request, stop: async () => {} } });
+    vi.spyOn(adapter, "follow").mockResolvedValue(true);
+    vi.stubEnv("CODEX_HOME", home);
+    try {
+      await expect(adapter.execute(command({ type: "turn.start", threadId: "test-thread", text: "Test" }))).resolves.toMatchObject({ turnId: "new-turn" });
+      expect(request).toHaveBeenCalledWith("thread/resume", expect.objectContaining({ sandbox: "read-only", approvalPolicy: "on-request", approvalsReviewer: "user", cwd: home, runtimeWorkspaceRoots: [home] }), 30000);
+      expect(request).toHaveBeenCalledWith("turn/start", expect.objectContaining({ effort: "high", input: [{ type: "text", text: "Test", text_elements: [] }] }), 30000);
+    } finally { await adapter.stop(); vi.unstubAllEnvs(); }
   });
 
   it("accepts namespaced paths and forked rollout names only for the matching session", async () => {

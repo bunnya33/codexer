@@ -3,12 +3,14 @@ import { resolveCodexBinary } from "./binary.js";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { createReadStream } from "node:fs";
-import { realpath } from "node:fs/promises";
+import { open, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep, toNamespacedPath } from "node:path";
 import { createInterface } from "node:readline";
+import { pipeline } from "node:stream/promises";
 import { isDeepStrictEqual } from "node:util";
+import * as zlib from "node:zlib";
+import { validateZstdRollout } from "./zstd-rollout.js";
 import { catalogSchema, historyPageSchema, MAX_SUB_AGENTS } from "../../protocol/src/index.js";
 import type { DeviceCatalog, HistoryPage, ModelOption, RemoteCommand, RemoteThread } from "../../protocol/src/index.js";
 import { boundHistoryPage, boundThread, modelSettings, normalizeHistoryTurn, normalizeThread, record, withItemTimings } from "./normalize.js";
@@ -28,28 +30,52 @@ export type SavedSettings = { approvalPolicy: unknown; approvalsReviewer: unknow
 
 export async function savedSettings(thread: RecordValue, codexHome = process.env.CODEX_HOME ?? join(homedir(), ".codex")): Promise<SavedSettings> {
   if (typeof thread.path !== "string" || typeof thread.id !== "string") throw new AdapterError("headless-settings-unavailable");
-  if (!isAbsolute(thread.path) || !thread.path.endsWith(".jsonl")) throw new AdapterError("headless-session-path-invalid");
+  if (!isAbsolute(thread.path) || !/\.jsonl(?:\.zst)?$/.test(thread.path)) throw new AdapterError("headless-session-path-invalid");
   let root: string, path: string;
+  let compressed = thread.path.endsWith(".zst");
   try {
     root = toNamespacedPath(await realpath(resolve(codexHome, "sessions")));
-    path = toNamespacedPath(await realpath(thread.path));
+    try { path = toNamespacedPath(await realpath(thread.path)); }
+    catch (error) {
+      // Codex can compress inactive rollouts while thread/read retains .jsonl.
+      // Only a missing file permits fallback; never reuse older permissions
+      // when a materialized rollout is unreadable or malformed.
+      if (compressed || record(error).code !== "ENOENT") throw error;
+      path = toNamespacedPath(await realpath(thread.path + ".zst"));
+      compressed = true;
+    }
   } catch { throw new AdapterError("headless-settings-unreadable"); }
   const within = relative(root, path);
   if (!within || within === ".." || within.startsWith(`..${sep}`) || isAbsolute(within)) throw new AdapterError("headless-session-path-invalid");
+  if (compressed && typeof zlib.createZstdDecompress !== "function") throw new AdapterError("headless-compression-unsupported");
   let context: RecordValue | null = null;
   let sessionVerified = false;
   try {
-    const lines = createInterface({ input: createReadStream(path, { encoding: "utf8" }), crlfDelay: Infinity });
-    for await (const line of lines) {
-      if (!line) continue;
-      const event = record(JSON.parse(line));
-      // Forked rollout filenames can contain another ID; session_meta identifies the thread.
-      if (!sessionVerified) {
-        if (event.type !== "session_meta" || record(event.payload).id !== thread.id) throw new AdapterError("headless-session-path-invalid");
-        sessionVerified = true;
+    const handle = await open(path, "r");
+    try {
+      if (compressed) await validateZstdRollout(handle);
+      const file = handle.createReadStream({ autoClose: false, start: 0 });
+      const decoder = compressed ? zlib.createZstdDecompress() : null;
+      const lines = createInterface({ input: decoder ?? file, crlfDelay: Infinity });
+      const completed = decoder ? pipeline(file, decoder).then(() => null, error => error) : null;
+      try {
+        for await (const line of lines) {
+          if (!line) continue;
+          const event = record(JSON.parse(line));
+          // Forked rollout filenames can contain another ID; session_meta identifies the thread.
+          if (!sessionVerified) {
+            if (event.type !== "session_meta" || record(event.payload).id !== thread.id) throw new AdapterError("headless-session-path-invalid");
+            sessionVerified = true;
+          }
+          if (event.type === "turn_context") context = record(event.payload);
+        }
+        const error = await completed;
+        if (error) throw error;
+      } finally {
+        lines.close(); file.destroy(); decoder?.destroy();
+        await completed;
       }
-      if (event.type === "turn_context") context = record(event.payload);
-    }
+    } finally { await handle.close(); }
   } catch (error) {
     if (error instanceof AdapterError) throw error;
     throw new AdapterError("headless-settings-unreadable");
