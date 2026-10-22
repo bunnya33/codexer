@@ -199,6 +199,7 @@ func (s *Store) Register(owner, installation, name, platform string) string {
 	s.Tx(func(t *Store) {
 		r := t.One("INSERT INTO devices(id,name,platform,created_at,owner_user_id,installation_id) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(owner_user_id,installation_id) WHERE installation_id IS NOT NULL DO UPDATE SET name=EXCLUDED.name,platform=EXCLUDED.platform,revoked_at=NULL RETURNING id", uuid(), name, platform, now(), owner, installation)
 		id = str(r["id"])
+		t.Q("DELETE FROM removed_devices WHERE device_id=$1", id)
 		t.Q("DELETE FROM sessions WHERE device_id=$1", id)
 	})
 	return id
@@ -210,10 +211,10 @@ func (s *Store) Owns(id string, p *Principal) bool {
 	if p.Hash != "" && s.SessionHash(p.Hash, "") == nil {
 		return false
 	}
-	return s.One("SELECT d.id FROM devices d JOIN users u ON u.id=d.owner_user_id WHERE d.id=$1 AND d.owner_user_id=$2 AND d.revoked_at IS NULL AND u.revoked_at IS NULL", id, p.ID) != nil
+	return s.One("SELECT d.id FROM devices d JOIN users u ON u.id=d.owner_user_id WHERE d.id=$1 AND d.owner_user_id=$2 AND d.revoked_at IS NULL AND u.revoked_at IS NULL AND NOT EXISTS(SELECT 1 FROM removed_devices WHERE device_id=d.id)", id, p.ID) != nil
 }
 func (s *Store) Devices(p *Principal) []M {
-	return s.Q("SELECT id,name,platform,created_at,last_seen_at FROM devices WHERE revoked_at IS NULL AND owner_user_id=$1 ORDER BY created_at", p.ID)
+	return s.Q("SELECT id,name,platform,created_at,last_seen_at FROM devices WHERE revoked_at IS NULL AND owner_user_id=$1 AND NOT EXISTS(SELECT 1 FROM removed_devices WHERE device_id=devices.id) ORDER BY created_at", p.ID)
 }
 func (s *Store) Catalog(id string) M {
 	r := s.One("SELECT payload FROM catalogs WHERE device_id=$1 AND EXISTS(SELECT 1 FROM devices WHERE id=$1 AND revoked_at IS NULL)", id)

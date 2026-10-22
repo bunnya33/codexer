@@ -37,6 +37,7 @@ type FixtureOptions = {
   filePicker?: () => Promise<{ name: string; size: number; mimeType: string; readChunk: (offset: number, length: number) => Promise<string> }[]>;
   controls?: { active: boolean; text: string; images: string[]; failEffort?: boolean };
   paging?: { delay?: boolean; fail?: boolean; exhausted?: boolean };
+  removal?: { confirmed: boolean; fail?: boolean; calls: string[] };
 };
 type TestRelay = {
   getSnapshot(): { userId: string | null; devicesReady: boolean; phase: string; syncing: Record<string, boolean> };
@@ -59,6 +60,7 @@ async function fixture(options: FixtureOptions = {}) {
     url: origin, runScripts: 'dangerously', pretendToBeVisual: true,
     beforeParse(window) {
       Object.assign(window, { AnimationEvent: window.Event });
+      window.confirm = () => options.removal?.confirmed ?? false;
       window.addEventListener('error', event => errors.push(event.error));
       window.matchMedia = (() => ({ matches: false, addListener() {}, removeListener() {} })) as unknown as typeof window.matchMedia;
       Object.assign(window, { __pickAttachments: options.filePicker ?? (async () => []), ResizeObserver: class { observe() {} unobserve() {} disconnect() {} }, AbortSignal, fetch: async (input: string, init?: RequestInit) => {
@@ -72,6 +74,12 @@ async function fixture(options: FixtureOptions = {}) {
         if (path === '/v1/auth/logout' || path === '/v1/auth/active') return response({});
         if (path === '/v1/me') return response({ role: 'user', userId: current.userId });
         if (path === '/v1/devices') { if (options.delayDevices) await deviceGate.promise; return response({ devices: current.devices }); }
+        if (path.endsWith('/data') && init?.method === 'DELETE' && options.removal) {
+          options.removal.calls.push(path);
+          if (options.removal.fail) return new Response(JSON.stringify({error:'device-online'}), {status:409});
+          current.devices = current.devices.filter(device => device.id !== path.split('/')[3]);
+          return response({removed:true});
+        }
         if (path === '/v1/ws/tickets') return response({ ticket: 'fixture-ticket' });
         if (path === '/v1/weixin' || path.endsWith('/weixin-notification')) return response({ enabled: false, allEnabled: false, available: false, bound: false });
         const [, deviceId, suffix] = path.match(/^\/v1\/devices\/([^/]+)\/(.*)$/) ?? [];
@@ -367,6 +375,41 @@ it('keeps an existing offline device selected', async () => {
     expect(test.dom.window.document.querySelector('[aria-label="切换 PC Agent，当前：pc-b，离线"]')).not.toBeNull();
     expect(test.commands).toEqual([]);
   } finally { test.close(); }
+});
+
+it('manages offline devices with confirmation, removes the current selection and keeps online PCs', async () => {
+  const removal = {confirmed:false,calls:[] as string[]};
+  const test = await fixture({removal,devices:devices.map(device=>({...device,online:device.id==='pc-a'})),storage:{[selectionKey()]:JSON.stringify({deviceId:'pc-b',threadId:'older-pc-b'})}});
+  try {
+    await vi.waitFor(()=>expect(test.header()).toContain('older-pc-b'));
+    test.click('切换 PC Agent，当前：pc-b，离线');
+    await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[aria-label="管理设备"]')).not.toBeNull());test.click('管理设备');
+    await vi.waitFor(()=>expect(test.dom.window.document.body.textContent).toContain('在线不可删除'));
+    expect(test.dom.window.document.querySelector('[aria-label="删除离线设备 pc-a（pc-a）"]')).toBeNull();
+    test.click('删除离线设备 pc-b（pc-b）');await new Promise(resolve=>setTimeout(resolve,50));
+    expect(removal.calls).toEqual([]);expect(test.header()).toContain('older-pc-b');
+    removal.confirmed = true;test.click('删除离线设备 pc-b（pc-b）');
+    await vi.waitFor(()=>expect(removal.calls).toEqual(['/v1/devices/pc-b/data']));
+    await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[aria-label="选择设备 pc-b，离线"]')).toBeNull());
+    await vi.waitFor(()=>expect(test.header()).toContain('recent-pc-a'));
+    expect(test.dom.window.document.body.textContent).toContain('1 台设备 · 1 台在线');
+    expect(test.errors).toEqual([]);
+  } finally {test.close();}
+});
+
+it('leaves the device in the list and shows a useful failure if it reconnects during confirmation', async () => {
+  const removal={confirmed:true,fail:true,calls:[] as string[]};
+  const test=await fixture({removal,devices:devices.map(device=>({...device,online:false}))});
+  try{
+    await vi.waitFor(()=>expect(test.header()).toContain('recent-pc-a'));
+    test.click('切换 PC Agent，当前：pc-a，离线');
+    await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[aria-label="管理设备"]')).not.toBeNull());test.click('管理设备');
+    await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[aria-label="删除离线设备 pc-b（pc-b）"]')).not.toBeNull());test.click('删除离线设备 pc-b（pc-b）');
+    await vi.waitFor(()=>expect(test.dom.window.document.body.textContent).toContain('设备已上线，请等待离线后再删除'));
+    expect(test.current.devices).toHaveLength(2);
+    expect(test.dom.window.document.querySelector('[aria-label="选择设备 pc-b，离线"]')).not.toBeNull();
+    expect(test.errors).toEqual([]);
+  }finally{test.close();}
 });
 
 it('remembers an explicit device switch even while its catalog is still loading', async () => {

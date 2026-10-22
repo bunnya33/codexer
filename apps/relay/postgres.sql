@@ -16,6 +16,7 @@ ALTER TABLE devices ADD COLUMN IF NOT EXISTS installation_id TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS account_role_login ON users(role,lower(name)) WHERE password_hash IS NOT NULL;
 DROP INDEX IF EXISTS account_login;
 CREATE UNIQUE INDEX IF NOT EXISTS account_installation ON devices(owner_user_id,installation_id) WHERE installation_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS removed_devices(device_id TEXT PRIMARY KEY REFERENCES devices(id),removed_at BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS sessions (hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), device_id TEXT REFERENCES devices(id), expires_at BIGINT NOT NULL);
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_active_at BIGINT;
 UPDATE sessions SET last_active_at=GREATEST(0,expires_at-604800000) WHERE last_active_at IS NULL;

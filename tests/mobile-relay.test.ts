@@ -336,6 +336,55 @@ it('does not overwrite live presence with an older device-list response', async 
   expect(client.getSnapshot().devices[0]?.online).toBe(false);
 });
 
+it('clears deleted device caches, ignores delayed data and restores fresh data after authenticated rediscovery', async () => {
+  const socket = await connectedSocket();
+  const originalFetch = fetch;
+  const delayed = new Map<string, (value: Response) => void>();
+  let listed = true;
+  vi.stubGlobal('fetch', vi.fn((input: string, options?: RequestInit) => {
+    const path = new URL(input).pathname;
+    if (path === '/v1/devices') {
+      if (delayed.has('list')) return new Promise<Response>(resolve => delayed.set('list', resolve));
+      return Promise.resolve(response({ devices: listed ? [{id:'device-test',name:'Test Mac',platform:'darwin',online:true}] : [] }));
+    }
+    if (path.endsWith('/data')) { listed = false; return Promise.resolve(response({removed:true})); }
+    if (path.endsWith('/turns')) return new Promise<Response>(resolve => delayed.set('history', resolve));
+    if (path.endsWith('/snapshot') && delayed.has('snapshot')) return new Promise<Response>(resolve => delayed.set('snapshot', resolve));
+    return originalFetch(input, options);
+  }));
+  delayed.set('list', () => {}); const staleList = client.refreshDevices();
+  delayed.set('snapshot', () => {}); const staleSnapshot = client.loadSnapshot('device-test');
+  const staleHistory = client.loadHistory('device-test', 'thread-test');
+  const replyList = delayed.get('list')!; delayed.delete('list');
+  const replySnapshot = delayed.get('snapshot')!; delayed.delete('snapshot');
+  await client.removeDevice('device-test');
+  expect(client.getSnapshot()).toMatchObject({ devices:[],catalogs:{},snapshots:{},histories:{},syncing:{} });
+  for (const key of ['catalogs','snapshots','histories','syncing','threadNotifications'] as const) expect(client.getSnapshot()[key]).toEqual({});
+  replyList(response({devices:[{id:'device-test',name:'Old',platform:'darwin',online:true}]}));
+  replySnapshot(response({snapshot:snapshot(),online:true}));
+  delayed.get('history')!(response({threadId:'thread-test',turns:[],nextCursor:null,generatedAt:1}));
+  await Promise.all([staleList,staleSnapshot,staleHistory]);
+  socket.message({type:'device.snapshot',snapshot:snapshot()});
+  socket.message({type:'device.event',event:event(snapshot())});
+  expect(client.getSnapshot()).toMatchObject({devices:[],snapshots:{},histories:{},syncing:{}});
+  for (const key of ['catalogs','snapshots','histories','syncing','threadNotifications'] as const) expect(client.getSnapshot()[key]).toEqual({});
+  listed = true; socket.message({type:'devices.changed'});
+  await vi.waitFor(() => expect(client.getSnapshot().devices).toHaveLength(1));
+  await vi.waitFor(() => expect(client.getSnapshot().snapshots['device-test']).toBeDefined());
+  expect(client.getSnapshot().catalogs['device-test']).toBeDefined();
+  expect(socket.sent.filter((m: any) => m.type === 'client.subscribe' && m.deviceId === 'device-test').length).toBeGreaterThan(1);
+});
+
+it('refuses removal if the device comes online and synchronizes deletion from another control client', async () => {
+  const socket = await connectedSocket();
+  vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({error:'device-online'}),{status:409}));
+  await expect(client.removeDevice('device-test')).rejects.toThrow('设备已上线');
+  expect(client.getSnapshot().devices).toHaveLength(1);
+  vi.mocked(fetch).mockResolvedValueOnce(response({devices:[]}));
+  socket.message({type:'device.removed',deviceId:'device-test'});
+  expect(client.getSnapshot()).toMatchObject({devices:[],snapshots:{},catalogs:{},histories:{}});
+});
+
 it('retains PC presence during client reconnect and ignores callbacks from the old socket', async () => {
   const socket = await connectedSocket();
   vi.useFakeTimers();

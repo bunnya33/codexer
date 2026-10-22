@@ -107,6 +107,33 @@ func (s *uploadStore) cleanupLocked() (total int64, devices map[string]int64, co
 	return
 }
 func (s *uploadStore) cleanup() { s.mu.Lock(); defer s.mu.Unlock(); s.cleanupLocked() }
+func (s *uploadStore) removeDevice(device string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entries, err := os.ReadDir(s.directory)
+	if err != nil {
+		panic(err)
+	}
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(s.directory, entry.Name()))
+		if err != nil {
+			panic(err)
+		}
+		var u upload
+		if json.Unmarshal(b, &u) != nil || !hex64.MatchString(u.ID) || entry.Name() != u.ID+".json" || u.Device != device {
+			continue
+		}
+		// Keep metadata until the payload is gone, so a retry can finish cleanup.
+		for _, suffix := range []string{".data", ".json.tmp", ".json"} {
+			if err := os.Remove(s.path(u.ID, suffix)); err != nil && !os.IsNotExist(err) {
+				panic(err)
+			}
+		}
+	}
+}
 func (s *uploadStore) close() {
 	if s.temporary {
 		_ = os.RemoveAll(s.directory)

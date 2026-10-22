@@ -65,14 +65,17 @@ export class RelayClient {
   private refreshTimer?: ReturnType<typeof setInterval>;
   private foreground = true;
   private initialization?: { generation: number; revision: number };
-  private historyLoading = new Set<string>();
-  private catalogLoading = new Set<string>();
+  private historyLoading = new Map<string, number>();
+  private catalogLoading = new Map<string, number>();
   private catalogReloads = new Set<string>();
   private watched = new Map<string, number>();
   private subscribed = new Set<string>();
   private resyncing = new Set<string>();
   private presenceVersions = new Map<string, number>();
   private notificationVersions = new Map<string, number>();
+  private deviceVersions = new Map<string, number>();
+  private removedDevices = new Set<string>();
+  private devicesRequest = 0;
   private weixinVersion = 0;
   private pending = new Map<string, { resolve: (result: CommandResult) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout>; deviceId: string }>();
 
@@ -80,6 +83,21 @@ export class RelayClient {
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   private set(patch: Partial<RelayView>) { this.view = { ...this.view, ...patch }; for (const listener of this.listeners) listener(); }
   private notice(message: string) { this.set({ notice: message }); }
+  private forgetDevice(id: string) {
+    this.deviceVersions.set(id, (this.deviceVersions.get(id) ?? 0) + 1);
+    this.removedDevices.add(id);
+    this.devicesRequest++;
+    this.subscribed.delete(id); this.resyncing.delete(id);
+    this.catalogLoading.delete(id); this.catalogReloads.delete(id);
+    for (const key of this.historyLoading.keys()) if (key.startsWith(id + ':')) this.historyLoading.delete(key);
+    for (const key of this.watched.keys()) if (key.startsWith(id + ':')) this.watched.delete(key);
+    for (const key of this.notificationVersions.keys()) if (key.startsWith(id + ':')) this.notificationVersions.set(key, (this.notificationVersions.get(key) ?? 0) + 1);
+    const withoutDevice = <T,>(values: Record<string, T>, threads = false) => Object.fromEntries(Object.entries(values).filter(([key]) => threads ? !key.startsWith(id + ':') : key !== id));
+    for (const [key, pending] of this.pending) if (pending.deviceId === id) {
+      clearTimeout(pending.timer); this.pending.delete(key); pending.reject(new Error('设备已删除'));
+    }
+    this.set({ devices: this.view.devices.filter(device => device.id !== id), catalogs: withoutDevice(this.view.catalogs), snapshots: withoutDevice(this.view.snapshots), histories: withoutDevice(this.view.histories, true), syncing: withoutDevice(this.view.syncing), threadNotifications: withoutDevice(this.view.threadNotifications, true) });
+  }
   showNotice(message: string) { if (this.view.phase !== 'locked') this.notice(message); }
 
   async restore(): Promise<boolean> {
@@ -207,9 +225,9 @@ export class RelayClient {
   }
 
   private async threadNotification(deviceId: string, threadId: string, enabled?: boolean) {
-    const generation = this.generation, key = historyKey(deviceId, threadId), version = this.notificationVersions.get(key), weixinVersion = this.weixinVersion;
+    const generation = this.generation, key = historyKey(deviceId, threadId), version = this.notificationVersions.get(key), weixinVersion = this.weixinVersion, deviceVersion = this.deviceVersions.get(deviceId);
     const notification = threadNotificationSchema.parse(await this.api<unknown>(`/v1/devices/${encodeURIComponent(deviceId)}/threads/${encodeURIComponent(threadId)}/weixin-notification`, enabled === undefined ? undefined : { enabled }, enabled === undefined ? 'GET' : 'PUT'));
-    if (generation !== this.generation || version !== this.notificationVersions.get(key)) return;
+    if (generation !== this.generation || version !== this.notificationVersions.get(key) || deviceVersion !== this.deviceVersions.get(deviceId) || this.removedDevices.has(deviceId)) return;
     if (weixinVersion !== this.weixinVersion && this.view.weixin) {
       notification.allEnabled = this.view.weixin.bound && this.view.weixin.notifications;
       notification.bound = this.view.weixin.bound;
@@ -231,6 +249,7 @@ export class RelayClient {
     this.socket = null;
     this.historyLoading.clear(); this.catalogLoading.clear(); this.catalogReloads.clear(); this.watched.clear(); this.subscribed.clear(); this.resyncing.clear(); this.presenceVersions.clear();
     this.notificationVersions.clear();
+    this.deviceVersions.clear(); this.removedDevices.clear(); this.devicesRequest++;
     this.weixinVersion++;
     for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(new Error('连接已断开，请核对操作结果')); }
     this.pending.clear();
@@ -262,34 +281,38 @@ export class RelayClient {
 
   async refreshDevices(): Promise<void> {
     const generation = this.generation;
+    const request = ++this.devicesRequest;
     const presenceVersions = new Map(this.presenceVersions);
     const response = await this.api<{ devices: Device[] }>('/v1/devices');
-    if (generation !== this.generation) return;
+    if (generation !== this.generation || request !== this.devicesRequest) return;
     const devices = response.devices.filter(device => typeof device.id === 'string' && typeof device.name === 'string').map(device => {
       const current = this.view.devices.find(value => value.id === device.id);
       return current && presenceVersions.get(device.id) !== this.presenceVersions.get(device.id) ? { ...device, online: current.online } : device;
     });
+    for (const old of this.view.devices) if (!devices.some(device => device.id === old.id)) this.forgetDevice(old.id);
+    for (const device of devices) this.removedDevices.delete(device.id);
     this.set({ devices, devicesReady: true });
     for (const device of devices) {
       if (!this.view.catalogs[device.id]) void this.loadCatalog(device.id);
       if (!this.view.snapshots[device.id]) void this.loadSnapshot(device.id);
-      if (this.socket?.readyState === WebSocket.OPEN && this.view.phase === 'connected' && !this.subscribed.has(device.id)) this.subscribeDevice(device.id);
+      if (this.view.snapshots[device.id] && this.socket?.readyState === WebSocket.OPEN && this.view.phase === 'connected' && !this.subscribed.has(device.id)) this.subscribeDevice(device.id);
     }
   }
 
   async loadCatalog(deviceId: string): Promise<void> {
-    if (this.view.phase === 'locked') return;
+    if (this.view.phase === 'locked' || this.removedDevices.has(deviceId)) return;
     if (this.catalogLoading.has(deviceId)) { this.catalogReloads.add(deviceId); return; }
-    this.catalogLoading.add(deviceId);
     const generation = this.generation;
+    const version = this.deviceVersions.get(deviceId) ?? 0;
+    this.catalogLoading.set(deviceId, version);
     try {
       const response = await this.api<{ catalog: unknown }>(`/v1/devices/${encodeURIComponent(deviceId)}/catalog`);
-      if (generation !== this.generation) return;
+      if (generation !== this.generation || version !== (this.deviceVersions.get(deviceId) ?? 0) || this.removedDevices.has(deviceId)) return;
       const catalog = catalogSchema.parse(response.catalog);
       if (!this.catalogReloads.has(deviceId)) this.set({ catalogs: { ...this.view.catalogs, [deviceId]: catalog } });
-    } catch (error) { if (generation === this.generation) this.notice(`项目目录暂不可用：${error instanceof Error ? error.message : String(error)}`); }
+    } catch (error) { if (generation === this.generation && version === (this.deviceVersions.get(deviceId) ?? 0) && !this.removedDevices.has(deviceId)) this.notice(`项目目录暂不可用：${error instanceof Error ? error.message : String(error)}`); }
     finally {
-      if (generation === this.generation) {
+      if (generation === this.generation && this.catalogLoading.get(deviceId) === version) {
         this.catalogLoading.delete(deviceId);
         if (this.catalogReloads.delete(deviceId)) void this.loadCatalog(deviceId);
       }
@@ -297,20 +320,23 @@ export class RelayClient {
   }
 
   async loadSnapshot(deviceId: string): Promise<void> {
+    if (this.view.phase === 'locked' || this.removedDevices.has(deviceId)) return;
     const generation = this.generation;
+    const version = this.deviceVersions.get(deviceId);
     const presenceVersion = this.presenceVersions.get(deviceId);
     try {
       const response = await this.api<{ snapshot: unknown; online: boolean }>(`/v1/devices/${encodeURIComponent(deviceId)}/snapshot`);
-      if (generation !== this.generation) return;
+      if (generation !== this.generation || version !== this.deviceVersions.get(deviceId) || this.removedDevices.has(deviceId)) return;
       const snapshot = snapshotSchema.parse(response.snapshot);
       if (snapshot.deviceId !== deviceId) return;
       this.acceptSnapshot(snapshot);
+      if (!this.subscribed.has(deviceId)) this.subscribeDevice(deviceId);
       if (this.view.phase !== 'connected' && presenceVersion === this.presenceVersions.get(deviceId)) this.set({ devices: this.view.devices.map(device => device.id === deviceId ? { ...device, online: response.online } : device) });
     } catch { /* The agent may not have published its first snapshot yet. */ }
   }
 
   private subscribeDevice(deviceId: string, resume = true): void {
-    if (this.view.phase !== 'connected' || this.socket?.readyState !== WebSocket.OPEN) return;
+    if (this.removedDevices.has(deviceId) || this.view.phase !== 'connected' || this.socket?.readyState !== WebSocket.OPEN) return;
     const snapshot = resume ? this.view.snapshots[deviceId] : undefined;
     this.socket?.send(JSON.stringify({ type: 'client.subscribe', deviceId, ...(snapshot ? { epoch: snapshot.epoch, lastSeq: snapshot.lastSeq } : {}) }));
     this.subscribed.add(deviceId);
@@ -318,13 +344,14 @@ export class RelayClient {
   }
 
   private acceptSnapshot(snapshot: DeviceSnapshot): void {
+    if (this.removedDevices.has(snapshot.deviceId)) return;
     const current = this.view.snapshots[snapshot.deviceId];
     if (current && (current.epoch === snapshot.epoch ? current.lastSeq > snapshot.lastSeq : current.generatedAt > snapshot.generatedAt)) return;
     this.set({ snapshots: { ...this.view.snapshots, [snapshot.deviceId]: snapshot } });
   }
 
   private reconcile(deviceId: string): void {
-    if (this.resyncing.has(deviceId) || this.socket?.readyState !== WebSocket.OPEN) return;
+    if (this.removedDevices.has(deviceId) || this.resyncing.has(deviceId) || this.socket?.readyState !== WebSocket.OPEN) return;
     this.resyncing.add(deviceId);
     this.subscribeDevice(deviceId, false);
   }
@@ -393,9 +420,15 @@ export class RelayClient {
     if (message.type === 'client.authenticated') {
       this.set({ phase: 'connected', notice: '' });
       if (this.view.role === 'user') void this.weixinStatus().catch(() => undefined);
-      for (const device of this.view.devices) { if (!this.subscribed.has(device.id)) this.subscribeDevice(device.id); void this.loadCatalog(device.id); }
+      for (const device of this.view.devices) { if (this.view.snapshots[device.id] && !this.subscribed.has(device.id)) this.subscribeDevice(device.id); void this.loadCatalog(device.id); }
       for (const [id, pending] of this.pending) void this.api<{ result: CommandResult | null }>(`/v1/devices/${encodeURIComponent(pending.deviceId)}/commands/${encodeURIComponent(id)}`).then(response => { if (response.result) this.finishCommand(response.result); }).catch(() => undefined);
-    } else if (message.type === 'weixin.settings') {
+    } else if (message.type === 'device.removed' && deviceId) {
+      this.forgetDevice(deviceId);
+      void this.refreshDevices().catch(() => undefined);
+    } else if (message.type === 'devices.changed') {
+      void this.refreshDevices().catch(() => undefined);
+    } else if (deviceId && this.removedDevices.has(deviceId)) return;
+    else if (message.type === 'weixin.settings') {
       const status = message.status as WeixinStatus | undefined;
       if (status && typeof status.notifications === 'boolean' && typeof status.bound === 'boolean') this.acceptWeixin(status);
     } else if (message.type === 'weixin.thread-notification' && deviceId && typeof message.threadId === 'string') {
@@ -422,6 +455,7 @@ export class RelayClient {
       const parsed = eventSchema.safeParse(message.event);
       if (!parsed.success) return;
       const event = parsed.data, previous = this.view.snapshots[event.deviceId];
+      if (this.removedDevices.has(event.deviceId)) return;
       if (previous?.epoch === event.epoch && event.seq <= previous.lastSeq) return;
       if (this.resyncing.has(event.deviceId)) return;
       if (!previous) { this.reconcile(event.deviceId); return; }
@@ -444,17 +478,18 @@ export class RelayClient {
   }
 
   async loadHistory(deviceId: string, threadId: string, earlier = false): Promise<void> {
-    if (this.view.phase === 'locked') return;
+    if (this.view.phase === 'locked' || this.removedDevices.has(deviceId)) return;
     const key = historyKey(deviceId, threadId);
     if (this.historyLoading.has(key) || earlier && !this.view.histories[key]?.nextCursor) return;
-    this.historyLoading.add(key);
     const generation = this.generation;
+    const version = this.deviceVersions.get(deviceId) ?? 0;
+    this.historyLoading.set(key, version);
     const prior = this.view.histories[key];
     this.set({ histories: { ...this.view.histories, [key]: { turns: prior?.turns ?? [], nextCursor: prior?.nextCursor ?? null, loading: true } } });
     try {
       const cursor = earlier && prior?.nextCursor ? `?cursor=${encodeURIComponent(prior.nextCursor)}` : '';
       const page = historyPageSchema.parse(await this.api<unknown>(`/v1/devices/${encodeURIComponent(deviceId)}/threads/${encodeURIComponent(threadId)}/turns${cursor}`));
-      if (generation !== this.generation) return;
+      if (generation !== this.generation || version !== (this.deviceVersions.get(deviceId) ?? 0) || this.removedDevices.has(deviceId)) return;
       if (page.threadId !== threadId) throw new Error('history-thread-mismatch');
       const incoming = [...page.turns].reverse();
       const current = this.view.histories[key];
@@ -462,10 +497,10 @@ export class RelayClient {
       const turns = mergeTurnHistory(old, incoming, earlier ? 'earlier' : 'latest');
       this.set({ histories: { ...this.view.histories, [key]: { turns, nextCursor: !earlier && old.length > incoming.length ? current?.nextCursor ?? null : page.nextCursor, loading: false } } });
     } catch (error) {
-      if (generation !== this.generation) return;
+      if (generation !== this.generation || version !== (this.deviceVersions.get(deviceId) ?? 0) || this.removedDevices.has(deviceId)) return;
       const current = this.view.histories[key];
       this.set({ histories: { ...this.view.histories, [key]: { turns: current?.turns ?? [], nextCursor: current?.nextCursor ?? null, loading: false, error: error instanceof Error ? error.message : '历史读取失败' } } });
-    } finally { if (generation === this.generation) this.historyLoading.delete(key); }
+    } finally { if (generation === this.generation && this.historyLoading.get(key) === version) this.historyLoading.delete(key); }
   }
 
   watchThread(deviceId: string, threadId: string): void {
@@ -629,6 +664,17 @@ export class RelayClient {
     await this.api(`/v1/devices/${encodeURIComponent(deviceId)}/preview-shares/${encodeURIComponent(id)}`,undefined,'DELETE');
   }
   async revokeDevice(id: string) { await this.api(`/v1/devices/${encodeURIComponent(id)}`, undefined, 'DELETE'); await this.refreshDevices(); }
+  async removeDevice(id: string) {
+    const generation = this.generation;
+    try { await this.api(`/v1/devices/${encodeURIComponent(id)}/data`, undefined, 'DELETE'); }
+    catch (error) {
+      if (error instanceof ApiError && error.status === 409 && error.message === 'device-online') throw new Error('设备已上线，请等待离线后再删除');
+      throw error;
+    }
+    if (generation !== this.generation) return;
+    this.forgetDevice(id);
+    await this.refreshDevices().catch(() => undefined);
+  }
 }
 
 export const relay = new RelayClient();

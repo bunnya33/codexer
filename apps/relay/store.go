@@ -242,6 +242,7 @@ CREATE TABLE IF NOT EXISTS preview_shares(id TEXT PRIMARY KEY,user_id TEXT NOT N
 CREATE UNIQUE INDEX IF NOT EXISTS account_role_login ON users(role,lower(name)) WHERE password_hash IS NOT NULL;
 CREATE TABLE IF NOT EXISTS devices(id TEXT PRIMARY KEY,name TEXT NOT NULL,platform TEXT NOT NULL,token_hash TEXT UNIQUE,created_at BIGINT NOT NULL,last_seen_at BIGINT,revoked_at BIGINT,owner_user_id TEXT REFERENCES users(id),installation_id TEXT);
 CREATE UNIQUE INDEX IF NOT EXISTS account_installation ON devices(owner_user_id,installation_id) WHERE installation_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS removed_devices(device_id TEXT PRIMARY KEY REFERENCES devices(id),removed_at BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS snapshots(device_id TEXT PRIMARY KEY REFERENCES devices(id),epoch TEXT NOT NULL,seq BIGINT NOT NULL,payload TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS snapshot_threads(device_id TEXT NOT NULL REFERENCES snapshots(device_id) ON DELETE CASCADE,thread_id TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(device_id,thread_id));
 CREATE TABLE IF NOT EXISTS catalogs(device_id TEXT PRIMARY KEY REFERENCES devices(id),payload TEXT NOT NULL);

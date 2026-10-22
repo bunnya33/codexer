@@ -11,6 +11,7 @@ All authenticated endpoints use the session returned by account login. Health an
 | GET | `/health` | Process health and protocol version |
 | GET | `/v1/devices` | Owner's unrevoked devices and live presence |
 | DELETE | `/v1/devices/:deviceId` | Revoke credential and close the Agent socket |
+| DELETE | `/v1/devices/:deviceId/data` | Owner-only offline data purge; keep identity/session for automatic Agent reconnect; online returns 409 |
 | GET | `/v1/devices/:deviceId/snapshot` | Cached snapshot plus independently measured presence |
 | GET | `/v1/devices/:deviceId/catalog` | Complete saved project and interactive chat catalog |
 | GET | `/v1/devices/:deviceId/threads/:threadId/turns?cursor=...` | On-demand older history from the PC, five turns per page |
@@ -60,6 +61,8 @@ catalog.updated (fetch the catalog REST endpoint again)
 Store each device's snapshot together with its epoch and last sequence. Apply each event through `reduceEvent`. A gap, duplicate, or epoch mismatch must trigger a new subscribe without a cursor. Cache presence separately: a cached active turn is not proof that the PC is online. An unavailable thread or non-respondable request must disable the corresponding controls.
 
 Events are retained for 24 hours; replay is limited to 1000 contiguous events. Missing events, retention expiry, or an Agent restart result in a snapshot fallback.
+
+Account-scoped control notifications include `{type:"device.removed",deviceId}` after an offline purge and `{type:"devices.changed"}` after the first snapshot and catalog on each Agent connection. These are only delivered to authenticated clients of the device owner. On removal, drop the device's cached catalogs, snapshots, history, subscriptions, notifications and pending commands; ignore stale REST replies and queued messages for that device. On `devices.changed`, reload `/v1/devices` and load fresh data for rediscovered devices. Subscribe once a snapshot is available so a subscribe rejected before the first snapshot does not leave live updates disabled. The device protocol is unchanged: saved valid Agent credentials can reconnect and publish fresh data; purged shares remain invalid.
 
 ## Commands
 

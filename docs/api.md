@@ -77,7 +77,8 @@ HTTP 错误体是 `{ "error": "code" }`。常见状态：`400 invalid-request`�
 | DELETE | `/v1/users/:userId` | 管理员 | `{revoked:true}`；禁止禁用管理员 |
 | GET | `/v1/devices` | 普通账号 | `{devices:[{id,name,platform,created_at,last_seen_at,online}]}` |
 | GET | `/v1/agent/:deviceId/session` | 该 PC 的 Agent 会话 | `{active:true}` |
-| DELETE | `/v1/devices/:deviceId` | 同账号 | `{revoked:true}` |
+| DELETE | `/v1/devices/:deviceId` | 同账号 | `{revoked:true}`；撤销设备凭据，不清理同步数据 |
+| DELETE | `/v1/devices/:deviceId/data` | 普通账号、同账号离线设备 | `{removed:true}`；清理服务器同步数据并从设备列表移除，保留重连身份 |
 | GET | `/v1/devices/:deviceId/snapshot` | 无 | `{online,snapshot}` |
 | GET | `/v1/devices/:deviceId/catalog` | 无 | `{catalog:{protocolVersion,deviceId,generatedAt,projects,threads,models?}}` |
 | GET | `/v1/devices/:deviceId/threads/:threadId/turns` | 可选 `?cursor=<opaque-cursor>` | `{threadId,turns,nextCursor,generatedAt}` |
@@ -86,6 +87,12 @@ HTTP 错误体是 `{ "error": "code" }`。常见状态：`400 invalid-request`�
 | GET | `/v1/devices/:deviceId/commands/:commandId` | 无 | `{status,result}` |
 
 账号名称在同一类型中忽略大小写且唯一；密码为 12–128 字符。`/v1/users` 系列只操作控制端账号，不能重置管理员密码。installationId 为 PC 本地 UUID，同一账号下重新登录保持 deviceId，并撤销该安装的旧会话。旧用户和内容保留；管理员旧设备仍保留，但不可继续通过管理员身份控制，需要新建控制端账号后重新登录 PC。
+
+### 删除离线设备
+
+`DELETE /v1/devices/:deviceId/data` 用于清理离线或重复的设备条目，不同于撤销凭据。服务器在设备连接使用的同一串行通道内重新检查在线状态；已上线返回 `409 device-online`，其他账号、管理员、设备限定会话或已撤销设备不能使用此入口。
+
+成功后清除该设备的快照、目录、事件、命令及结果、图片、上传附件、分享链接和设备关联的微信路由/通知偏好/收发队列，并撤销进行中的预览、音频和待处理请求；其它设备及账号级微信绑定保留。只保留设备/安装身份记录、删除标记及原有登录会话，以便仍有效的 Agent 凭据重连后恢复列表并重新同步。PC 文件和本机 Codex 会话不受影响，旧分享链接不会恢复。文件清理失败返回错误，可对同一设备重试。
 
 ### 管理员与服务器更新
 

@@ -296,9 +296,11 @@ func (s *Server) deviceSocket(w http.ResponseWriter, r *http.Request) {
 				old.Close(4001, "connection-replaced")
 			}
 			s.Store.Q("UPDATE devices SET last_seen_at=$2 WHERE id=$1", id, now())
+			s.Store.Q("DELETE FROM removed_devices WHERE device_id=$1", id)
 			p.Send(M{"type": "device.welcome", "deviceId": id, "protocolVersion": 1, "features": []string{"catalog", "history", "images", "files", "previews", "attachments"}})
 			s.Broadcast(id, M{"type": "device.presence", "deviceId": id, "online": true})
 		})
+		announceSnapshot, announceCatalog := true, true
 		for {
 			kind, b, e := p.ws.ReadMessage()
 			if e != nil {
@@ -368,6 +370,10 @@ func (s *Server) deviceSocket(w http.ResponseWriter, r *http.Request) {
 					}
 					s.Store.SaveSnapshot(v)
 					s.Broadcast(id, m)
+					if announceSnapshot {
+						announceSnapshot = false
+						s.BroadcastAccount(q.ID, M{"type": "devices.changed"})
+					}
 				case "device.catalog":
 					v := obj(m["catalog"])
 					if v["deviceId"] != id {
@@ -375,6 +381,10 @@ func (s *Server) deviceSocket(w http.ResponseWriter, r *http.Request) {
 					}
 					s.Store.SaveCatalog(v)
 					s.Broadcast(id, M{"type": "catalog.updated", "deviceId": id, "generatedAt": v["generatedAt"]})
+					if announceCatalog {
+						announceCatalog = false
+						s.BroadcastAccount(q.ID, M{"type": "devices.changed"})
+					}
 				case "device.event":
 					v := obj(m["event"])
 					if v["deviceId"] != id {
