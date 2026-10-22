@@ -1,6 +1,6 @@
 {
   "name": "relaydesk-native",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "RelayDesk and PC Agent native Windows clients",
   "author": "Codexer contributors",
   "private": true,

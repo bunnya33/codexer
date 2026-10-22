@@ -1,5 +1,14 @@
 # Windows 原生版验收
 
+## PC Agent 0.2.7：服务器 v0.3.20 对应源码重新打包
+
+验收日期：2026-10-22。基于服务器 v0.3.20 发布后的主线 `1d5602c`，只更新原生客户端打包版本并重新构建 Windows x64 Agent，不新增连接功能。分享有效期和安装包分发由服务器处理，旧版支持预览的 Agent 可继续连接。
+
+- React Native Windows x64 Release、Hermes 字节码和 NSIS 安装 EXE 实际构建通过；原生类型检查通过。62 项相关回归覆盖原生错误传递、登录与连接诊断、会话兼容及网页预览转发；3 项 Sidecar 回归覆盖关闭偏好、并发存储、旧凭据迁移、设备身份及永久会话。
+- 隔离目录使用随包 Node、实际 Sidecar、合成 HTTP/WebSocket 服务和 FakeDesktop，验证错误密码 401 的明确提示及诊断、正确登录 200、权限更新与网站/应用授权、重复请求和旧权限指纹拒绝。
+- 真实原生宿主在独立配置下启动，读取 Windows DPAPI 加密的合成凭据并自动连接，报告版本 0.2.7、React Native Windows renderer 及 agent-management 页面，无 TypeError/ReferenceError/渲染失败日志。未覆盖安装向导、真实账号或界面点击验收；没有替换当前安装的 Agent 或修改开机启动项。
+- 安装包解出文件的 SHA-256、x64 PE、Hermes 与实测运行目录的一致性检查记录在交付目录 verification.json。安装包未配置发行签名。
+
 ## PC Agent 0.2.6：主线功能同步
 
 验收日期：2026-10-22。合入远端 main `65df8e8`，包含服务器 0.3.17 对应的远程权限设置、Browser / Computer Use 授权，以及压缩会话读取支持。本次只交付 Windows x64 原生 Agent 安装包；保留 0.2.5 的原生错误归一化、登录失败诊断及状态主动刷新。
