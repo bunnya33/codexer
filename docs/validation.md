@@ -1,5 +1,9 @@
 # 当前 Go 迁移验证
 
+## 2026-10-22 服务器 v0.3.22 发布
+
+稳定版 [v0.3.22](https://github.com/bunnya33/codexer/releases/tag/v0.3.22) 对应 `6dd0a0f`，[发布流程](https://github.com/bunnya33/codexer/actions/runs/39760056649) 全部成功：完整 TypeScript/Go 测试（含 PostgreSQL）、Go race、类型/文档、Web/Admin/内嵌 Go 生产构建、单文件服务器验收及 Linux/macOS amd64/arm64 四平台打包。正式 Release 非草稿、非预发布，8 个服务器归档/校验附件齐全。实际取得四份 SHA-256 文件并与 GitHub 归档摘要逐一匹配；下载的 Linux amd64 包为 7,849,916 字节，SHA-256 为 `3d31fde1ba074ec076e16bb71a2c1f21dc797bc83f27c4daf331be558e19fed5`，版本/清单均为 0.3.22，ELF x86-64、0755 执行权限与归档路径/私密文件排除检查通过。本地仅复制生产可执行文件到空目录、仅系统 PATH，验证版本、内嵌 Web、公开网页/音频及下载路由。未安装或重启生产服务器，未生成新客户端安装包。
+
 ## 2026-10-22 服务器 v0.3.21 发布
 
 稳定版 [v0.3.21](https://github.com/bunnya33/codexer/releases/tag/v0.3.21) 对应 `2d650b6`，[发布流程](https://github.com/bunnya33/codexer/actions/runs/39740152704) 全部成功：完整 TypeScript/Go 测试、PostgreSQL、Go race、类型/文档、内嵌 Web/Admin 生产构建、独立单文件服务器验收及 Linux/macOS amd64/arm64 四平台打包。正式 Release 非草稿、非预发布，8 个安装包/校验附件齐全；实际取得四份 SHA-256 文件并与 GitHub 对应归档摘要逐一核对一致。本地额外下载 Linux amd64 归档未收到正文，已停止该网络请求，未将其计作本地解包验收；归档生成及单文件验收以成功的 CI 为准。未安装或重启生产服务器，未打包客户端。
