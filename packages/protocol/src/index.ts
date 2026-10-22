@@ -46,11 +46,18 @@ export const turnTokenUsageSchema = tokenBreakdownSchema.safeExtend({
   model: z.string().min(1).max(200).optional(),
 });
 export type TurnTokenUsage = z.infer<typeof turnTokenUsageSchema>;
+export const permissionModeSchema = z.enum(['read-only', 'ask', 'auto-review', 'full-access']);
+export type PermissionMode = z.infer<typeof permissionModeSchema>;
+export const permissionSettingsSchema = z.object({ mode: z.enum(['read-only', 'ask', 'auto-review', 'full-access', 'custom']), sandbox: z.string().max(80), approval: z.string().max(80), reviewer: z.string().max(80), fingerprint: z.string().regex(/^[a-f0-9]{64}$/) });
+export type PermissionSettings = z.infer<typeof permissionSettingsSchema>;
+export const remoteApprovalSchema = z.object({kind: z.enum(['browser', 'computer']), target: z.string().min(1).max(2048), scopes: z.array(z.enum(['once', 'session', 'always'])).min(1).max(3), message: z.string().max(8192).optional(), elevatedRisk: z.boolean().optional()});
+export type RemoteApproval = z.infer<typeof remoteApprovalSchema>;
 export const modelSettingsSchema = z.object({
   model: z.string().min(1).max(200).nullable(),
   modelProvider: z.string().max(200).nullable(),
   reasoningEffort: z.string().max(80).nullable(),
   collaborationMode: z.enum(["default", "plan"]).nullable().optional(),
+  permissions: permissionSettingsSchema.optional(),
 });
 export type ModelSettings = z.infer<typeof modelSettingsSchema>;
 export const modelOptionSchema = z.object({
@@ -78,6 +85,7 @@ export const requestSchema = z.object({
   details: boundedRecord(16384),
   detailsTruncated: z.boolean(),
   respondable: z.boolean(),
+  approval: remoteApprovalSchema.optional(),
 });
 export type InteractiveRequest = z.infer<typeof requestSchema>;
 
@@ -181,7 +189,7 @@ export const snapshotSchema = z.object({
     kind: z.enum(["official-desktop-ipc", "official-app-server"]),
     connected: z.boolean(),
     experimental: z.literal(true),
-    capabilities: z.object({ observe: z.boolean(), startTurn: z.boolean(), interrupt: z.boolean(), approvals: z.boolean(), userInput: z.boolean(), modelUpdate: z.boolean().optional(), effortUpdate: z.boolean().optional(), collaborationModeUpdate: z.boolean().optional(), images: z.boolean().optional(), attachments: z.boolean().optional(), subAgents: z.boolean().optional() }),
+    capabilities: z.object({ observe: z.boolean(), startTurn: z.boolean(), interrupt: z.boolean(), approvals: z.boolean(), userInput: z.boolean(), modelUpdate: z.boolean().optional(), effortUpdate: z.boolean().optional(), collaborationModeUpdate: z.boolean().optional(), permissionsUpdate: z.boolean().optional(), mcpApprovals: z.boolean().optional(), images: z.boolean().optional(), attachments: z.boolean().optional(), subAgents: z.boolean().optional() }),
   }),
   threads: z.record(idSchema, threadSchema).refine(threads => Object.keys(threads).length <= MAX_THREADS && Object.entries(threads).every(([id, thread]) => id === thread.id)),
 });
@@ -224,6 +232,8 @@ export const commandSchema = z.object({
     z.object({ type: z.literal("thread.effort.update"), threadId: idSchema, effort: z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]), expectedModel: z.string().min(1).max(200), expectedEffort: z.string().max(80).nullable() }),
     z.object({ type: z.literal("thread.mode.update"), threadId: idSchema, mode: z.enum(["default", "plan"]), expectedMode: z.enum(["default", "plan"]).nullable(), expectedModel: z.string().min(1).max(200), expectedEffort: z.string().max(80).nullable() }),
     z.object({ type: z.literal("turn.interrupt"), threadId: idSchema, turnId: idSchema }),
+    z.object({ type: z.literal('thread.permissions.update'), threadId: idSchema, mode: permissionModeSchema, expectedPermissions: z.string().regex(/^[a-f0-9]{64}$/) }),
+    z.object({ type: z.literal('elicitation.respond'), threadId: idSchema, turnId: idSchema.nullable(), requestId: idSchema, decision: z.enum(['accept', 'decline', 'cancel']), scope: z.enum(['once', 'session', 'always']) }),
     z.object({ type: z.literal("approval.respond"), threadId: idSchema, turnId: idSchema, requestId: idSchema, decision: z.enum(["accept", "decline", "cancel"]) }),
     z.object({ type: z.literal("input.respond"), threadId: idSchema, turnId: idSchema, requestId: idSchema, answers: z.record(z.string().max(200), z.object({ answers: z.array(z.string().max(8192)).max(20) })).refine(answers => Object.keys(answers).length <= 20) }),
   ]),

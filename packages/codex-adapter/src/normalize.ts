@@ -4,6 +4,8 @@ import { userPresentation } from "../../protocol/src/user-presentation.js";
 import type { UserMessagePart } from '../../protocol/src/user-presentation.js';
 import type { ImageRegistry } from "./images.js";
 import { asyncInputRequests, asyncQuestionRequestId } from './async-input.js';
+import { permissionSettings } from './permissions.js';
+import { mcpApproval } from './mcp-approvals.js';
 import { collectSubAgents, itemSubAgents } from './sub-agents.js';
 
 export type RecordValue = Record<string, unknown>;
@@ -19,6 +21,7 @@ export function modelSettings(state: RecordValue): ModelSettings | undefined {
     modelProvider: settings.modelProvider ?? state.modelProvider ?? null,
     reasoningEffort: settings.effort ?? state.latestReasoningEffort ?? state.reasoningEffort ?? mode.reasoning_effort ?? null,
     collaborationMode: collaboration.mode === "plan" || collaboration.mode === "default" ? collaboration.mode : null,
+    permissions: permissionSettings(settings),
   });
   return parsed.success ? parsed.data : undefined;
 }
@@ -216,7 +219,8 @@ export function normalizeRequests(state: RecordValue): InteractiveRequest[] {
     }
     const detailsTruncated = jsonBytes(details) > 16384 || typeof params.command === "string" && params.command.length > 16384 || typeof params.reason === "string" && params.reason.length > 8192;
     if (detailsTruncated) details = {};
-    return { id: String(request.id).slice(0, 160), kind, turnId: typeof params.turnId === "string" ? params.turnId : null, ...(typeof params.command === "string" ? { command: text(params.command, 16384) } : {}), ...(typeof params.reason === "string" ? { reason: text(params.reason, 8192) } : {}), details, detailsTruncated, respondable: !detailsTruncated && ["commandApproval", "fileApproval", "userInput"].includes(kind) };
+    const approval = kind === 'mcpElicitation' ? mcpApproval(params) : undefined;
+    return { id: String(request.id).slice(0, 160), kind, turnId: typeof params.turnId === "string" ? params.turnId : null, ...(typeof params.command === "string" ? { command: text(params.command, 16384) } : {}), ...(typeof params.reason === "string" ? { reason: text(params.reason, 8192) } : {}), details, detailsTruncated, ...(approval && !detailsTruncated ? {approval} : {}), respondable: !detailsTruncated && (["commandApproval", "fileApproval", "userInput"].includes(kind) || !!approval) };
   });
   return [...requests, ...asyncInputRequests(desktopTurns(state))].slice(0, 40);
 }

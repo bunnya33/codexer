@@ -3,12 +3,16 @@ import { resolveCodexBinary } from "./binary.js";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { createReadStream } from "node:fs";
-import { realpath } from "node:fs/promises";
+import { open, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep, toNamespacedPath } from "node:path";
 import { createInterface } from "node:readline";
+import { pipeline } from "node:stream/promises";
 import { isDeepStrictEqual } from "node:util";
+import * as zlib from "node:zlib";
+import { validateZstdRollout } from "./zstd-rollout.js";
+import { permissionPreset, permissionSettings, savedPermissionSettings } from './permissions.js';
+import { mcpApproval, mcpApprovalResponse } from './mcp-approvals.js';
 import { catalogSchema, historyPageSchema, MAX_SUB_AGENTS } from "../../protocol/src/index.js";
 import type { DeviceCatalog, HistoryPage, ModelOption, RemoteCommand, RemoteThread } from "../../protocol/src/index.js";
 import { boundHistoryPage, boundThread, modelSettings, normalizeHistoryTurn, normalizeThread, record, withItemTimings } from "./normalize.js";
@@ -28,28 +32,52 @@ export type SavedSettings = { approvalPolicy: unknown; approvalsReviewer: unknow
 
 export async function savedSettings(thread: RecordValue, codexHome = process.env.CODEX_HOME ?? join(homedir(), ".codex")): Promise<SavedSettings> {
   if (typeof thread.path !== "string" || typeof thread.id !== "string") throw new AdapterError("headless-settings-unavailable");
-  if (!isAbsolute(thread.path) || !thread.path.endsWith(".jsonl")) throw new AdapterError("headless-session-path-invalid");
+  if (!isAbsolute(thread.path) || !/\.jsonl(?:\.zst)?$/.test(thread.path)) throw new AdapterError("headless-session-path-invalid");
   let root: string, path: string;
+  let compressed = thread.path.endsWith(".zst");
   try {
     root = toNamespacedPath(await realpath(resolve(codexHome, "sessions")));
-    path = toNamespacedPath(await realpath(thread.path));
+    try { path = toNamespacedPath(await realpath(thread.path)); }
+    catch (error) {
+      // Codex can compress inactive rollouts while thread/read retains .jsonl.
+      // Only a missing file permits fallback; never reuse older permissions
+      // when a materialized rollout is unreadable or malformed.
+      if (compressed || record(error).code !== "ENOENT") throw error;
+      path = toNamespacedPath(await realpath(thread.path + ".zst"));
+      compressed = true;
+    }
   } catch { throw new AdapterError("headless-settings-unreadable"); }
   const within = relative(root, path);
   if (!within || within === ".." || within.startsWith(`..${sep}`) || isAbsolute(within)) throw new AdapterError("headless-session-path-invalid");
+  if (compressed && typeof zlib.createZstdDecompress !== "function") throw new AdapterError("headless-compression-unsupported");
   let context: RecordValue | null = null;
   let sessionVerified = false;
   try {
-    const lines = createInterface({ input: createReadStream(path, { encoding: "utf8" }), crlfDelay: Infinity });
-    for await (const line of lines) {
-      if (!line) continue;
-      const event = record(JSON.parse(line));
-      // Forked rollout filenames can contain another ID; session_meta identifies the thread.
-      if (!sessionVerified) {
-        if (event.type !== "session_meta" || record(event.payload).id !== thread.id) throw new AdapterError("headless-session-path-invalid");
-        sessionVerified = true;
+    const handle = await open(path, "r");
+    try {
+      if (compressed) await validateZstdRollout(handle);
+      const file = handle.createReadStream({ autoClose: false, start: 0 });
+      const decoder = compressed ? zlib.createZstdDecompress() : null;
+      const lines = createInterface({ input: decoder ?? file, crlfDelay: Infinity });
+      const completed = decoder ? pipeline(file, decoder).then(() => null, error => error) : null;
+      try {
+        for await (const line of lines) {
+          if (!line) continue;
+          const event = record(JSON.parse(line));
+          // Forked rollout filenames can contain another ID; session_meta identifies the thread.
+          if (!sessionVerified) {
+            if (event.type !== "session_meta" || record(event.payload).id !== thread.id) throw new AdapterError("headless-session-path-invalid");
+            sessionVerified = true;
+          }
+          if (event.type === "turn_context") context = record(event.payload);
+        }
+        const error = await completed;
+        if (error) throw error;
+      } finally {
+        lines.close(); file.destroy(); decoder?.destroy();
+        await completed;
       }
-      if (event.type === "turn_context") context = record(event.payload);
-    }
+    } finally { await handle.close(); }
   } catch (error) {
     if (error instanceof AdapterError) throw error;
     throw new AdapterError("headless-settings-unreadable");
@@ -336,7 +364,7 @@ export class HeadlessAdapter extends EventEmitter {
       this.emit("status", connected);
     });
     rpc.on("serverRequest", (request: ServerRequest) => {
-      if (!["item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/tool/requestUserInput"].includes(request.method)) {
+      if (!["item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/tool/requestUserInput"].includes(request.method) && !(request.method === 'mcpServer/elicitation/request' && mcpApproval(request.params))) {
         rpc.reject(request.id, "interactive-request-not-supported-by-headless-agent");
         return;
       }
@@ -363,7 +391,7 @@ export class HeadlessAdapter extends EventEmitter {
       if (method === "serverRequest/resolved") this.requests.delete(String(params.requestId));
       if (method === "turn/plan/updated" && turnId) this.plans.set(turnId, params.plan);
       if (method === "turn/diff/updated" && turnId && typeof params.diff === "string") this.diffs.set(turnId, params.diff);
-      if (method === "thread/settings/updated") this.settings.set(threadId, record(params.threadSettings));
+      if (method === "thread/settings/updated") this.settings.set(threadId, {...this.settings.get(threadId), ...record(params.threadSettings)});
       if (method === "thread/tokenUsage/updated") {
         this.usage.set(threadId, record(params.tokenUsage));
         if (turnId) this.emit("tokenUsage", { threadId, turnId, tokenUsage: params.tokenUsage });
@@ -405,7 +433,7 @@ export class HeadlessAdapter extends EventEmitter {
       if (!this.settings.has(threadId) && !this.newThreads.has(threadId) && typeof source.path === "string") {
         try {
           const saved = await savedSettings(source);
-          this.settings.set(threadId, { model: saved.model, modelProvider: saved.modelProvider, effort: saved.effort ?? null, collaborationMode: saved.collaborationMode });
+          this.settings.set(threadId, { model: saved.model, modelProvider: saved.modelProvider, effort: saved.effort ?? null, collaborationMode: saved.collaborationMode, ...savedPermissionSettings(saved) });
         } catch { /* Unmaterialized/older threads may have no usable turn context. */ }
       }
       const page = await listThreadTurns(rpc, threadId, { limit: 2, sortDirection: "desc", itemsView: "full" }, this.newThreads.has(threadId));
@@ -487,9 +515,10 @@ export class HeadlessAdapter extends EventEmitter {
       const threadId = record(result.thread).id;
       if (typeof threadId !== 'string') throw new AdapterError('incompatible-app-server-response', true);
       this.newThreads.set(threadId, result);
+      this.settings.set(threadId, {model: result.model, effort: result.reasoningEffort ?? null, approvalPolicy: result.approvalPolicy, approvalsReviewer: result.approvalsReviewer, sandboxPolicy: result.sandbox, runtimeWorkspaceRoots: roots});
       const source = record(result.thread);
       this.watched.set(threadId, normalizeThread({ ...source, model: result.model, reasoningEffort: result.reasoningEffort,
-        title: source.name || source.preview || "未命名会话", updatedAt: typeof source.updatedAt === "number" ? source.updatedAt * 1000 : Date.now(),
+        title: source.name || source.preview || "未命名会话", latestThreadSettings: this.settings.get(threadId), updatedAt: typeof source.updatedAt === "number" ? source.updatedAt * 1000 : Date.now(),
         threadRuntimeStatus: { type: "idle" }, turns: [] }, 0, this.images));
       return { threadId, acknowledgedByAppServer: true };
     }
@@ -508,6 +537,35 @@ export class HeadlessAdapter extends EventEmitter {
     await this.follow(payload.threadId);
     const thread = this.watched.get(payload.threadId);
     if (!thread?.ownerAvailable) throw new AdapterError("headless-thread-unavailable");
+    if (payload.type === 'thread.permissions.update') {
+      if (thread.status !== 'idle') throw new AdapterError('thread-not-idle');
+      if (thread.settings?.permissions?.fingerprint !== payload.expectedPermissions) throw new AdapterError('stale-permissions');
+      await this.resumeWithSettings(payload.threadId);
+      const previous = this.settings.get(payload.threadId) ?? {};
+      const roots = Array.isArray(previous.runtimeWorkspaceRoots) ? previous.runtimeWorkspaceRoots.filter((v): v is string => typeof v === 'string') : thread.cwd ? [thread.cwd] : [];
+      if (!roots.length && ['ask', 'auto-review'].includes(payload.mode)) throw new AdapterError('workspace-roots-unavailable');
+      const preset = permissionPreset(payload.mode, roots);
+      const response = await rpc.request('thread/settings/update', {threadId: payload.threadId, approvalPolicy: preset.approvalPolicy, approvalsReviewer: preset.approvalsReviewer, sandboxPolicy: preset.sandboxPolicy});
+      if (permissionSettings(record(response.threadSettings))?.mode === payload.mode) this.settings.set(payload.threadId, {...previous, ...record(response.threadSettings)});
+      const deadline = Date.now() + 3000;
+      while (permissionSettings(this.settings.get(payload.threadId))?.mode !== payload.mode && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 25));
+      const confirmed = this.settings.get(payload.threadId);
+      if (permissionSettings(confirmed)?.mode !== payload.mode) throw new AdapterError('permissions-update-unconfirmed', true);
+      await this.follow(payload.threadId);
+      return {permissions: permissionSettings(confirmed), acknowledgedByAppServer: true};
+    }
+    if (payload.type === 'elicitation.respond') {
+      const request = this.requests.get(payload.requestId);
+      if (!request || request.method !== 'mcpServer/elicitation/request' || request.params.threadId !== payload.threadId || (request.params.turnId ?? null) !== payload.turnId) throw new AdapterError('stale-request');
+      if (payload.turnId !== null && thread.activeTurnId !== payload.turnId) throw new AdapterError('stale-turn');
+      let response: RecordValue;
+      try { response = mcpApprovalResponse(request.params, payload.decision, payload.scope); }
+      catch { throw new AdapterError('approval-scope-not-available'); }
+      rpc.respond(request.id, response);
+      this.requests.delete(payload.requestId);
+      this.scheduleRefresh(payload.threadId);
+      return {acknowledgedByAppServer: true};
+    }
     if (payload.type === "thread.model.update" || payload.type === "thread.effort.update" || payload.type === "thread.mode.update") {
       if (thread.status !== "idle") throw new AdapterError("thread-not-idle");
       if (thread.settings?.model !== payload.expectedModel) throw new AdapterError("stale-model");
@@ -600,6 +658,14 @@ export class HeadlessAdapter extends EventEmitter {
     const metadata = await rpc.request("thread/read", { threadId, includeTurns: false });
     const latest = this.settings.get(threadId);
     const settings = await savedSettings({ ...record(metadata.thread), ...(typeof latest?.model === "string" ? { model: latest.model } : {}), ...(typeof latest?.effort === "string" ? { reasoningEffort: latest.effort } : {}) });
+    if (latest && permissionSettings(latest)) {
+      settings.approvalPolicy = latest.approvalPolicy;
+      settings.approvalsReviewer = latest.approvalsReviewer;
+      const policy = record(latest.sandboxPolicy);
+      settings.sandbox = policy.type === 'dangerFullAccess' ? 'danger-full-access' : policy.type === 'readOnly' ? 'read-only' : 'workspace-write';
+      settings.sandboxPolicy = {type: settings.sandbox, writable_roots: policy.writableRoots ?? [], network_access: policy.networkAccess ?? false};
+      if (Array.isArray(latest.runtimeWorkspaceRoots)) settings.roots = latest.runtimeWorkspaceRoots as string[];
+    }
     if (latest?.collaborationMode) settings.collaborationMode = latest.collaborationMode;
     const resumed = await rpc.request("thread/resume", { threadId, excludeTurns: true, approvalPolicy: settings.approvalPolicy, approvalsReviewer: settings.approvalsReviewer, sandbox: settings.sandbox, cwd: settings.cwd, runtimeWorkspaceRoots: settings.roots, model: settings.model, modelProvider: settings.modelProvider, ...(settings.serviceTier ? { serviceTier: settings.serviceTier } : {}) }, 30000);
     if (!matchesSettings(resumed, settings)) throw new AdapterError("headless-settings-mismatch");

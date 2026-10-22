@@ -2,6 +2,8 @@
 
 Electron 客户端同时配置 macOS arm64（Apple Silicon）和 x64（Intel），打包目标为 DMG/ZIP。用户无需安装 Node。2026-10-02 已在 macOS 26.4 / Apple Silicon 上生成并安装 `0.1.1` ARM64 本地版本，确认窗口启动、包内 Node/SQLite、Codex 程序自动发现、桌面 IPC 连接和 App Server 目录读取。Intel 和完整远程任务流程仍需实机验收，详见 [验证范围](validation.md)。
 
+2026-10-21 压缩会话兼容版本 `0.1.14` 已生成 Apple Silicon DMG/ZIP 与 SHA256，并替换 `/Applications/Codexer.app`。374 项回归、类型检查、严格签名、DMG/ZIP 与包内 7 个构建资源核对通过。实际打包 worker 在 Electron utilityProcess、隔离配置及仅系统 PATH 下，使用内置 Node `24.21.0` 完成压缩会话读取、原权限恢复与合成发送确认。旧应用保留备份，旧进程已关闭，仅一个新版主进程；原加密登录与设置校验值一致。本次启动采样确认阻塞于 macOS `SecItemCopyMatching` 钥匙串读取，等待解锁/授权，尚无新版启动后的连接日志；未用旧状态文件作为连接成功证据。服务器无需更新。
+
 2026-10-09 已同步 GitHub `main` 的 `5ca3e94`（服务器 `0.2.7`），生成 PC 连接器 `0.1.9` 的 ARM64 DMG/ZIP。315 项测试、类型检查、签名、归档及包内资源核对通过；隔离配置、测试钥匙串且 PATH 仅含系统目录时，实际应用启动并报告控制台就绪。真实钥匙串的首次授权需要用户完成。当前安装的旧版仍在运行，升级前请结束相关任务并退出连接器，再替换 Applications 中的应用。
 
 2026-10-12 新建项目版本 `0.1.11` 已生成 Apple Silicon DMG/ZIP，并替换本机 Applications 中的 `0.1.10` 应用文件。目录授权默认空列表，原有配置保留。Mac 锁屏期间保留正在运行的旧进程，解锁后退出并重新打开 Codexer 才生效。签名/归档与包内 worker 已验证；原生窗口/Keychain 启动仍待解锁后检查。
