@@ -81,7 +81,7 @@ export class PcAgent extends EventEmitter {
     this.journal = new CommandJournal(join(directory, "commands.sqlite"));
     this.usageJournal = new UsageJournal(join(directory, "usage.sqlite"));
     if (!["win32", "linux", "darwin"].includes(process.platform)) throw new Error("unsupported-platform");
-    this.state = { protocolVersion: PROTOCOL_VERSION, deviceId: credentials.deviceId, epoch: randomUUID(), lastSeq: 0, generatedAt: Date.now(), hostname: hostname(), platform: process.platform as DeviceSnapshot["platform"], runtime: { kind: "official-desktop-ipc", connected: false, experimental: true, capabilities: { observe: true, startTurn: true, interrupt: true, approvals: true, userInput: true, modelUpdate: true, effortUpdate: true, collaborationModeUpdate: true, permissionsUpdate: true, mcpApprovals: true, images: true, subAgents: true } }, threads: {} };
+    this.state = { protocolVersion: PROTOCOL_VERSION, deviceId: credentials.deviceId, epoch: randomUUID(), lastSeq: 0, generatedAt: Date.now(), hostname: hostname(), platform: process.platform as DeviceSnapshot["platform"], agentVersion: process.env.CODEXER_AGENT_BUILD_VERSION || 'development', runtime: { kind: "official-desktop-ipc", connected: false, experimental: true, capabilities: { observe: true, startTurn: true, interrupt: true, approvals: true, userInput: true, modelUpdate: true, effortUpdate: true, collaborationModeUpdate: true, permissionsUpdate: true, mcpApprovals: true, images: true, subAgents: true } }, threads: {} };
     const onThread = (source: DesktopAdapter | HeadlessAdapter, thread: RemoteThread | null) => {
       if (!thread) return;
       if (source !== this.adapterForThread(thread.id)) return;
@@ -568,6 +568,7 @@ export class PcAgent extends EventEmitter {
             result = { commandId: command.commandId, deviceId: command.deviceId, status: "succeeded", code: command.payload.type === "thread.watch" ? "thread-watched" : command.payload.type.startsWith("turn.queue") ? "queue-updated" : "acknowledgedByAppServer" in value ? "app-server-acknowledged" : "desktop-acknowledged", result: value };
           } catch (error) {
             result = { commandId: command.commandId, deviceId: command.deviceId, status: error instanceof AdapterError && !error.uncertain ? "failed" : "unknown", code: error instanceof AdapterError ? error.code : "agent-execution-unconfirmed" };
+            if (/^headless-[a-z-]+$/.test(result.code)) this.log(result.code);
           }
           this.journal.finish(result);
         }

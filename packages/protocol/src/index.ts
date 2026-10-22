@@ -185,6 +185,7 @@ export const snapshotSchema = z.object({
   generatedAt: z.number(),
   hostname: z.string().max(300),
   platform: z.enum(["win32", "darwin", "linux"]),
+  agentVersion: z.string().min(1).max(64).optional(),
   runtime: z.object({
     kind: z.enum(["official-desktop-ipc", "official-app-server"]),
     connected: z.boolean(),

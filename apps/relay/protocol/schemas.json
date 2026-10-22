@@ -1061,6 +1061,11 @@
                   "linux"
                 ]
               },
+              "agentVersion": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
               "runtime": {
                 "type": "object",
                 "properties": {

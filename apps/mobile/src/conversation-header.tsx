@@ -19,6 +19,7 @@ import {
 } from "../../../packages/client-shared/src/sub-agents";
 import { ThreadNotificationToggle, useThreadNotification } from "./thread-notification";
 import { useTheme } from "./styles";
+import { ConversationId } from './conversation-id';
 
 function AgentCard({ agent }: { agent: RemoteSubAgent }) {
   const { c, s } = useTheme();
@@ -218,6 +219,7 @@ export function ConversationHeader({
             <ScrollView style={hs.scroll} contentContainerStyle={hs.content}>
               {panelContent === "options" ? (
                 <>
+                  {!!threadId && <ConversationId key={`${deviceId}:${threadId}:${panel}`} threadId={threadId} />}
                   <ThreadNotificationToggle control={notification} />
                   <Pressable
                     accessibilityRole="button"

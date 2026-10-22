@@ -40,19 +40,24 @@ it("restricts idle policy to admins and renews only browser activity", async () 
       ).json(),
     ).toEqual({ idleTimeoutMinutes: 2 });
     const fresh = await store.createSession(user.id);
+    const lastActive = Date.now() - 90000;
     await store.query("UPDATE sessions SET last_active_at=$2,expires_at=$3 WHERE hash=$1", [
       hash(fresh.session),
-      Date.now() - 90000,
+      lastActive,
       Date.now() + 30000,
     ]);
-    const before = Date.now();
     const renewed = await app.inject({
       method: "POST",
       url: "/v1/auth/active",
       headers: { authorization: `Bearer ${fresh.session}` },
     });
     expect(renewed.json().idleTimeoutMinutes).toBe(2);
-    expect(renewed.json().expiresAt).toBeGreaterThanOrEqual(before + 120000);
+    // Compare the server's own timestamps; Node and Go wall clocks can differ
+    // by a millisecond on Windows even within the same request.
+    const { rows: [stored] } = await store.query("SELECT last_active_at,expires_at FROM sessions WHERE hash=$1", [hash(fresh.session)]);
+    expect(Number(stored!.last_active_at)).toBeGreaterThan(lastActive);
+    expect(renewed.json().expiresAt).toBe(Number(stored!.last_active_at) + 120000);
+    expect(Number(stored!.expires_at)).toBe(renewed.json().expiresAt);
     await store.query("UPDATE sessions SET expires_at=$2 WHERE hash=$1", [
       hash(user.session),
       Date.now() - 1,

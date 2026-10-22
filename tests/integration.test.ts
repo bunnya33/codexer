@@ -2,7 +2,7 @@ import { testAccount, testPassword } from "./account-helpers.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { PcAgent } from "../apps/pc-agent/src/agent.js";
 import { loginAgent } from "../apps/pc-agent/src/auth.js";
 import { createRelay } from "./go-relay.js";
@@ -13,6 +13,7 @@ import type { DeviceCatalog } from "../packages/protocol/src/index.js";
 import { command, FakeDesktop, rawThread, waitFor, WsPeer } from "./helpers.js";
 
 it("pairs the agent, streams desktop state, deduplicates controls, and recovers from desktop and relay restarts", async () => {
+  vi.stubEnv('CODEXER_AGENT_BUILD_VERSION', '0.1.16');
   const directory = await mkdtemp(join(tmpdir(), "codex-remote-integration-"));
   const desktop = new FakeDesktop(); desktop.state = rawThread("idle");
   const headers = { authorization: "" };
@@ -37,8 +38,13 @@ it("pairs the agent, streams desktop state, deduplicates controls, and recovers 
     const first = snapshotSchema.parse((await peer.wait(value => value.type === "device.snapshot")).snapshot);
     await peer.wait(value => value.type === "sync.ready");
     expect(first.threads["thread-test"]?.ownerAvailable).toBe(true);
+    expect(first.agentVersion).toBe('0.1.16');
+    const legacy = { ...first }; delete legacy.agentVersion;
+    expect(snapshotSchema.safeParse(legacy).success).toBe(true);
+    expect(snapshotSchema.safeParse({ ...first, agentVersion: 'x'.repeat(65) }).success).toBe(false);
     await waitFor(async () => (await app.inject({ url: `/v1/devices/${credentials.deviceId}/catalog`, headers })).statusCode === 200);
     expect((await app.inject({ url: `/v1/devices/${credentials.deviceId}/catalog`, headers })).json().catalog.threads).toHaveLength(25);
+    expect((await app.inject({ url: `/v1/devices/${credentials.deviceId}/snapshot`, headers })).json().snapshot.agentVersion).toBe('0.1.16');
     const historyUrl = `/v1/devices/${credentials.deviceId}/threads/old-24/turns`;
     expect((await app.inject({ url: historyUrl, headers })).json()).toMatchObject({ threadId: "old-24", nextCursor: "older" });
     expect((await app.inject({ url: `${historyUrl}?cursor=older`, headers })).json()).toMatchObject({ nextCursor: null, turns: [{ id: "older-turn" }] });
@@ -93,6 +99,7 @@ it("pairs the agent, streams desktop state, deduplicates controls, and recovers 
     await peer.close(); peer = undefined;
     await app.close();
     app = await createRelay({ store: await RelayStore.open(undefined, database) });
+    expect((await app.inject({ url: `/v1/devices/${credentials.deviceId}/snapshot`, headers })).json().snapshot.agentVersion).toBe('0.1.16');
     expect((await app.inject({ url: `/v1/devices/${credentials.deviceId}/catalog`, headers })).json().catalog.threads).toHaveLength(25);
     await app.listen({ host: "127.0.0.1", port: Number(new URL(base).port) });
     await waitFor(async () => {
@@ -112,5 +119,6 @@ it("pairs the agent, streams desktop state, deduplicates controls, and recovers 
   } finally {
     peer?.socket.terminate(); await agent?.stop(); await app.close(); await desktop.close();
     await rm(directory, { recursive: true, force: true });
+    vi.unstubAllEnvs();
   }
 }, 30000);

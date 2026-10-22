@@ -6,6 +6,8 @@ import { ThemePicker } from '../../../mobile/src/theme-picker';
 import { controlVersion } from './build-info';
 import { request, subscribe } from '../bridge';
 import { AgentDownload } from '../../../mobile/src/agent-download';
+import { AgentVersion } from '../../../mobile/src/agent-version';
+import type { SelectedAgent } from '../../../mobile/src/agent-version';
 
 export function WindowClosePreference() {
   const { c } = useTheme();
@@ -24,7 +26,7 @@ export function WindowClosePreference() {
     }} /></View>{!!error && <Text accessibilityRole="alert" style={{ color: c.danger }}>{error}</Text>}</View>;
 }
 
-export function ControlSettings({ url, onWeixin, onLogout }: {url: string; onWeixin: () => void; onLogout: () => void}) {
+export function ControlSettings({ url, device, onWeixin, onLogout }: {url: string; device?: SelectedAgent; onWeixin: () => void; onLogout: () => void}) {
   const { c } = useTheme();
   const [version, setVersion] = useState(''), [loading, setLoading] = useState(true);
   useEffect(() => {
@@ -36,7 +38,8 @@ export function ControlSettings({ url, onWeixin, onLogout }: {url: string; onWei
   return <View style={{ gap: 20 }}><ThemePicker /><Text selectable style={{ color: c.muted }}>{url}</Text>
     <View style={{ gap: 12, padding: 16, backgroundColor: c.settingsGroup, borderRadius: 12 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><Text style={{ color: c.text }}>服务器版本：{loading ? '正在读取…' : version}</Text>{loading && <ActivityIndicator color={c.muted} />}</View>
-      <Text style={{ color: c.text }}>RelayDesk Windows · {controlVersion}</Text></View>
+      <Text style={{ color: c.text }}>RelayDesk Windows · {controlVersion}</Text>
+      <AgentVersion device={device} /></View>
     <WindowClosePreference />
     <AgentDownload url={url}/>
     <Pressable accessibilityRole="button" onPress={onWeixin} style={{ padding: 14 }}><Text style={{ color: c.text }}>微信 ClawBot</Text></Pressable>

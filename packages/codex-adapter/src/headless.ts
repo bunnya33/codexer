@@ -33,54 +33,25 @@ export type SavedSettings = { approvalPolicy: unknown; approvalsReviewer: unknow
 export async function savedSettings(thread: RecordValue, codexHome = process.env.CODEX_HOME ?? join(homedir(), ".codex")): Promise<SavedSettings> {
   if (typeof thread.path !== "string" || typeof thread.id !== "string") throw new AdapterError("headless-settings-unavailable");
   if (!isAbsolute(thread.path) || !/\.jsonl(?:\.zst)?$/.test(thread.path)) throw new AdapterError("headless-session-path-invalid");
-  let root: string, path: string;
-  let compressed = thread.path.endsWith(".zst");
-  try {
-    root = toNamespacedPath(await realpath(resolve(codexHome, "sessions")));
-    try { path = toNamespacedPath(await realpath(thread.path)); }
-    catch (error) {
-      // Codex can compress inactive rollouts while thread/read retains .jsonl.
-      // Only a missing file permits fallback; never reuse older permissions
-      // when a materialized rollout is unreadable or malformed.
-      if (compressed || record(error).code !== "ENOENT") throw error;
-      path = toNamespacedPath(await realpath(thread.path + ".zst"));
-      compressed = true;
-    }
-  } catch { throw new AdapterError("headless-settings-unreadable"); }
-  const within = relative(root, path);
-  if (!within || within === ".." || within.startsWith(`..${sep}`) || isAbsolute(within)) throw new AdapterError("headless-session-path-invalid");
-  if (compressed && typeof zlib.createZstdDecompress !== "function") throw new AdapterError("headless-compression-unsupported");
   let context: RecordValue | null = null;
-  let sessionVerified = false;
-  try {
-    const handle = await open(path, "r");
-    try {
-      if (compressed) await validateZstdRollout(handle);
-      const file = handle.createReadStream({ autoClose: false, start: 0 });
-      const decoder = compressed ? zlib.createZstdDecompress() : null;
-      const lines = createInterface({ input: decoder ?? file, crlfDelay: Infinity });
-      const completed = decoder ? pipeline(file, decoder).then(() => null, error => error) : null;
-      try {
-        for await (const line of lines) {
-          if (!line) continue;
-          const event = record(JSON.parse(line));
-          // Forked rollout filenames can contain another ID; session_meta identifies the thread.
-          if (!sessionVerified) {
-            if (event.type !== "session_meta" || record(event.payload).id !== thread.id) throw new AdapterError("headless-session-path-invalid");
-            sessionVerified = true;
-          }
-          if (event.type === "turn_context") context = record(event.payload);
-        }
-        const error = await completed;
-        if (error) throw error;
-      } finally {
-        lines.close(); file.destroy(); decoder?.destroy();
-        await completed;
+  for (let attempt = 0; ; attempt++) {
+    try { context = await readSavedContext(thread.path, thread.id, codexHome); break; }
+    catch (error) {
+      if (error instanceof AdapterError) throw error;
+      const code = record(error).code;
+      // Compression/materialization can replace a file between realpath and
+      // open. Resolve again, but never ignore malformed records or use defaults.
+      if (attempt < 2 && ['ENOENT', 'ESTALE', 'EBUSY', 'EAGAIN', 'EINTR'].includes(String(code))) {
+        await new Promise(done => setTimeout(done, 50 * (attempt + 1)));
+        continue;
       }
-    } finally { await handle.close(); }
-  } catch (error) {
-    if (error instanceof AdapterError) throw error;
-    throw new AdapterError("headless-settings-unreadable");
+      if (code === 'ENOENT' || code === 'ENOTDIR') throw new AdapterError('headless-settings-file-missing');
+      if (code === 'EACCES' || code === 'EPERM') throw new AdapterError('headless-settings-access-denied');
+      if (['ESTALE', 'EBUSY', 'EAGAIN', 'EINTR'].includes(String(code))) throw new AdapterError('headless-settings-busy');
+      if (code === 'EISDIR') throw new AdapterError('headless-session-path-invalid');
+      if (error instanceof SyntaxError || /^(?:ERR_)?ZSTD/.test(String(code)) || ['empty-zstd-rollout', 'incomplete-zstd-rollout', 'invalid-zstd-rollout'].includes(error instanceof Error ? error.message : '')) throw new AdapterError('headless-settings-corrupt');
+      throw new AdapterError('headless-settings-unreadable');
+    }
   }
   if (!context) throw new AdapterError("headless-settings-unavailable");
   const policy = record(context.sandbox_policy);
@@ -95,6 +66,55 @@ export async function savedSettings(thread: RecordValue, codexHome = process.env
   return { approvalPolicy: context.approval_policy, approvalsReviewer: context.approvals_reviewer, sandbox, sandboxPolicy: policy, cwd: context.cwd, roots: context.workspace_roots as string[], model, modelProvider: thread.modelProvider,
     ...(typeof effort === "string" ? { effort } : {}), ...(typeof context.summary === "string" ? { summary: context.summary } : {}),
     ...(collaborationMode ? { collaborationMode } : {}), ...(typeof context.service_tier === "string" ? { serviceTier: context.service_tier } : {}) };
+}
+
+async function readSavedContext(source: string, threadId: string, codexHome: string): Promise<RecordValue | null> {
+  const root = toNamespacedPath(await realpath(resolve(codexHome, 'sessions')));
+  const materialized = source.replace(/\.zst$/, '');
+  let path: string, compressed = false;
+  try { path = toNamespacedPath(await realpath(materialized)); }
+  catch (error) {
+    // Prefer the current JSONL even if metadata still names its compressed
+    // predecessor. Only absence permits fallback to the compressed copy.
+    if (record(error).code !== 'ENOENT') throw error;
+    path = toNamespacedPath(await realpath(materialized + '.zst'));
+    compressed = true;
+  }
+  const within = relative(root, path);
+  if (!within || within === ".." || within.startsWith(`..${sep}`) || isAbsolute(within)) throw new AdapterError("headless-session-path-invalid");
+  if (compressed && typeof zlib.createZstdDecompress !== "function") throw new AdapterError("headless-compression-unsupported");
+  let context: RecordValue | null = null;
+  let sessionVerified = false;
+  const handle = await open(path, "r");
+  try {
+    const before = await handle.stat();
+    if (!before.isFile()) throw new AdapterError('headless-session-path-invalid');
+    if (compressed) await validateZstdRollout(handle);
+    const file = handle.createReadStream({ autoClose: false, start: 0 });
+    const decoder = compressed ? zlib.createZstdDecompress() : null;
+    const lines = createInterface({ input: decoder ?? file, crlfDelay: Infinity });
+    const completed = decoder ? pipeline(file, decoder).then(() => null, error => error) : null;
+    try {
+      for await (const line of lines) {
+        if (!line) continue;
+        const event = record(JSON.parse(line));
+        // Forked rollout filenames can contain another ID; session_meta identifies the thread.
+        if (!sessionVerified) {
+          if (event.type !== "session_meta" || record(event.payload).id !== threadId) throw new AdapterError("headless-session-path-invalid");
+          sessionVerified = true;
+        }
+        if (event.type === "turn_context") context = record(event.payload);
+      }
+      const error = await completed;
+      if (error) throw error;
+      const after = await handle.stat();
+      if (before.size !== after.size || before.mtimeMs !== after.mtimeMs) throw Object.assign(new Error('rollout-changed'), { code: 'EAGAIN' });
+    } finally {
+      lines.close(); file.destroy(); decoder?.destroy();
+      await completed;
+    }
+  } finally { await handle.close(); }
+  return context;
 }
 
 export function matchesSettings(response: RecordValue, settings: SavedSettings): boolean {

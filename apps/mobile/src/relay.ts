@@ -5,6 +5,7 @@ import type { WeixinLogin, WeixinStatus } from '../../../packages/protocol/src/w
 import { threadNotificationSchema } from '../../../packages/protocol/src/weixin';
 import type { ThreadNotification } from '../../../packages/protocol/src/weixin';
 import { mergeTurnHistory } from '../../../packages/client-shared/src/activity';
+import { agentErrorMessage } from '../../../packages/client-shared/src/agent-errors';
 import { fileInfoSchema } from '../../../packages/protocol/src/files';
 import type { FileInfo } from '../../../packages/protocol/src/files';
 import type { WidgetState } from '../../../packages/client-shared/src/previews';
@@ -98,7 +99,7 @@ export class RelayClient {
     }
     this.set({ devices: this.view.devices.filter(device => device.id !== id), catalogs: withoutDevice(this.view.catalogs), snapshots: withoutDevice(this.view.snapshots), histories: withoutDevice(this.view.histories, true), syncing: withoutDevice(this.view.syncing), threadNotifications: withoutDevice(this.view.threadNotifications, true) });
   }
-  showNotice(message: string) { if (this.view.phase !== 'locked') this.notice(message); }
+  showNotice(message: string) { if (this.view.phase !== 'locked') this.notice(agentErrorMessage(message)); }
 
   async restore(): Promise<boolean> {
     try {

@@ -16,6 +16,7 @@ import { FileChangesPanel, RequestPanel, TurnView } from './src/conversation';
 import { FileViewerProvider } from './src/file-viewer';
 import { PreviewContext } from './src/preview-context';
 import { ConversationHeader } from './src/conversation-header';
+import { ConversationId } from './src/conversation-id';
 import { conversationSubAgents } from '../../packages/client-shared/src/sub-agents';
 import { ImageViewer } from './src/image-viewer';
 import { historyKey, relay } from './src/relay';
@@ -443,13 +444,14 @@ function AppContent() {
     {!!projectDeviceId && <ProjectCreate key={projectDeviceId} catalog={view.catalogs[projectDeviceId]} online={!!view.devices.find(item => item.id === projectDeviceId)?.online} create={createProject} close={() => setProjectDeviceId('')} />}
     <Dialog open={!!actionThread} title={renaming ? '重命名会话' : actionThread?.title ?? '会话操作'} busy={managing} onClose={() => { setActionThread(null); setRenaming(false); }}>
           {renaming ? <><TextInput style={s.field} value={newName} onChangeText={setNewName} autoFocus maxLength={1000} /><Pressable style={[s.primary, (!newName.trim() || managing) && s.disabled]} disabled={!newName.trim() || managing} onPress={() => actionThread && void manageThread({ type: 'thread.rename', threadId: actionThread.id, name: newName.trim() })}><Text style={s.primaryText}>保存</Text></Pressable></> : <>
+            {actionThread && <ConversationId key={actionThread.id} threadId={actionThread.id} />}
             <Pressable style={s.menuOption} disabled={managing} onPress={() => setRenaming(true)}><Pencil size={18} color={c.text} /><Text style={s.menuText}>重命名</Text></Pressable>
             <Pressable style={s.menuOption} disabled={managing} onPress={() => actionThread && void manageThread({ type: 'thread.archive', threadId: actionThread.id })}><Archive size={18} color={c.text} /><Text style={s.menuText}>归档</Text></Pressable>
             <Pressable style={s.menuOption} disabled={managing} onPress={() => { const target = actionThread; if (target) void confirmAction('永久删除会话', `删除“${target.title}”后无法恢复。`).then(confirmed => { if (confirmed) void manageThread({ type: 'thread.delete', threadId: target.id }); }); }}><Trash2 size={18} color={c.danger} /><Text style={s.dangerText}>永久删除</Text></Pressable>
           </>}
     </Dialog>
     <Dialog open={menuOpen} title={menu === 'settings' ? '设置' : menu === 'weixin' ? '微信设置' : menu === 'permissions' ? '会话权限' : '工作模式'} onClose={closeMenu}>
-        {menu === 'settings' ? menuOpen && <ControlSettings url={view.url} onWeixin={() => setMenu('weixin')} onLogout={() => { closeMenu(); void relay.logout().catch(() => undefined); }} />
+        {menu === 'settings' ? menuOpen && <ControlSettings url={view.url} device={device && { name: device.name, online: device.online, agentVersion: snapshot?.agentVersion }} onWeixin={() => setMenu('weixin')} onLogout={() => { closeMenu(); void relay.logout().catch(() => undefined); }} />
           : menu === 'weixin' ? menuOpen && <WeixinSettings />
           : menu === 'permissions' ? menuOpen && !!settings?.permissions && <PermissionPicker key={`${deviceId}:${threadId}`} settings={settings.permissions} enabled={ready && !busy && thread?.status === 'idle'} onChange={async mode => {
             if (!thread?.settings?.permissions) return false;

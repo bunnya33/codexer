@@ -38,6 +38,8 @@ type FixtureOptions = {
   controls?: { active: boolean; text: string; images: string[]; failEffort?: boolean };
   paging?: { delay?: boolean; fail?: boolean; exhausted?: boolean };
   removal?: { confirmed: boolean; fail?: boolean; calls: string[] };
+  clipboard?: { values: string[]; fail?: boolean };
+  agentVersions?: Record<string, string>;
 };
 type TestRelay = {
   getSnapshot(): { userId: string | null; devicesReady: boolean; phase: string; syncing: Record<string, boolean> };
@@ -60,6 +62,10 @@ async function fixture(options: FixtureOptions = {}) {
     url: origin, runScripts: 'dangerously', pretendToBeVisual: true,
     beforeParse(window) {
       Object.assign(window, { AnimationEvent: window.Event });
+      if (options.clipboard) Object.defineProperty(window.navigator, 'clipboard', { value: { writeText: async (value: string) => {
+        if (options.clipboard!.fail) throw new Error('clipboard-denied');
+        options.clipboard!.values.push(value);
+      } } });
       window.confirm = () => options.removal?.confirmed ?? false;
       window.addEventListener('error', event => errors.push(event.error));
       window.matchMedia = (() => ({ matches: false, addListener() {}, removeListener() {} })) as unknown as typeof window.matchMedia;
@@ -128,6 +134,7 @@ async function fixture(options: FixtureOptions = {}) {
       } });
       function snapshot(deviceId: string) {
         return { protocolVersion: 1, deviceId, epoch: 'fixture', lastSeq: 0, generatedAt: 1, hostname: deviceId, platform: 'darwin',
+          agentVersion: options.agentVersions?.[deviceId],
           runtime: { kind: 'official-desktop-ipc', connected: true, experimental: true, capabilities: { observe: true, startTurn: true, interrupt: true, approvals: true, userInput: true, images: true, attachments: true, collaborationModeUpdate: true, permissionsUpdate: !!options.permissions, mcpApprovals: true } },
           threads: Object.fromEntries((current.catalogs[deviceId]?.threads ?? []).map(thread => [thread.id, { ...normalizeThread({ ...thread, threadRuntimeStatus: { type: controls?.active ? 'active' : 'idle', activeFlags: [] }, turns: [], requests: [] }, 0), ownerAvailable: true,
             ...(controls ? { settings, activeTurnId: controls.active ? 'active-turn' : null, queuedMessages: [{ id: 'queue-1', text: controls.text.slice(0, 1000), imageCount: controls.images.length, createdAt: 1, status: 'queued' }] } : {}),
@@ -579,6 +586,77 @@ it('uses centered settings and operation dialogs, shows server and loaded-contro
     await test.closeDialog('关闭工作模式');
     test.click('管理会话 recent-pc-a');
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[data-testid="dialog-card"]')?.textContent).toContain('归档'));
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it('copies the full ID of the menu target without selecting it, and the current ID from conversation options', async () => {
+  const clipboard = { values: [] as string[] };
+  const catalogA = catalog('pc-a');
+  const recentId = '019c1133-823a-7f10-a555-ff8123456789', olderId = '019b0022-341a-7990-b666-ee9876543210';
+  catalogA.threads[0]!.id = recentId; catalogA.threads[1]!.id = olderId;
+  const test = await fixture({ clipboard, catalogs: { 'pc-a': catalogA, 'pc-b': catalog('pc-b') } });
+  const document = test.dom.window.document;
+  try {
+    await vi.waitFor(() => expect(test.header()).toContain('recent-pc-a'));
+    test.click('管理会话 older-pc-a');
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="conversation-id"]')?.textContent).toBe(olderId));
+    test.click('复制会话 ID');
+    await vi.waitFor(() => expect(document.querySelector('[aria-label="复制会话 ID"]')?.textContent).toBe('已复制'));
+    expect(clipboard.values).toEqual([olderId]);
+    await test.closeDialog('关闭older-pc-a');
+    expect(test.header()).toContain('recent-pc-a');
+    test.click('会话选项');
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="conversation-id"]')?.textContent).toBe(recentId));
+    expect(document.querySelector('[aria-label="复制会话 ID"]')?.textContent).toBe('复制');
+    test.click('复制会话 ID');
+    await vi.waitFor(() => expect(clipboard.values).toEqual([olderId, recentId]));
+    await test.closeDialog('关闭');
+    test.click('会话选项');
+    await vi.waitFor(() => expect(document.querySelector('[aria-label="复制会话 ID"]')?.textContent).toBe('复制'));
+    expect(test.commands).toEqual([]);
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it('keeps the full ID selectable and offers retry instead of claiming clipboard success after denial', async () => {
+  const clipboard = { values: [] as string[], fail: true };
+  const test = await fixture({ clipboard });
+  const document = test.dom.window.document;
+  try {
+    await vi.waitFor(() => expect(test.header()).toContain('recent-pc-a'));
+    test.click('会话选项');
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="conversation-id"]')).not.toBeNull());
+    test.click('复制会话 ID');
+    await vi.waitFor(() => expect(document.querySelector('[role="alert"]')?.textContent).toContain('手动复制'));
+    expect(document.querySelector('[data-testid="conversation-id"]')?.textContent).toBe('recent-pc-a');
+    expect(document.querySelector('[aria-label="复制会话 ID"]')?.textContent).toBe('复制');
+    expect(clipboard.values).toEqual([]);
+    clipboard.fail = false; test.click('复制会话 ID');
+    await vi.waitFor(() => expect(document.querySelector('[aria-label="复制会话 ID"]')?.textContent).toBe('已复制'));
+    expect(document.querySelector('[role="alert"]')).toBeNull();
+    expect(clipboard.values).toEqual(['recent-pc-a']);
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it('shows the selected PC Agent version and marks older agents without guessing a version', async () => {
+  const test = await fixture({ agentVersions: { 'pc-a': '0.1.16' } });
+  const document = test.dom.window.document;
+  try {
+    await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-a']).toBe(false));
+    test.click('连接设置');
+    const version = () => document.querySelector('[data-testid="selected-agent-version"]')?.textContent;
+    await vi.waitFor(() => expect(version()).toContain('pc-a · 在线\n0.1.16'));
+    expect(version()).not.toContain('未上报');
+    await test.closeDialog('关闭设置');
+    test.click('切换 PC Agent，当前：pc-a，在线');
+    await vi.waitFor(() => expect(document.querySelector('[aria-label="选择设备 pc-b，在线"]')).not.toBeNull());
+    test.click('选择设备 pc-b，在线');
+    await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-b']).toBe(false));
+    test.click('连接设置');
+    await vi.waitFor(() => expect(version()).toContain('pc-b · 在线'));
+    expect(version()).toContain('未上报'); expect(version()).not.toContain('0.1.16');
     expect(test.errors).toEqual([]);
   } finally { test.close(); }
 });
