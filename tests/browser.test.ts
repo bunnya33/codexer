@@ -1,6 +1,42 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { clearWebCredentials, randomId, readWebCredentials, saveWebCredentials } from "../packages/client-shared/src/browser.js";
+import { clearWebCredentials, copyText, randomId, readWebCredentials, saveWebCredentials } from "../packages/client-shared/src/browser.js";
+import { JSDOM } from 'jsdom';
 afterEach(() => vi.unstubAllGlobals());
+
+it('copies within a dialog focus trap when HTTP has no async clipboard API', async () => {
+  const dom = new JSDOM('<div role="dialog" aria-modal="true"><button>Copy</button></div>');
+  try {
+    const document = dom.window.document, modal = document.querySelector('[role="dialog"]')!, button = document.querySelector('button')!;
+    button.focus();
+    document.addEventListener('focusin', () => { if (!modal.contains(document.activeElement)) button.focus(); });
+    let clipboard = '';
+    Object.assign(document, { execCommand: vi.fn((command: string) => {
+      const field = document.activeElement as HTMLTextAreaElement;
+      if (command !== 'copy' || field.tagName !== 'TEXTAREA' || field.selectionEnd !== field.value.length) return false;
+      clipboard = field.value; return true;
+    }) });
+    vi.stubGlobal('document', document); vi.stubGlobal('navigator', {});
+    await copyText('https://relay.test/share/中文-key');
+    expect(clipboard).toBe('https://relay.test/share/中文-key');
+    expect(document.querySelector('textarea')).toBeNull(); expect(document.activeElement).toBe(button);
+    (document.execCommand as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    await expect(copyText('failure')).rejects.toThrow('clipboard-unavailable');
+    expect(document.querySelector('textarea')).toBeNull(); expect(document.activeElement).toBe(button);
+  } finally { dom.window.close(); }
+});
+
+it('uses the async clipboard immediately when available and falls back after permission failure', async () => {
+  const writeText = vi.fn(async () => {});
+  vi.stubGlobal('navigator', { clipboard: { writeText } });
+  await copyText('share-url'); expect(writeText).toHaveBeenCalledWith('share-url');
+  const dom = new JSDOM('<button>Copy</button>');
+  try {
+    vi.stubGlobal('document', dom.window.document);
+    Object.assign(dom.window.document, { execCommand: vi.fn(() => true) });
+    writeText.mockRejectedValueOnce(new Error('not-allowed'));
+    await copyText('fallback-url'); expect(dom.window.document.execCommand).toHaveBeenCalledWith('copy');
+  } finally { dom.window.close(); }
+});
 
 it('persists browser logins across tab replacement, migrates temporary sessions and clears both stores on logout', () => {
   const persistent = new Map<string,string>(), temporary = new Map<string,string>();

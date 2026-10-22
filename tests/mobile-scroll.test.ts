@@ -115,6 +115,26 @@ it('ignores zoom, horizontal motion, text editing and nested scrolling until it 
   } finally { dom.window.close(); }
 });
 
+it('pauses vertical wheel and touch scrolling over drawer-excluded code/images, including nested scroll boundaries', async () => {
+  const dom = await conversationFixture();
+  try {
+    const { window } = dom, document = window.document;
+    const stream = document.querySelector('[data-testid="conversation-stream"]')!;
+    const code = document.createElement('pre');
+    code.dataset.drawerSwipe = 'ignore'; code.textContent = 'Code block'; stream.append(code);
+    code.dispatchEvent(new window.WheelEvent('wheel', { bubbles: true, deltaY: -20 }));
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="following"]')!.textContent).toBe('自动跟随：false'));
+    code.dispatchEvent(new window.WheelEvent('wheel', { bubbles: true, deltaY: 20 }));
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="following"]')!.textContent).toBe('自动跟随：true'));
+    const touch = (type: string, y: number) => {
+      const event = new window.Event(type, { bubbles: true });
+      Object.assign(event, { touches: [{ clientX: 50, clientY: y }] }); code.dispatchEvent(event);
+    };
+    touch('touchstart', 150); touch('touchmove', 180);
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="following"]')!.textContent).toBe('自动跟随：false'));
+  } finally { dom.window.close(); }
+});
+
 it('tracks reversals in a vertical touch gesture without pausing on a downward page gesture at the bottom', async () => {
   const dom = await conversationFixture();
   try {

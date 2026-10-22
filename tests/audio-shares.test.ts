@@ -55,6 +55,19 @@ it('publicly shares only the chosen audio, persists expiry, seeks and cancels di
     expect(page.headers['set-cookie']).toBeUndefined(); expect(page.headers['cache-control']).toBe('no-store');
     expect((await app.inject({ url: share.path + '/' })).statusCode).toBe(200);
     const audio = share.path + '/audio';
+    const download = share.path + '/download';
+    expect(page.body).toContain(`href="${download}" download>下载音频</a>`);
+    const saved = await app.inject({ url: download });
+    expect(saved.statusCode).toBe(200); expect(saved.rawPayload).toEqual(bytes);
+    expect(saved.headers['content-disposition']).toContain('attachment;');
+    expect(decodeURIComponent(String(saved.headers['content-disposition']).split("filename*=UTF-8''")[1]!)).toBe('音乐 & sample.WAV');
+    expect(saved.headers['cache-control']).toBe('no-store');
+    const downloadHead = await app.inject({ method: 'HEAD', url: download });
+    expect(downloadHead.statusCode).toBe(200); expect(downloadHead.body).toBe('');
+    expect(downloadHead.headers['content-length']).toBe(String(bytes.length));
+    const resumed = await app.inject({ url: download + '?' + new URLSearchParams({ path: otherPath }), headers: { range: 'bytes=44-99' } });
+    expect(resumed.statusCode).toBe(206); expect(resumed.rawPayload).toEqual(bytes.subarray(44, 100));
+    expect(resumed.headers['content-disposition']).toContain('attachment;');
     const head = await app.inject({ method: 'HEAD', url: audio, headers: { range: 'bytes=0-1' } });
     expect(head.statusCode).toBe(200); expect(head.body).toBe(''); expect(head.headers['content-length']).toBe(String(bytes.length));
     for (const [range, start, end] of [['bytes=0-43', 0, 43], [`bytes=${FILE_CHUNK_BYTES - 7}-${FILE_CHUNK_BYTES + 9}`, FILE_CHUNK_BYTES - 7, FILE_CHUNK_BYTES + 9], ['bytes=-51', bytes.length - 51, bytes.length - 1]] as const) {
@@ -68,6 +81,7 @@ it('publicly shares only the chosen audio, persists expiry, seeks and cancels di
     expect((await app.inject({ url: audio + '?' + new URLSearchParams({ path: otherPath, kind: 'html' }), headers: { range: 'bytes=0-43' } })).rawPayload).toEqual(bytes.subarray(0, 44));
     const web = (await create({ kind: 'html', source: html })).json();
     expect((await app.inject({ url: web.path + '/audio' })).statusCode).toBe(410);
+    expect((await app.inject({ url: web.path + '/download' })).statusCode).toBe(410);
     await app.inject({ method: 'POST', url: '/v1/auth/logout', headers: account.headers });
     expect((await app.inject({ url: audio, headers: { range: 'bytes=0-1' } })).statusCode).toBe(206);
     account.headers.authorization = `Bearer ${(await store.createSession(account.id)).session}`;
@@ -84,7 +98,7 @@ it('publicly shares only the chosen audio, persists expiry, seeks and cancels di
       const renewed = (await create({ durationMinutes: 1 })).json(); expect(renewed.path).toBe(share.path);
       if (mode === 'expire') await store.query('UPDATE preview_shares SET expires_at=$1 WHERE id=$2', [Date.now() + 900, share.id]);
       blocked = 0; block = true; pending = new Promise<void>(done => { release = done; });
-      const active = await fetch(base + audio), stream = active.body!.getReader();
+      const active = await fetch(base + (mode === 'expire' ? download : audio)), stream = active.body!.getReader();
       expect((await stream.read()).value!.length).toBeGreaterThan(0); await waitFor(() => blocked > 0);
       if (mode === 'disable') {
         expect((await app.inject({ method: 'DELETE', url: `/v1/devices/${registered.id}/preview-shares/${share.id}`, headers: other.headers })).statusCode).toBe(404);
@@ -93,12 +107,14 @@ it('publicly shares only the chosen audio, persists expiry, seeks and cancels di
       await expect((async () => { while (!(await stream.read()).done) { /* Drain buffered data. */ } })()).rejects.toThrow();
       release!(); block = false;
       expect((await app.inject({ url: audio })).statusCode).toBe(410);
+      expect((await app.inject({ url: download })).statusCode).toBe(410);
       expect((await app.inject({ url: share.path })).statusCode).toBe(410);
       expect((await metadata()).json().share.enabled).toBe(false);
     }
     const reopened = (await create({ durationMinutes: 1440 })).json(); expect(reopened.path).toBe(share.path); expect(reopened.durationMinutes).toBe(1440);
     const rotated = (await create({ rotate: true, durationMinutes: 75 })).json(); expect(rotated.path).not.toBe(share.path);
     expect((await app.inject({ url: audio })).statusCode).toBe(410);
+    expect((await app.inject({ url: download })).statusCode).toBe(410);
     expect((await app.inject({ url: rotated.path + '/audio', headers: { range: 'bytes=0-1' } })).statusCode).toBe(206);
     agent.disconnect(); await waitFor(async () => !(await app.inject({ url: '/v1/devices', headers: account.headers })).json().devices[0].online);
     expect((await app.inject({ url: rotated.path })).statusCode).toBe(503);

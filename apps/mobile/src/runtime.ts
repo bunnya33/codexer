@@ -9,5 +9,5 @@ export const saveCredentials = (value: string) => SecureStore.setItemAsync(crede
 export const clearCredentials = () => SecureStore.deleteItemAsync(credentialKey);
 export const randomId = () => Crypto.randomUUID();
 export const defaultRelayUrl = () => '';
-export const copyText = async (value: string) => { await Clipboard.setStringAsync(value); };
+export const copyText = async (value: string) => { if (!await Clipboard.setStringAsync(value)) throw new Error('clipboard-unavailable'); };
 export const confirmAction = (title: string, message: string): Promise<boolean> => new Promise(resolve => Alert.alert(title, message, [{ text: '取消', style: 'cancel', onPress: () => resolve(false) }, { text: '确认', style: 'destructive', onPress: () => resolve(true) }], { cancelable: true, onDismiss: () => resolve(false) }));

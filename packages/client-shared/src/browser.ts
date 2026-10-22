@@ -52,8 +52,12 @@ export async function copyText(value: string): Promise<void> {
   field.readOnly = true;
   field.tabIndex = -1;
   field.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none";
-  document.body.append(field);
+  // Keep selection inside the active dialog's focus trap. Appending to body
+  // can move focus back to the modal before execCommand actually copies.
+  const modal = focused?.closest('[aria-modal="true"], [role="dialog"]') ?? Array.from(document.querySelectorAll('[aria-modal="true"]')).at(-1);
+  (modal ?? document.body).append(field);
   try {
+    field.focus({ preventScroll: true });
     field.select();
     field.setSelectionRange(0, value.length);
     if (!document.execCommand("copy")) throw new Error("clipboard-unavailable");

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -18,6 +19,7 @@ type AudioPlayback struct {
 	Device, Thread, Path, Version, Name, MIME string
 	Principal                                 *Principal
 	Size, Expires                             int64
+	Download                                  bool
 	ctx                                       context.Context
 	cancel                                    context.CancelFunc
 }
@@ -169,6 +171,9 @@ func (s *Server) serveAudio(w http.ResponseWriter, r *http.Request, v *AudioPlay
 	start, end, partial, ok := audioRange(rangeHeader, v.Size)
 	downloadHeaders(w)
 	w.Header().Set("Content-Type", v.MIME)
+	if v.Download {
+		w.Header().Set("Content-Disposition", "attachment; filename=\"audio\"; filename*=UTF-8''"+strings.ReplaceAll(url.PathEscape(v.Name), "'", "%27"))
+	}
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("Access-Control-Allow-Origin", "*")

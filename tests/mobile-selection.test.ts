@@ -236,6 +236,34 @@ it('keeps the real conversation list at the true end after tall content and dela
   } finally { test.close(); }
 });
 
+it('lets an idle conversation leave the bottom over code/images without a scroll-to-end feedback loop', async () => {
+  const test = await pagingFixture({ exhausted: true });
+  try {
+    const scrollToEnd = vi.fn(({ top }: { top: number }) => { test.stream.scrollTop = Math.min(top, 1500); });
+    Object.defineProperty(test.stream, 'scroll', { configurable: true, value: scrollToEnd });
+    await test.scroll(1500);
+    const code = test.dom.window.document.createElement('pre');
+    code.dataset.drawerSwipe = 'ignore'; code.textContent = 'Idle code'; test.stream.append(code);
+    scrollToEnd.mockClear();
+    for (const offset of [1490, 1460, 1300]) {
+      code.dispatchEvent(new test.dom.window.WheelEvent('wheel', { bubbles: true, deltaY: -30 }));
+      test.stream.scrollTop = offset; test.stream.dispatchEvent(new test.dom.window.Event('scroll'));
+      await new Promise(resolve => test.dom.window.setTimeout(resolve, 130));
+      expect(test.stream.scrollTop).toBe(offset);
+    }
+    expect(scrollToEnd).not.toHaveBeenCalled();
+    expect(test.dom.window.document.querySelector('[aria-label="滚动到会话底部"]')).not.toBeNull();
+    test.click('滚动到会话底部');
+    await vi.waitFor(() => expect(test.stream.scrollTop).toBe(1500));
+    scrollToEnd.mockClear();
+    // An offset-only callback (wheel/accessibility input or late native event)
+    // must not drive a settled list straight back to the bottom.
+    test.stream.scrollTop = 1490; test.stream.dispatchEvent(new test.dom.window.Event('scroll'));
+    await new Promise(resolve => test.dom.window.setTimeout(resolve, 130));
+    expect(scrollToEnd).not.toHaveBeenCalled();
+  } finally { test.close(); }
+});
+
 it('automatically loads earlier history on upward scrolling near the top and deduplicates while loading', async () => {
   const test = await pagingFixture({ delay: true });
   try {

@@ -25,6 +25,13 @@ export function PreviewShareDialog({reference,deviceId,threadId,onClose}:{refere
     if(live.current){setShare(value);setClock(Date.now());setNote('有效期已从现在开始计算');}
   });
   const expired=!!share&&share.expiresAt<=clock,active=!!share?.enabled&&!expired;
+  const copy=()=>void run(async()=>{
+    if(!share?.enabled||share.expiresAt<=Date.now())throw new Error('分享已停用、到期或链接已更新');
+    // Start writing during this click. Waiting for a network round trip loses
+    // the browser's transient clipboard activation, especially on HTTP/Safari.
+    try{await copyText(share.url);}catch{throw new Error('复制失败，请长按或选择上方链接手动复制');}
+    if(live.current)setNote('链接已复制');
+  });
   return <Modal visible transparent animationType="fade" onRequestClose={onClose}><View style={s.backdrop}><View accessibilityViewIsModal style={s.dialog}>
     <View style={s.header}><Text style={s.title}>{reference.kind==='audio'?'分享音频':'分享网页'}</Text><Pressable accessibilityRole="button" accessibilityLabel={reference.kind==='audio'?'关闭音频分享':'关闭网页分享'} onPress={onClose} style={s.close}><X size={20} color={c.muted}/></Pressable></View>
     <ScrollView style={s.scroll} contentContainerStyle={s.body}>
@@ -39,7 +46,7 @@ export function PreviewShareDialog({reference,deviceId,threadId,onClose}:{refere
     {!!note&&<Text accessibilityRole="alert" style={s.muted}>{note}</Text>}
     {share&&<><Text style={s.label}>{expired?'分享已过期':active?'分享已开启':'分享已停用'}</Text><Text style={s.muted}>到期时间：{new Date(share.expiresAt).toLocaleString()}</Text><Text selectable style={s.address}>{share.url}</Text></>}
     <View style={s.actions}>
-      {active&&share?<><Pressable accessibilityRole="button" disabled={busy} onPress={()=>void run(async()=>{const value=await relay.previewShare(deviceId,threadId,reference.kind,reference.source);if(!value?.enabled||value.expiresAt<=Date.now()){if(live.current)setShare(value);throw new Error('分享已停用、到期或链接已更新');}await copyText(value.url);if(live.current)setNote('链接已复制');})} style={[s.button,s.primary]}><Text style={s.primaryText}>复制链接</Text></Pressable>
+      {active&&share?<><Pressable accessibilityRole="button" disabled={busy} onPress={copy} style={[s.button,s.primary]}><Text style={s.primaryText}>复制链接</Text></Pressable>
         <Pressable accessibilityRole="button" disabled={busy} onPress={()=>create()} style={s.button}><Text style={s.label}>更新有效期</Text></Pressable>
         <Pressable accessibilityRole="button" disabled={busy} onPress={()=>create(true)} style={s.button}><Text style={s.label}>重新生成</Text></Pressable>
         <Pressable accessibilityRole="button" disabled={busy} onPress={()=>void run(async()=>{await relay.disablePreviewShare(deviceId,share.id);if(live.current)setShare({...share,enabled:false});})} style={s.button}><Text style={s.error}>停用分享</Text></Pressable></>

@@ -272,6 +272,7 @@ func (s *Server) previewShareRoutes() {
 	s.mux.HandleFunc("GET /share/{key}", s.sharedPreviewPage)
 	s.mux.HandleFunc("GET /share/{key}/{$}", s.sharedPreviewPage)
 	s.mux.HandleFunc("GET /share/{key}/audio", s.sharedAudioHTTP)
+	s.mux.HandleFunc("GET /share/{key}/download", s.sharedAudioDownload)
 }
 
 func (s *Server) sharedPreviewPage(w http.ResponseWriter, r *http.Request) {

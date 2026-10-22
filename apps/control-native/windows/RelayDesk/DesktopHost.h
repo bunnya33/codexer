@@ -295,8 +295,18 @@ inline void Host::platform(std::wstring const& method, JsonObject const& value, 
     return;
   }
   if (method==L"clipboard.write") {
-    auto content=field(value,L"value"); winrt::check_bool(OpenClipboard(hwnd)); EmptyClipboard(); auto memory=GlobalAlloc(GMEM_MOVEABLE,(content.size()+1)*sizeof(wchar_t));
-    if (!memory) {CloseClipboard(); throw std::bad_alloc();} memcpy(GlobalLock(memory),content.c_str(),(content.size()+1)*sizeof(wchar_t)); GlobalUnlock(memory); if (!SetClipboardData(CF_UNICODETEXT,memory)) GlobalFree(memory); CloseClipboard(); done(boolean(true),{}); return;
+    auto content=field(value,L"value"); winrt::check_bool(OpenClipboard(hwnd));
+    HGLOBAL memory{};
+    try {
+      winrt::check_bool(EmptyClipboard());
+      memory=GlobalAlloc(GMEM_MOVEABLE,(content.size()+1)*sizeof(wchar_t));
+      if (!memory) throw std::bad_alloc();
+      auto buffer=GlobalLock(memory); winrt::check_bool(buffer!=nullptr);
+      memcpy(buffer,content.c_str(),(content.size()+1)*sizeof(wchar_t)); GlobalUnlock(memory);
+      winrt::check_bool(SetClipboardData(CF_UNICODETEXT,memory)!=nullptr);
+      memory=nullptr; // Windows owns the allocation only after a successful write.
+    } catch (...) { if(memory) GlobalFree(memory); CloseClipboard(); throw; }
+    CloseClipboard(); done(boolean(true),{}); return;
   }
   if (method==L"confirm") { done(boolean(MessageBoxW(hwnd,field(value,L"message").c_str(),field(value,L"title",L"确认").c_str(),MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2)==IDYES),{}); return; }
   if (method==L"openUrl") {auto result=reinterpret_cast<INT_PTR>(ShellExecuteW(hwnd,L"open",field(value,L"url").c_str(),nullptr,nullptr,SW_SHOWNORMAL)); if(result<=32) throw std::runtime_error("open-failed"); done(boolean(true),{}); return;}

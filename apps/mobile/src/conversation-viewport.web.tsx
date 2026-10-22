@@ -19,7 +19,9 @@ function nestedScroll(target: EventTarget | null, direction: ScrollDirection): b
 export function ConversationViewport({children, onScrollIntent}: {children: ReactNode; onScrollIntent: (direction: ScrollDirection) => void}) {
   const touchStart = useRef({ x: 0, y: 0, ignored: false });
   const scrollbar = useRef<{ id: number; y: number; node: HTMLElement; offset: number } | null>(null);
-  const ignored = (target: EventTarget | null) => !!(target as Element | null)?.closest?.('[data-drawer-swipe="ignore"], input, textarea, [contenteditable="true"]');
+  // Drawer exclusions protect horizontal controls. Their vertical gestures can
+  // still scroll the conversation and must cancel automatic following.
+  const ignored = (target: EventTarget | null) => !!(target as Element | null)?.closest?.('input, textarea, select, [contenteditable="true"]');
   const intent = (target: EventTarget | null, direction: ScrollDirection) => {
     if (!ignored(target) && !nestedScroll(target, direction)) onScrollIntent(direction);
   };

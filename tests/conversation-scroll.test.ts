@@ -222,6 +222,21 @@ it('does not resume an explicit upward gesture from a delayed bottom callback', 
   expect(scroll.shouldFollow).toBe(true);
 });
 
+it('keeps native upward intent when a later generic drag-start and queued bottom callback arrive', () => {
+  const scroll = new ConversationScroll();
+  scroll.readScroll(metrics(1500));
+  scroll.beginInteraction('up');
+  scroll.beginInteraction();
+  scroll.readScroll(metrics(1492));
+  scroll.readScroll(metrics(1500));
+  expect(scroll.shouldFollow).toBe(false);
+  scroll.contentSize(2200);
+  expect(scroll.shouldFollow).toBe(false);
+  scroll.beginInteraction('down');
+  scroll.readScroll(metrics(1700, 2200));
+  expect(scroll.shouldFollow).toBe(true);
+});
+
 it('preserves the reader during history prepending and resets for a different conversation', () => {
   const scroll = new ConversationScroll();
   scroll.readScroll(metrics(700));

@@ -386,11 +386,13 @@ function AppContent() {
         onScroll={event => {
           if (currentStreamKey.current !== streamKey) return;
           const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-          const previousOffset = scrollPosition.current.metrics.offset;
+          const previous = scrollPosition.current.metrics;
           setShowJumpToBottom(scrollPosition.current.readScroll({height: contentSize.height, offset: contentOffset.y, viewport: layoutMeasurement.height}));
           if (scrollPosition.current.shouldFollow) {
-            if (contentSize.height - layoutMeasurement.height - contentOffset.y > 1) scrollToBottom();
-          } else if (contentOffset.y < previousOffset - 1 && scrollPosition.current.nearTop) loadEarlierRef.current();
+            // A scroll offset alone must not create another scroll-to-end loop.
+            // Follow new geometry; explicit input can always leave a settled list.
+            if ((previous.height !== contentSize.height || previous.viewport !== layoutMeasurement.height) && contentSize.height - layoutMeasurement.height - contentOffset.y > 1) scrollToBottom();
+          } else if (contentOffset.y < previous.offset - 1 && scrollPosition.current.nearTop) loadEarlierRef.current();
         }} scrollEventThrottle={32}
         onScrollBeginDrag={Platform.OS === 'web' ? undefined : () => markScrollIntent()}
         onLayout={event => {

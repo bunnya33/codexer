@@ -19,7 +19,7 @@ export class ConversationScroll {
   beginInteraction(direction?: ScrollDirection) {
     // A downward wheel/gesture at the end may not emit any scroll event.
     if (direction === 'down' && (this.shouldFollow || this.distance <= BOTTOM_TOLERANCE)) this.requestBottom();
-    else { this.interacting = true; this.direction = direction; }
+    else { this.interacting = true; this.direction = direction ?? this.direction; }
   }
   pause() { this.following = false; this.interacting = true; this.direction = 'up'; }
 

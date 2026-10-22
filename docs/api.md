@@ -264,7 +264,7 @@ Agent 在自身 SQLite `usage.sqlite` 中按 `threadId + turnId` 保存逐轮统
 
 下载仅接受当前发布 ID。读取元数据后若管理员替换了安装包，旧 ID 返回 404 `agent-release-unavailable`，刷新后重试；已开始下载的文件不混入新版字节。常见错误：400 `invalid-agent-release|invalid-agent-executable|agent-upload-incomplete`、413 `agent-installer-too-large`、409 `agent-upload-in-progress`、500 `agent-release-storage-error`。反向代理需允许对应上传体积和超时。接口均要求 Bearer 认证，管理员不通过普通控制端下载接口访问设备数据。
 
-## 公开网页与音频分享（服务器 0.3.21）
+## 公开网页与音频分享（服务器 0.3.22）
 
 所有管理接口都要求普通账号登录并拥有目标设备：
 
@@ -275,6 +275,7 @@ Agent 在自身 SQLite `usage.sqlite` 中按 `threadId + turnId` 保存逐轮统
 | `DELETE /v1/devices/{deviceId}/preview-shares/{shareId}` | 停用分享，立即撤销该分享的访问和进行中的连接 |
 | `GET /share/{key}` | 无需登录的访客页面，隔离加载所分享的内容 |
 | `GET/HEAD /share/{key}/audio` | 仅限音频分享，读取绑定的单个音频；支持单段字节 Range、206/416、HEAD 与分块转发 |
+| `GET/HEAD /share/{key}/download` | 0.3.22 新增，仅限音频分享，以附件下载同一个绑定音频；保留文件名，支持 HEAD、Range，使用相同的有效期与撤销检查 |
 
 `kind` 为 `server`、`html` 或 `audio`。服务来源仅接受 Agent 已在会话中观察到的 loopback HTTP(S) 地址；同一设备、种类和来源复用固定 key，忽略 fragment、统一 localhost/127.0.0.1 与默认端口，保留页面路径和查询参数。服务分享允许该端口的资源、接口和 WebSocket，不是单个 URL 的路径隔离。HTML 来源必须是该会话引用过的 UTF-8 HTML/HTM 文件，最多 2 MiB，按需读取当前版本，不开放相邻文件。
 

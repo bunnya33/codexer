@@ -11,19 +11,20 @@ beforeAll(async()=>{
   }}]});javascript=result.outputFiles.find(file=>file.path.endsWith('.js'))!.text;
 });
 async function waitFor(test:()=>boolean){const start=Date.now();while(!test()){if(Date.now()-start>3000)throw new Error('UI timeout');await new Promise(done=>setTimeout(done,10));}}
-function fixture(failCreate=false,expired=false){
+function fixture(failCreate=false,expired=false,failCopy=false){
   const calls:string[]=[],copied:string[]=[],errors:unknown[]=[];
   let share:{id:string;url:string;kind:'server';enabled:boolean;expiresAt:number;durationMinutes:number}|null=null,confirmed=false;
   if(expired)share={id:'fixed',url:'https://relay.test/share/'+'a'.repeat(64),kind:'server',enabled:false,expiresAt:Date.now()-1000,durationMinutes:75};
   const durations:number[]=[];
+  let gesture=false;
   const dom=new JSDOM('<div id="root"></div>',{url:'http://fixture.test',runScripts:'dangerously',pretendToBeVisual:true,beforeParse(window){
     window.matchMedia=(()=>({matches:false,addListener(){},removeListener(){}})) as any;
     window.addEventListener('error',event=>errors.push(event.error));
-    Object.assign(window,{fixtureRelay:{previewShare:async()=>{calls.push('read');return share;},createPreviewShare:async(_device:string,_thread:string,_kind:string,_source:string,rotate:boolean,minutes:number)=>{calls.push('create:'+rotate);durations.push(minutes);if(failCreate)throw new window.Error('device-offline');share={id:'fixed',url:'https://relay.test/share/'+(rotate?'b':'a').repeat(64),kind:'server',enabled:true,expiresAt:Date.now()+minutes*60000,durationMinutes:minutes};return share;},disablePreviewShare:async()=>{calls.push('disable');share={...share!,enabled:false};}},fixtureCopy:async(text:string)=>copied.push(text),fixtureConfirm:async()=>confirmed});
+    Object.assign(window,{fixtureRelay:{previewShare:async()=>{calls.push('read');return share;},createPreviewShare:async(_device:string,_thread:string,_kind:string,_source:string,rotate:boolean,minutes:number)=>{calls.push('create:'+rotate);durations.push(minutes);if(failCreate)throw new window.Error('device-offline');share={id:'fixed',url:'https://relay.test/share/'+(rotate?'b':'a').repeat(64),kind:'server',enabled:true,expiresAt:Date.now()+minutes*60000,durationMinutes:minutes};return share;},disablePreviewShare:async()=>{calls.push('disable');share={...share!,enabled:false};}},fixtureCopy:async(text:string)=>{if(!gesture||failCopy)throw new window.Error('clipboard-unavailable');copied.push(text);},fixtureConfirm:async()=>confirmed});
   }});
   dom.window.eval(javascript);
   const text=()=>dom.window.document.body.textContent??'';
-  const click=async(label:string)=>{await waitFor(()=>Array.from(dom.window.document.querySelectorAll('[role="button"]')).some(element=>element.textContent===label&&element.getAttribute('aria-disabled')!=='true'));await new Promise(done=>setTimeout(done,30));const element=Array.from(dom.window.document.querySelectorAll('[role="button"]')).find(element=>element.textContent===label)!;element.dispatchEvent(new dom.window.MouseEvent('click',{bubbles:true}));};
+  const click=async(label:string)=>{await waitFor(()=>Array.from(dom.window.document.querySelectorAll('[role="button"]')).some(element=>element.textContent===label&&element.getAttribute('aria-disabled')!=='true'));await new Promise(done=>setTimeout(done,30));const element=Array.from(dom.window.document.querySelectorAll('[role="button"]')).find(element=>element.textContent===label)!;gesture=true;try{element.dispatchEvent(new dom.window.MouseEvent('click',{bubbles:true}));}finally{gesture=false;}};
   return{dom,calls,copied,errors,text,click,durations,confirm:()=>{confirmed=true;}};
 }
 it('creates only on explicit action, copies and reuses a link, confirms rotation and disables it',async()=>{
@@ -31,7 +32,7 @@ it('creates only on explicit action, copies and reuses a link, confirms rotation
     await waitFor(()=>app.calls.includes('read')&&app.text().includes('创建分享链接'));
     expect(app.calls).toEqual(['read']);await app.click('创建分享链接');await waitFor(()=>app.text().includes('分享已开启'));
     expect(app.durations).toEqual([30]);
-    await app.click('复制链接');await waitFor(()=>app.text().includes('链接已复制'));expect(app.copied[0]).toContain('/share/'+'a'.repeat(64));
+    await app.click('复制链接');await waitFor(()=>app.text().includes('链接已复制'));expect(app.copied[0]).toContain('/share/'+'a'.repeat(64));expect(app.calls.filter(call=>call==='read')).toHaveLength(1);
     await app.click('重新生成');await new Promise(done=>setTimeout(done,20));expect(app.calls.filter(call=>call.startsWith('create'))).toEqual(['create:false']);
     app.confirm();await app.click('重新生成');await waitFor(()=>app.text().includes('/share/'+'b'.repeat(64)));
     await app.click('停用分享');await waitFor(()=>app.text().includes('分享已停用'));expect(app.calls).toContain('disable');expect(app.text()).toContain('重新开启分享');
@@ -57,5 +58,13 @@ it('shows an expired deadline and explicitly renews the existing fixed link',asy
     await waitFor(()=>app.text().includes('分享已过期'));expect(app.calls).toEqual(['read']);expect(app.text()).toContain('到期时间');
     await app.click('重新开启分享');await waitFor(()=>app.text().includes('分享已开启'));expect(app.durations).toEqual([75]);
     await app.click('复制链接');await waitFor(()=>app.copied.length===1);expect(app.copied[0]).toContain('/share/'+'a'.repeat(64));
+  }finally{app.dom.window.close();}
+});
+
+it('reports clipboard failure without claiming success and leaves the displayed link selectable',async()=>{
+  const app=fixture(false,false,true);try{
+    await waitFor(()=>app.calls.includes('read'));await app.click('创建分享链接');await waitFor(()=>app.text().includes('分享已开启'));
+    await app.click('复制链接');await waitFor(()=>app.text().includes('复制失败，请长按或选择上方链接手动复制'));
+    expect(app.text()).not.toContain('链接已复制');expect(app.copied).toEqual([]);expect(app.text()).toContain('https://relay.test/share/');
   }finally{app.dom.window.close();}
 });
