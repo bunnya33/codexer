@@ -44,13 +44,13 @@ export class ConnectorController extends EventEmitter {
         this.credentials = credentials; this.publish({ loggedIn: true, phase: 'disconnected', expiresAt: credentials.expiresAt });
         if (this.view.settings.autoConnect) await this.connect().catch(() => undefined);
       } else if (credentials) await this.vault.clear();
-    } catch { this.publish({ error: '无法恢复系统加密的登录状态，请重新登录。' }); }
+    } catch { this.log('credential-restore-failed'); this.publish({ error: '无法恢复系统加密的登录状态，请重新登录。' }); }
   }
   private idleRequired() { if (this.workerStarted && (!this.view.status || this.view.status.activeTasks)) throw new Error('本机仍有任务运行或状态尚未确认，请等待任务结束后再登录或修改运行配置。'); }
-  private async operation(action: () => Promise<void>) {
+  private async operation(action: () => Promise<void>, failureCode = 'operation-failed') {
     if (this.view.busy) throw new Error('正在处理上一个操作，请稍候。');
     this.publish({ busy: true, error: '' });
-    try { await action(); } catch (error) { this.publish({ error: error instanceof Error ? error.message : '操作失败' }); throw error; } finally { this.publish({ busy: false }); }
+    try { await action(); } catch (error) { this.log(failureCode); this.publish({ error: error instanceof Error ? error.message : '操作失败' }); throw error; } finally { this.publish({ busy: false }); }
   }
   async save(raw: Settings) { await this.operation(async () => {
     const next = settingsSchema.parse(raw), before = this.view.settings;
@@ -64,6 +64,7 @@ export class ConnectorController extends EventEmitter {
     await this.persist(next); this.publish({ settings: next }); this.log('settings-saved');
   }); }
   async login(username: string, password: string) { await this.operation(async () => {
+    this.log('account-login-started');
     this.idleRequired();
     if (!this.vault.available()) throw new Error('系统安全存储不可用，无法保存登录会话。');
     const settings = this.view.settings, url = validateRelayUrl(settings.relayUrl.trim(), settings.allowHttp).origin;
@@ -75,8 +76,13 @@ export class ConnectorController extends EventEmitter {
     let credentials: AgentCredentials | null = null;
     try {
       const response = await fetch(new URL('/v1/agents/login', url), { method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: username.trim(), password, installationId: settings.installationId, name: settings.deviceName, platform: process.platform }), signal: this.loginAbort.signal });
-      if (!response.ok) throw new Error(response.status === 401 ? '账号或密码错误。' : response.status === 429 ? '登录过于频繁，请稍后再试。' : '服务器拒绝登录，请检查账号状态。');
-      const result = z.object({ session: z.string().min(1), deviceId: z.string().uuid(), expiresAt: z.number() }).parse(await response.json());
+      if (!response.ok) {
+        this.log(response.status === 401 ? 'account-login-rejected' : response.status === 429 ? 'account-login-rate-limited' : 'account-login-server-error');
+        throw new Error(response.status === 401 ? '账号或密码错误。' : response.status === 429 ? '登录过于频繁，请稍后再试。' : '服务器拒绝登录，请检查账号状态。');
+      }
+      const parsed = z.object({ session: z.string().min(1), deviceId: z.string().uuid(), expiresAt: z.number() }).safeParse(await response.json());
+      if (!parsed.success) { this.log('account-login-invalid-response'); throw new Error('服务器登录响应格式不兼容，请检查服务器版本。'); }
+      const result = parsed.data;
       credentials = { ...result, relayUrl: url, username: username.trim(), installationId: settings.installationId };
       if (generation !== this.generation) { await this.revoke(credentials); return; }
       await this.vault.write(credentials);
@@ -88,10 +94,12 @@ export class ConnectorController extends EventEmitter {
       this.publish({ settings: next, loggedIn: true, expiresAt: credentials.expiresAt, phase: 'disconnected' }); this.log('account-login-succeeded');
       await this.startConnection();
     } catch (error) {
+      if (this.loginAbort?.signal.aborted) this.log('account-login-timeout');
+      else if (error instanceof TypeError) this.log('account-login-network-error');
       if (credentials && !this.credentials) await this.revoke(credentials).catch(() => undefined);
       throw new Error(error instanceof Error && error.message.endsWith('。') ? error.message : '登录失败，请检查服务器地址和网络后重试。');
     } finally { clearTimeout(timer); this.loginAbort = undefined; }
-  }); }
+  }, 'account-login-failed'); }
   private async revoke(credentials: AgentCredentials) { const response = await fetch(new URL('/v1/auth/logout', credentials.relayUrl), { method: 'POST', redirect: 'error', headers: { authorization: `Bearer ${credentials.session}`, 'x-device-id': credentials.deviceId }, signal: AbortSignal.timeout(5000) }); if (!response.ok) throw new Error('logout-rejected'); }
   private async clearLogin() { const credentials = this.credentials; this.credentials = null; await this.credentialClearing; await this.vault.clear(); this.publish({ loggedIn: false, phase: 'signed-out', expiresAt: null }); if (credentials) await this.revoke(credentials).catch(() => this.log('logout-server-unreachable')); }
   async logout() { await this.operation(async () => { await this.disconnect(); await this.clearLogin(); this.log('account-logged-out'); }); }
@@ -124,11 +132,11 @@ export class ConnectorController extends EventEmitter {
     if (generation !== this.generation) return;
     this.paused = false; this.publish({ phase: 'connecting' });
     if (this.workerStarted) await this.worker.reconnect();
-    else { this.workerStarted = true; try { await this.worker.start(this.credentials, this.view.settings); } catch { await this.worker.stop().catch(() => undefined); this.workerStarted = false; this.paused = true; this.publish({ phase: 'disconnected' }); throw new Error('本机服务启动失败，请查看诊断。'); } }
+    else { this.workerStarted = true; try { await this.worker.start(this.credentials, this.view.settings); } catch { this.log('worker-start-failed'); await this.worker.stop().catch(() => undefined); this.workerStarted = false; this.paused = true; this.publish({ phase: 'disconnected' }); throw new Error('本机服务启动失败，请查看诊断。'); } }
     if (generation !== this.generation) await this.worker.disconnect();
   }
-  async connect() { await this.operation(() => this.startConnection()); }
-  async reconnect() { await this.operation(async () => { await this.disconnect(); await this.startConnection(); }); }
+  async connect() { await this.operation(() => this.startConnection(), 'agent-connect-failed'); }
+  async reconnect() { await this.operation(async () => { await this.disconnect(); await this.startConnection(); }, 'agent-reconnect-failed'); }
   async disconnect() { this.generation++; this.loginAbort?.abort(); this.paused = true; this.publish({ phase: this.credentials ? 'disconnected' : 'signed-out' }); if (this.workerStarted) await this.worker.disconnect(); this.log('remote-paused'); }
   async shutdown() { await this.disconnect(); if (this.workerStarted) await this.worker.stop(); }
 }

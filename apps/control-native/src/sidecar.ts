@@ -12,7 +12,7 @@ import {readLegacyControl} from './legacy-control';
 
 const mode = process.env.CODEXER_NATIVE_MODE === 'agent' ? 'agent' : 'control';
 const directory = process.env.CODEXER_NATIVE_DATA_DIR || join(process.env.APPDATA || homedir(), mode === 'agent' ? 'Codexer' : 'CodexerControl');
-const version = '0.2.4';
+const version = '0.2.5';
 const send = (value: unknown) => process.stdout.write(JSON.stringify(value) + '\n');
 const pending = new Map<number, {resolve: (value: any) => void; reject: (error: Error) => void}>();
 let sequence = 0;

@@ -1,2 +1,2 @@
-export const controlVersion='0.2.4';
+export const controlVersion='0.2.5';
 export const controlPlatform='Windows';

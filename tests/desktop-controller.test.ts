@@ -17,6 +17,33 @@ function fixture() {
   return { vault, worker, persist, controller, settings, read: () => value };
 }
 afterEach(() => vi.unstubAllGlobals());
+it.each([
+  { status: 401, code: 'account-login-rejected', message: '账号或密码错误' },
+  { status: 429, code: 'account-login-rate-limited', message: '登录过于频繁' },
+  { status: 503, code: 'account-login-server-error', message: '服务器拒绝登录' },
+  { status: 200, code: 'account-login-invalid-response', message: '响应格式不兼容' },
+])('records a safe diagnostic for a failed login ($status)', async ({status, code, message}) => {
+  const {controller, vault, worker} = fixture();
+  vi.mocked(fetch).mockResolvedValueOnce(new Response('{}', {status}));
+  await expect(controller.login('member', 'private-password')).rejects.toThrow(message);
+  expect(controller.state()).toMatchObject({loggedIn:false, busy:false});
+  expect(controller.state().logs.map(entry => entry.code)).toEqual(expect.arrayContaining(['account-login-started', code, 'account-login-failed']));
+  expect(JSON.stringify(controller.state().logs)).not.toMatch(/member|private-password|relay.example.com/);
+  expect(vault.write).not.toHaveBeenCalled(); expect(worker.start).not.toHaveBeenCalled();
+});
+
+it('records network and worker failures without logging private exception content', async () => {
+  const {controller, worker} = fixture();
+  vi.mocked(fetch).mockRejectedValueOnce(new TypeError('private-network-url-and-token'));
+  await expect(controller.login('member','private-password')).rejects.toThrow('检查服务器地址和网络');
+  expect(controller.state().logs.map(entry => entry.code)).toContain('account-login-network-error');
+  vi.mocked(worker.start).mockRejectedValueOnce(new Error('private-local-path'));
+  await expect(controller.login('member','private-password')).rejects.toThrow('本机服务启动失败');
+  expect(controller.state()).toMatchObject({phase:'disconnected',loggedIn:true,busy:false});
+  expect(controller.state().logs.map(entry => entry.code)).toContain('worker-start-failed');
+  expect(JSON.stringify(controller.state().logs)).not.toMatch(/private-/);
+});
+
 it('keeps credentials out of UI state, pauses without stopping local work and blocks runtime changes while active', async () => {
   const { controller, vault, worker, settings } = fixture();
   await controller.login('member', 'synthetic-password'); controller.update({ ...idle, activeTasks: 1 });
