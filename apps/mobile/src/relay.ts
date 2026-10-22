@@ -11,6 +11,8 @@ import type { WidgetState } from '../../../packages/client-shared/src/previews';
 import { attachmentSchema, MAX_ATTACHMENT_BYTES, UPLOAD_CHUNK_BYTES } from '../../../packages/protocol/src/uploads';
 import type { Attachment } from '../../../packages/protocol/src/uploads';
 import type { AttachmentAsset } from './attachment-picker';
+import {agentReleaseSchema} from '../../../packages/shared/src/agent-release';
+import type {AgentRelease} from '../../../packages/shared/src/agent-release';
 export type PreviewShare = { id: string; url: string; enabled: boolean; kind: 'html' | 'server' };
 
 export type Device = { id: string; name: string; platform: string; online: boolean; owner_user_id?: string | null; last_seen_at?: number | string | null };
@@ -605,6 +607,13 @@ export class RelayClient {
   private previewShareResult(value: {id:string; path:string; enabled:boolean; kind:'html'|'server'}): PreviewShare {
     if (!/^\/share\/[a-f0-9]{64}$/.test(value.path)) throw new Error('分享地址无效');
     return {id:value.id,url:this.view.url+value.path,enabled:value.enabled,kind:value.kind};
+  }
+  async agentRelease(signal?:AbortSignal):Promise<AgentRelease|null>{
+    const value=await this.api<{release:AgentRelease|null}>('/v1/pc-agent/release',undefined,'GET',false,signal);
+    return value.release===null?null:agentReleaseSchema.parse(value.release);
+  }
+  agentInstallerSource(id:string):{uri:string;headers:Record<string,string>}{
+    return {uri:this.view.url+`/v1/pc-agent/releases/${encodeURIComponent(id)}/download`,headers:{Authorization:`Bearer ${this.token}`}};
   }
   async previewShare(deviceId: string, threadId: string, kind: 'html'|'server', source: string): Promise<PreviewShare|null> {
     const query=new URLSearchParams({kind,source});

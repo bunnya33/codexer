@@ -251,6 +251,19 @@ Agent 在自身 SQLite `usage.sqlite` 中按 `threadId + turnId` 保存逐轮统
 
 命令结果的 `result` 对象上限为 256 KiB，以容纳含 JSON 转义的完整排队正文；请求 `details` 保持 16 KiB。编辑使用 `expectedText` 检查并发修改，不匹配返回 `queue-item-changed`；已发送、已移除或发送中的项返回 `queue-item-unavailable`。
 
+## PC Agent 安装包分发（服务器 0.3.19）
+
+| 方法与路径 | 权限与行为 |
+| --- | --- |
+| `GET /v1/admin/pc-agent/release` | 管理员查询当前安装包，返回 `{release:null}` 或 `{release:{id,name,version,size,sha256,uploadedAt}}` |
+| `PUT /v1/admin/pc-agent/release?name=...&version=...` | 管理员上传原始 EXE 字节，`Content-Type: application/octet-stream`；完成校验和原子发布后返回 `{release}` |
+| `GET /v1/pc-agent/release` | 普通控制端账号查询当前安装包，同上 |
+| `GET /v1/pc-agent/releases/{id}/download` | 普通控制端账号下载；支持 HEAD、单个 Range，附件、no-store、原始文件名、SHA-256 ETag |
+
+上传限制 256 MiB、10 分钟，每次仅允许一个上传。文件名必须为安全的 `.exe` 名称，版本格式如 `0.2.6`；校验 Windows PE 可执行文件结构，拒绝 DLL。上传暂存于私有临时文件，成功后原子切换持久化元数据，失败/中断保留旧包；发布前重新校验管理员登录。文件保存在 `RELAY_DATA_DIR/agent-releases`，与数据库和服务器安装目录分开。以最后一次成功发布为最新版，不执行上传的文件；服务器重启后继续提供同一包。
+
+下载仅接受当前发布 ID。读取元数据后若管理员替换了安装包，旧 ID 返回 404 `agent-release-unavailable`，刷新后重试；已开始下载的文件不混入新版字节。常见错误：400 `invalid-agent-release|invalid-agent-executable|agent-upload-incomplete`、413 `agent-installer-too-large`、409 `agent-upload-in-progress`、500 `agent-release-storage-error`。反向代理需允许对应上传体积和超时。接口均要求 Bearer 认证，管理员不通过普通控制端下载接口访问设备数据。
+
 ## 公开网页分享（服务器 0.3.18）
 
 所有管理接口都要求普通账号登录并拥有目标设备：

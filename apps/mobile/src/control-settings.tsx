@@ -6,6 +6,7 @@ import { controlPlatform, controlVersion } from './build-info';
 import { relay } from './relay';
 import { useTheme } from './styles';
 import { ThemePicker } from './theme-picker';
+import { AgentDownload } from './agent-download';
 
 export function ControlSettings({ url, onWeixin, onLogout }: { url: string; onWeixin: () => void; onLogout: () => void }) {
   const { c, s } = useTheme();
@@ -21,6 +22,7 @@ export function ControlSettings({ url, onWeixin, onLogout }: { url: string; onWe
   }, [url, revision]);
   return <>
     <ThemePicker />
+    <AgentDownload url={url}/>
     <Text style={styles.label}>连接</Text>
     <View style={styles.group}><Text selectable style={styles.address}>{url}</Text></View>
     <View style={styles.sectionHeader}><Text style={styles.label}>版本信息</Text><Pressable accessibilityRole="button" accessibilityLabel="刷新版本信息" disabled={loading} onPress={() => setRevision(value => value + 1)} style={s.iconButton}><RefreshCw size={16} color={c.muted} /></Pressable></View>

@@ -43,6 +43,15 @@ beforeEach(() => {
 });
 afterEach(() => { client.disconnect(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
+it('reads the current installer and builds only a server-local authenticated download',async()=>{
+  await client.connect('http://192.0.2.10:8899','test','test-password-12345');
+  const release={id:'00000000-0000-4000-8000-000000000002',name:'PC-Agent.exe',version:'0.2.6',size:512,sha256:'a'.repeat(64),uploadedAt:1};
+  vi.mocked(fetch).mockResolvedValueOnce(response({release:null}));expect(await client.agentRelease()).toBeNull();
+  vi.mocked(fetch).mockResolvedValueOnce(response({release}));expect(await client.agentRelease()).toEqual(release);
+  expect(client.agentInstallerSource(release.id)).toEqual({uri:`http://192.0.2.10:8899/v1/pc-agent/releases/${release.id}/download`,headers:{Authorization:'Bearer '+'a'.repeat(40)}});
+  vi.mocked(fetch).mockResolvedValueOnce(response({release:{...release,size:-1}}));await expect(client.agentRelease()).rejects.toThrow();
+});
+
 it('logs in when the native AbortSignal has no static timeout method', async () => {
   vi.useFakeTimers();
   vi.stubGlobal('AbortSignal', class {});

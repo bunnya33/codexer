@@ -5,6 +5,7 @@ import { useTheme } from '../../../mobile/src/styles';
 import { ThemePicker } from '../../../mobile/src/theme-picker';
 import { controlVersion } from './build-info';
 import { request, subscribe } from '../bridge';
+import { AgentDownload } from '../../../mobile/src/agent-download';
 
 export function WindowClosePreference() {
   const { c } = useTheme();
@@ -37,6 +38,7 @@ export function ControlSettings({ url, onWeixin, onLogout }: {url: string; onWei
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><Text style={{ color: c.text }}>服务器版本：{loading ? '正在读取…' : version}</Text>{loading && <ActivityIndicator color={c.muted} />}</View>
       <Text style={{ color: c.text }}>RelayDesk Windows · {controlVersion}</Text></View>
     <WindowClosePreference />
+    <AgentDownload url={url}/>
     <Pressable accessibilityRole="button" onPress={onWeixin} style={{ padding: 14 }}><Text style={{ color: c.text }}>微信 ClawBot</Text></Pressable>
     <Pressable accessibilityRole="button" onPress={onLogout} style={{ padding: 14 }}><Text style={{ color: c.danger }}>退出登录</Text></Pressable>
   </View>;

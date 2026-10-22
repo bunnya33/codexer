@@ -1,4 +1,6 @@
 import type { AuthSettings } from '../../../packages/shared/src/session-policy';
+import {agentReleaseSchema} from '../../../packages/shared/src/agent-release';
+import type {AgentRelease} from '../../../packages/shared/src/agent-release';
 export type { AuthSettings };
 import type { VersionInfo, UpdateJob, UpdateAction, UpdateSettings } from '../../../packages/shared/src/server-update';
 export type { VersionInfo, UpdateJob, UpdateAction, UpdateSettings };
@@ -44,6 +46,24 @@ export const disableAccount = (id: string, role: Role = 'user') => request(`${ac
 export const authSettings = () => request<AuthSettings>('/v1/admin/auth-settings');
 export const saveAuthSettings = (settings: AuthSettings) => request<AuthSettings>('/v1/admin/auth-settings', 'PUT', settings);
 export const touchLogin = () => request('/v1/auth/active', 'POST');
+export const agentRelease = async () => {const value=await request<{release:AgentRelease|null}>('/v1/admin/pc-agent/release');return value.release===null?null:agentReleaseSchema.parse(value.release);};
+export function uploadAgentRelease(file:File,version:string,signal:AbortSignal,progress:(fraction:number)=>void):Promise<AgentRelease>{
+  return new Promise((resolve,reject)=>{
+    const xhr=new XMLHttpRequest(),cancel=()=>xhr.abort();
+    const cleanup=()=>signal.removeEventListener('abort',cancel);
+    xhr.open('PUT','/v1/admin/pc-agent/release?'+new URLSearchParams({name:file.name,version}));xhr.timeout=10*60*1000;
+    xhr.setRequestHeader('Authorization',`Bearer ${session}`);xhr.setRequestHeader('Content-Type','application/octet-stream');
+    xhr.upload.onprogress=e=>{if(e.lengthComputable)progress(e.loaded/e.total);};
+    xhr.onload=()=>{cleanup();let value:any;try{value=JSON.parse(xhr.responseText);}catch{reject(new Error('服务器返回无效响应'));return;}
+      if(xhr.status===200){const parsed=agentReleaseSchema.safeParse(value.release);if(parsed.success)resolve(parsed.data);else reject(new Error('安装包信息无效'));return;}
+      if(xhr.status===401)clearSession();
+      const messages:Record<string,string>={'invalid-agent-executable':'文件不是有效的 Windows EXE，请选择完整安装包','agent-installer-too-large':'安装包超过 256 MiB','agent-upload-in-progress':'已有安装包正在上传，请稍后重试','agent-upload-incomplete':'上传未完成，请重试','agent-release-storage-error':'服务器保存失败，原安装包保持可用','invalid-agent-release':'请检查版本号和 EXE 文件名'};
+      reject(new ApiError(xhr.status,messages[value.error]??(xhr.status===401?'登录已失效，请重新登录':xhr.status===403?'仅管理员可以上传安装包':xhr.status===413?'安装包超过服务器上传限制':'上传失败，请重试')));
+    };
+    xhr.onerror=()=>{cleanup();reject(new Error('网络暂不可用，上传失败，请重试'));};xhr.ontimeout=()=>{cleanup();reject(new Error('上传超时，请重试'));};xhr.onabort=()=>{cleanup();reject(new Error('上传已取消'));};
+    signal.addEventListener('abort',cancel,{once:true});if(signal.aborted){cleanup();reject(new Error('上传已取消'));return;}xhr.send(file);
+  });
+}
 export const overview = () => request<Overview>('/v1/admin/overview');
 export const versionInfo = (force = false) => request<VersionInfo>('/v1/admin/system/version' + (force ? '?force=true' : ''));
 export const updateServer = (tag: string, action: UpdateAction = 'update', jobId?: string) => request<UpdateJob>('/v1/admin/system/update','POST',{tag,action,...(jobId ? {jobId} : {})});

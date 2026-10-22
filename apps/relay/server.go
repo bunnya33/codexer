@@ -39,29 +39,30 @@ type Server struct {
 	deviceRunning, deviceWaiting, deviceCompleted, exclusiveRunning, exclusiveWaiting, exclusiveCompleted atomic.Int64
 	maintenanceRunning, maintenanceCompleted                                                              atomic.Int64
 
-	Store        *Store
-	Options      Options
-	mux          *http.ServeMux
-	schemas      map[string]*jsonschema.Schema
-	schemaValues map[string]any
-	mu           sync.Mutex
-	agents       map[string]*Peer
-	clients      map[*Peer]bool
-	pending      map[string]*Pending
-	previews     map[string]*Preview
-	audio        map[string]*AudioPlayback
-	lanes        map[string]*deviceLane
-	exclusive    sync.RWMutex
-	auth         sync.Mutex
-	limits       map[string]*rateWindow
-	ctx          context.Context
-	cancel       context.CancelFunc
-	wg           sync.WaitGroup
-	closing      atomic.Bool
-	metrics      *Metrics
-	wx           *Weixin
-	updates      *Updates
-	uploads      *uploadStore
+	Store         *Store
+	Options       Options
+	mux           *http.ServeMux
+	schemas       map[string]*jsonschema.Schema
+	schemaValues  map[string]any
+	mu            sync.Mutex
+	agents        map[string]*Peer
+	clients       map[*Peer]bool
+	pending       map[string]*Pending
+	previews      map[string]*Preview
+	audio         map[string]*AudioPlayback
+	lanes         map[string]*deviceLane
+	exclusive     sync.RWMutex
+	auth          sync.Mutex
+	limits        map[string]*rateWindow
+	ctx           context.Context
+	cancel        context.CancelFunc
+	wg            sync.WaitGroup
+	closing       atomic.Bool
+	metrics       *Metrics
+	wx            *Weixin
+	updates       *Updates
+	uploads       *uploadStore
+	agentReleases *agentReleaseStore
 }
 type deviceLane struct {
 	tail chan struct{}
@@ -101,10 +102,17 @@ func New(store *Store, options Options) (*Server, error) {
 		cancel()
 		return nil, uploadErr
 	}
+	s.agentReleases, uploadErr = newAgentReleaseStore(options.DataDir)
+	if uploadErr != nil {
+		s.uploads.close()
+		cancel()
+		return nil, uploadErr
+	}
 	if options.Weixin {
 		wx, e := NewWeixin(s, options)
 		if e != nil {
 			s.uploads.close()
+			s.agentReleases.close()
 			cancel()
 			return nil, e
 		}
@@ -411,6 +419,7 @@ func (s *Server) Close() {
 	}
 	s.wg.Wait()
 	s.uploads.close()
+	s.agentReleases.close()
 }
 func (s *Server) static(w http.ResponseWriter, r *http.Request) {
 	isAdmin := strings.HasPrefix(r.URL.Path, "/admin/")

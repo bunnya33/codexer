@@ -30,6 +30,7 @@ export function fileError(error: unknown): string {
     'preview-share-disabled': '分享已停用或链接已更新',
     'preview-html-too-large': 'HTML 页面超过 2 MB，暂时无法分享',
     'invalid-preview-source': '这个页面暂不支持分享',
+    'agent-release-unavailable': '安装包尚未上传或已更新，请刷新后重试',
     unauthorized: "登录已过期，请重新登录",
     "thread-not-in-catalog": "当前会话已不可用",
     "invalid-file-response": "文件传输不完整，请重试",
