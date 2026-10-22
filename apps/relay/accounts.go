@@ -14,6 +14,7 @@ type Principal struct {
 	Hash    string
 	Expires int64
 	Device  string
+	Share   string // Public preview capability, independent of account sessions.
 }
 
 var passwordSlots = make(chan struct{}, 2)

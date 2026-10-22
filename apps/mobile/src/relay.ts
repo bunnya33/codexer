@@ -11,6 +11,7 @@ import type { WidgetState } from '../../../packages/client-shared/src/previews';
 import { attachmentSchema, MAX_ATTACHMENT_BYTES, UPLOAD_CHUNK_BYTES } from '../../../packages/protocol/src/uploads';
 import type { Attachment } from '../../../packages/protocol/src/uploads';
 import type { AttachmentAsset } from './attachment-picker';
+export type PreviewShare = { id: string; url: string; enabled: boolean; kind: 'html' | 'server' };
 
 export type Device = { id: string; name: string; platform: string; online: boolean; owner_user_id?: string | null; last_seen_at?: number | string | null };
 export type HistoryState = { turns: HistoryTurn[]; nextCursor: string | null; loading: boolean; error?: string };
@@ -601,6 +602,22 @@ export class RelayClient {
     if (match) await this.api(`/v1/previews/${match[1]}`,undefined,'DELETE');
   }
 
+  private previewShareResult(value: {id:string; path:string; enabled:boolean; kind:'html'|'server'}): PreviewShare {
+    if (!/^\/share\/[a-f0-9]{64}$/.test(value.path)) throw new Error('分享地址无效');
+    return {id:value.id,url:this.view.url+value.path,enabled:value.enabled,kind:value.kind};
+  }
+  async previewShare(deviceId: string, threadId: string, kind: 'html'|'server', source: string): Promise<PreviewShare|null> {
+    const query=new URLSearchParams({kind,source});
+    const result=await this.api<{share:{id:string;path:string;enabled:boolean;kind:'html'|'server'}|null}>(`/v1/devices/${encodeURIComponent(deviceId)}/threads/${encodeURIComponent(threadId)}/preview-shares?${query}`);
+    return result.share ? this.previewShareResult(result.share) : null;
+  }
+  async createPreviewShare(deviceId: string, threadId: string, kind: 'html'|'server', source: string, rotate=false): Promise<PreviewShare> {
+    const result=await this.api<{id:string;path:string;enabled:boolean;kind:'html'|'server'}>(`/v1/devices/${encodeURIComponent(deviceId)}/threads/${encodeURIComponent(threadId)}/preview-shares`,{kind,source,rotate});
+    return this.previewShareResult(result);
+  }
+  async disablePreviewShare(deviceId: string, id: string): Promise<void> {
+    await this.api(`/v1/devices/${encodeURIComponent(deviceId)}/preview-shares/${encodeURIComponent(id)}`,undefined,'DELETE');
+  }
   async revokeDevice(id: string) { await this.api(`/v1/devices/${encodeURIComponent(id)}`, undefined, 'DELETE'); await this.refreshDevices(); }
 }
 

@@ -129,6 +129,7 @@ type Preview struct {
 	State                           M
 	mu                              sync.Mutex
 	Cookies                         map[string]string
+	FilePath                        string
 }
 
 func (s *Server) previewFor(token string) *Preview {
@@ -141,7 +142,12 @@ func (s *Server) previewFor(token string) *Preview {
 	if p == nil || p.Expires <= now() {
 		fail(410, "preview-expired")
 	}
-	if s.Store.SessionHash(p.Principal.Hash, "") == nil || !s.Store.Owns(p.Device, p.Principal) {
+	if p.Principal.Share != "" {
+		s.sharePrincipal(p.Principal.Share, p.Device, p.Thread)
+	} else if s.Store.SessionHash(p.Principal.Hash, "") == nil {
+		fail(401, "preview-revoked")
+	}
+	if !s.Store.Owns(p.Device, p.Principal) {
 		fail(401, "preview-revoked")
 	}
 	if !s.Store.InCatalog(p.Device, p.Thread, false) {
@@ -152,7 +158,7 @@ func (s *Server) previewFor(token string) *Preview {
 		fail(409, "device-offline")
 	}
 	a.mu.Lock()
-	supported := a.previews
+	supported := a.previews || p.FilePath != "" && a.files
 	a.mu.Unlock()
 	if !supported {
 		fail(409, "agent-update-required")
@@ -178,6 +184,7 @@ func (s *Server) previewRequest(p *Preview, token string) *Pending {
 	return v
 }
 func (s *Server) previewRoutes() {
+	s.previewShareRoutes()
 	s.route("POST /v1/devices/{deviceId}/threads/{threadId}/previews", "user", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
 		s.deviceAccess(r, p)
 		b := body(r)
@@ -266,6 +273,11 @@ func (s *Server) previewRoutes() {
 }
 func (s *Server) previewHTTP(w http.ResponseWriter, r *http.Request) {
 	p := s.previewFor(r.PathValue("token"))
+	defer s.sharedPreviewError(w, r, p)
+	if p.FilePath != "" {
+		s.sharedHTML(w, r, p)
+		return
+	}
 	if !strings.Contains(" GET HEAD POST PUT PATCH DELETE OPTIONS ", " "+r.Method+" ") {
 		fail(405, "method-not-allowed")
 	}
@@ -450,6 +462,9 @@ func querySuffix(u *url.URL) string {
 }
 func (s *Server) previewSocket(w http.ResponseWriter, r *http.Request) {
 	p := s.previewFor(r.PathValue("token"))
+	if p.FilePath != "" {
+		fail(404, "preview-page-not-found")
+	}
 	path := r.URL.Query().Get("path")
 	if jsLength(path) > 8192 || !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") {
 		fail(400, "invalid-request")

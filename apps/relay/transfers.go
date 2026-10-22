@@ -101,7 +101,12 @@ func (s *Server) authorizeThread(p *Principal, device, thread string, archived b
 	if !validID(thread) {
 		fail(400, "invalid-request")
 	}
-	if p == nil || s.Store.SessionHash(p.Hash, "") == nil {
+	if p == nil {
+		fail(401, "unauthorized")
+	}
+	if p.Share != "" {
+		s.sharePrincipal(p.Share, device, thread)
+	} else if s.Store.SessionHash(p.Hash, "") == nil {
 		fail(401, "unauthorized")
 	}
 	if !s.Store.Owns(device, p) {

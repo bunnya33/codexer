@@ -141,7 +141,7 @@ func (s *Server) Handler() http.Handler {
 		if strings.HasPrefix(r.URL.Path, "/v1/weixin") {
 			w.Header().Set("Cache-Control", "no-store")
 		}
-		if strings.HasPrefix(r.URL.Path, "/v1/") && !strings.HasPrefix(r.URL.Path, "/v1/previews/") {
+		if strings.HasPrefix(r.URL.Path, "/share/") || strings.HasPrefix(r.URL.Path, "/v1/") && !strings.HasPrefix(r.URL.Path, "/v1/previews/") {
 			limit := 120
 			key := r.RemoteAddr
 			host := strings.LastIndex(key, ":")

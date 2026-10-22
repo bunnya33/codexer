@@ -40,3 +40,4 @@ ALTER TABLE weixin_outbox ADD COLUMN IF NOT EXISTS target_code TEXT;
 ALTER TABLE weixin_bindings ADD COLUMN IF NOT EXISTS reply_target_code TEXT;
 CREATE INDEX IF NOT EXISTS weixin_outbox_cleanup ON weixin_outbox(created_at) WHERE state<>'pending';
 CREATE INDEX IF NOT EXISTS weixin_inbox_cleanup ON weixin_inbox(created_at);
+CREATE TABLE IF NOT EXISTS preview_shares(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),device_id TEXT NOT NULL REFERENCES devices(id),thread_id TEXT NOT NULL,kind TEXT NOT NULL,source TEXT NOT NULL,origin TEXT NOT NULL,entry_path TEXT NOT NULL,token TEXT UNIQUE NOT NULL,enabled BOOLEAN NOT NULL DEFAULT TRUE,created_at BIGINT NOT NULL,UNIQUE(device_id,kind,source));

@@ -218,6 +218,7 @@ func (s *Store) Tx(fn func(*Store)) {
 }
 
 const sqliteSchema = `CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,name TEXT NOT NULL,token_hash TEXT UNIQUE,password_hash TEXT,role TEXT NOT NULL DEFAULT 'user',created_at BIGINT NOT NULL,revoked_at BIGINT);
+CREATE TABLE IF NOT EXISTS preview_shares(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),device_id TEXT NOT NULL REFERENCES devices(id),thread_id TEXT NOT NULL,kind TEXT NOT NULL,source TEXT NOT NULL,origin TEXT NOT NULL,entry_path TEXT NOT NULL,token TEXT UNIQUE NOT NULL,enabled BOOLEAN NOT NULL DEFAULT TRUE,created_at BIGINT NOT NULL,UNIQUE(device_id,kind,source));
 CREATE UNIQUE INDEX IF NOT EXISTS account_role_login ON users(role,lower(name)) WHERE password_hash IS NOT NULL;
 CREATE TABLE IF NOT EXISTS devices(id TEXT PRIMARY KEY,name TEXT NOT NULL,platform TEXT NOT NULL,token_hash TEXT UNIQUE,created_at BIGINT NOT NULL,last_seen_at BIGINT,revoked_at BIGINT,owner_user_id TEXT REFERENCES users(id),installation_id TEXT);
 CREATE UNIQUE INDEX IF NOT EXISTS account_installation ON devices(owner_user_id,installation_id) WHERE installation_id IS NOT NULL;

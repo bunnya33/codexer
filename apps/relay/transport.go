@@ -179,12 +179,22 @@ func (s *Server) CloseSessions(matches func(*Principal) bool, reason string) {
 func (s *Server) heartbeat() {
 	s.mu.Lock()
 	pendingPrincipals := map[string]*Principal{}
+	shares := map[string]bool{}
 	for _, p := range s.pending {
 		if p.Principal != nil {
-			pendingPrincipals[p.Principal.Hash] = p.Principal
+			if p.Principal.Share != "" {
+				shares[p.Principal.Share] = true
+			} else {
+				pendingPrincipals[p.Principal.Hash] = p.Principal
+			}
 		}
 	}
 	s.mu.Unlock()
+	for key := range shares {
+		if s.Store.PublicPreviewShare(key) == nil {
+			s.closePreviewShare(key)
+		}
+	}
 	for h, p := range pendingPrincipals {
 		if s.Store.SessionHash(h, p.Device) == nil {
 			s.CloseSessions(func(v *Principal) bool { return v.Hash == h }, "session-expired")

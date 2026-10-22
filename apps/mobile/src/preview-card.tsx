@@ -2,7 +2,7 @@ import { themedStyles } from './theme';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import { Crosshair, Maximize2, MessageSquare, Minimize2, RefreshCw, SlidersHorizontal, X } from 'lucide-react-native';
+import { Crosshair, Maximize2, MessageSquare, Minimize2, RefreshCw, Share2, SlidersHorizontal, X } from 'lucide-react-native';
 import { buildPreviewDocument } from '../../../packages/client-shared/src/preview-runtime';
 import { MAX_PREVIEW_HTML_BYTES, previewControls, previewFeedback, restoredControlValue, widgetState } from '../../../packages/client-shared/src/previews';
 import type { PreviewReference, TweakControl, WidgetState } from '../../../packages/client-shared/src/previews';
@@ -15,12 +15,14 @@ import type { PreviewSurfaceHandle } from './preview-surface.types';
 import { PreviewRange } from './preview-range';
 import { PreviewColor } from './preview-color';
 import { useTheme } from './styles';
+import { PreviewShareDialog } from './preview-share-dialog';
 
 const controlKey = (control: TweakControl) => `${control.group}:${control.label}:${control.kind}`;
 export function PreviewCard({ reference, deviceId, threadId }: { reference: PreviewReference; deviceId: string; threadId: string }) {
   const { c } = useTheme();
   const ps = usePsStyles();
   const [revision, setRevision] = useState(0), [expanded, setExpanded] = useState(false), [tweaking, setTweaking] = useState(false);
+  const [sharing,setSharing]=useState(false);
   const [document, setDocument] = useState<string>(), [url, setUrl] = useState<string>(), [channel, setChannel] = useState('');
   const [height, setHeight] = useState(280), [error, setError] = useState(''), [loading, setLoading] = useState(true);
   const [controls, setControls] = useState<TweakControl[]>([]), [feedback, setFeedback] = useState<string | null>(null), [sending, setSending] = useState(false);
@@ -105,6 +107,7 @@ export function PreviewCard({ reference, deviceId, threadId }: { reference: Prev
   };
   const content = <View style={[ps.card, expanded && ps.fullCard]}>
     <View style={ps.header}><Text style={ps.title} numberOfLines={1}>{reference.title}</Text><View style={ps.actions}>
+      <Pressable accessibilityRole="button" accessibilityLabel="分享网页" onPress={() => setSharing(true)} style={ps.icon}><Share2 size={16} color={c.muted}/></Pressable>
       <Pressable accessibilityRole="button" accessibilityLabel="刷新预览" onPress={() => setRevision(value => value + 1)} style={ps.icon}><RefreshCw size={16} color={c.muted} /></Pressable>
       <Pressable accessibilityRole="button" accessibilityLabel="调整预览参数" onPress={() => setTweaking(value => !value)} style={ps.icon}><SlidersHorizontal size={16} color={tweaking ? c.accent : c.muted} /></Pressable>
       <Pressable accessibilityRole="button" accessibilityLabel={annotating ? '取消元素标注' : '标注预览元素'} onPress={() => { surface.current?.send({type:'annotate',enabled:!annotating}); setAnnotating(!annotating); }} style={ps.icon}><Crosshair size={16} color={annotating ? c.accent : c.muted} /></Pressable>
@@ -122,8 +125,9 @@ export function PreviewCard({ reference, deviceId, threadId }: { reference: Prev
     </View>)}{!!controls.length && <View style={ps.options}><Pressable accessibilityRole="button" onPress={() => { controls.forEach(control => change(control, control.initial)); }} style={ps.option}><Text style={ps.label}>恢复初始参数</Text></Pressable><Pressable accessibilityRole="button" onPress={() => setFeedback('请将当前参数调整应用到源文件。')} style={ps.option}><Text style={ps.link}>将调整反馈给 Codex</Text></Pressable></View>}</ScrollView>}
   </View>;
   return <>
+    {sharing&&!expanded&&<PreviewShareDialog key={key} reference={reference} deviceId={deviceId} threadId={threadId} onClose={()=>setSharing(false)}/>}
     {!expanded && content}
-    <Modal visible={expanded} animationType="fade" onRequestClose={() => { setExpanded(false); setRevision(value => value + 1); }}><SafeAreaProvider style={ps.full}><SafeAreaView style={ps.full} edges={['top', 'bottom']}>{expanded && content}</SafeAreaView></SafeAreaProvider></Modal>
+    <Modal visible={expanded} animationType="fade" onRequestClose={() => { setExpanded(false); setRevision(value => value + 1); }}><SafeAreaProvider style={ps.full}><SafeAreaView style={ps.full} edges={['top', 'bottom']}>{expanded && content}{sharing&&expanded&&<PreviewShareDialog key={key} reference={reference} deviceId={deviceId} threadId={threadId} onClose={()=>setSharing(false)}/>}</SafeAreaView></SafeAreaProvider></Modal>
     <Modal visible={feedback !== null} transparent animationType="fade" onRequestClose={() => { if (!sending) setFeedback(null); }}><View style={ps.backdrop}><View style={ps.dialog}><View style={ps.header}><Text style={ps.title}>反馈给 Codex</Text><Pressable accessibilityRole="button" accessibilityLabel="关闭反馈" disabled={sending} onPress={() => setFeedback(null)} style={ps.icon}><X size={18} color={c.muted} /></Pressable></View><ScrollView><TextInput accessibilityLabel="预览反馈内容" multiline value={feedback ?? ''} onChangeText={setFeedback} placeholder="描述希望修改的地方…" style={[ps.field, ps.feedback]} /><Text style={ps.muted}>会附上当前交互选择和参数调整，发送到当前会话。</Text>{controls.some(control => control.value !== control.initial) && <Text style={ps.context}>{controls.filter(control => control.value !== control.initial).map(control => `${control.label}：${control.initial} → ${control.value}`).join('\n')}</Text>}</ScrollView><Pressable accessibilityRole="button" disabled={sending || !feedback?.trim() && !controls.some(control => control.value !== control.initial)} onPress={() => void sendFeedback()} style={[ps.send, sending && { opacity: .5 }]}><Text style={ps.sendText}>{sending ? '正在发送…' : '发送反馈'}</Text></Pressable></View></View></Modal>
   </>;
 }
