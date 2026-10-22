@@ -8,7 +8,7 @@ import {fileError} from './file-transfer';
 import {themedStyles} from './theme';
 import {useTheme} from './styles';
 
-export function PreviewShareDialog({reference,deviceId,threadId,onClose}:{reference:PreviewReference;deviceId:string;threadId:string;onClose:()=>void}) {
+export function PreviewShareDialog({reference,deviceId,threadId,onClose}:{reference:PreviewReference|{kind:'audio';source:string;title:string};deviceId:string;threadId:string;onClose:()=>void}) {
   const {c}=useTheme(),s=useStyles();
   const [share,setShare]=useState<PreviewShare|null>(null),[busy,setBusy]=useState(true),[error,setError]=useState(''),[note,setNote]=useState('');
   const [preset,setPreset]=useState<'30'|'1440'|'custom'>('30'),[amount,setAmount]=useState('60'),[unit,setUnit]=useState(1),[clock,setClock]=useState(Date.now());
@@ -26,10 +26,10 @@ export function PreviewShareDialog({reference,deviceId,threadId,onClose}:{refere
   });
   const expired=!!share&&share.expiresAt<=clock,active=!!share?.enabled&&!expired;
   return <Modal visible transparent animationType="fade" onRequestClose={onClose}><View style={s.backdrop}><View accessibilityViewIsModal style={s.dialog}>
-    <View style={s.header}><Text style={s.title}>分享网页</Text><Pressable accessibilityRole="button" accessibilityLabel="关闭网页分享" onPress={onClose} style={s.close}><X size={20} color={c.muted}/></Pressable></View>
+    <View style={s.header}><Text style={s.title}>{reference.kind==='audio'?'分享音频':'分享网页'}</Text><Pressable accessibilityRole="button" accessibilityLabel={reference.kind==='audio'?'关闭音频分享':'关闭网页分享'} onPress={onClose} style={s.close}><X size={20} color={c.muted}/></Pressable></View>
     <ScrollView style={s.scroll} contentContainerStyle={s.body}>
-    <Text style={s.label}>{reference.title}</Text><Text style={s.muted}>持有链接的人无需登录即可访问。电脑需保持在线，{reference.kind==='server'?'网页服务需保持运行':'源 HTML 文件需保留'}。</Text>
-    <Text style={s.muted}>同一个页面复用固定链接；有效期内，关闭预览或退出控制端不影响分享。到期后外部将无法访问。</Text>
+    <Text style={s.label}>{reference.title}</Text><Text style={s.muted}>持有链接的人无需登录即可访问。电脑需保持在线，{reference.kind==='server'?'网页服务需保持运行':reference.kind==='audio'?'源音频文件需保留':'源 HTML 文件需保留'}。</Text>
+    <Text style={s.muted}>同一个{reference.kind==='audio'?'音频文件':'页面'}复用固定链接；有效期内，关闭预览或退出控制端不影响分享。到期后外部将无法访问。</Text>
     {reference.kind==='server'&&<Text style={s.muted}>端口分享包含该网页服务的资源和接口。</Text>}
     <Text style={s.label}>有效期</Text><View style={s.actions}>{([['30','30 分钟'],['1440','1 天'],['custom','自定义']] as const).map(([value,label])=><Pressable key={value} accessibilityRole="button" accessibilityState={{selected:preset===value}} disabled={busy} onPress={()=>setPreset(value)} style={[s.button,preset===value&&s.selected]}><Text style={s.label}>{label}</Text></Pressable>)}</View>
     {preset==='custom'&&<View style={s.custom}><TextInput accessibilityLabel="自定义有效期" value={amount} onChangeText={setAmount} editable={!busy} keyboardType="number-pad" placeholder="时长" placeholderTextColor={c.muted} style={s.input}/><View style={s.actions}>{([[1,'分钟'],[60,'小时'],[1440,'天']] as const).map(([value,label])=><Pressable key={value} accessibilityRole="button" accessibilityState={{selected:unit===value}} disabled={busy} onPress={()=>setUnit(value)} style={[s.button,unit===value&&s.selected]}><Text style={s.label}>{label}</Text></Pressable>)}</View></View>}

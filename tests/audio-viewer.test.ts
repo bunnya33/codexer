@@ -34,6 +34,11 @@ async function fixture(delayedCreation = false, inline = false, options: { paths
         if (url.pathname === '/v1/devices') return response({ devices: [] });
         if (url.pathname === '/v1/auth/active') return response({});
         if (url.pathname === '/v1/ws/tickets') return response({ ticket: 'fixture-ticket' });
+        if (url.pathname.endsWith('/preview-shares')) {
+          if (method === 'GET') return response({ share: null });
+          const b = JSON.parse(init!.body!.toString());
+          return response({ id: 'public', path: '/share/' + 'c'.repeat(64), enabled: true, kind: b.kind, durationMinutes: b.durationMinutes, expiresAt: Date.now() + b.durationMinutes * 60000 });
+        }
         if (url.pathname.endsWith('/files/info')) return response({ name: url.searchParams.get('path')!.split('/').at(-1), size: 4 * 1024 * 1024, version: 'a'.repeat(64) });
         if (url.pathname.endsWith('/files/audio')) { created++; if (delayedCreation) await gate; return response({ path: '/v1/audio/' + created.toString(16).padStart(64, '0'), expiresAt: Date.now() + 60000 }); }
         if (url.pathname.startsWith('/v1/audio/') && method === 'DELETE') return response({ ok: true });
@@ -220,5 +225,25 @@ it('coordinates the file dialog with inline playback and revokes a late URL befo
     expect(f.dom.window.document.querySelectorAll('audio').length).toBe(1);
     f.closePlayer();
     await vi.waitFor(() => expect(f.requests.filter(request => request.method === 'DELETE').length).toBe(2));
+  } finally { f.close(); }
+});
+
+for (const inline of [true, false]) it(`shares audio from the ${inline ? 'inline card' : 'file player'} without starting playback and closes on thread switch`, async () => {
+  const f = await fixture(false, inline);
+  try {
+    if (!inline) { f.open(); await vi.waitFor(() => expect(f.dom.window.document.querySelector('[aria-label="分享音频"]')).not.toBeNull()); }
+    f.dom.window.document.querySelector<HTMLElement>('[aria-label="分享音频"]')!.click();
+    await vi.waitFor(() => expect(f.dom.window.document.body.textContent).toContain('创建分享链接'));
+    expect(f.dom.window.document.body.textContent).toContain('源音频文件需保留');
+    expect(f.requests.filter(request => request.path.endsWith('/preview-shares')).map(request => request.method)).toEqual(['GET']);
+    const click = (label: string) => Array.from(f.dom.window.document.querySelectorAll<HTMLElement>('[role="button"]')).find(element => element.textContent === label)!.click();
+    click('1 天'); await new Promise(done => setTimeout(done, 30)); click('创建分享链接');
+    await vi.waitFor(() => expect(f.dom.window.document.body.textContent).toContain('分享已开启'));
+    const request = f.requests.find(request => request.path.endsWith('/preview-shares') && request.method === 'POST')!;
+    expect(JSON.parse(request.body!)).toEqual({ kind: 'audio', source: '/fixture/song.wav', rotate: false, durationMinutes: 1440 });
+    expect(f.requests.some(request => request.path.endsWith('/files/audio') || request.path.endsWith('/files/content'))).toBe(false);
+    f.app.switchThread('other-thread');
+    await vi.waitFor(() => expect(f.dom.window.document.querySelector('[aria-label="关闭音频分享"]')).toBeNull());
+    expect(f.requests.filter(request => request.path.endsWith('/preview-shares') && request.method === 'POST').length).toBe(1);
   } finally { f.close(); }
 });

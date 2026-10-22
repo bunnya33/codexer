@@ -32,6 +32,34 @@ func TestAudioByteRanges(t *testing.T) {
 	}
 }
 
+func TestPublicAudioSourceAndTransferScope(t *testing.T) {
+	for _, source := range []string{`C:\Music\中文 sample.WAV`, "/tmp/music.mp3"} {
+		path, origin, entry := shareSource("audio", source)
+		if path != source || origin != "" || entry != "/audio" {
+			t.Fatal("audio share source changed")
+		}
+	}
+	for _, source := range []string{"", "/tmp/file.html", "/tmp/a.wav\n", "/tmp/a\x00.wav", strings.Repeat("a", 4097) + ".wav"} {
+		expectFault(t, "invalid-preview-source", func() { shareSource("audio", source) })
+	}
+	store, s, owner, device := fixture(t)
+	store.SaveCatalog(M{"deviceId": device, "threads": []any{M{"id": "thread-test", "archived": false}}})
+	key := strings.Repeat("c", 64)
+	insertShare(store, owner, device, key, now()+60000)
+	store.Q("UPDATE preview_shares SET kind='audio',source='/tmp/music.wav' WHERE token=$1", key)
+	p := &Principal{ID: owner.ID, Kind: "user", Share: key}
+	r := httptest.NewRequest("GET", "/", nil)
+	r.SetPathValue("deviceId", device)
+	r.SetPathValue("threadId", "thread-test")
+	// A valid source reaches the offline Agent check; capabilities cannot request
+	// another file, thread history, or read files using a server-preview key.
+	expectFault(t, "device-offline", func() { s.requestTransfer(r, p, "file", M{"path": "/tmp/music.wav"}) })
+	expectFault(t, "preview-share-disabled", func() { s.requestTransfer(r, p, "file", M{"path": "/tmp/other.wav"}) })
+	expectFault(t, "preview-share-disabled", func() { s.requestTransfer(r, p, "history", M{}) })
+	store.Q("UPDATE preview_shares SET kind='server' WHERE token=$1", key)
+	expectFault(t, "preview-share-disabled", func() { s.requestTransfer(r, p, "file", M{"path": "/tmp/music.wav"}) })
+}
+
 func TestAudioExpiryAndSessionRevocation(t *testing.T) {
 	_, s, p, _ := fixture(t)
 	token := strings.Repeat("a", 64)

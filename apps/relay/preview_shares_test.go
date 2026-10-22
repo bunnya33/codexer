@@ -50,7 +50,7 @@ func TestPreviewShareExpirationAndExtension(t *testing.T) {
 	insertShare(store, p, device, key, deadline)
 	principal := &Principal{ID: p.ID, Kind: "user", Share: key}
 	pending := []*Pending{}
-	for _, kind := range []string{"preview", "preview-socket", "file"} {
+	for _, kind := range []string{"preview", "preview-socket", "file", "transfer"} {
 		v := &Pending{ID: uuid(), Kind: kind, Device: device, Principal: principal}
 		s.addPending(v, 100, 100)
 		pending = append(pending, v)

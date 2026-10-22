@@ -138,6 +138,12 @@ func (s *Server) audioHTTP(w http.ResponseWriter, r *http.Request) {
 	if v == nil || v.Expires <= now() || v.ctx.Err() != nil {
 		fail(410, "audio-expired")
 	}
+	s.serveAudio(w, r, v)
+}
+
+// Public shares use the same bounded, seekable stream as private playback.
+// An empty version binds the current file for this response only.
+func (s *Server) serveAudio(w http.ResponseWriter, r *http.Request, v *AudioPlayback) {
 	ctx, cancel := context.WithCancel(r.Context())
 	stop := context.AfterFunc(v.ctx, cancel)
 	defer stop()
@@ -146,6 +152,13 @@ func (s *Server) audioHTTP(w http.ResponseWriter, r *http.Request) {
 	r.SetPathValue("deviceId", v.Device)
 	r.SetPathValue("threadId", v.Thread)
 	info := s.requestTransfer(r, v.Principal, "file", M{"path": v.Path})
+	if v.Version == "" {
+		v.Version, v.Name, v.Size = str(info["version"]), str(info["name"]), num(info["size"])
+		v.MIME = audioMIME(v.Name)
+		if v.MIME == "" {
+			fail(400, "unsupported-audio")
+		}
+	}
 	if str(info["version"]) != v.Version || num(info["size"]) != v.Size || str(info["name"]) != v.Name {
 		fail(409, "file-changed")
 	}

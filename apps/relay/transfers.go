@@ -141,6 +141,12 @@ func (s *Server) requestTransfer(r *http.Request, p *Principal, kind string, fie
 	var cached M
 	s.lane(id, func() {
 		s.authorizeThread(p, id, thread, kind != "file")
+		if p.Share != "" {
+			row := s.Store.PublicPreviewShare(p.Share)
+			if row == nil || kind != "file" || (row["kind"] != "html" && row["kind"] != "audio") || row["source"] != fields["path"] {
+				fail(410, "preview-share-disabled")
+			}
+		}
 		if kind == "image" {
 			cached = s.Store.Image(id, thread, str(fields["imageId"]), false)
 			if cached != nil {

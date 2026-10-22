@@ -88,6 +88,12 @@ func (s *Server) armPreviewShare(key string, expires int64) {
 }
 
 func shareSource(kind, source string) (string, string, string) {
+	if kind == "audio" {
+		if source == "" || jsLength(source) > 4096 || strings.ContainsAny(source, "\x00\r\n") || audioMIME(source) == "" {
+			fail(400, "invalid-preview-source")
+		}
+		return source, "", "/audio"
+	}
 	if kind == "html" {
 		if source == "" || jsLength(source) > 4096 || strings.ContainsAny(source, "\x00\r\n") || !(strings.HasSuffix(strings.ToLower(source), ".html") || strings.HasSuffix(strings.ToLower(source), ".htm")) {
 			fail(400, "invalid-preview-source")
@@ -169,9 +175,12 @@ func (s *Server) closePreviewShare(key string) {
 }
 
 func (s *Server) checkShareSource(r *http.Request, p *Principal, kind, source, origin, entry string) {
-	if kind == "html" {
+	if kind == "html" || kind == "audio" {
 		info := s.requestTransfer(r, p, "file", M{"path": source})
-		if num(info["size"]) > 2*1024*1024 {
+		if kind == "audio" && audioMIME(str(info["name"])) == "" {
+			fail(400, "unsupported-audio")
+		}
+		if kind == "html" && num(info["size"]) > 2*1024*1024 {
 			fail(413, "preview-html-too-large")
 		}
 		return
@@ -262,6 +271,7 @@ func (s *Server) previewShareRoutes() {
 	})
 	s.mux.HandleFunc("GET /share/{key}", s.sharedPreviewPage)
 	s.mux.HandleFunc("GET /share/{key}/{$}", s.sharedPreviewPage)
+	s.mux.HandleFunc("GET /share/{key}/audio", s.sharedAudioHTTP)
 }
 
 func (s *Server) sharedPreviewPage(w http.ResponseWriter, r *http.Request) {
@@ -277,7 +287,7 @@ func (s *Server) sharedPreviewPage(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if e := recover(); e != nil {
 				status = 503
-				message := "网页暂不可用，请稍后重试。"
+				message := "分享内容暂不可用，请稍后重试。"
 				if f, ok := e.(Fault); ok {
 					switch f.Code {
 					case "preview-share-disabled":
@@ -286,10 +296,10 @@ func (s *Server) sharedPreviewPage(w http.ResponseWriter, r *http.Request) {
 					case "device-offline":
 						message = "电脑暂时离线，重新连接后此链接会恢复。"
 					case "thread-not-in-catalog":
-						message = "网页来源暂不可用。"
+						message = "分享来源暂不可用。"
 					}
 				}
-				document = `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>网页分享</title><style>body{font:16px system-ui;margin:10vh auto;padding:24px;max-width:540px;color:#334155}a{color:#176b91}</style><h1>网页暂不可用</h1><p>` + html.EscapeString(message) + `</p><a href="">重新加载</a>`
+				document = `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>内容分享</title><style>body{font:16px system-ui;margin:10vh auto;padding:24px;max-width:540px;color:#334155}a{color:#176b91}</style><h1>分享暂不可用</h1><p>` + html.EscapeString(message) + `</p><a href="">重新加载</a>`
 			}
 		}()
 		row := s.Store.PublicPreviewShare(r.PathValue("key"))
@@ -297,6 +307,10 @@ func (s *Server) sharedPreviewPage(w http.ResponseWriter, r *http.Request) {
 			fail(410, "preview-share-disabled")
 		}
 		s.armPreviewShare(r.PathValue("key"), num(row["expires_at"]))
+		if row["kind"] == "audio" {
+			document = s.sharedAudioPage(w, r, row)
+			return
+		}
 		p := &Principal{ID: str(row["user_id"]), Kind: "user", Share: r.PathValue("key")}
 		v := &Preview{Device: str(row["device_id"]), Thread: str(row["thread_id"]), Origin: str(row["origin"]), FilePath: "", Channel: previewToken(), Principal: p, Expires: now() + 86400000, Cookies: map[string]string{}}
 		if row["kind"] == "html" {

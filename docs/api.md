@@ -264,7 +264,7 @@ Agent 在自身 SQLite `usage.sqlite` 中按 `threadId + turnId` 保存逐轮统
 
 下载仅接受当前发布 ID。读取元数据后若管理员替换了安装包，旧 ID 返回 404 `agent-release-unavailable`，刷新后重试；已开始下载的文件不混入新版字节。常见错误：400 `invalid-agent-release|invalid-agent-executable|agent-upload-incomplete`、413 `agent-installer-too-large`、409 `agent-upload-in-progress`、500 `agent-release-storage-error`。反向代理需允许对应上传体积和超时。接口均要求 Bearer 认证，管理员不通过普通控制端下载接口访问设备数据。
 
-## 公开网页分享（服务器 0.3.20）
+## 公开网页与音频分享（服务器 0.3.21）
 
 所有管理接口都要求普通账号登录并拥有目标设备：
 
@@ -274,8 +274,11 @@ Agent 在自身 SQLite `usage.sqlite` 中按 `threadId + turnId` 保存逐轮统
 | `POST /v1/devices/{deviceId}/threads/{threadId}/preview-shares` | 请求 `{kind,source,rotate?:boolean,durationMinutes?:number}`，创建、重新开启或更新有效期；返回 `{id,path,enabled,kind,expiresAt,durationMinutes}` |
 | `DELETE /v1/devices/{deviceId}/preview-shares/{shareId}` | 停用分享，立即撤销该分享的访问和进行中的连接 |
 | `GET /share/{key}` | 无需登录的访客页面，隔离加载所分享的内容 |
+| `GET/HEAD /share/{key}/audio` | 仅限音频分享，读取绑定的单个音频；支持单段字节 Range、206/416、HEAD 与分块转发 |
 
-`kind` 为 `server` 或 `html`。服务来源仅接受 Agent 已在会话中观察到的 loopback HTTP(S) 地址；同一设备、种类和来源复用固定 key，忽略 fragment、统一 localhost/127.0.0.1 与默认端口，保留页面路径和查询参数。服务分享允许该端口的资源、接口和 WebSocket，不是单个 URL 的路径隔离。HTML 来源必须是该会话引用过的 UTF-8 HTML/HTM 文件，最多 2 MiB，按需读取当前版本，不开放相邻文件。
+`kind` 为 `server`、`html` 或 `audio`。服务来源仅接受 Agent 已在会话中观察到的 loopback HTTP(S) 地址；同一设备、种类和来源复用固定 key，忽略 fragment、统一 localhost/127.0.0.1 与默认端口，保留页面路径和查询参数。服务分享允许该端口的资源、接口和 WebSocket，不是单个 URL 的路径隔离。HTML 来源必须是该会话引用过的 UTF-8 HTML/HTM 文件，最多 2 MiB，按需读取当前版本，不开放相邻文件。
+
+音频 `source` 为已引用音频的 PC 路径，扩展名与实际文件名均需为支持的音频格式。访客页面只包含可信播放器和转义后的文件名，不暴露 PC 路径或登录凭据。每次媒体请求读取当前源文件的元数据，并在该响应内绑定版本；文件中途变化会终止传输。URL 查询参数不能改换来源，不开放相邻文件，不创建私有 `/v1/audio` 登录播放地址，也不保存音频内容。与下载共用全局 4 个/设备 2 个持续传输限额；播放器实际编码支持取决于访客浏览器。停用或到期中断进行中的回源并拒绝后续请求，不能收回访客已取得的字节。
 
 `durationMinutes` 默认为 30，必须是 1–525600 的整数（1 分钟至 365 天）。界面提供 30 分钟、1 天、自定义分钟/小时/天。每次显式 POST 从成功保存时开始计时，返回 Unix 毫秒 `expiresAt` 和所选 `durationMinutes`；GET、复制链接和访客访问不延长有效期。`enabled` 为当前可用状态，到期为 false；到期外部请求返回 410，HTTP/SSE/WebSocket 进行中转发也会被撤销。延长有效期保留现有访客连接，收短会按新期限撤销。
 

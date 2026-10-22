@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { PreviewShareDialog } from './preview-share-dialog';
 import { themedStyles } from './theme';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { Music2 } from "lucide-react-native";
@@ -12,6 +14,8 @@ export function InlineAudio({ reference, deviceId, threadId }: {
 }) {
   const { c } = useTheme();
   const as = useAsStyles();
+  const scope = JSON.stringify([deviceId, threadId, reference.source]);
+  const [sharing, setSharing] = useState<string | null>(null);
   const player = useAudioPlayback(deviceId, threadId, reference.source);
   const name = player.info?.name ?? fileName(reference.source);
   const format = name.split(".").at(-1)?.toUpperCase();
@@ -22,6 +26,7 @@ export function InlineAudio({ reference, deviceId, threadId }: {
         <Text style={as.name} numberOfLines={2}>{name}</Text>
         <Text style={as.meta}>{format} 音频{player.info ? ` · ${fileSize(player.info.size)}` : ""}</Text>
       </View>
+      <Pressable accessibilityRole="button" accessibilityLabel="分享音频" onPress={()=>setSharing(scope)} style={as.share}><Text style={as.retry}>分享</Text></Pressable>
     </View>
     <View style={as.controls}>
       {player.error ? <>
@@ -35,6 +40,7 @@ export function InlineAudio({ reference, deviceId, threadId }: {
           <Text style={as.retry}>加载音频</Text>
         </Pressable>}
     </View>
+    {sharing===scope&&<PreviewShareDialog reference={{kind:'audio',source:reference.source,title:name}} deviceId={deviceId} threadId={threadId} onClose={()=>setSharing(null)}/>}
   </View>;
 }
 
@@ -45,6 +51,7 @@ const useAsStyles = themedStyles(c => StyleSheet.create({
   heading: { flex: 1, minWidth: 0, gap: 4 },
   name: { color: c.text, fontSize: 16, fontWeight: "600" },
   meta: { color: c.muted, fontSize: 13 },
+  share: { padding: 6 },
   controls: { padding: 10, gap: 10, minHeight: 64 },
   error: { color: c.danger, fontSize: 13, lineHeight: 20 },
   retry: { color: c.accent, fontSize: 13, paddingVertical: 6 },
