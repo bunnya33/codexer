@@ -6,6 +6,8 @@
 
 现有支持文件传输的 PC Agent 无需为此更新。Web 随服务器更新交付，Windows Native 和手机界面需重新构建安装包。Release 提供 Relay/Web/Admin 的统一服务器包；生产服务器需在管理后台准备更新并确认重启，本次不生成客户端安装包。
 
+稳定版 [v0.3.21](https://github.com/bunnya33/codexer/releases/tag/v0.3.21) 已发布，标签对应 `2d650b6`。[发布流程](https://github.com/bunnya33/codexer/actions/runs/39740152704) 的完整测试、PostgreSQL、Go race、类型/文档、生产构建、单文件验收和四平台打包全部通过，安装包及 SHA-256 校验文件共 8 个附件齐全。本次未连接或重启生产服务器。
+
 ## PC Agent Native 0.2.7：Windows 重新打包
 
 基于服务器 v0.3.20 发布后的主线重新构建 Windows x64 原生 Agent，版本提升至 0.2.7，保留既有连接、权限和诊断功能。只交付 `Codexer-Native-Setup-0.2.7-x64.exe`，没有新增 Agent 连接行为；此次不生成 RelayDesk、APK 或 Mac 安装包。现有 Agent 无需仅为服务端分享有效期和安装包分发功能更新。构建和隔离启动/连接检查见 [原生验收记录](../apps/control-native/VALIDATION.md)。
