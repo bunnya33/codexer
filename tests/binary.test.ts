@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { access, stat } from "node:fs/promises";
+import { join } from "node:path";
 import { resolveCodexBinary } from "../packages/codex-adapter/src/binary.js";
 
 vi.mock("node:fs/promises", () => ({ access: vi.fn(), stat: vi.fn(), readdir: vi.fn() }));
@@ -27,7 +28,8 @@ it("finds the ChatGPT bundled Codex when the GUI PATH has no Codex", async () =>
 });
 
 it("finds ChatGPT installed in the user's Applications directory", async () => {
-  const binary = bundledBinary.replace("/Applications/", "/Users/test/Applications/");
+  // Stubbing process.platform does not change node:path's host path separator.
+  const binary = join("/Users/test", "Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex");
   installed([binary]);
   await expect(resolveCodexBinary()).resolves.toBe(binary);
 });
