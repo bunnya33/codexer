@@ -1,5 +1,9 @@
 # 当前 Go 迁移验证
 
+## 2026-10-22 服务器 v0.3.20 发布
+
+稳定版 [v0.3.20](https://github.com/bunnya33/codexer/releases/tag/v0.3.20) 对应 `a9be59a`，[GitHub 发布流程](https://github.com/bunnya33/codexer/actions/runs/39728400927) 已全部成功，覆盖完整 TypeScript/Go 测试、PostgreSQL、Go race、类型及文档、内嵌 Web/Admin 生产构建、单文件服务器验收和 Linux/macOS amd64/arm64 四平台包。发布前本地完整测试发现一项旧的 macOS 路径 mock 在 Windows 上使用错误分隔符，已将期望路径改为与宿主 node:path 一致，五项相关回归通过，未修改产品发现逻辑。四平台安装包与校验文件共 8 个附件齐全，四份 SHA-256 文件已与 GitHub 资产摘要逐项核对；实际下载的 Linux amd64 包通过 SHA-256、0.3.20 版本/清单、ELF x86-64、0755 执行权限与私密文件排除检查。本次未连接或升级生产服务器，未重新打包客户端。
+
 ## 2026-10-22 网页分享有效期（服务器 0.3.20）
 
 8 个相关 TypeScript 测试文件、59 项测试和全部 Go 测试通过；根/Admin/旧桌面/移动端/Windows Native 类型、文档与协议检查，以及 Web/Admin/Go 生产构建通过。新增回归覆盖默认 30 分钟、1 天、自定义与边界校验、显示到期时间、复制不续期、沿用原 key 重新开启、SQLite 旧表迁移及重启不续期；Go 定时器验证延长不打断访客、收短后撤销临时预览及各类进行中转发。实际隔离 Relay + PC Agent 验证到期后公开入口与已有预览返回 410，WebSocket 以 1008 关闭，SSE 流终止。
