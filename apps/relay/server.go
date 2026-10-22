@@ -60,6 +60,7 @@ type Server struct {
 	wg            sync.WaitGroup
 	closing       atomic.Bool
 	metrics       *Metrics
+	resources     *resourceMonitor
 	wx            *Weixin
 	updates       *Updates
 	uploads       *uploadStore
@@ -78,6 +79,7 @@ func New(store *Store, options Options) (*Server, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Server{Store: store, Options: options, mux: http.NewServeMux(), schemas: map[string]*jsonschema.Schema{}, agents: map[string]*Peer{}, clients: map[*Peer]bool{}, pending: map[string]*Pending{}, previews: map[string]*Preview{}, limits: map[string]*rateWindow{}, lanes: map[string]*deviceLane{}, ctx: ctx, cancel: cancel, metrics: store.Metrics}
 	s.audio = map[string]*AudioPlayback{}
+	s.resources = newResourceMonitor(options.DataDir, s.metrics.start)
 	s.shareTimers = map[string]*previewShareTimer{}
 	var values map[string]any
 	if e := json.Unmarshal(schemaFile, &values); e != nil {

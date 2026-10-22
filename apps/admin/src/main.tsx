@@ -8,6 +8,7 @@ import * as api from './api';
 import type { Account, Role, UpdateAction, VersionInfo } from './api';
 import './style.css';
 import {AgentInstaller} from './agent-installer';
+import { ServerResourcesPanel } from './server-resources';
 
 type Page = 'overview' | 'users' | 'admins' | 'settings';
 const pages = [
@@ -101,7 +102,7 @@ function App() {
     <aside className={'sidebar '+(sidebar?'open':'')}><div className="brand-area"><span className="brand-mark"><ShieldCheck size={27}/></span><div><strong>Codexer</strong><button className={'version-badge '+(version?.warning || !version?'unknown':version.hasUpdate?'available':'current')} aria-label="服务器版本与更新" aria-expanded={versionOpen} onClick={() => {setVersionOpen(!versionOpen);if(!version) void checkVersion();}}>v{version?.currentVersion || '…'}<span className="version-dot"/></button></div></div><nav aria-label="管理导航"><div className="nav-caption">管理控制台</div>{pages.map(p => <button key={p.id} className={page===p.id?'active':''} onClick={() => navigate(p.id)}><p.icon size={20}/>{p.title}{page===p.id && <ChevronRight size={15}/>}</button>)}</nav><div className="sidebar-bottom"><span className="tiny-dot"/>Relay &amp; Web<span className="muted">统一服务</span></div></aside>
     <div className="workspace"><header className="topbar"><button className="icon-button mobile-menu" aria-label="打开导航" onClick={() => setSidebar(true)}><Menu size={22}/></button><div className="topbar-title"><h1>{selected.title==='仪表盘'?'管理控制台':selected.title}</h1><span className="muted">{selected.subtitle}</span></div><div className="admin-profile"><span className="avatar">{(me?.name || 'A').slice(0,2).toUpperCase()}</span><div><strong>{me?.name || '管理员'}</strong><span className="muted">后台管理员</span></div><button className="icon-button" aria-label="退出登录" title="退出登录" disabled={busy} onClick={() => void run(async () => {await api.logout();setLoggedIn(false);setVersion(null);setAccounts([]);})}><LogOut size={18}/></button></div></header>
     <main className="content">{notice && <div className="notice" role="status">{notice}<button className="icon-button" aria-label="关闭提示" onClick={() => setNotice('')}><X size={16}/></button></div>}{running(version) && <div className="notice updating" role="status"><RefreshCw size={17} className="spinning"/>{phases[version!.job!.phase]}</div>}
-    {page==='overview' && <><div className="stats-grid">{[
+    {page==='overview' && <><ServerResourcesPanel onUnauthorized={() => setLoggedIn(false)}/><div className="stats-grid">{[
       {label:'控制端账号',value:stats?.users,detail:`${stats?.enabledUsers ?? '—'} 个启用`,icon:Users,color:'blue'},
       {label:'后台管理员',value:stats?.admins,detail:`${stats?.enabledAdmins ?? '—'} 个启用`,icon:ShieldCheck,color:'purple'},
       {label:'在线 PC',value:stats?.onlineDevices,detail:'当前连接的 PC Agent',icon:Monitor,color:'green'},

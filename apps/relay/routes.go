@@ -150,6 +150,7 @@ func (s *Server) routes() {
 		w.Header().Set("Cache-Control", "no-store")
 		return s.MetricSnapshot()
 	})
+	s.resourceRoutes()
 	s.route("GET /v1/devices", "user", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
 		devices := s.Store.Devices(p)
 		for _, d := range devices {

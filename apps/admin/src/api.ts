@@ -7,6 +7,12 @@ export type { VersionInfo, UpdateJob, UpdateAction, UpdateSettings };
 export type Role = 'admin' | 'user';
 export type Account = { id: string; name: string; role: Role; created_at: number; revoked_at: number | null; login_enabled: boolean };
 export type Overview = {users: number; enabledUsers: number; admins: number; enabledAdmins: number; onlineDevices: number; onlineClients: number; uptime: number};
+export type ServerResources = {
+  capturedAt: number; sampleWindowSeconds: number | null; cpuSampling: boolean;
+  host: { platform: string; logicalCpus: number; cpuPercent: number | null; memory: { totalBytes: number; usedBytes: number; availableBytes: number; usedPercent: number } | null };
+  process: { cpuPercent: number | null; rssBytes: number | null; heapBytes: number; goroutines: number; uptimeSeconds: number };
+  disks: { label: string; mount: string; filesystem: string; totalBytes: number | null; usedBytes: number | null; availableBytes: number | null; usedPercent: number | null }[];
+};
 const key = 'codexer.admin.session.v2';
 let session = '';
 try {
@@ -18,8 +24,9 @@ try {
 export class ApiError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 export function clearSession() { session = ''; for (const storage of ['localStorage', 'sessionStorage'] as const) { try { globalThis[storage].removeItem(key); } catch { /* Storage is optional. */ } } }
 export function hasSession() { return Boolean(session); }
-async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
-  const response = await fetch(path, { method, headers: { ...(session ? { authorization: `Bearer ${session}` } : {}), ...(body === undefined ? {} : { 'content-type': 'application/json' }) }, ...(body ===undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(path.startsWith('/v1/admin/system/version') ? 25000 : 15000), redirect: 'error', ...(path === '/v1/auth/active' ? {keepalive: true} : {}) });
+async function request<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
+  const timeout = AbortSignal.timeout(path.startsWith('/v1/admin/system/version') ? 25000 : 15000);
+  const response = await fetch(path, { method, headers: { ...(session ? { authorization: `Bearer ${session}` } : {}), ...(body === undefined ? {} : { 'content-type': 'application/json' }) }, ...(body ===undefined ? {} : { body: JSON.stringify(body) }), signal: signal ? AbortSignal.any([signal, timeout]) : timeout, redirect: 'error', ...(path === '/v1/auth/active' ? {keepalive: true} : {}) });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
     if (response.status === 401) clearSession();
@@ -65,6 +72,7 @@ export function uploadAgentRelease(file:File,version:string,signal:AbortSignal,p
   });
 }
 export const overview = () => request<Overview>('/v1/admin/overview');
+export const serverResources = (signal?: AbortSignal) => request<ServerResources>('/v1/admin/system/resources', 'GET', undefined, signal);
 export const versionInfo = (force = false) => request<VersionInfo>('/v1/admin/system/version' + (force ? '?force=true' : ''));
 export const updateServer = (tag: string, action: UpdateAction = 'update', jobId?: string) => request<UpdateJob>('/v1/admin/system/update','POST',{tag,action,...(jobId ? {jobId} : {})});
 export const updateSettings = (settings: boolean | Partial<UpdateSettings>) => request<UpdateSettings>('/v1/admin/system/update-settings','PUT',typeof settings === 'boolean' ? {autoInstall:settings} : settings);
