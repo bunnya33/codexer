@@ -1,5 +1,13 @@
 # Windows 原生版验收
 
+## PC Agent 0.2.6：主线功能同步
+
+验收日期：2026-10-22。合入远端 main `65df8e8`，包含服务器 0.3.17 对应的远程权限设置、Browser / Computer Use 授权，以及压缩会话读取支持。本次只交付 Windows x64 原生 Agent 安装包；保留 0.2.5 的原生错误归一化、登录失败诊断及状态主动刷新。
+
+- Windows x64 Release 与 Hermes 字节码实际构建通过，根/Admin/桌面/控制端和原生项目类型、协议生成与文档检查通过。47 项相关回归覆盖压缩历史与权限恢复、网站/应用授权边界、真实 Go Relay 转发、登录失败诊断、断开重连；Sidecar 3 项配置与凭据迁移测试通过。
+- 复制完整运行目录到系统临时目录，使用随包 Node 24.11.1 与实际 Sidecar，在独立配置、本机 HTTP/WebSocket Relay 和 FakeDesktop 中验证错误密码返回具体提示及诊断、正确登录、两项新能力广播、网站始终允许、应用会话允许、重复请求拒绝、权限更新确认及旧权限指纹拒绝。
+- 相同隔离配置由真实 React Native Windows 宿主启动，恢复 Windows DPAPI 加密的合成凭据并自动连接 Relay 和 FakeDesktop，同步合成会话，无 TypeError 或渲染异常。没有操作真实账号、安装目录、启动项或官方 Codex 任务；没有执行安装向导和界面点击验收。包体与测试运行目录一致性记录见交付目录 verification.json。
+
 ## RelayDesk 0.2.4：首次密码登录
 
 验收日期：2026-10-21。本次只更新控制端；PC Agent 可继续使用 0.2.0。

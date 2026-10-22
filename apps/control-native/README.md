@@ -4,7 +4,9 @@ RelayDesk 控制端和 Codexer PC Agent 管理界面共用 React Native for Wind
 
 ## 安装与使用
 
-控制端运行 `RelayDesk-Native-Setup-0.2.4-x64.exe`；PC Agent 可继续使用 `Codexer-Native-Setup-0.2.0-x64.exe`。0.2.4 修复首次账号密码登录时报 `undefined is not a function`，同时修复附件取消和音频释放中的同类超时兼容问题。保留 0.2.3 的长消息底部跟随，以及默认、暖白纸张和暖棕暗色皮肤；代码、文件差异和窗口标题栏一同换色。支持 Windows 10 1809 及以上 x64；打包附带 Windows App Runtime 和 Node，无需安装开发工具。HTML/音频内容预览使用系统 Microsoft Edge WebView2 Runtime，主界面不依赖 WebView2。
+控制端运行 `RelayDesk-Native-Setup-0.2.4-x64.exe`；PC Agent 本次更新为 `Codexer-Native-Setup-0.2.6-x64.exe`，合入主线 `65df8e8` 的压缩会话读取、远程权限设置及 Browser / Computer Use 授权支持，并保留具体登录错误与失败诊断修复。新增远程功能需配合服务器 0.3.17 及相应控制端使用。本次只交付 Agent 安装包。
+
+RelayDesk 0.2.4 修复首次账号密码登录时报 `undefined is not a function`，同时修复附件取消和音频释放中的同类超时兼容问题。保留长消息底部跟随及三套皮肤。支持 Windows 10 1809 及以上 x64；打包附带 Windows App Runtime 和 Node，无需安装开发工具。HTML/音频内容预览使用系统 Microsoft Edge WebView2 Runtime，主界面不依赖 WebView2。
 
 升级前请从旧版托盘退出对应客户端，避免同一设备运行两套 Agent。安装程序支持选择目录；卸载默认保留账号配置。RelayDesk 与 Agent 分别使用 `%APPDATA%\CodexerControl`、`%APPDATA%\Codexer`，兼容旧版地址、设备身份、设置及可解密的登录凭据；原生凭据由 Windows DPAPI 加密。服务端已经撤销或过期的会话仍需重新登录。
 

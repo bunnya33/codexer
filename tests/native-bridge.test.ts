@@ -28,6 +28,7 @@ it.each([
   native.request.mockRejectedValueOnce(value);
   const error = await request('agent.login').catch(error => error);
   expect(error).toBeInstanceOf(Error);
+  if (!(error instanceof Error)) throw new Error('Expected native rejection to be normalized');
   expect(error.message).toBe(typeof value === 'string' ? value : value.message);
 });
 
