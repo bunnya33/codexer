@@ -264,20 +264,22 @@ Agent 在自身 SQLite `usage.sqlite` 中按 `threadId + turnId` 保存逐轮统
 
 下载仅接受当前发布 ID。读取元数据后若管理员替换了安装包，旧 ID 返回 404 `agent-release-unavailable`，刷新后重试；已开始下载的文件不混入新版字节。常见错误：400 `invalid-agent-release|invalid-agent-executable|agent-upload-incomplete`、413 `agent-installer-too-large`、409 `agent-upload-in-progress`、500 `agent-release-storage-error`。反向代理需允许对应上传体积和超时。接口均要求 Bearer 认证，管理员不通过普通控制端下载接口访问设备数据。
 
-## 公开网页分享（服务器 0.3.18）
+## 公开网页分享（服务器 0.3.20）
 
 所有管理接口都要求普通账号登录并拥有目标设备：
 
 | 方法与路径 | 行为 |
 | --- | --- |
-| `GET /v1/devices/{deviceId}/threads/{threadId}/preview-shares?kind=server&source=...` | 查询现有分享，返回 `{share:null}` 或 `{share:{id,path,enabled,kind}}`，不会自动创建 |
-| `POST /v1/devices/{deviceId}/threads/{threadId}/preview-shares` | 请求 `{kind,source,rotate?:boolean}`，创建或重新开启分享；返回 `{id,path,enabled,kind}` |
+| `GET /v1/devices/{deviceId}/threads/{threadId}/preview-shares?kind=server&source=...` | 查询现有分享，返回 `{share:null}` 或 `{share:{id,path,enabled,kind,expiresAt,durationMinutes}}`，不会自动创建 |
+| `POST /v1/devices/{deviceId}/threads/{threadId}/preview-shares` | 请求 `{kind,source,rotate?:boolean,durationMinutes?:number}`，创建、重新开启或更新有效期；返回 `{id,path,enabled,kind,expiresAt,durationMinutes}` |
 | `DELETE /v1/devices/{deviceId}/preview-shares/{shareId}` | 停用分享，立即撤销该分享的访问和进行中的连接 |
 | `GET /share/{key}` | 无需登录的访客页面，隔离加载所分享的内容 |
 
 `kind` 为 `server` 或 `html`。服务来源仅接受 Agent 已在会话中观察到的 loopback HTTP(S) 地址；同一设备、种类和来源复用固定 key，忽略 fragment、统一 localhost/127.0.0.1 与默认端口，保留页面路径和查询参数。服务分享允许该端口的资源、接口和 WebSocket，不是单个 URL 的路径隔离。HTML 来源必须是该会话引用过的 UTF-8 HTML/HTM 文件，最多 2 MiB，按需读取当前版本，不开放相邻文件。
 
-公开 key 保存在数据库，不随创建者退出登录、关闭预览或 Relay 重启失效。每位访客使用独立临时预览和 Cookie 容器；临时预览最多 24 小时，过期后重新打开固定链接即可。重新开启沿用旧 key；`rotate:true` 换 key 并立即撤销旧访问。设备及账号必须仍有效，源会话仍在设备目录中，PC 在线且 Agent 保留该来源的读取权限；端口停止或 PC 离线时不可用，恢复后可重新加载原链接。每账号最多 100 个分享记录、100 个活跃访客预览，全服务器最多 1000 个预览。
+`durationMinutes` 默认为 30，必须是 1–525600 的整数（1 分钟至 365 天）。界面提供 30 分钟、1 天、自定义分钟/小时/天。每次显式 POST 从成功保存时开始计时，返回 Unix 毫秒 `expiresAt` 和所选 `durationMinutes`；GET、复制链接和访客访问不延长有效期。`enabled` 为当前可用状态，到期为 false；到期外部请求返回 410，HTTP/SSE/WebSocket 进行中转发也会被撤销。延长有效期保留现有访客连接，收短会按新期限撤销。
+
+公开 key 和到期时间保存在数据库，不随创建者退出登录、关闭预览或 Relay 重启改变。升级前无期限的链接按原创建时间加 30 分钟补齐截止时间，已超时的链接需显式重新开启。每位访客使用独立临时预览和 Cookie 容器；临时预览最多 24 小时，在分享有效期内，临时预览过期后重新打开固定链接即可。重新开启沿用旧 key；`rotate:true` 换 key 并立即撤销旧访问。设备及账号必须仍有效，源会话仍在设备目录中，PC 在线且 Agent 保留该来源的读取权限；端口停止或 PC 离线时不可用，有效期内恢复后可重新加载原链接。每账号最多 100 个分享记录、100 个活跃访客预览，全服务器最多 1000 个预览。
 
 ## 静态页面
 

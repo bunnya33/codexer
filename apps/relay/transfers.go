@@ -54,7 +54,18 @@ func (s *Server) FailPending(device, reason string) {
 }
 func (s *Server) addPending(p *Pending, total, perDevice int) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	registered := false
+	defer func() {
+		s.mu.Unlock()
+		if registered && p.Principal != nil && p.Principal.Share != "" {
+			row := s.Store.PublicPreviewShare(p.Principal.Share)
+			if row == nil {
+				s.removePending(p.ID)
+				fail(410, "preview-share-disabled")
+			}
+			s.armPreviewShare(p.Principal.Share, num(row["expires_at"]))
+		}
+	}()
 	n, d := 0, 0
 	for _, v := range s.pending {
 		if v.Kind == p.Kind {
@@ -69,6 +80,7 @@ func (s *Server) addPending(p *Pending, total, perDevice int) {
 	}
 	p.Failure = make(chan error, 1)
 	s.pending[p.ID] = p
+	registered = true
 }
 func (s *Server) removePending(id string) { s.mu.Lock(); delete(s.pending, id); s.mu.Unlock() }
 func (s *Server) wait(ctx context.Context, p *Pending, timeout time.Duration) M {

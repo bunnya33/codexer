@@ -27,7 +27,64 @@ func (s *Store) PublicPreviewShare(key string) M {
 	if !hex64.MatchString(key) {
 		return nil
 	}
-	return s.One("SELECT p.* FROM preview_shares p JOIN devices d ON d.id=p.device_id JOIN users u ON u.id=p.user_id WHERE p.token=$1 AND p.enabled=TRUE AND d.owner_user_id=p.user_id AND d.revoked_at IS NULL AND u.revoked_at IS NULL AND u.role='user'", key)
+	return s.One("SELECT p.* FROM preview_shares p JOIN devices d ON d.id=p.device_id JOIN users u ON u.id=p.user_id WHERE p.token=$1 AND p.enabled=TRUE AND p.expires_at>$2 AND d.owner_user_id=p.user_id AND d.revoked_at IS NULL AND u.revoked_at IS NULL AND u.role='user'", key, now())
+}
+
+const maxPreviewShareMinutes = 365 * 24 * 60
+
+func previewShareMinutes(body M) int64 {
+	if _, exists := body["durationMinutes"]; !exists {
+		return 30
+	}
+	value, ok := body["durationMinutes"].(float64)
+	if !ok || value < 1 || value > maxPreviewShareMinutes || value != float64(int64(value)) {
+		fail(400, "invalid-preview-share-duration")
+	}
+	return int64(value)
+}
+
+type previewShareTimer struct {
+	expires int64
+	timer   *time.Timer
+}
+
+// Keep the earliest timer when a deadline changes. If a share was extended,
+// that timer rereads the durable deadline and rearms without dropping visitors.
+func (s *Server) armPreviewShare(key string, expires int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closing.Load() {
+		return
+	}
+	if old := s.shareTimers[key]; old != nil {
+		if old.expires <= expires {
+			return
+		}
+		old.timer.Stop()
+	}
+	entry := &previewShareTimer{expires: expires}
+	s.shareTimers[key] = entry
+	entry.timer = time.AfterFunc(time.Duration(max(int64(1), expires-now()))*time.Millisecond, func() {
+		if !s.beginJob() {
+			return
+		}
+		defer s.wg.Done()
+		s.mu.Lock()
+		if s.shareTimers[key] != entry {
+			s.mu.Unlock()
+			return
+		}
+		delete(s.shareTimers, key)
+		s.mu.Unlock()
+		owner := s.Store.One("SELECT device_id FROM preview_shares WHERE token=$1", key)
+		s.lane(str(owner["device_id"]), func() {
+			if row := s.Store.PublicPreviewShare(key); row != nil {
+				s.armPreviewShare(key, num(row["expires_at"]))
+			} else {
+				s.closePreviewShare(key)
+			}
+		})
+	})
 }
 
 func shareSource(kind, source string) (string, string, string) {
@@ -76,7 +133,7 @@ func shareSource(kind, source string) (string, string, string) {
 }
 
 func shareResult(row M) M {
-	return M{"id": row["id"], "path": "/share/" + str(row["token"]), "enabled": boolean(row["enabled"]), "kind": row["kind"]}
+	return M{"id": row["id"], "path": "/share/" + str(row["token"]), "enabled": boolean(row["enabled"]) && num(row["expires_at"]) > now(), "kind": row["kind"], "expiresAt": num(row["expires_at"]), "durationMinutes": num(row["duration_minutes"])}
 }
 
 func (s *Server) sharePrincipal(key, device, thread string) *Principal {
@@ -89,6 +146,10 @@ func (s *Server) sharePrincipal(key, device, thread string) *Principal {
 
 func (s *Server) closePreviewShare(key string) {
 	s.mu.Lock()
+	if timer := s.shareTimers[key]; timer != nil {
+		timer.timer.Stop()
+		delete(s.shareTimers, key)
+	}
 	for token, p := range s.previews {
 		if p.Principal.Share == key {
 			delete(s.previews, token)
@@ -156,6 +217,7 @@ func (s *Server) previewShareRoutes() {
 		device, thread := r.PathValue("deviceId"), r.PathValue("threadId")
 		s.authorizeThread(p, device, thread, false)
 		b := body(r)
+		minutes := previewShareMinutes(b)
 		kind := str(b["kind"])
 		source, origin, entry := shareSource(kind, str(b["source"]))
 		// localhost and 127.0.0.1 identify the same endpoint; retain the observed
@@ -177,10 +239,12 @@ func (s *Server) previewShareRoutes() {
 			if before != nil && b["rotate"] != true {
 				key = str(before["token"])
 			}
-			row = s.Store.One("INSERT INTO preview_shares(id,user_id,device_id,thread_id,kind,source,origin,entry_path,token,enabled,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,TRUE,$10) ON CONFLICT(device_id,kind,source) DO UPDATE SET thread_id=EXCLUDED.thread_id,origin=EXCLUDED.origin,entry_path=EXCLUDED.entry_path,token=EXCLUDED.token,enabled=TRUE RETURNING *", uuid(), p.ID, device, thread, kind, source, origin, entry, key, now())
+			created := now()
+			row = s.Store.One("INSERT INTO preview_shares(id,user_id,device_id,thread_id,kind,source,origin,entry_path,token,enabled,created_at,expires_at,duration_minutes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,TRUE,$10,$11,$12) ON CONFLICT(device_id,kind,source) DO UPDATE SET thread_id=EXCLUDED.thread_id,origin=EXCLUDED.origin,entry_path=EXCLUDED.entry_path,token=EXCLUDED.token,enabled=TRUE,expires_at=EXCLUDED.expires_at,duration_minutes=EXCLUDED.duration_minutes RETURNING *", uuid(), p.ID, device, thread, kind, source, origin, entry, key, created, created+minutes*60000, minutes)
 			if before != nil && (key != str(before["token"]) || thread != str(before["thread_id"])) {
 				s.closePreviewShare(str(before["token"]))
 			}
+			s.armPreviewShare(key, num(row["expires_at"]))
 		})
 		w.Header().Set("Cache-Control", "no-store")
 		return shareResult(row)
@@ -218,7 +282,7 @@ func (s *Server) sharedPreviewPage(w http.ResponseWriter, r *http.Request) {
 					switch f.Code {
 					case "preview-share-disabled":
 						status = 410
-						message = "分享已停用或链接已更新。"
+						message = "分享已停用、到期或链接已更新。"
 					case "device-offline":
 						message = "电脑暂时离线，重新连接后此链接会恢复。"
 					case "thread-not-in-catalog":
@@ -232,6 +296,7 @@ func (s *Server) sharedPreviewPage(w http.ResponseWriter, r *http.Request) {
 		if row == nil {
 			fail(410, "preview-share-disabled")
 		}
+		s.armPreviewShare(r.PathValue("key"), num(row["expires_at"]))
 		p := &Principal{ID: str(row["user_id"]), Kind: "user", Share: r.PathValue("key")}
 		v := &Preview{Device: str(row["device_id"]), Thread: str(row["thread_id"]), Origin: str(row["origin"]), FilePath: "", Channel: previewToken(), Principal: p, Expires: now() + 86400000, Cookies: map[string]string{}}
 		if row["kind"] == "html" {
@@ -272,7 +337,7 @@ func (s *Server) sharedPreviewPage(w http.ResponseWriter, r *http.Request) {
 		s.mu.Unlock()
 		http.SetCookie(w, &http.Cookie{Name: cookieName, Value: token, Path: "/share/" + p.Share, HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteLaxMode, MaxAge: 86400})
 		frame := "/v1/previews/" + token + str(row["entry_path"])
-		document = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>网页分享</title><style>html,body{margin:0;height:100%;background:#fff}iframe{display:block;border:0;width:100%;height:100%}</style></head><body><iframe title="分享的网页" sandbox="allow-scripts allow-forms" referrerpolicy="no-referrer" src="` + html.EscapeString(frame) + `"></iframe><script>const f=document.querySelector('iframe'),channel=` + scriptJSON(v.Channel) + `;addEventListener('message',e=>{if(e.source!==f.contentWindow||e.data?.channel!==channel)return;if(e.data.type==='state')f.contentWindow.postMessage({channel,type:'state-result',id:e.data.id,ok:true},'*')});</script></body></html>`
+		document = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>网页分享</title><style>html,body{margin:0;height:100%;background:#fff}iframe{display:block;border:0;width:100%;height:100%}</style></head><body><iframe title="分享的网页" sandbox="allow-scripts allow-forms" referrerpolicy="no-referrer" src="` + html.EscapeString(frame) + `"></iframe><script>const f=document.querySelector('iframe'),channel=` + scriptJSON(v.Channel) + `;addEventListener('message',e=>{if(e.source!==f.contentWindow||e.data?.channel!==channel)return;if(e.data.type==='state')f.contentWindow.postMessage({channel,type:'state-result',id:e.data.id,ok:true},'*')});const expires=Date.now()+` + strconv.FormatInt(max(int64(0), num(row["expires_at"])-now()), 10) + `;function checkExpiry(){const remaining=expires-Date.now();if(remaining<=0){location.reload();return}setTimeout(checkExpiry,Math.min(remaining,2147483647))}checkExpiry();addEventListener('pageshow',()=>{if(Date.now()>=expires)location.reload()});</script></body></html>`
 	}()
 	w.WriteHeader(status)
 	w.Write([]byte(document))
@@ -291,7 +356,7 @@ func (s *Server) sharedPreviewError(w http.ResponseWriter, r *http.Request, p *P
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; style-src 'unsafe-inline'")
 		w.WriteHeader(status)
-		w.Write([]byte(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font:16px system-ui;padding:32px;color:#334155}</style><h2>网页暂不可用</h2><p>请确认电脑在线，网页服务或源页面仍可访问，然后重新加载。原分享链接会在恢复后继续生效。</p>`))
+		w.Write([]byte(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font:16px system-ui;padding:32px;color:#334155}</style><h2>网页暂不可用</h2><p>请确认电脑在线，网页服务或源页面仍可访问，然后重新加载。有效期内，原分享链接会在恢复后继续生效。</p>`))
 	}
 }
 
@@ -323,6 +388,7 @@ func (s *Server) sharedHTML(w http.ResponseWriter, r *http.Request, p *Preview) 
 	if !utf8.Valid(content) {
 		fail(422, "invalid-preview-html")
 	}
+	s.sharePrincipal(p.Principal.Share, p.Device, p.Thread)
 	local := previewAssetSources(r, r.PathValue("token"))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")

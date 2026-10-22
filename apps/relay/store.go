@@ -98,6 +98,26 @@ func Open(databaseURL, directory string) (*Store, error) {
 			return nil, e
 		}
 	}
+	if s.SQLite {
+		for _, column := range []string{"expires_at", "duration_minutes"} {
+			if s.One("SELECT name FROM pragma_table_info('preview_shares') WHERE name=$1", column) == nil {
+				initial := "0"
+				if column == "duration_minutes" {
+					initial = "30"
+				}
+				if _, e = db.Exec("ALTER TABLE preview_shares ADD COLUMN " + column + " BIGINT NOT NULL DEFAULT " + initial); e != nil {
+					db.Close()
+					return nil, e
+				}
+			}
+		}
+	}
+	// Old permanent links inherit the default lifetime from their original creation,
+	// so restarting or migrating must never extend an already expired share.
+	if _, e = db.Exec("UPDATE preview_shares SET expires_at=created_at+1800000 WHERE expires_at=0"); e != nil {
+		db.Close()
+		return nil, e
+	}
 	_, e = db.Exec("INSERT INTO auth_settings(id,idle_timeout_minutes) VALUES(1,10080) ON CONFLICT(id) DO NOTHING")
 	if e != nil {
 		db.Close()
@@ -218,7 +238,7 @@ func (s *Store) Tx(fn func(*Store)) {
 }
 
 const sqliteSchema = `CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,name TEXT NOT NULL,token_hash TEXT UNIQUE,password_hash TEXT,role TEXT NOT NULL DEFAULT 'user',created_at BIGINT NOT NULL,revoked_at BIGINT);
-CREATE TABLE IF NOT EXISTS preview_shares(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),device_id TEXT NOT NULL REFERENCES devices(id),thread_id TEXT NOT NULL,kind TEXT NOT NULL,source TEXT NOT NULL,origin TEXT NOT NULL,entry_path TEXT NOT NULL,token TEXT UNIQUE NOT NULL,enabled BOOLEAN NOT NULL DEFAULT TRUE,created_at BIGINT NOT NULL,UNIQUE(device_id,kind,source));
+CREATE TABLE IF NOT EXISTS preview_shares(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),device_id TEXT NOT NULL REFERENCES devices(id),thread_id TEXT NOT NULL,kind TEXT NOT NULL,source TEXT NOT NULL,origin TEXT NOT NULL,entry_path TEXT NOT NULL,token TEXT UNIQUE NOT NULL,enabled BOOLEAN NOT NULL DEFAULT TRUE,created_at BIGINT NOT NULL,expires_at BIGINT NOT NULL DEFAULT 0,duration_minutes BIGINT NOT NULL DEFAULT 30,UNIQUE(device_id,kind,source));
 CREATE UNIQUE INDEX IF NOT EXISTS account_role_login ON users(role,lower(name)) WHERE password_hash IS NOT NULL;
 CREATE TABLE IF NOT EXISTS devices(id TEXT PRIMARY KEY,name TEXT NOT NULL,platform TEXT NOT NULL,token_hash TEXT UNIQUE,created_at BIGINT NOT NULL,last_seen_at BIGINT,revoked_at BIGINT,owner_user_id TEXT REFERENCES users(id),installation_id TEXT);
 CREATE UNIQUE INDEX IF NOT EXISTS account_installation ON devices(owner_user_id,installation_id) WHERE installation_id IS NOT NULL;

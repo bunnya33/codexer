@@ -13,7 +13,7 @@ import type { Attachment } from '../../../packages/protocol/src/uploads';
 import type { AttachmentAsset } from './attachment-picker';
 import {agentReleaseSchema} from '../../../packages/shared/src/agent-release';
 import type {AgentRelease} from '../../../packages/shared/src/agent-release';
-export type PreviewShare = { id: string; url: string; enabled: boolean; kind: 'html' | 'server' };
+export type PreviewShare = { id: string; url: string; enabled: boolean; kind: 'html' | 'server'; expiresAt:number; durationMinutes:number };
 
 export type Device = { id: string; name: string; platform: string; online: boolean; owner_user_id?: string | null; last_seen_at?: number | string | null };
 export type HistoryState = { turns: HistoryTurn[]; nextCursor: string | null; loading: boolean; error?: string };
@@ -604,9 +604,10 @@ export class RelayClient {
     if (match) await this.api(`/v1/previews/${match[1]}`,undefined,'DELETE');
   }
 
-  private previewShareResult(value: {id:string; path:string; enabled:boolean; kind:'html'|'server'}): PreviewShare {
+  private previewShareResult(value: {id:string; path:string; enabled:boolean; kind:'html'|'server';expiresAt:number;durationMinutes:number}): PreviewShare {
     if (!/^\/share\/[a-f0-9]{64}$/.test(value.path)) throw new Error('分享地址无效');
-    return {id:value.id,url:this.view.url+value.path,enabled:value.enabled,kind:value.kind};
+    if (!Number.isSafeInteger(value.expiresAt)||value.expiresAt<=0||!Number.isInteger(value.durationMinutes)||value.durationMinutes<1||value.durationMinutes>525600) throw new Error('服务器尚不支持分享有效期，请更新服务器');
+    return {id:value.id,url:this.view.url+value.path,enabled:value.enabled,kind:value.kind,expiresAt:value.expiresAt,durationMinutes:value.durationMinutes};
   }
   async agentRelease(signal?:AbortSignal):Promise<AgentRelease|null>{
     const value=await this.api<{release:AgentRelease|null}>('/v1/pc-agent/release',undefined,'GET',false,signal);
@@ -617,11 +618,11 @@ export class RelayClient {
   }
   async previewShare(deviceId: string, threadId: string, kind: 'html'|'server', source: string): Promise<PreviewShare|null> {
     const query=new URLSearchParams({kind,source});
-    const result=await this.api<{share:{id:string;path:string;enabled:boolean;kind:'html'|'server'}|null}>(`/v1/devices/${encodeURIComponent(deviceId)}/threads/${encodeURIComponent(threadId)}/preview-shares?${query}`);
+    const result=await this.api<{share:{id:string;path:string;enabled:boolean;kind:'html'|'server';expiresAt:number;durationMinutes:number}|null}>(`/v1/devices/${encodeURIComponent(deviceId)}/threads/${encodeURIComponent(threadId)}/preview-shares?${query}`);
     return result.share ? this.previewShareResult(result.share) : null;
   }
-  async createPreviewShare(deviceId: string, threadId: string, kind: 'html'|'server', source: string, rotate=false): Promise<PreviewShare> {
-    const result=await this.api<{id:string;path:string;enabled:boolean;kind:'html'|'server'}>(`/v1/devices/${encodeURIComponent(deviceId)}/threads/${encodeURIComponent(threadId)}/preview-shares`,{kind,source,rotate});
+  async createPreviewShare(deviceId: string, threadId: string, kind: 'html'|'server', source: string, rotate=false, durationMinutes=30): Promise<PreviewShare> {
+    const result=await this.api<{id:string;path:string;enabled:boolean;kind:'html'|'server';expiresAt:number;durationMinutes:number}>(`/v1/devices/${encodeURIComponent(deviceId)}/threads/${encodeURIComponent(threadId)}/preview-shares`,{kind,source,rotate,durationMinutes});
     return this.previewShareResult(result);
   }
   async disablePreviewShare(deviceId: string, id: string): Promise<void> {

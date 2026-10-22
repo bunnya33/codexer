@@ -49,6 +49,7 @@ type Server struct {
 	clients       map[*Peer]bool
 	pending       map[string]*Pending
 	previews      map[string]*Preview
+	shareTimers   map[string]*previewShareTimer
 	audio         map[string]*AudioPlayback
 	lanes         map[string]*deviceLane
 	exclusive     sync.RWMutex
@@ -77,6 +78,7 @@ func New(store *Store, options Options) (*Server, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Server{Store: store, Options: options, mux: http.NewServeMux(), schemas: map[string]*jsonschema.Schema{}, agents: map[string]*Peer{}, clients: map[*Peer]bool{}, pending: map[string]*Pending{}, previews: map[string]*Preview{}, limits: map[string]*rateWindow{}, lanes: map[string]*deviceLane{}, ctx: ctx, cancel: cancel, metrics: store.Metrics}
 	s.audio = map[string]*AudioPlayback{}
+	s.shareTimers = map[string]*previewShareTimer{}
 	var values map[string]any
 	if e := json.Unmarshal(schemaFile, &values); e != nil {
 		return nil, e
@@ -406,6 +408,10 @@ func (s *Server) Close() {
 		return
 	}
 	s.cancel()
+	for key, timer := range s.shareTimers {
+		timer.timer.Stop()
+		delete(s.shareTimers, key)
+	}
 	peers := []*Peer{}
 	for _, p := range s.agents {
 		peers = append(peers, p)

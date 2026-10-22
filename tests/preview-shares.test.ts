@@ -14,6 +14,7 @@ it('shares live pages and HTML with stable keys, independent guests, revocation,
   await writeFile(htmlPath,'<html><head></head><body><h1>共享页面第一版</h1></body></html>');
   const upstream=createServer(async(req,res)=>{
     if(req.url==='/cookie'){res.setHeader('set-cookie','visitor=first; Path=/');res.end('cookie-set');}
+    else if(req.url==='/events'){res.setHeader('content-type','text/event-stream');res.write('data: connected\n\n');}
     else if(req.url==='/api'){res.setHeader('content-type','application/json');res.end(JSON.stringify({cookie:req.headers.cookie??'',authorization:req.headers.authorization??''}));}
     else if(req.url==='/src/main.js'){res.setHeader('content-type','application/javascript');res.end('import "/src/other.js";');}
     else if(req.url==='/logo.svg'){res.setHeader('content-type','image/svg+xml');res.end('<svg/>');}
@@ -34,15 +35,19 @@ it('shares live pages and HTML with stable keys, independent guests, revocation,
     agent=new PcAgent({relayUrl:base,deviceId:registered.id,session:registered.token,installationId:'fixture',username:account.name,expiresAt:Date.now()+600000},directory,['thread-test'],desktop.endpoint,join(directory,'empty'),'desktop',reader);
     await agent.start();await waitFor(async()=>!!(await store.catalog(registered.id))&&!!(await store.snapshot(registered.id))?.threads['thread-test']?.turns[0]?.items.length);
     const endpoint=`/v1/devices/${registered.id}/threads/thread-test/preview-shares`;
-    const create=(kind='server',page=source,rotate=false)=>app.inject({method:'POST',url:endpoint,headers:account.headers,payload:{kind,source:page,rotate}});
+    const create=(kind='server',page=source,rotate=false,durationMinutes?:unknown)=>app.inject({method:'POST',url:endpoint,headers:account.headers,payload:{kind,source:page,rotate,...(durationMinutes===undefined?{}:{durationMinutes})}});
     const frame=async(path:string)=>{const response=await app.inject({url:path});expect(response.statusCode).toBe(200);expect(response.body).toContain('sandbox="allow-scripts allow-forms"');expect(response.body).not.toContain('allow-same-origin');return response.body.match(/<iframe[^>]+src="([^"]+)"/)![1]!.replaceAll('&amp;','&');};
     const initial=await create();expect(initial.statusCode).toBe(200);const share=initial.json();
     expect(share.path).toMatch(/^\/share\/[a-f0-9]{64}$/);
-    expect((await create()).json()).toEqual(share);
+    expect(share.durationMinutes).toBe(30);expect(share.expiresAt-Date.now()).toBeGreaterThan(29*60000);expect(share.expiresAt-Date.now()).toBeLessThanOrEqual(30*60000);
+    expect((await create()).json()).toMatchObject({id:share.id,path:share.path,durationMinutes:30});
     expect((await create('server',source.replace('localhost','127.0.0.1'))).json().path).toBe(share.path);
     expect((await create('server',source+'#section')).json().path).toBe(share.path);
     expect((await create('server',`http://localhost:${port}/other`)).json().path).not.toBe(share.path);
-    const status=await app.inject({url:endpoint+'?'+new URLSearchParams({kind:'server',source}),headers:account.headers});expect(status.json().share).toEqual(share);
+    const status=await app.inject({url:endpoint+'?'+new URLSearchParams({kind:'server',source}),headers:account.headers});expect(status.json().share).toMatchObject({id:share.id,path:share.path});
+    for(const minutes of [0,-1,1.5,525601,'30',null])expect((await create('server',source,false,minutes)).statusCode).toBe(400);
+    const day=(await create('server',source,false,1440)).json();expect(day.durationMinutes).toBe(1440);expect(day.expiresAt-Date.now()).toBeGreaterThan(1439*60000);
+    const custom=(await create('server',source,false,75)).json();expect(custom.durationMinutes).toBe(75);expect(custom.path).toBe(share.path);
     expect((await app.inject({method:'POST',url:endpoint,headers:other.headers,payload:{kind:'server',source}})).statusCode).toBe(404);
     expect((await app.inject({method:'POST',url:endpoint,payload:{kind:'server',source}})).statusCode).toBe(401);
     for(const value of ['http://192.168.1.2/','http://localhost.evil/','http://u:p@localhost/','file:///secret'])expect((await create('server',value)).statusCode).toBe(400);
@@ -52,7 +57,7 @@ it('shares live pages and HTML with stable keys, independent guests, revocation,
     const visitor=await app.inject({url:share.path});
     const guestCookie=String(visitor.headers['set-cookie']).split(';')[0]!;
     const reload=await app.inject({url:share.path+'/',headers:{cookie:guestCookie}});
-    expect(reload.statusCode).toBe(200);expect(reload.body).toBe(visitor.body);
+    expect(reload.statusCode).toBe(200);expect(reload.body.match(/<iframe[^>]+src="([^"]+)"/)![1]).toBe(visitor.body.match(/<iframe[^>]+src="([^"]+)"/)![1]);
     const html=await app.inject({url:first});expect(html.statusCode).toBe(200);expect(html.body).toContain(prefix+'src/main.js');expect(html.body).toContain('共享端口');
     expect((await app.inject({url:prefix+'src/main.js'})).body).toContain(prefix+'src/other.js');
     expect((await app.inject({url:prefix+'logo.svg'})).body).toBe('<svg/>');
@@ -87,6 +92,22 @@ it('shares live pages and HTML with stable keys, independent guests, revocation,
     // Restart the relay itself on the same address and persist database keys.
     await app.close();store=await RelayStore.open(undefined,join(directory,'db'));app=await createRelay({store});await app.listen({host:'127.0.0.1',port:Number(new URL(base).port)});
     agent.reconnect();await waitFor(async()=>!!agent!.status().relayConnected&&(await app.inject({url:rotated.path})).statusCode===200,10000);
+    const metadata=await app.inject({url:endpoint+'?'+new URLSearchParams({kind:'server',source}),headers:account.headers});expect(metadata.json().share.expiresAt).toBe(rotated.expiresAt);
     expect((await create()).json().path).toBe(rotated.path);
+    // Shorten a persisted deadline, then load the public shell to arm it. Existing
+    // WebSocket visitors must be cut off without waiting for another request.
+    const expires=Date.now()+1000;
+    await store.query('UPDATE preview_shares SET expires_at=$1 WHERE id=$2',[expires,rotated.id]);
+    const expiringFrame=await frame(rotated.path),expiredPrefix=expiringFrame.replace(/demo\?x=1$/,'');
+    ws=new WebSocket(base.replace(/^http/,'ws')+expiredPrefix+'__socket?path=%2F');
+    await new Promise<void>((done,fail)=>{ws!.once('open',done);ws!.once('error',fail);});
+    const stream=await fetch(base+expiredPrefix+'events'),eventReader=stream.body!.getReader();
+    expect(new TextDecoder().decode((await eventReader.read()).value)).toContain('connected');
+    const streamClosed=eventReader.read().then(value=>value.done,()=>true);
+    const expiredSocket=new Promise<number>(done=>ws!.once('close',done));expect(await expiredSocket).toBe(1008);
+    expect(await streamClosed).toBe(true);
+    expect((await app.inject({url:rotated.path})).statusCode).toBe(410);expect((await app.inject({url:expiringFrame})).statusCode).toBe(410);
+    const expired=await app.inject({url:endpoint+'?'+new URLSearchParams({kind:'server',source}),headers:account.headers});expect(expired.json().share).toMatchObject({enabled:false,expiresAt:expires});
+    const reopened=(await create('server',source,false,1)).json();expect(reopened.path).toBe(rotated.path);expect(reopened.enabled).toBe(true);expect(reopened.expiresAt).toBeGreaterThan(expires);await frame(rotated.path);
   }finally{ws?.terminate();await agent?.stop();await app.close();await desktop.close();for(const socket of sockets.clients)socket.terminate();await new Promise<void>(done=>sockets.close(()=>done()));await new Promise<void>(done=>upstream.close(()=>done()));await rm(directory,{recursive:true,force:true});}
 },30000);
