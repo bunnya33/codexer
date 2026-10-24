@@ -44,6 +44,6 @@
 }
 @end
 int main(int argc,const char *argv[]) {
-  @autoreleasepool {NSApplication *app=NSApplication.sharedApplication;NativeAppDelegate *delegate=[NativeAppDelegate new];app.delegate=delegate;[app setActivationPolicy:NSApplicationActivationPolicyRegular];[app run];}
+  @autoreleasepool {NSApplication *app=NSApplication.sharedApplication;__attribute__((objc_precise_lifetime)) NativeAppDelegate *delegate=[NativeAppDelegate new];app.delegate=delegate;[app setActivationPolicy:NSApplicationActivationPolicyRegular];[app run];}
   return 0;
 }
