@@ -6,7 +6,8 @@ const {mkdtemp,mkdir,writeFile,readFile,rm}=require('node:fs/promises');
 const {tmpdir}=require('node:os');
 const {join,resolve}=require('node:path');
 const {randomUUID}=require('node:crypto');
-const {ClassicLevel}=require('classic-level');
+const requireRuntime=require('node:module').createRequire(resolve(__dirname,process.platform==='darwin'?'../macos/package.json':'../package.json'));
+const {ClassicLevel}=requireRuntime('classic-level');
 const envelope=value=>Buffer.from('test-envelope:'+value).map(byte=>byte^0xa5).toString('base64');
 async function harness(directory,mode='control',extra={}){
   const child=spawn(process.execPath,[process.env.CODEXER_NATIVE_SERVICE || resolve(__dirname,'../service/sidecar.cjs')],{env:{...process.env,CODEXER_NATIVE_MODE:mode,CODEXER_NATIVE_DATA_DIR:directory},stdio:['pipe','pipe','pipe']});

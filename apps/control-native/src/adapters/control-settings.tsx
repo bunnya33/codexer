@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, Switch, Text, View } from 'react-native';
 import { relay } from '../../../mobile/src/relay';
 import { useTheme } from '../../../mobile/src/styles';
 import { ThemePicker } from '../../../mobile/src/theme-picker';
-import { controlVersion } from './build-info';
+import { controlVersion, controlPlatform } from './build-info';
 import { request, subscribe } from '../bridge';
 import { AgentDownload } from '../../../mobile/src/agent-download';
 import { AgentVersion } from '../../../mobile/src/agent-version';
@@ -38,7 +38,7 @@ export function ControlSettings({ url, device, onWeixin, onLogout }: {url: strin
   return <View style={{ gap: 20 }}><ThemePicker /><Text selectable style={{ color: c.muted }}>{url}</Text>
     <View style={{ gap: 12, padding: 16, backgroundColor: c.settingsGroup, borderRadius: 12 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><Text style={{ color: c.text }}>服务器版本：{loading ? '正在读取…' : version}</Text>{loading && <ActivityIndicator color={c.muted} />}</View>
-      <Text style={{ color: c.text }}>RelayDesk Windows · {controlVersion}</Text>
+      <Text style={{ color: c.text }}>RelayDesk {controlPlatform} · {controlVersion}</Text>
       <AgentVersion device={device} /></View>
     <WindowClosePreference />
     <AgentDownload url={url}/>
