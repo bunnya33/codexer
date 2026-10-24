@@ -180,7 +180,7 @@ class Host {
   void restore() { window.Show(); ShowWindow(hwnd, SW_RESTORE); SetForegroundWindow(hwnd); }
   void exit(bool confirm = true) {
     if (quitting) return;
-    auto message = mode == L"agent" ? L"退出 PC Agent 后，这台电脑将无法远程控制。确定退出进程吗？" : L"确定退出 RelayDesk 进程吗？";
+    auto message = mode == L"agent" ? L"退出 Codexer Agent 后，这台电脑将无法远程控制。确定退出进程吗？" : L"确定退出 Codexer Control 进程吗？";
     if (activeTasks > 0) message = L"本机仍有任务运行。退出 PC Agent 会中断远程连接，并可能停止后台任务。确定退出进程吗？";
     if (confirm && MessageBoxW(hwnd, message, name.c_str(), MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) != IDYES) return;
     quitting = true;

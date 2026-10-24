@@ -38,8 +38,8 @@ _Use_decl_annotations_ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE, PSTR 
   host.exe = executable; host.directory = appDirectory;
   auto stem = std::filesystem::path(host.exe).stem().wstring();
   host.mode = desktop::env(L"CODEXER_NATIVE_MODE");
-  if (host.mode != L"agent" && host.mode != L"control") host.mode = stem == L"Codexer" ? L"agent" : L"control";
-  host.name = host.mode == L"agent" ? L"Codexer PC Agent" : L"RelayDesk";
+  if (host.mode != L"agent" && host.mode != L"control") host.mode = (stem == L"Codexer" || stem == L"Codexer Agent") ? L"agent" : L"control";
+  host.name = host.mode == L"agent" ? L"Codexer Agent" : L"Codexer Control";
   host.profile = desktop::env(L"CODEXER_NATIVE_DATA_DIR");
   if (host.profile.empty()) host.profile = desktop::env(L"APPDATA") + (host.mode == L"agent" ? L"\\Codexer" : L"\\CodexerControl");
   host.instanceKey = L"CodexerNative-" + host.mode + L"-" + std::to_wstring(std::hash<std::wstring>{}(host.profile));

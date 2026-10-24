@@ -317,7 +317,7 @@ describe("Windows control main process through mocked Electron windows", () => {
     );
     expect(result).toEqual({ ok: true });
     const control = electron.windows.find(
-      (window) => window.options.title === "RelayDesk · 会话控制端",
+      (window) => window.options.title === "Codexer Control · 会话控制端",
     )!;
     const view = electron.views[0]!;
     expect(view.options.webPreferences).toEqual({

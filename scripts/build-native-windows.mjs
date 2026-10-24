@@ -8,6 +8,7 @@ const app=join(root,'apps/control-native');
 const require=createRequire(import.meta.url);
 const {version}=JSON.parse(await readFile(join(app,'package.json'),'utf8'));
 const flags=new Set(process.argv.slice(2));
+if(flags.has('--agent'))throw new Error('Codexer Agent uses Electron. Run npm run package:desktop:win.');
 if(process.platform!=='win32'||process.arch!=='x64')throw new Error('Build on Windows x64 with Node 24+.');
 if(Number(process.versions.node.split('.')[0])<24)throw new Error('Node 24+ is required.');
 async function run(file,args,cwd=root){await new Promise((done,fail)=>{const child=spawn(file,args,{cwd,stdio:'inherit',windowsHide:true});child.once('error',fail);child.once('exit',code=>code===0?done():fail(new Error(`${file} exited ${code}`)));});}
@@ -39,9 +40,9 @@ const {build,Platform,Arch}=require('electron-builder');
 const output=join(app,'release');
 await mkdir(output,{recursive:true});
 const artifacts=[];
-const modes=flags.has('--control')?['control']:flags.has('--agent')?['agent']:['control','agent'];
+const modes=['control'];
 for(const mode of modes){
-  const name=mode==='control'?'RelayDesk':'Codexer';
+  const name='Codexer Control';
   const stage=join(app,'stage',`${name}-${version}`);
   if(relative(join(app,'stage'),stage).startsWith('..'))throw new Error('Invalid stage path.');
   await rm(stage,{recursive:true,force:true});
@@ -90,7 +91,7 @@ for(const mode of modes){
   await mkdir(join(stage,'resources'),{recursive:true});
   const files=await build({projectDir:app,prepackaged:stage,targets:Platform.WINDOWS.createTarget(['nsis'],Arch.x64),publish:'never',config:{
     appId:mode==='control'?'com.codexer.control':'com.codexer.connector',productName:name,executableName:name,electronVersion:'44.5.1',
-    directories:{output},artifactName:`${name}-Native-Setup-${version}-x64.exe`,npmRebuild:false,
+    directories:{output},artifactName:`Codexer-Control-Native-Setup-${version}-x64.exe`,npmRebuild:false,
     win:{icon,signAndEditExecutable:false,signExecutable:false,target:['nsis']},
     nsis:{oneClick:false,allowToChangeInstallationDirectory:true,createDesktopShortcut:true,createStartMenuShortcut:true,runAfterFinish:false,deleteAppDataOnUninstall:false},
   }});

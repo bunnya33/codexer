@@ -4,7 +4,7 @@
 
 开发机使用 Go >=1.26、Node 24、npm 和 Git。`npm ci` 按根 lockfile 安装 Expo、React、Electron 和测试工具。普通 PC 用户使用成品安装包，不需要这些开发环境。官方 Codex 是本机执行前提，不由本项目重新分发。
 
-目录和模块边界见 [架构](architecture.md)。协议变更先改 `packages/protocol`，再同步 Relay、Agent 和 React Native 客户端。Windows/macOS 桌面共用 `apps/control-native/src` 和版本，在同一主线维护；只把系统功能放入各自宿主。原生界面通过窄桥接协议操作 sidecar，不暴露密码、账号会话或任意文件读写。平台依赖分别锁定，构建环境见 [共用原生项目](../apps/control-native/README.md)。
+目录和模块边界见 [架构](architecture.md)。协议变更先改 `packages/protocol`，再同步 Relay、Agent 和 React Native 客户端。Windows/macOS 的 Codexer Agent 共用 `apps/desktop` Electron 实现；Codexer Control 共用 `apps/control-native/src` 原生实现。两类产品在 main 维护，各产品两平台共用版本；只把系统功能放入适配层。原生界面通过窄桥接协议操作 sidecar，不暴露密码、账号会话或任意文件读写。平台依赖分别锁定，构建环境见 [共用原生项目](../apps/control-native/README.md)。
 
 Relay 的接口、业务和 SQL 按功能目录维护，具体职责见 [Relay 开发结构](../apps/relay/README.md)。`server.ts` 只负责组装；微信相关接口和实现统一放在 `weixin`。使用 `npm run format:relay` 格式化，提交前运行 `npm run check:format:relay`。
 
@@ -20,18 +20,18 @@ Relay 的接口、业务和 SQL 按功能目录维护，具体职责见 [Relay �
 | `npm run dev:admin` | 独立 React 后台，5174，代理本机 Relay |
 | `npm run dev:desktop` | 旧 Electron 回退维护入口 |
 | `npm run build:server` | 导出控制端 Web、构建 Admin 并编译内嵌页面的 Go 执行文件 |
-| `npm run build:desktop` | 旧 Electron 回退构建，不作为原生交付 |
+| `npm run build:desktop` | Electron Codexer Agent 构建 |
 | `npm run package:server` | 已完成 server build 后生成统一服务器发布包 |
-| `npm run package:desktop` | 按当前系统生成原生 PC Agent 安装包 |
-| `npm run package:native-desktop` | 按当前系统生成上述两个原生产品 |
-| `npm run package:desktop:win` / `package:desktop:mac` | 显式选择 Windows / Mac 原生 Agent 构建 |
+| `npm run package:desktop` | 按当前系统生成 Electron Codexer Agent 安装包 |
+| `npm run package:native-desktop` | 按当前系统生成原生 Codexer Control |
+| `npm run package:desktop:win` / `package:desktop:mac` | 显式选择 Windows / Mac Electron Agent 构建 |
 | `npm run users -- list` | 开发环境账号管理；其他子命令见脚本提示 |
 
 服务器开发首次生成的管理员配置在本地 `.local/relay-admin-account.secret`，生产通过受限环境配置或安装器生成。使用新的普通测试账号，禁止把自己的真实部署地址和凭据写进源码或测试。
 
-原生桌面使用 Metro 打包共用界面，esbuild 打包 `sidecar.cjs`，安装包附带 Node 与本机数据库模块，不依赖用户系统 Node。Windows 使用 RNW/C++ 宿主，Mac 使用 RN macOS/AppKit 宿主；文件与音频网页预览单独使用隔离 WebView。旧 Electron 的 worker/asar 仅用于回退维护。
+原生桌面使用 Metro 打包共用界面，esbuild 打包 `sidecar.cjs`，安装包附带 Node 与本机数据库模块，不依赖用户系统 Node。Windows 使用 RNW/C++ 宿主，Mac 使用 RN macOS/AppKit 宿主；文件与音频网页预览单独使用隔离 WebView。Electron Agent 使用本地 React UI、受限 preload 和 utility worker/asar 交付。
 
-原生隔离验收通过 `CODEXER_NATIVE_DATA_DIR`（旧 Electron 使用 `CODEXER_USER_DATA_DIR`）使用专用临时配置目录，并跳过真实系统登录项修改；`CODEX_REMOTE_DESKTOP_ENDPOINT` 与 `CODEX_THREAD_ID` 指向测试 IPC/合成会话。正式使用留空这些开发变量，不用真实任务做自动控制测试。
+原生隔离验收通过 `CODEXER_NATIVE_DATA_DIR`（Electron Agent 使用 `CODEXER_USER_DATA_DIR`）使用专用临时配置目录，并跳过真实系统登录项修改；`CODEX_REMOTE_DESKTOP_ENDPOINT` 与 `CODEX_THREAD_ID` 指向测试 IPC/合成会话。正式使用留空这些开发变量，不用真实任务做自动控制测试。
 
 ## 变更检查
 
@@ -44,7 +44,7 @@ npm run build:server
 npm run build:desktop
 ```
 
-涉及移动端原生适配时再运行 `npm run mobile:export`；PC Agent 共享改动需通过 Windows/Mac 两套类型检查并分别原生构建，实际启动包验证桥接和后台通信。只完成 JS 打包不代表原生验收。测试使用本地临时 Relay、合成账号和 FakeDesktop，避免连接真实用户服务/执行会话。
+涉及移动端原生适配时再运行 `npm run mobile:export`；Agent 改动需检查 Electron 类型及两平台打包；Control 共享改动需通过 Windows/Mac 两套类型检查并分别原生构建，实际启动包验证桥接和后台通信。只完成 JS 打包不代表原生验收。测试使用本地临时 Relay、合成账号和 FakeDesktop，避免连接真实用户服务/执行会话。
 
 `desktop-controller` 测试账号凭据不进入 UI、登录取消、断开任务保留、撤销会话、HTTP 与存储约束；`agent-disconnect` 验证真实本地 socket/Relay 下的暂停和恢复；`admin-client` 与 Relay 静态路由测试验证后台入口/资源与控制端隔离。
 
@@ -52,7 +52,7 @@ npm run build:desktop
 
 断开不得调用 `PcAgent.stop()`；stop 会停止本地适配器和 App Server。远程回调需要检查当前 socket，排队操作在执行前再次检查，任务已开始后允许继续。运行配置/账号切换需检查任务状态。
 
-Agent 开发 CLI 统一为 `npm run dev:agent`，动作包括 `login`、`check-login`、`run`、`status`。`login` 从标准输入读取密码，不把密码放进命令参数；密码不会写入设备凭据。普通 PC 用户使用对应系统的原生安装包。旧 Windows/macOS 源码启动器和重复配对脚本已删除，详见 [清理说明](cleanup.md)。
+Agent 开发 CLI 统一为 `npm run dev:agent`，动作包括 `login`、`check-login`、`run`、`status`。`login` 从标准输入读取密码，不把密码放进命令参数；密码不会写入设备凭据。普通 PC 用户使用对应系统的 Codexer Agent Electron 安装包。旧 Windows/macOS 源码启动器和重复配对脚本已删除，详见 [清理说明](cleanup.md)。
 
 `inspect:bundle`、`probe:desktop`、`check:live` 与 `check:control/model-usage/effort-images/stop/approval/input` 用于官方运行时兼容调查与人工验收，不随服务器编译产物发布。这些工具可能操作指定的官方会话，只对明确准备的测试任务运行；自动测试不调用它们。`scripts/create-image-fixture.ps1` 为图片验收生成本地测试图，保留供 Windows 维护者使用。
 

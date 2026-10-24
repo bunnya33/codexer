@@ -3,7 +3,7 @@ import type { WindowState } from "../types.js";
 const header = document.querySelector<HTMLElement>("#titlebar")!;
 const detail = document.body.dataset.windowLabel ?? "会话控制端";
 header.innerHTML = `
-  <div class="window-title"><img src="../icon.png" alt="" width="20" height="20"><strong>RelayDesk</strong><span class="window-detail"></span></div>
+  <div class="window-title"><img src="../icon.png" alt="" width="20" height="20"><strong>Codexer Control</strong><span class="window-detail"></span></div>
   <div class="window-controls" aria-label="窗口操作">
     <button type="button" id="window-menu" aria-label="控制端菜单" title="控制端菜单"><svg viewBox="0 0 16 16"><path d="M3 4h10M3 8h10M3 12h10"/></svg></button>
     <button type="button" id="window-minimize" aria-label="最小化" title="最小化"><svg viewBox="0 0 16 16"><path d="M3 8h10"/></svg></button>

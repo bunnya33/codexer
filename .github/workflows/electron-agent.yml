@@ -1,0 +1,53 @@
+name: Electron Codexer Agent
+on:
+  workflow_dispatch:
+  push:
+    branches: ['main']
+    paths:
+      - 'apps/desktop/**'
+      - 'apps/pc-agent/**'
+      - 'packages/**'
+      - 'scripts/build-desktop.mjs'
+      - 'scripts/accept-electron-agent.mjs'
+      - 'apps/control-native/macos/RelayDeskNative/NativeVault.*'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/electron-agent.yml'
+permissions:
+  contents: read
+jobs:
+  agent:
+    strategy:
+      matrix:
+        os: [windows-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck --workspace @codexer/desktop
+      - run: npx vitest run tests/desktop-controller.test.ts tests/agent-profile.test.ts
+      - name: Package Windows Agent
+        if: runner.os == 'Windows'
+        run: npm run package:desktop:win
+      - name: Package macOS Agent
+        if: runner.os == 'macOS'
+        run: npm run package:desktop:mac:local -- --arm64
+      - run: node scripts/accept-electron-agent.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Codexer-Agent-${{ runner.os }}
+          path: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.sha256
+            apps/desktop/release/agent-acceptance.json
+          if-no-files-found: ignore

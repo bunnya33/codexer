@@ -32,6 +32,10 @@ jobs:
       - run: npm run mobile:typecheck
       - run: npm test
       - run: npm run check:docs
+      - run: npm run package:desktop:win
+        if: runner.os == 'Windows'
+      - run: npm run package:desktop:mac:local -- --arm64
+        if: runner.os == 'macOS'
       - run: npm run package:windows-native
         if: runner.os == 'Windows'
       - run: npm run package:macos-native
@@ -41,7 +45,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ runner.os }}-unsigned
-          path: apps/control-native/release/*.*
+          path: |
+            apps/control-native/release/*.*
+            apps/desktop/release/*.*
   server:
     runs-on: ubuntu-latest
     services:

@@ -13,8 +13,8 @@ const root=resolve(import.meta.dirname,'..');
 const {version}=JSON.parse(await readFile(join(root,'apps/control-native/package.json'),'utf8'));
 const products=process.env.CODEXER_NATIVE_ACCEPTANCE_PRODUCTS||join(root,'apps/control-native/stage');
 const results=[];
-for(const mode of ['agent']){
-  const name=mode==='agent'?'Codexer':'RelayDesk';
+for(const mode of ['control']){
+  const name='Codexer Control';
   const app=join(products,`${name}-${version}-macos-${process.arch}`,`${name}.app`);
   const executable=join(app,'Contents/MacOS',name);
   await access(executable);

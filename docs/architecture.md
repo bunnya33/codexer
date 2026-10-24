@@ -5,9 +5,9 @@
 ```mermaid
 flowchart LR
   C[React Native 控制端\niOS / Android / Web] -->|HTTPS / WSS| R[Go Relay]
-  W[React Native Windows 控制端] -->|HTTPS / WSS| R
+  W[Codexer Control 原生桌面端] -->|HTTPS / WSS| R
   A[React 管理后台 /admin/] -->|账号管理 API| R
-  P[React Native Windows/macOS PC 连接器] -->|主动连接 WSS| R
+  P[Codexer Agent / Electron] -->|主动连接 WSS| R
   P --> G[内置 PC Agent]
   G --> D[官方 Codex 桌面 IPC]
   G --> H[官方 Codex App Server]
@@ -25,12 +25,12 @@ flowchart LR
 | 管理后台 | 创建账号、重置密码、禁用账号 | 会话列表、任务执行、跨账号访问电脑 |
 | Relay | 账号认证、会话撤销、权限、设备状态、同步、命令/图片/历史转发、数据存储、静态页面 | 安装 PC 的 Codex、替用户运行模型任务 |
 
-PC 连接器由原生宿主、共用 React Native 管理界面和附带 Node 的 Agent sidecar 组成。Windows/macOS 复用同一份 UI、桥接协议和后台核心，只把窗口、托盘/菜单栏、系统凭据及文件对话框放在各自原生适配层。界面通过受限 IPC 调用本机服务。
+Codexer Agent 使用 Electron 主进程、本地 React 管理界面和 PC Agent worker。Windows/macOS 共用同一份界面和后台核心；界面通过受限 preload IPC 调用本机服务。Codexer Control 使用 React Native Windows/macOS 原生宿主。2026-10-24 的最新约定见 [桌面架构](desktop-native.md)。
 
 ## 三种交付方案
 
-1. 控制客户端：原生 App 使用 React Native，Web 使用同一代码的 Expo 导出；Windows RelayDesk 使用本机 React Native 界面，更新 UI 需更新客户端。
-2. PC 连接器：原生管理界面内置 Node 与 Agent 依赖；Windows 安装 EXE，macOS DMG/ZIP。
+1. 控制客户端：原生 App 使用 React Native，Web 使用同一代码的 Expo 导出；桌面 Codexer Control 使用本机 React Native 界面，更新 UI 需更新客户端。
+2. PC 连接器：Electron 本地管理界面内置 Node 与 Agent 依赖；Windows 安装 EXE，macOS DMG/ZIP。
 3. 统一服务器：Go Relay 内嵌两套前端静态产物，一个执行文件、一个进程/端口。`/` 是控制端，`/admin/` 是 React 后台，`/v1/*` 是 API。
 
 Admin 使用 React 而非 React Native：它面向浏览器管理员，与跨平台控制端职责不同。两者独立构建、独立 localStorage key；这不产生第二套控制逻辑。
@@ -41,8 +41,8 @@ Admin 使用 React 而非 React Native：它面向浏览器管理员，与跨平
 | --- | --- |
 | `apps/mobile` | React Native 控制端，目录名称沿用现有工程 |
 | `apps/web/dist` | 控制端的生成结果，不单独维护 UI |
-| `apps/control-native` | Windows 原生控制端、Windows/macOS 共用 Agent 管理界面、sidecar 和平台宿主 |
-| `apps/desktop` | 共用 Agent 控制器/类型；旧 Electron 宿主保留为明确的回退入口 |
+| `apps/control-native` | Windows/macOS 原生 Codexer Control、sidecar 和平台宿主 |
+| `apps/desktop` | Windows/macOS Electron Codexer Agent、共用控制器和类型 |
 | `apps/control-desktop` | 旧 Electron 控制端回退实现及既有图标资源 |
 | `apps/pc-agent` | 本机运行时、状态扫描、命令和用量日志 |
 | `apps/admin` | 侧栏控制台、控制端账号、后台管理员、登录策略和服务器更新 |

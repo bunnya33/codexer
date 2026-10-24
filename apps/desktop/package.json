@@ -1,7 +1,7 @@
 {
   "name": "@codexer/desktop",
-  "version": "0.1.16",
-  "description": "Codexer Windows and macOS PC connector",
+  "version": "0.2.10",
+  "description": "Codexer Agent — Windows and macOS Electron PC connector",
   "author": "Codexer contributors",
   "private": true,
   "type": "module",
@@ -23,7 +23,7 @@
   },
   "build": {
     "appId": "com.codexer.connector",
-    "productName": "Codexer",
+    "productName": "Codexer Agent",
     "electronVersion": "44.5.1",
     "directories": {
       "output": "release"
@@ -46,7 +46,8 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": false
     },
     "mac": {
       "target": [
@@ -57,10 +58,17 @@
       "icon": "assets/icon.icns",
       "hardenedRuntime": true,
       "entitlements": "assets/entitlements.mac.plist",
-      "entitlementsInherit": "assets/entitlements.mac.plist"
+      "entitlementsInherit": "assets/entitlements.mac.plist",
+      "extraResources": [
+        {
+          "from": "dist/native/vault-migrate",
+          "to": "native/vault-migrate"
+        }
+      ]
     },
     "dmg": {
-      "title": "Codexer"
-    }
+      "title": "Codexer Agent"
+    },
+    "artifactName": "Codexer-Agent-${version}-${os}-${arch}.${ext}"
   }
 }

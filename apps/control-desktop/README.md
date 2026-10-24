@@ -1,9 +1,9 @@
-# RelayDesk 控制端
+# Codexer Control 历史 Electron 控制壳
 
-Windows 新版使用 [React Native for Windows](../control-native/README.md)。原生界面、宿主、平台适配和安装包位于 `apps/control-native`；根目录 `npm run package:control-desktop:win` 已切换到原生构建，输出 `RelayDesk-Native-Setup-0.2.0-x64.exe`。
+Windows/macOS 的新版控制客户端名为 **Codexer Control**，使用 [React Native 原生实现](../control-native/README.md)。根命令 `package:control-desktop:win` / `package:control-desktop:mac` 生成原生 Control，输出到 `apps/control-native/release`。
 
-本目录保留 Electron 旧版维护源码：主进程管理窗口、托盘、地址配置与 WebContentsView，控制页来自服务器 Web 导出。它不作为新版 Windows 原生客户端交付。
+本目录保留旧 Electron 控制壳维护源码，主进程管理窗口、托盘、地址与服务器 WebContentsView。它不作为新版原生 Control 交付。2026-10-24 恢复 Electron 的决定只针对 **Codexer Agent**，不把 Control 一并改回 Electron，详见 [桌面约定](../../docs/desktop-native.md)。
 
-旧版开发可运行 `npm run dev:control-desktop`。仅维护旧版时，使用 `npm run build:control-desktop`，再执行 `npm run package:win --workspace @codexer/control-desktop`。
+历史维护用 `npm run dev:control-desktop`，或 `npm run build:control-desktop` 后运行 `npm run package:win --workspace @codexer/control-desktop`。旧壳的可见名称也改为 Codexer Control，内部 Safe Storage / IPC 名称保留兼容。
 
-RelayDesk 用户数据位于 `%APPDATA%\CodexerControl`。原生版兼容已有服务器地址与可迁移登录凭据。图标源文件保留在 `assets/icon.svg`，可用 `node scripts/generate-control-icons.mjs` 更新 PNG 与 ICO。
+原有应用 ID 和 `%APPDATA%\CodexerControl` 数据目录不变。紫色对话图标源在 `assets/icon.svg`，`node scripts/generate-control-icons.mjs` 生成 PNG、ICO、ICNS，供两平台原生 Control 使用；与 Agent 的蓝色终端图标区分。

@@ -1,20 +1,16 @@
-# Windows / macOS 共用原生版
-
-Windows/macOS 的 Codexer PC Agent 管理界面统一使用 React Native 原生宿主，共用 `apps/control-native/src`、产品版本和同一主线。构建产物及实际验证范围见 [原生项目](../apps/control-native/README.md)，Mac 安装与配置迁移见 [macOS](mac.md)。下文涉及 Electron 的历史构建说明仅用于旧版回退维护。
-
-# PC 连接器：安装与使用
+# Codexer Agent：安装与使用
 
 ## 普通用户安装
 
-Windows x64 使用 `Codexer-Native-Setup-<版本>-x64.exe`，Mac 使用对应架构的 `Codexer-Native-<版本>-arm64.dmg` / `x64.dmg`。原生安装包位于 `apps/control-native/release`。无需安装 Node、npm、Git 或下载项目源码。安装包未配置商业代码签名；发行前签名流程见 [发布文档](release.md)。
+Windows x64 使用 `Codexer-Agent-<版本>-win-x64.exe`，Mac 使用 `Codexer-Agent-<版本>-mac-arm64.dmg` 或 x64 包。2026-10-24 起 Windows/macOS 的 PC 连接器统一恢复 Electron，安装包位于 `apps/desktop/release`；与原生控制端 Codexer Control 使用不同图标。无需安装 Node、npm、Git 或下载源码。构建决策见 [桌面架构](desktop-native.md)，签名流程见 [发布](release.md)。
 
 本机必须已安装并登录官方 Codex，任务使用该电脑原有的模型、账号/密钥、工作目录和权限。连接器不代替官方 Codex。macOS 安装和验证见 [macOS 文档](mac.md)。
 
-Windows 原生版使用系统标题栏，支持拖动、最小化、最大化/还原和关闭。默认关闭缩小到托盘；在设置中启用“关闭窗口时退出进程”后，每次关闭均需确认。
+Agent 使用本地管理界面及自定义标题栏，支持拖动、最小化、最大化/还原和关闭。默认关闭缩小到托盘；在设置中启用“关闭窗口时退出进程”后，每次关闭均需确认。
 
 ## 首次连接
 
-1. 启动 Codexer，进入“连接状态”。
+1. 启动 Codexer Agent，进入“连接状态”。
 2. 填写管理员给出的服务器根地址，例如 `https://relay.example.com`。地址不能附带路径、用户名密码、查询或 fragment。
 3. 设置设备名称，输入普通账号及密码，点击“登录并连接”。
 4. 等待 Relay 和本机 Codex 运行环境可用。在手机或服务器首页用同一账号登录后选择这台 PC。
@@ -65,16 +61,16 @@ Windows 原生版使用系统标题栏，支持拖动、最小化、最大化/�
 
 ## 凭据与诊断
 
-PC Agent 原生新代码（Windows/macOS 共用 `0.2.9`，旧 Electron `0.1.16`）上报自身安装包版本，控制端 `0.3.25` 的「设置 → 版本信息」可查看当前设备版本。旧 Agent 显示「未上报」，须在电脑端设置中核对；发布服务器包不会自动替换电脑端安装包。
+Codexer Agent（Windows/macOS 共用 Electron `0.2.10`）上报自身安装包版本，控制端 `0.3.25` 的「设置 → 版本信息」可查看当前设备版本。旧 Agent 显示「未上报」，须在电脑端设置中核对；发布服务器包不会自动替换电脑端安装包。
 
 会话在 `.jsonl` 和 `.jsonl.zst` 之间切换时，现在重新定位文件并有限重试；接口仍返回压缩路径、但会话已恢复成普通文件时，优先读取当前普通文件。读取过程中尺寸/修改时间改变会重新读取，最多三次；不跳过损坏行，不从损坏的当前文件回退到旧压缩权限，也不以默认权限继续发送。仍然失败时区分文件缺失、访问被拒绝、文件占用/变化、内容损坏等诊断代码，控制端显示中文说明并保留代码，Agent 本机诊断日志也记录这些脱敏代码。旧版 `headless-settings-unreadable` 仍可提示检查版本、数据目录与本机诊断。此变更已做合成回归，未取得报错 Mac 的实际文件或版本，不能据此断定该设备的具体原因；稳定缺失、损坏或系统拒绝访问需在该电脑处理。
 
 新版 Codex 可能将较旧的会话保存为 `.jsonl.zst`，但接口仍返回原来的 `.jsonl` 路径。PC 连接器 `0.1.14` 支持直接读取这些压缩会话；旧版远程发送时可能出现 `headless-settings-unreadable`，请更新该电脑的连接器，服务器无需更新。恢复会话仍检查原有沙箱、审批和工作目录权限；文件损坏或权限不完整时拒绝发送。桌面安装包自带所需运行环境；从源码运行命令行 Agent 并读取压缩会话时需要 Node >=22.15。
 
-原生凭据使用系统安全存储：Windows 使用 DPAPI，macOS 使用 Keychain 保存密钥并加密及校验会话文件。升级兼容可解密的旧 Electron safeStorage 凭据。只保存会话，不保存密码；安全存储不可用时拒绝持久登录。账号会话不传入界面。
+凭据使用 Electron safeStorage 系统安全存储，保留旧加密身份；原生 Agent 凭据成功迁移后转存为 Electron 格式。只保存会话，不保存密码；安全存储不可用时拒绝持久登录。账号会话不传入界面。
 
 “诊断日志”展示安全存储、登录、Relay、本机 Codex 的检查结果；导出仅含版本、平台、连接状态和诊断代码。不会导出服务器地址、账号、密码、会话、任务内容或本地目录。磁盘日志超过约 1 MiB 轮换一份。
 
-Windows 原生版本地数据位于 `%APPDATA%\Codexer`，兼容现有 Windows 安装版；macOS 原生沿用 `~/Library/Application Support/@codexer/desktop`。`settings.json` 保存地址、账号名等设置，`session.native.enc` 保存原生加密会话（旧版为 `session.enc`），`agent/<deviceId>` 保存本机命令/用量数据库。卸载前先退出登录；诊断或导出时不分享整个应用数据目录。
+Windows 本地数据优先位于 `%APPDATA%\Codexer`，兼容现有 Windows 安装版；macOS 沿用 `~/Library/Application Support/@codexer/desktop`。`settings.json` 保存地址、账号名等设置，`session.enc` 保存系统加密会话；历史 `session.native.enc` 在成功迁移后删除，`agent/<deviceId>` 保存本机命令/用量数据库。卸载前先退出登录；诊断或导出时不分享整个应用数据目录。
 
 “已连接”只说明远程通道可用；本机运行环境若仍在等待，查看诊断、确认官方 Codex 已登录、程序和数据路径正确。完整排查见 [运维](operations.md)。源码开发入口见 [开发文档](development.md)。

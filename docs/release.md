@@ -1,5 +1,12 @@
 # 本地发布与打包
 
+
+## 桌面客户端 0.2.10：Agent 恢复 Electron，统一产品名称
+
+2026-10-24 用户决定：Windows/macOS 的 PC 连接器恢复 Electron，统一名为 **Codexer Agent**；PC 控制客户端保留 React Native 原生实现，统一名为 **Codexer Control**。Agent 使用蓝色终端连接图标，Control 使用紫色屏幕对话图标。更新窗口、托盘、安装与快捷方式等显示名，保留应用 ID、配置目录、设备身份和凭据身份。
+
+Agent 新增原生登录文件迁回 Electron 系统加密存储的处理；按钮和回车使用 HTML 表单登录流程。默认 `package:desktop*` 生成 Electron Agent，原生打包入口只生成 Control。服务器版本保持 `0.3.25`。构建/验收结果独立记录；本次修改不创建服务器 Release。长期约定见 [桌面架构](desktop-native.md)。
+
 ## 服务器 0.3.25：会话 ID、Agent 版本与恢复诊断
 
 会话列表的三点菜单/长按菜单和当前会话右上角选项均可查看、复制完整原始会话 ID，复制失败可手动选择文本。「设置 → 版本信息」增加当前 PC Agent 版本、设备名称和在线状态，离线显示最后同步值，旧 Agent 显示「未上报」。Agent 在快照中增加可选版本字段，旧快照继续兼容，无数据库迁移。

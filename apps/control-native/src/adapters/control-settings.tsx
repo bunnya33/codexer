@@ -38,7 +38,7 @@ export function ControlSettings({ url, device, onWeixin, onLogout }: {url: strin
   return <View style={{ gap: 20 }}><ThemePicker /><Text selectable style={{ color: c.muted }}>{url}</Text>
     <View style={{ gap: 12, padding: 16, backgroundColor: c.settingsGroup, borderRadius: 12 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><Text style={{ color: c.text }}>服务器版本：{loading ? '正在读取…' : version}</Text>{loading && <ActivityIndicator color={c.muted} />}</View>
-      <Text style={{ color: c.text }}>RelayDesk {controlPlatform} · {controlVersion}</Text>
+      <Text style={{ color: c.text }}>Codexer Control {controlPlatform} · {controlVersion}</Text>
       <AgentVersion device={device} /></View>
     <WindowClosePreference />
     <AgentDownload url={url}/>

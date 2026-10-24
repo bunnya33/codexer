@@ -12,7 +12,7 @@
     Version="1.0.0.0" />
 
   <Properties>
-    <DisplayName>RelayDesk</DisplayName>
+    <DisplayName>Codexer Control</DisplayName>
     <PublisherDisplayName>JOKER</PublisherDisplayName>
     <Logo>Images\StoreLogo.png</Logo>
   </Properties>
@@ -31,8 +31,8 @@
       Executable="$targetnametoken$.exe"
       EntryPoint="$targetentrypoint$">
       <uap:VisualElements
-        DisplayName="RelayDesk"
-        Description="RelayDesk"
+        DisplayName="Codexer Control"
+        Description="Codexer Control"
         BackgroundColor="transparent"
         Square150x150Logo="Images\Square150x150Logo.png"
         Square44x44Logo="Images\Square44x44Logo.png">

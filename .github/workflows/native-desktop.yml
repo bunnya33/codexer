@@ -1,10 +1,11 @@
-name: Shared native PC agents
+name: Native Codexer Control
 on:
   workflow_dispatch:
   push:
     branches: ['main']
     paths:
       - 'apps/control-native/**'
+      - 'apps/control-desktop/assets/**'
       - 'apps/mobile/**'
       - 'apps/pc-agent/**'
       - 'packages/**'
@@ -19,6 +20,7 @@ on:
   pull_request:
     paths:
       - 'apps/control-native/**'
+      - 'apps/control-desktop/assets/**'
       - 'apps/mobile/**'
       - 'apps/pc-agent/**'
       - 'packages/**'
@@ -67,7 +69,7 @@ jobs:
       - run: npm ci --prefix apps/control-native
       - run: node scripts/build-native-sidecar.mjs
       - run: node --test apps/control-native/test/sidecar.test.cjs
-      - name: Package Windows native clients
+      - name: Package Windows Codexer Control
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force diagnostics | Out-Null
@@ -110,7 +112,7 @@ jobs:
       - run: npm ci
       - run: npm ci --prefix apps/control-native/macos
       - run: npm run check:macos-native
-      - name: Package macOS PC Agent
+      - name: Package macOS Codexer Control
         shell: bash
         run: |
           mkdir -p diagnostics

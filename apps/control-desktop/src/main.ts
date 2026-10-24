@@ -12,6 +12,7 @@ import { readServerUrl, saveServerUrl } from "./settings.js";
 import type { ConnectionResult, SetupState } from "./types.js";
 import { attachChrome, registerChromeIpc, TITLEBAR_HEIGHT } from "./chrome.js";
 
+// Preserve the historical encryption identity while renaming visible surfaces.
 app.setName("RelayDesk");
 app.setAppUserModelId("com.codexer.control");
 app.setPath(
@@ -76,7 +77,7 @@ function showSetup(error = ""): void {
     height: 550,
     minWidth: 520,
     minHeight: 520,
-    title: "RelayDesk · 连接服务器",
+    title: "Codexer Control · 连接服务器",
     frame: false,
     icon,
     backgroundColor: "#f6f8f8",
@@ -118,7 +119,7 @@ function createControlWindow(): BrowserWindow {
     height: 860,
     minWidth: 760,
     minHeight: 560,
-    title: "RelayDesk · 会话控制端",
+    title: "Codexer Control · 会话控制端",
     frame: false,
     icon,
     backgroundColor: "#f6f8f8",
@@ -326,7 +327,7 @@ function showMenu(window: BrowserWindow): void {
       ],
     },
     { type: "separator" },
-    { label: "退出 RelayDesk", click: () => app.quit() },
+    { label: "退出 Codexer Control", click: () => app.quit() },
   ]).popup({ window, x: Math.max(0, window.getContentSize()[0]! - 184), y: TITLEBAR_HEIGHT });
 }
 

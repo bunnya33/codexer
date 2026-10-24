@@ -1,7 +1,7 @@
 {
   "name": "@codexer/control-desktop",
   "version": "0.1.1",
-  "description": "RelayDesk Windows conversation control client",
+  "description": "Codexer Control legacy Electron shell",
   "author": "Codexer contributors",
   "private": true,
   "type": "module",
@@ -13,7 +13,7 @@
   },
   "build": {
     "appId": "com.codexer.control",
-    "productName": "RelayDesk",
+    "productName": "Codexer Control",
     "electronVersion": "44.5.1",
     "directories": {
       "output": "release"

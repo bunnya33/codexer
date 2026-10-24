@@ -128,7 +128,7 @@ static id Decode(NSString *value) {
   for(NSArray *entry in @[@[@"撤销",@"undo:",@"z"],@[@"重做",@"redo:",@"Z"],@[@"剪切",@"cut:",@"x"],@[@"复制",@"copy:",@"c"],@[@"粘贴",@"paste:",@"v"],@[@"全选",@"selectAll:",@"a"]]) [edit addItem:[[NSMenuItem alloc]initWithTitle:entry[0] action:NSSelectorFromString(entry[1]) keyEquivalent:entry[2]]];
   NSApp.mainMenu=bar;
   self.statusItem=[NSStatusBar.systemStatusBar statusItemWithLength:NSSquareStatusItemLength];
-  self.statusItem.button.image=[NSImage imageWithSystemSymbolName:[self.mode isEqual:@"agent"]?@"desktopcomputer":@"bubble.left.and.bubble.right" accessibilityDescription:[self.mode isEqual:@"agent"]?@"Codexer PC Agent":@"RelayDesk"];
+  self.statusItem.button.image=[NSImage imageWithSystemSymbolName:[self.mode isEqual:@"agent"]?@"desktopcomputer":@"bubble.left.and.bubble.right" accessibilityDescription:[self.mode isEqual:@"agent"]?@"Codexer Agent":@"Codexer Control"];
   NSMenu *tray=[application copy];self.statusItem.menu=tray;
 }
 - (void)show {[self.window makeKeyAndOrderFront:nil];[NSApp activateIgnoringOtherApps:YES];}

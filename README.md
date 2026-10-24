@@ -7,7 +7,7 @@
 | 模块 | 技术 | 职责与交付 |
 | --- | --- | --- |
 | 控制客户端 | React Native + Expo + TypeScript | iOS、Android、Web 及既有 Windows 原生控制端复用 UI 和远程控制逻辑 |
-| PC 连接器 | React Native Windows/macOS + TypeScript | 共用原生管理界面，内置 Node 和 PC Agent；Windows 安装 EXE / Mac DMG、ZIP |
+| PC 连接器 Codexer Agent | Electron + React + TypeScript | Windows/macOS 共用本地管理界面与 Agent；Windows EXE / Mac DMG、ZIP |
 | 管理后台 | React + Vite + TypeScript | `/admin/` 侧栏控制台、两类独立账号、登录策略、服务器更新 |
 | Relay | Go + HTTP/WebSocket | 登录认证、账号隔离、设备状态、命令与历史转发；SQLite 或 PostgreSQL |
 
@@ -36,6 +36,6 @@ curl -fsSL https://raw.githubusercontent.com/bunnya33/codexer/main/bootstrap.sh 
 
 ## 当前交付范围
 
-Windows 与 macOS 的 Codexer PC Agent 使用同一主线的原生项目，产品版本和功能共用；安装包、构建与实机验收范围见 [原生桌面说明](apps/control-native/README.md) 与 [Mac 说明](docs/mac.md)。移动端原生 JS 导出不等同于 APK/IPA。Linux/systemd 与 Docker 安装流程提供脚本、配置和本地检查，实际部署应按验收步骤确认。详细结果见 [验证范围](docs/validation.md)。
+Windows/macOS 的连接器统一叫 **Codexer Agent**，使用 Electron；PC 控制客户端统一叫 **Codexer Control**，保留 React Native 原生界面。两个程序使用不同图标，在同一主线维护；架构决策见 [桌面约定](docs/desktop-native.md)，安装见 [Agent](docs/pc-setup.md)、[Control](apps/control-native/README.md) 与 [Mac](docs/mac.md)。移动端原生 JS 导出不等同于 APK/IPA。Linux/systemd 与 Docker 安装流程提供脚本、配置和本地检查，实际部署应按验收步骤确认。详细结果见 [验证范围](docs/validation.md)。
 
 所有部署示例、测试使用虚构域名或保留示例 IP；不预置真实服务器地址、账号或密码。源码仓库为 [bunnya33/codexer](https://github.com/bunnya33/codexer)，从当前整理后的内容创建初始版本。安装包与服务器发布包单独分发，旧 Git 历史和本地运行数据不属于源码交付。

@@ -77,3 +77,8 @@ for (let index = 0; index < images.length; index++) {
   offset += images[index].length;
 }
 await writeFile(directory + "/icon.ico", Buffer.concat([header, ...images]));
+
+// The same Control mark is used by Finder/Dock on macOS.
+const chunks=[['icp6',64],['ic07',128],['ic08',256],['ic09',512],['ic10',1024]].map(([type,size])=>{const data=render(size),chunk=Buffer.alloc(8);chunk.write(type);chunk.writeUInt32BE(data.length+8,4);return Buffer.concat([chunk,data]);});
+const icns=Buffer.alloc(8);icns.write('icns');icns.writeUInt32BE(8+chunks.reduce((sum,item)=>sum+item.length,0),4);
+await writeFile(directory+'/icon.icns',Buffer.concat([icns,...chunks]));

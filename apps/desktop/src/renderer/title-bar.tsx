@@ -12,7 +12,7 @@ export function TitleBar() {
   }, []);
   const restoreLabel = state.maximized ? '还原窗口' : '最大化';
   return <div className={`window-titlebar${state.maximized ? ' maximized' : ''}${state.focused ? '' : ' inactive'}`}>
-    <div className="window-title"><Waypoints size={16} strokeWidth={1.4} aria-hidden="true"/><span><strong>Codexer</strong><span className="window-title-separator"> · </span>桌面连接器</span></div>
+    <div className="window-title"><Waypoints size={16} strokeWidth={1.4} aria-hidden="true"/><span><strong>Codexer Agent</strong><span className="window-title-separator"> · </span>桌面连接器</span></div>
     <div className="window-controls" aria-label="窗口操作">
       <button type="button" aria-label="最小化" title="最小化" onClick={() => void window.codexer.window.minimize()}><Minus size={14} strokeWidth={1.3}/></button>
       <button type="button" aria-label={restoreLabel} title={restoreLabel} onClick={() => void window.codexer.window.toggleMaximize()}>{state.maximized ? <Copy size={13} strokeWidth={1.3}/> : <Square size={13} strokeWidth={1.3}/>}</button>

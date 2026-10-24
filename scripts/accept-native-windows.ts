@@ -113,7 +113,7 @@ await new Promise<void>(done=>server.listen(0,'127.0.0.1',done));
 const url='http://127.0.0.1:'+((server.address() as any).port);
 const children:ReturnType<typeof spawn>[]=[];
 try{
-  for(const mode of process.argv.includes('--control')?['control']:['control','agent']){
+  for(const mode of ['control']){
     const profile=join(run,mode);await mkdir(profile);
     if(mode==='control'){
       await writeFile(join(profile,'server.json'),JSON.stringify({url}));
@@ -131,7 +131,7 @@ try{
       const encrypted=spawnSync('powershell.exe',['-NoProfile','-File',script,join(profile,'fixture.json'),join(profile,'session.enc')],{windowsHide:true,encoding:'utf8'});
       assert.equal(encrypted.status,0,encrypted.stderr);await rm(join(profile,'fixture.json'));
     }
-    const product=mode==='control'?'RelayDesk':'Codexer';
+    const product='Codexer Control';
     const productDirectory=join(relocated,product);
     await cp(join(products,product+'-'+version),productDirectory,{recursive:true});
     const exe=join(productDirectory,product+'.exe');
@@ -158,7 +158,7 @@ try{
   }
   // Keep the isolated windows available for manual UI acceptance when requested.
   const keep=process.argv.includes('--keep');
-  await writeFile(join(run,'report.json'),JSON.stringify({ok:true,paths,profiles:children.map((child,index)=>({mode:index?'agent':'control',pid:child.pid}))},null,2));
+  await writeFile(join(run,'report.json'),JSON.stringify({ok:true,paths,profiles:children.map((child,index)=>({mode:'control',pid:child.pid}))},null,2));
   console.log(JSON.stringify({ok:true,run,paths}));
   if(keep)await new Promise<void>(done=>{process.once('SIGINT',done);process.once('SIGTERM',done);});
 }catch(error){
