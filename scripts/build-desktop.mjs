@@ -12,7 +12,7 @@ for (const entry of ['main', 'preload', 'worker']) {
 }
 if(process.platform==='darwin'){
   await mkdir(resolve(directory,'dist/native'),{recursive:true});
-  execFileSync('xcrun',['clang++','-std=c++20','-fobjc-arc','-framework','Foundation','-framework','Security',resolve(directory,'native/vault-migrate.mm'),resolve('apps/control-native/macos/RelayDeskNative/NativeVault.mm'),'-o',resolve(directory,'dist/native/vault-migrate')],{stdio:'inherit'});
+  execFileSync('xcrun',['clang++','-std=c++20','-fobjc-arc','-arch','arm64','-arch','x86_64','-mmacosx-version-min=13.0','-framework','Foundation','-framework','Security',resolve(directory,'native/vault-migrate.mm'),resolve('apps/control-native/macos/RelayDeskNative/NativeVault.mm'),'-o',resolve(directory,'dist/native/vault-migrate')],{stdio:'inherit'});
 }
 await copyFile(resolve(directory, 'assets/icon.png'), resolve(directory, 'dist/icon.png'));
 await viteBuild({ configFile: resolve(directory, 'vite.config.ts') });
