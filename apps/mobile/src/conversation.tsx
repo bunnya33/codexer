@@ -90,8 +90,10 @@ function Activity({ block, turn, deviceId, threadId, onImage, questionRequestIds
   const [now, setNow] = useState(Date.now());
   useEffect(() => { if (block.state !== 'running') return; const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, [block.state]);
   return <View style={s.activity}>
-    <TurnTiming turn={turn} running={block.state === 'running'} />
-    <View style={s.activityHead}>{block.state === 'running' ? <ActivityIndicator size="small" color={c.accent} /> : <Clock3 size={14} color={c.muted} />}<Text style={s.activityText}>{activityLabel(block, now)}</Text></View>
+    <View style={{ gap: 6 }}>
+      <TurnTiming turn={turn} running={block.state === 'running'} />
+      <View style={s.activityHead}>{block.state === 'running' ? <ActivityIndicator size="small" color={c.accent} /> : <Clock3 size={14} color={c.muted} />}<Text style={s.activityText}>{activityLabel(block, now)}</Text></View>
+    </View>
     <View style={s.line} />
     {activitySections(block).map(section => {
       if (section.kind === 'execution') return <ExecutionGroup key={section.id} section={section} deviceId={deviceId} threadId={threadId} onImage={onImage} />;
