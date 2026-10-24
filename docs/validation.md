@@ -1,5 +1,19 @@
 # 当前 Go 迁移验证
 
+## 2026-10-24 桌面产品更名与 Electron Agent 恢复
+
+用户决定 PC 连接器恢复 Electron，名称 Codexer Agent；Windows/macOS 原生控制端统一名称 Codexer Control。最新约定已写入根 AGENTS.md 与 [桌面架构](desktop-native.md)，取代之前两类产品全部 Native 的要求。Agent 0.2.10、Control 0.2.10，服务器版本保持 0.3.25。
+
+Mac arm64 Electron Agent 已实际打包 DMG/ZIP，校验深度 ad-hoc 签名，并替换到 `/Applications/Codexer Agent.app`。旧 `/Applications/Codexer.app` 移到用户缓存备份，原 settings.json 和 installationId 核对一致。未把真实账号密码用于测试；正式配置当前等待 macOS 钥匙串授权，真实账号登录/Relay 连接不能视为已验收。
+
+最终 Electron 包使用独立数据目录及合成服务器，实际操作密码框、按钮登录、输错密码、再次聚焦、回车登录；确认无崩溃、会话系统加密落盘、退出确认和重启恢复账号。模拟服务器刻意拒绝后续会话连接，没有操作官方 Codex 或真实任务。启动脚本另检查版本、配置和身份保留、重复实例退出。旧同步钥匙串读取会卡住主线程，已切换异步初始化，让窗口先显示并等待系统授权；安全存储不降级为明文。
+
+30 项相关测试通过，覆盖控制器、配置目录选择、Windows 旧启动项清理和历史控制壳；Electron Agent 类型检查及 Windows/Mac 原生共享 UI 类型检查通过，Mac 系统适配编译、加密封装/篡改校验与旧 Electron v10 凭据测试通过。真实用户目录本次没有 session.enc 或 session.native.enc，因此不能把合成测试写成真实登录凭据迁移成功。
+
+最终 Agent 实现提交 `6929543` 的 GitHub Actions [40069893712](https://github.com/bunnya33/codexer/actions/runs/40069893712) 已完成 Windows x64 / macOS arm64 打包与启动验收。Windows 安装版与便携版分别为 `Codexer-Agent-Setup-0.2.10-x64.exe`、`Codexer-Agent-Portable-0.2.10-x64.exe`，已下载并核对官方 artifact SHA-256 与包内启动验收报告，避免两种包同名覆盖。Mac 凭据迁移 helper 同时包含 arm64/x86_64，最低 macOS 13.0；最终 Mac 包已替换到本机，app.asar、图标和 helper 与构建目录核对一致，设置及设备身份保留。
+
+原生 Control 共享依赖复核的 GitHub Actions [40069059599](https://github.com/bunnya33/codexer/actions/runs/40069059599) 已完成 Windows x64 / Mac arm64 原生编译、安装包与启动验收；下载的两平台 artifact 已核对官方 SHA-256，Mac Bundle 显示名、应用 ID 和独立图标也已核对。本次没有安装 Mac Control。Windows 没有本机实体桌面操作验收；CI 启动和单实例检查不能代替 Windows 的真实密码输入与系统对话框验证。本次未发布服务器更新或新 tag。
+
 ## 2026-10-23 服务器 v0.3.25 发布
 
 稳定版 [v0.3.25](https://github.com/bunnya33/codexer/releases/tag/v0.3.25) 对应 `b87e35d`，[发布流程](https://github.com/bunnya33/codexer/actions/runs/39864501496) 的全部步骤成功：完整 TypeScript/Go 回归（含 PostgreSQL）、Go race、类型/文档、Web/Admin/内嵌 Go 生产构建、独立单文件服务器验收及 Linux/macOS amd64/arm64 四平台打包。正式 Release 非草稿、非预发布，8 个归档/校验附件齐全；实际下载四份 SHA-256 文件，分别验证校验文件自身及其对应归档的 GitHub 摘要一致。归档生成及服务器执行验收由发布任务完成；本轮未额外下载完整 Linux 归档。本次未安装或重启生产服务器，未生成 PC Agent 或原生控制端安装包。

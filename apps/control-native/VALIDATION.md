@@ -1,5 +1,11 @@
 # 原生客户端验收
 
+## 2026-10-24 当前产品边界
+
+用户决定 PC 连接器恢复 Electron，产品名 Codexer Agent；本原生项目只交付 Codexer Control。以下 Agent Native 迁移记录保留为历史，不再表示当前交付方案。最新版 Agent 的本机安装、实际登录测试和原生 Control 更名构建见 [总体验证记录](../../docs/validation.md)。
+
+更名提交 `ab2421c` 的 GitHub Actions 40068025865，以及共享依赖复核 `eaaabf2` 的 [40069059599](https://github.com/bunnya33/codexer/actions/runs/40069059599)，均已完成 Windows x64 与 macOS arm64 原生 Control 编译/安装包/启动验收。最新两平台安装包已下载并核对官方 artifact SHA-256，Mac Bundle 名称、应用 ID 与图标核对通过。可执行文件为 Codexer Control.exe / Codexer Control.app，沿用原应用 ID 和数据目录，改用独立的紫色对话图标。本次没有安装 Mac Control，也没有把启动验收写成完整会话功能或真实账号登录验收。
+
 ## 0.2.9 Windows/macOS PC Agent（2026-10-24）
 
 本次范围是 Codexer PC 连接器（PC Agent）。Mac 与 Windows Agent 共用 `src/AgentApp.tsx`、sidecar、桥接和控制器，在 `main` 同步功能；没有安装或发布 Mac RelayDesk 控制端。控制端专属的试验弹窗改动已撤回。
