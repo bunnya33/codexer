@@ -9,7 +9,12 @@ import {
   sameServerOrigin,
   trustedSetupRequest,
 } from "../apps/control-desktop/src/policy";
-import { readServerUrl, saveServerUrl } from "../apps/control-desktop/src/settings";
+import {
+  readCloseExits,
+  readServerUrl,
+  saveCloseExits,
+  saveServerUrl,
+} from "../apps/control-desktop/src/settings";
 
 const electron = vi.hoisted(() => {
   type Handler = (...args: any[]) => any;
@@ -32,9 +37,12 @@ const electron = vi.hoisted(() => {
   };
   const windows: MockWindow[] = [];
   const views: MockView[] = [];
-  const loadUrl = vi.fn(async (_url: string) => undefined);
+  const loadUrl = vi.fn(async (_url: string): Promise<void> => undefined);
   const external = vi.fn(async (_url: string) => undefined);
   const ipc = new Map<string, Handler>();
+  const messageBox = vi.fn(async (..._args: any[]) => ({ response: 0 }));
+  const buildMenu = vi.fn((template: any[]) => ({ template, popup: vi.fn() }));
+  const trays: MockTray[] = [];
   const paths = new Map<string, string>();
   const appEvents = handlers();
   const remoteEvents = handlers();
@@ -47,10 +55,27 @@ const electron = vi.hoisted(() => {
     setPermissionCheckHandler: vi.fn(),
   };
 
+  class MockTray {
+    events = handlers();
+    menu: ReturnType<typeof buildMenu> | undefined;
+    constructor(readonly icon: string) {
+      trays.push(this);
+    }
+    on(name: string, fn: Handler) {
+      this.events.on(name, fn);
+    }
+    setToolTip = vi.fn();
+    destroy = vi.fn();
+    setContextMenu(menu: ReturnType<typeof buildMenu>) {
+      this.menu = menu;
+    }
+  }
+
   class MockWindow {
     events = handlers();
     visible = false;
     destroyed = false;
+    contentsDestroyed = false;
     maximized = false;
     fullScreen = false;
     size = [1280, 860];
@@ -59,7 +84,7 @@ const electron = vi.hoisted(() => {
     popup: Handler | undefined;
     frame = { url: "" };
     webEvents = handlers();
-    webContents = {
+    protected contents = {
       ...this.webEvents,
       mainFrame: this.frame,
       getURL: () => this.url,
@@ -71,7 +96,7 @@ const electron = vi.hoisted(() => {
       reloadIgnoringCache: vi.fn(),
       send: vi.fn(),
       loadURL: (url: string) => this.loadURL(url),
-      isDestroyed: () => this.destroyed,
+      isDestroyed: () => this.destroyed || this.contentsDestroyed,
       close: vi.fn(() => {
         this.destroyed = true;
       }),
@@ -79,6 +104,10 @@ const electron = vi.hoisted(() => {
       getZoomFactor: () => 1,
       setZoomFactor: vi.fn(),
     };
+    get webContents() {
+      if (this.destroyed) throw new TypeError("Object has been destroyed");
+      return this.contents;
+    }
     constructor(
       readonly options: Record<string, any>,
       register = true,
@@ -143,6 +172,12 @@ const electron = vi.hoisted(() => {
       await loadUrl(url);
     }
     close() {
+      const event = { preventDefault: vi.fn() };
+      this.events.emit("close", event);
+      if (event.preventDefault.mock.calls.length) return;
+      this.destroy();
+    }
+    destroy() {
       this.destroyed = true;
       this.hide();
       this.events.emit("closed");
@@ -158,6 +193,9 @@ const electron = vi.hoisted(() => {
     setBounds(value: Record<string, number>) {
       this.bounds = value;
     }
+    override get webContents() {
+      return this.contents;
+    }
   }
 
   const app = {
@@ -168,9 +206,12 @@ const electron = vi.hoisted(() => {
       paths.set(name, value);
     },
     getPath: (name: string) => paths.get(name) ?? "/unused-app-data",
-    getVersion: () => "0.1.1",
+    getVersion: () => "0.1.2",
     requestSingleInstanceLock: () => true,
-    quit: vi.fn(),
+    quit: vi.fn(() => {
+      appEvents.emit("before-quit");
+      for (const window of windows) if (!window.isDestroyed()) window.close();
+    }),
     whenReady: () => readyPromise,
   };
   return {
@@ -183,8 +224,15 @@ const electron = vi.hoisted(() => {
     remote,
     MockWindow,
     MockView,
+    MockTray,
+    trays,
+    messageBox,
+    buildMenu,
     reset(url: (path: string) => string) {
       windows.length = 0;
+      trays.length = 0;
+      messageBox.mockReset().mockResolvedValue({ response: 0 });
+      buildMenu.mockClear();
       views.length = 0;
       ipc.clear();
       paths.clear();
@@ -206,12 +254,14 @@ vi.mock("electron", () => ({
   app: electron.app,
   BrowserWindow: electron.MockWindow,
   WebContentsView: electron.MockView,
+  Tray: electron.MockTray,
+  dialog: { showMessageBox: electron.messageBox },
   ipcMain: {
     handle: (name: string, handler: (...args: any[]) => any) => {
       electron.ipc.set(name, handler);
     },
   },
-  Menu: { setApplicationMenu: vi.fn(), buildFromTemplate: vi.fn(() => ({ popup: vi.fn() })) },
+  Menu: { setApplicationMenu: vi.fn(), buildFromTemplate: electron.buildMenu },
   session: {
     defaultSession: { setPermissionRequestHandler: vi.fn() },
     fromPartition: () => electron.remote,
@@ -233,6 +283,21 @@ afterEach(async () => {
 });
 
 describe("Windows control client policy and settings", () => {
+  it("defaults to the tray and stores close preferences independently of the server address", async () => {
+    expect(await readCloseExits(directory)).toBe(false);
+    await saveServerUrl(directory, "https://relay.example.com");
+    await saveCloseExits(directory, true);
+    expect(await readCloseExits(directory)).toBe(true);
+    expect(await readServerUrl(directory)).toBe("https://relay.example.com");
+    await saveServerUrl(directory, "https://second.example.com");
+    expect(await readCloseExits(directory)).toBe(true);
+    await saveCloseExits(directory, false);
+    expect(await readCloseExits(directory)).toBe(false);
+    for (const text of ['{"closeExits":"true"}', "null", "{broken"]) {
+      await writeFile(join(directory, "preferences.json"), text);
+      expect(await readCloseExits(directory)).toBe(false);
+    }
+  });
   it("uses a server root without embedded credentials and keeps navigation on the chosen origin", () => {
     expect(normalizeServerUrl(" https://relay.example.com:443/ ")).toBe(
       "https://relay.example.com",
@@ -307,10 +372,173 @@ function setupEvent() {
 }
 
 describe("Windows control main process through mocked Electron windows", () => {
+  it("hides to the tray by default and restores the same window from the tray or a second launch", async () => {
+    await start();
+    const setup = electron.windows[0]!,
+      tray = electron.trays[0]!;
+    const event = setupEvent();
+    electron.ipc.get("relaydesk:window:close")!(event);
+    expect(setup.visible).toBe(false);
+    expect(setup.isDestroyed()).toBe(false);
+    expect(electron.app.quit).not.toHaveBeenCalled();
+    expect(electron.messageBox).not.toHaveBeenCalled();
+    tray.events.emit("click");
+    expect(setup.visible).toBe(true);
+    setup.close();
+    tray.menu!.template.find((item) => item.label === "打开 Codexer Control").click();
+    expect(setup.visible).toBe(true);
+    setup.close();
+    electron.app.emit("second-instance");
+    expect(setup.visible).toBe(true);
+    expect(electron.windows).toHaveLength(1);
+  });
+
+  it("saves the setting from either menu and asks before exiting, with cancel as the default", async () => {
+    await start();
+    const setup = electron.windows[0]!,
+      event = setupEvent();
+    electron.ipc.get("relaydesk:window:menu")!(event);
+    const menu = electron.buildMenu.mock.results.at(-1)!.value as ReturnType<
+      typeof electron.buildMenu
+    >;
+    const setting = menu.template.find((item) => item.label === "设置").submenu[0];
+    expect(setting.checked).toBe(false);
+    await setting.click({ checked: true });
+    expect(await readCloseExits(directory)).toBe(true);
+    await vi.waitFor(() =>
+      expect(
+        electron.trays[0]!.menu!.template.find((item) => item.label === "设置").submenu[0].checked,
+      ).toBe(true),
+    );
+    electron.ipc.get("relaydesk:window:close")!(event);
+    await vi.waitFor(() => expect(electron.messageBox).toHaveBeenCalledOnce());
+    expect(electron.messageBox.mock.calls[0]![1]).toMatchObject({
+      defaultId: 0,
+      cancelId: 0,
+      buttons: ["取消", "退出进程"],
+    });
+    expect(setup.visible).toBe(true);
+    expect(setup.isDestroyed()).toBe(false);
+    expect(electron.app.quit).not.toHaveBeenCalled();
+    const traySetting = electron.trays[0]!.menu!.template.find((item) => item.label === "设置")
+      .submenu[0];
+    await traySetting.click({ checked: false });
+    expect(await readCloseExits(directory)).toBe(false);
+    await vi.waitFor(() =>
+      expect(
+        electron.trays[0]!.menu!.template.find((item) => item.label === "设置").submenu[0].checked,
+      ).toBe(false),
+    );
+    setup.close();
+    expect(setup.visible).toBe(false);
+    expect(electron.messageBox).toHaveBeenCalledOnce();
+  });
+
+  it("deduplicates pending exit confirmation and quits only after confirmation", async () => {
+    await saveCloseExits(directory, true);
+    let respond!: (answer: { response: number }) => void;
+    electron.messageBox.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          respond = resolve;
+        }),
+    );
+    await start();
+    const setup = electron.windows[0]!;
+    setup.close();
+    setup.close();
+    expect(electron.messageBox).toHaveBeenCalledOnce();
+    expect(electron.app.quit).not.toHaveBeenCalled();
+    respond({ response: 1 });
+    await vi.waitFor(() => expect(setup.isDestroyed()).toBe(true));
+    expect(electron.app.quit).toHaveBeenCalledOnce();
+    expect(electron.trays[0]!.destroy).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a pending connection hidden until the user restores it from the tray", async () => {
+    await start();
+    let finish!: () => void;
+    electron.loadUrl.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const pending = electron.ipc.get("control-setup:connect")!(
+      setupEvent(),
+      "https://relay.example.com",
+    );
+    const setup = electron.windows[0]!,
+      control = electron.windows[1]!;
+    setup.close();
+    finish();
+    expect(await pending).toEqual({ ok: true });
+    expect(setup.isDestroyed()).toBe(true);
+    expect(control.visible).toBe(false);
+    expect(electron.messageBox).not.toHaveBeenCalled();
+    expect(electron.app.quit).not.toHaveBeenCalled();
+    electron.trays[0]!.events.emit("click");
+    expect(control.visible).toBe(true);
+  });
+
+  it("keeps the old close behavior if saving fails and allows system quit without confirmation", async () => {
+    await start();
+    await mkdir(join(directory, "preferences.json.tmp"));
+    const setting = electron.trays[0]!.menu!.template.find((item) => item.label === "设置")
+      .submenu[0];
+    await setting.click({ checked: true });
+    await vi.waitFor(() => expect(electron.messageBox).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(
+        electron.trays[0]!.menu!.template.find((item) => item.label === "设置").submenu[0].enabled,
+      ).toBe(true),
+    );
+    electron.windows[0]!.close();
+    expect(electron.windows[0]!.visible).toBe(false);
+    electron.app.quit();
+    expect(electron.windows[0]!.isDestroyed()).toBe(true);
+    expect(electron.messageBox).toHaveBeenCalledOnce();
+  });
+
+  it("closes the setup window without reading destroyed native properties and ignores late window events", async () => {
+    await saveCloseExits(directory, true);
+    electron.messageBox.mockResolvedValueOnce({ response: 1 });
+    await start();
+    const setup = electron.windows[0]!,
+      event = setupEvent(),
+      contents = setup.webContents;
+    expect(() => electron.ipc.get("relaydesk:window:close")!(event)).not.toThrow();
+    await vi.waitFor(() => expect(setup.isDestroyed()).toBe(true));
+    expect(setup.isDestroyed()).toBe(true);
+    expect(electron.app.quit).toHaveBeenCalledOnce();
+    expect(electron.trays[0]!.destroy).toHaveBeenCalledOnce();
+    expect(() => setup.webContents).toThrow("Object has been destroyed");
+    expect(() => electron.ipc.get("relaydesk:window:state")!(event)).toThrow("untrusted-sender");
+    contents.send.mockClear();
+    for (const name of ["focus", "blur", "maximize", "leave-full-screen"])
+      expect(() => setup.events.emit(name)).not.toThrow();
+    expect(() => setup.webEvents.emit("did-finish-load")).not.toThrow();
+    expect(contents.send).not.toHaveBeenCalled();
+  });
+
+  it("stops publishing title bar state once the local renderer is destroyed", async () => {
+    await start();
+    const setup = electron.windows[0]!,
+      contents = setup.webContents;
+    contents.send.mockClear();
+    setup.contentsDestroyed = true;
+    setup.events.emit("blur");
+    setup.webEvents.emit("did-finish-load");
+    expect(contents.send).not.toHaveBeenCalled();
+    expect(() =>
+      electron.ipc.get("relaydesk:window:state")!({ sender: contents, senderFrame: setup.frame }),
+    ).toThrow("untrusted-sender");
+  });
+
   it("opens the control page in a separate sandbox with no native bridge or Agent", async () => {
     await start();
     const state = electron.ipc.get("control-setup:state")!(setupEvent());
-    expect(state).toEqual({ url: "", version: "0.1.1", error: "" });
+    expect(state).toEqual({ url: "", version: "0.1.2", error: "" });
     const result = await electron.ipc.get("control-setup:connect")!(
       setupEvent(),
       "http://127.0.0.1:8899/",
@@ -456,6 +684,12 @@ describe("Windows control main process through mocked Electron windows", () => {
     expect(setup.options.parent).toBe(control);
     const chromeEvent = { sender: control.webContents, senderFrame: control.frame };
     electron.ipc.get("relaydesk:window:close")!(chromeEvent);
+    expect(control.visible).toBe(false);
+    expect(setup.visible).toBe(false);
+    expect(view.webContents.close).not.toHaveBeenCalled();
+    electron.messageBox.mockResolvedValueOnce({ response: 1 });
+    electron.trays[0]!.menu!.template.find((item) => item.label === "退出 Codexer Control").click();
+    await vi.waitFor(() => expect(control.isDestroyed()).toBe(true));
     expect(view.webContents.close).toHaveBeenCalledOnce();
     expect(() => electron.ipc.get("relaydesk:window:state")!(chromeEvent)).toThrow(
       "untrusted-sender",

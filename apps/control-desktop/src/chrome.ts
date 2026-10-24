@@ -22,9 +22,10 @@ function owner(event: IpcMainInvokeEvent) {
   if (
     !entry ||
     entry.window.isDestroyed() ||
+    event.sender.isDestroyed() ||
     !trustedSetupRequest(event, {
-      sender: entry.window.webContents,
-      frame: entry.window.webContents.mainFrame,
+      sender: event.sender,
+      frame: event.sender.mainFrame,
       url: entry.url,
     })
   )
@@ -47,9 +48,11 @@ export function registerChromeIpc(): void {
 }
 
 export function attachChrome(window: BrowserWindow, url: string, menu: () => void): void {
-  owners.set(window.webContents, { window, url, menu });
+  const contents = window.webContents;
+  owners.set(contents, { window, url, menu });
   const publish = () => {
-    if (!window.isDestroyed()) window.webContents.send("relaydesk:window:state", state(window));
+    if (!window.isDestroyed() && !contents.isDestroyed())
+      contents.send("relaydesk:window:state", state(window));
   };
   window.on("maximize", publish);
   window.on("unmaximize", publish);
@@ -57,6 +60,6 @@ export function attachChrome(window: BrowserWindow, url: string, menu: () => voi
   window.on("blur", publish);
   window.on("enter-full-screen", publish);
   window.on("leave-full-screen", publish);
-  window.webContents.on("did-finish-load", publish);
-  window.on("closed", () => owners.delete(window.webContents));
+  contents.on("did-finish-load", publish);
+  window.on("closed", () => owners.delete(contents));
 }

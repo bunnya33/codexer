@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { normalizeServerUrl } from "./policy.js";
 
-/** 只保存服务器地址；账号登录状态由各服务器来源的 Chromium 存储维护。 */
+/** 账号登录状态由各服务器来源的 Chromium 存储维护。 */
 export async function readServerUrl(directory: string): Promise<string | null> {
   try {
     const settings = JSON.parse(await readFile(join(directory, "server.json"), "utf8")) as {
@@ -19,5 +19,21 @@ export async function saveServerUrl(directory: string, value: string): Promise<v
   await mkdir(directory, { recursive: true });
   const path = join(directory, "server.json");
   await writeFile(path + ".tmp", JSON.stringify({ url }), { mode: 0o600 });
+  await rename(path + ".tmp", path);
+}
+
+export async function readCloseExits(directory: string): Promise<boolean> {
+  try {
+    const settings = JSON.parse(await readFile(join(directory, "preferences.json"), "utf8"));
+    return settings.closeExits === true;
+  } catch {
+    return false;
+  }
+}
+
+export async function saveCloseExits(directory: string, closeExits: boolean): Promise<void> {
+  await mkdir(directory, { recursive: true });
+  const path = join(directory, "preferences.json");
+  await writeFile(path + ".tmp", JSON.stringify({ closeExits }), { mode: 0o600 });
   await rename(path + ".tmp", path);
 }

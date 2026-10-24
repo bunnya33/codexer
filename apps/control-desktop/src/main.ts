@@ -1,5 +1,15 @@
-import { app, BrowserWindow, ipcMain, Menu, session, shell, WebContentsView } from "electron";
-import type { IpcMainInvokeEvent } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  session,
+  shell,
+  Tray,
+  WebContentsView,
+} from "electron";
+import type { IpcMainInvokeEvent, MenuItemConstructorOptions, MessageBoxOptions } from "electron";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -8,7 +18,7 @@ import {
   sameServerOrigin,
   trustedSetupRequest,
 } from "./policy.js";
-import { readServerUrl, saveServerUrl } from "./settings.js";
+import { readCloseExits, readServerUrl, saveCloseExits, saveServerUrl } from "./settings.js";
 import type { ConnectionResult, SetupState } from "./types.js";
 import { attachChrome, registerChromeIpc, TITLEBAR_HEIGHT } from "./chrome.js";
 
@@ -36,6 +46,11 @@ let message = "";
 let connecting = false;
 let attempt = 0;
 let quitting = false;
+let tray: Tray | null = null;
+let closeExits = false;
+let savingCloseBehavior = false;
+let confirmingQuit = false;
+let hiddenToTray = false;
 
 function visibleControl(): boolean {
   return !!controlWindow && !controlWindow.isDestroyed() && controlWindow.isVisible();
@@ -44,9 +59,107 @@ function visibleControl(): boolean {
 function showWindow(): void {
   const window = setupWindow ?? controlWindow;
   if (!window || window.isDestroyed()) return;
+  hiddenToTray = false;
+  if (setupWindow && controlWindow && !controlWindow.isDestroyed()) controlWindow.show();
   if (window.isMinimized()) window.restore();
   window.show();
   window.focus();
+}
+
+function messageBox(options: MessageBoxOptions, window = setupWindow ?? controlWindow) {
+  return window && !window.isDestroyed()
+    ? dialog.showMessageBox(window, options)
+    : dialog.showMessageBox(options);
+}
+
+async function requestQuit(): Promise<void> {
+  if (quitting || confirmingQuit) return;
+  confirmingQuit = true;
+  try {
+    showWindow();
+    const { response } = await messageBox({
+      type: "question",
+      title: "退出 Codexer Control",
+      message: "确定退出 Codexer Control 进程吗？",
+      detail: "远端 PC 上正在执行的任务会继续运行。",
+      buttons: ["取消", "退出进程"],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    });
+    if (response === 1) app.quit();
+  } catch {
+    showWindow();
+  } finally {
+    confirmingQuit = false;
+  }
+}
+
+function bindCloseBehavior(window: BrowserWindow): void {
+  window.on("close", (event) => {
+    if (quitting) return;
+    event.preventDefault();
+    if (closeExits || !tray) void requestQuit();
+    else {
+      hiddenToTray = true;
+      setupWindow?.hide();
+      controlWindow?.hide();
+    }
+  });
+}
+
+function closeSettingsMenu(): MenuItemConstructorOptions {
+  return {
+    label: "设置",
+    submenu: [
+      {
+        label: "关闭窗口时退出进程",
+        type: "checkbox",
+        checked: closeExits,
+        enabled: !savingCloseBehavior,
+        click: (item) => updateCloseBehavior(item.checked),
+      },
+      { label: "未勾选时，关闭窗口后缩小到托盘", enabled: false },
+    ],
+  };
+}
+
+async function updateCloseBehavior(value: boolean): Promise<void> {
+  if (savingCloseBehavior || quitting) return;
+  savingCloseBehavior = true;
+  updateTrayMenu();
+  try {
+    await saveCloseExits(app.getPath("userData"), value);
+    closeExits = value;
+  } catch {
+    await messageBox({
+      type: "error",
+      title: "设置保存失败",
+      message: "无法保存关闭行为，请检查本地数据目录权限后重试。",
+    }).catch(() => undefined);
+  } finally {
+    savingCloseBehavior = false;
+    updateTrayMenu();
+  }
+}
+
+function updateTrayMenu(): void {
+  tray?.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: "打开 Codexer Control", click: showWindow },
+      closeSettingsMenu(),
+      { type: "separator" },
+      { label: "退出 Codexer Control", click: () => void requestQuit() },
+    ]),
+  );
+}
+
+function createTray(): void {
+  tray = new Tray(icon);
+  tray.setToolTip("Codexer Control");
+  tray.on("click", showWindow);
+  tray.on("double-click", showWindow);
+  updateTrayMenu();
 }
 
 function setupState(): SetupState {
@@ -69,7 +182,7 @@ function showSetup(error = ""): void {
   if (quitting) return;
   message = error;
   if (setupWindow && !setupWindow.isDestroyed()) {
-    showWindow();
+    if (!hiddenToTray) showWindow();
     return;
   }
   setupWindow = new BrowserWindow({
@@ -94,15 +207,16 @@ function showSetup(error = ""): void {
   const window = setupWindow;
   window.setMenu(null);
   attachChrome(window, setupUrl, () => showMenu(window));
+  bindCloseBehavior(window);
   bindShortcuts(window.webContents, window);
   window.once("ready-to-show", () => {
-    if (!quitting) window.show();
+    if (!quitting && !hiddenToTray) window.show();
   });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => event.preventDefault());
   window.on("closed", () => {
     if (setupWindow === window) setupWindow = null;
-    if (!visibleControl()) app.quit();
+    if (!visibleControl() && !tray && !quitting) app.quit();
   });
   void window.loadFile(setupPath).catch(() => app.quit());
 }
@@ -135,6 +249,7 @@ function createControlWindow(): BrowserWindow {
   controlWindow = window;
   window.setMenu(null);
   attachChrome(window, shellUrl, () => showMenu(window));
+  bindCloseBehavior(window);
   bindShortcuts(window.webContents, window);
   window.webContents.on("will-navigate", (event) => event.preventDefault());
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
@@ -224,10 +339,13 @@ async function connect(value: unknown): Promise<ConnectionResult> {
     if (quitting || current !== attempt) return { ok: false };
     serverUrl = url;
     message = "";
-    window.show();
-    window.focus();
-    setupWindow?.close();
-    contents.focus();
+    if (!hiddenToTray) {
+      window.show();
+      window.focus();
+    }
+    // 成功连接后的地址窗口清理不属于用户关闭，不触发托盘或退出确认。
+    setupWindow?.destroy();
+    if (!hiddenToTray) contents.focus();
     return { ok: true };
   } catch {
     if (quitting || current !== attempt) return { ok: false };
@@ -327,7 +445,8 @@ function showMenu(window: BrowserWindow): void {
       ],
     },
     { type: "separator" },
-    { label: "退出 Codexer Control", click: () => app.quit() },
+    closeSettingsMenu(),
+    { label: "退出 Codexer Control", click: () => void requestQuit() },
   ]).popup({ window, x: Math.max(0, window.getContentSize()[0]! - 184), y: TITLEBAR_HEIGHT });
 }
 
@@ -359,16 +478,22 @@ function bindShortcuts(contents: Electron.WebContents, window: BrowserWindow): v
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on("second-instance", showWindow);
-  app.on("window-all-closed", () => app.quit());
+  app.on("window-all-closed", () => {
+    if (!tray) app.quit();
+  });
   app.on("before-quit", () => {
     quitting = true;
     attempt++;
+    tray?.destroy();
+    tray = null;
   });
   void app
     .whenReady()
     .then(async () => {
       configureSession();
       Menu.setApplicationMenu(null);
+      closeExits = await readCloseExits(app.getPath("userData"));
+      createTray();
       registerChromeIpc();
       ipcMain.handle("control-setup:state", (event) => {
         assertSetupSender(event);
