@@ -9,9 +9,13 @@ on:
       - 'apps/pc-agent/**'
       - 'packages/**'
       - 'scripts/build-native-*.mjs'
+      - 'scripts/sign-native-*.mjs'
+      - 'package.json'
+      - 'package-lock.json'
       - 'scripts/check-native-macos.mjs'
       - 'scripts/accept-native-*.mjs'
       - '.github/workflows/native-desktop.yml'
+      - '!apps/control-native/**/*.md'
   pull_request:
     paths:
       - 'apps/control-native/**'
@@ -19,9 +23,13 @@ on:
       - 'apps/pc-agent/**'
       - 'packages/**'
       - 'scripts/build-native-*.mjs'
+      - 'scripts/sign-native-*.mjs'
+      - 'package.json'
+      - 'package-lock.json'
       - 'scripts/check-native-macos.mjs'
       - 'scripts/accept-native-*.mjs'
       - '.github/workflows/native-desktop.yml'
+      - '!apps/control-native/**/*.md'
 permissions:
   contents: read
 jobs:

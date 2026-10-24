@@ -6,6 +6,16 @@
 #import "DesktopHost.h"
 #import "RelayDesktopModule.h"
 #import <signal.h>
+#import <objc/runtime.h>
+
+static BOOL CXSVGUsesDrawRect(id view,SEL selector){return NO;}
+static void CXConfigureSVGDrawing(void){
+  // RN macOS Fabric prefers layer updates; SVG renders through drawRect.
+  // Add an override only while SVG has no implementation of its own.
+  Class svg=NSClassFromString(@"RNSVGSvgView");
+  Method inherited=class_getInstanceMethod(NSView.class,@selector(wantsUpdateLayer));
+  if(svg&&inherited)class_addMethod(svg,@selector(wantsUpdateLayer),(IMP)CXSVGUsesDrawRect,method_getTypeEncoding(inherited));
+}
 
 @interface NativeAppDelegate : RCTDefaultReactNativeFactoryDelegate <NSApplicationDelegate>
 @property(nonatomic,strong) RCTReactNativeFactory *factory;
@@ -28,6 +38,7 @@
     if(error.code==2)exit(0);
     NSAlert *alert=[NSAlert new];alert.messageText=@"无法启动本机原生客户端";alert.informativeText=@"请确认安装包完整且数据目录可读写。原有设置和登录数据会保留。";[alert runModal];exit(1);
   }
+  CXConfigureSVGDrawing();
   self.dependencyProvider=[RCTAppDependencyProvider new];self.factory=[[RCTReactNativeFactory alloc]initWithDelegate:self];
   NSWindow *window=[[NSWindow alloc]initWithContentRect:NSMakeRect(0,0,1280,860) styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskResizable|NSWindowStyleMaskMiniaturizable backing:NSBackingStoreBuffered defer:NO];
   window.releasedWhenClosed=NO;window.title=[host.mode isEqual:@"agent"]?@"Codexer PC Agent":@"RelayDesk";window.minSize=NSMakeSize(940,680);window.delegate=host;host.window=window;

@@ -2,6 +2,7 @@ import {spawn,execFileSync} from 'node:child_process';
 import {access,cp,mkdir,readFile,readdir,rename,rm,symlink,writeFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {join,resolve,basename} from 'node:path';
+import {signNativeMacProduct} from './sign-native-macos.mjs';
 
 const root=resolve(import.meta.dirname,'..');
 const app=join(root,'apps/control-native'),mac=join(app,'macos');
@@ -66,39 +67,7 @@ for(const mode of modes){
   await access(join(resources,'main.jsbundle'));
   const actual=execFileSync('/usr/libexec/PlistBuddy',['-c','Print :CFBundleShortVersionString',join(product,'Contents/Info.plist')],{encoding:'utf8'}).trim();
   if(actual!==version)throw new Error('Native output version mismatch; rebuild without --skip-build.');
-  const identity=process.env.CODEXER_MAC_SIGN_IDENTITY||'-';
-  const entitlements=join(mac,'RelayDeskNative/Runtime.entitlements');
-  const nodeEntitlements=join(mac,'RelayDeskNative/NodeRuntime.entitlements');
-  async function signNested(directory){
-    for(const entry of await readdir(directory,{withFileTypes:true})){
-      const path=join(directory,entry.name);
-      if(entry.isDirectory()){
-        await signNested(path);
-        if(entry.name.endsWith('.framework'))await run('codesign',['--force','--sign',identity,'--options','runtime',path]);
-      }
-      else if(entry.name.endsWith('.node')||entry.name.endsWith('.dylib')||entry.name==='node')await run('codesign',['--force','--sign',identity,'--options','runtime',...(entry.name==='node'?['--entitlements',nodeEntitlements]:[]),path]);
-    }
-  }
-  await signNested(join(product,'Contents'));
-  await run('codesign',['--force','--sign',identity,'--options','runtime','--entitlements',entitlements,product]);
-  await run('codesign',['--verify','--deep','--strict',product]);
-  // Use the signed, bundled runtime: a system Node would hide packaging and
-  // hardened-runtime failures, including native addon library validation.
-  await run(join(resources,'runtime/node'),['-e',`
-    const assert=require('node:assert/strict');
-    const fs=require('node:fs/promises'),os=require('node:os'),path=require('node:path');
-    const {zstdCompressSync,zstdDecompressSync}=require('node:zlib');
-    const {ClassicLevel}=require('./node_modules/classic-level');
-    (async()=>{
-      const sample=Buffer.from('Codexer native runtime');
-      assert.deepEqual(zstdDecompressSync(zstdCompressSync(sample)),sample);
-      const dir=await fs.mkdtemp(path.join(os.tmpdir(),'codexer-native-'));
-      const db=new ClassicLevel(path.join(dir,'db'));
-      try{await db.put('runtime','ok');assert.equal(await db.get('runtime'),'ok');}
-      finally{await db.close();await fs.rm(dir,{recursive:true,force:true});}
-      console.log('Signed packaged Node, Zstandard and native LevelDB passed.');
-    })().catch(error=>{console.error(error);process.exitCode=1;});
-  `],join(resources,'service'));
+  await signNativeMacProduct(product);
   if(flags.has('--stage-only')){console.log(product);continue;}
   const prefix=`${name}-Native-${version}-${process.arch}`;
   const zip=join(output,prefix+'-mac.zip'),dmg=join(output,prefix+'.dmg');
