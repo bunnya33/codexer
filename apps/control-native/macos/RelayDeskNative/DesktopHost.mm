@@ -136,7 +136,7 @@ static id Decode(NSString *value) {
 - (void)updateBadge:(BOOL)available {
   self.updateAvailable=available;
   NSImage *base=[NSImage imageWithSystemSymbolName:[self.mode isEqual:@"agent"]?@"desktopcomputer":@"bubble.left.and.bubble.right" accessibilityDescription:[self.mode isEqual:@"agent"]?@"Codexer Agent":@"Codexer Control"];
-  if(available){NSImage *image=[NSImage imageWithSize:NSMakeSize(20,20) flipped:NO drawingHandler:^BOOL(NSRect rect){[base drawInRect:NSMakeRect(0,1,18,18)];[[NSColor colorWithSRGBRed:235/255.0 green:55/255.0 blue:58/255.0 alpha:1]setFill];[[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(13,13,6,6)]fill];return YES;}];image.template=NO;self.statusItem.button.image=image;}
+  if(available){NSImage *image=[NSImage imageWithSize:NSMakeSize(20,20) flipped:NO drawingHandler:^BOOL(NSRect rect){[base drawInRect:NSMakeRect(0,1,18,18)];[[NSColor colorWithSRGBRed:235/255.0 green:55/255.0 blue:58/255.0 alpha:1]setFill];[[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(13,13,6,6)]fill];return YES;}];[image setTemplate:NO];self.statusItem.button.image=image;}
   else self.statusItem.button.image=base;
   self.statusItem.button.toolTip=available?@"Codexer Control · 有新版本":@"Codexer Control";
 }
