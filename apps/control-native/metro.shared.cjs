@@ -22,6 +22,7 @@ module.exports = function desktopConfig(platform, dependencyRoot) {
         if(modules[name]) return {type:'sourceFile',filePath:path.join(app,'src/adapters',modules[name])};
         const origin=context.originModulePath.replaceAll('\\','/');
         const key=path.basename(name).replace(/\.(tsx?|jsx?)$/,'');
+        if(platform==='macos' && origin.includes('/apps/control-native/src/') && name.endsWith('/modal-host')) return {type:'sourceFile',filePath:path.join(app,'src/adapters/modal-host.macos.tsx')};
         if(origin.includes('/apps/mobile/') && name.startsWith('.') && adapters.has(key)) return {type:'sourceFile',filePath:path.join(app,'src/adapters',key+(components.has(key)?'.tsx':'.ts'))};
         if(name==='react-native'||name.startsWith('react-native/')) return context.resolveRequest(context,name.replace(/^react-native/,runtime),target);
         if(name.startsWith('.') && name.endsWith('.js') && origin.includes('/packages/')) return context.resolveRequest(context,name.slice(0,-3),target);

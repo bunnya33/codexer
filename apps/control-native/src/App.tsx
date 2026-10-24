@@ -8,6 +8,7 @@ import React,{useEffect,useState} from 'react';
 import {ActivityIndicator,Text,View} from 'react-native';
 import ControlApp from '../../mobile/App';
 import AgentApp from './AgentApp';
+import {ModalHost} from './adapters/modal-host';
 import {boot,request,subscribe} from './bridge';
 import {initializeSelection} from './adapters/selection-storage';
 import {relay} from '../../mobile/src/relay';
@@ -38,4 +39,4 @@ function NativeApp(){
   </View></Boundary>;
 }
 
-export default function App(){return <ThemeProvider><NativeApp/></ThemeProvider>;}
+export default function App(){return <ThemeProvider><ModalHost><NativeApp/></ModalHost></ThemeProvider>;}

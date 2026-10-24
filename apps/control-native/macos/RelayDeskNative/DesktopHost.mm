@@ -8,6 +8,17 @@
 #import <fcntl.h>
 #import <unistd.h>
 
+static NSView *CXFindView(NSView *root,NSInteger tag) {
+  if(root.tag==tag)return root;
+  for(NSView *child in root.subviews){NSView *found=CXFindView(child,tag);if(found)return found;}
+  return nil;
+}
+static NSView *CXResponderView(NSResponder *responder) {
+  if([responder isKindOfClass:NSTextView.class] && [(NSTextView *)responder isFieldEditor]){
+    id delegate=[(NSTextView *)responder delegate];if([delegate isKindOfClass:NSView.class])return delegate;
+  }
+  return [responder isKindOfClass:NSView.class]?(NSView *)responder:nil;
+}
 static NSString *Encode(id value) {
   NSData *data=[NSJSONSerialization dataWithJSONObject:value options:NSJSONWritingFragmentsAllowed error:nil];
   return data?[[NSString alloc]initWithData:data encoding:NSUTF8StringEncoding]:@"null";
@@ -30,6 +41,9 @@ static id Decode(NSString *value) {
 @property(nonatomic) BOOL showingQuit;
 @property(nonatomic) int lockFile;
 @property(nonatomic,strong) id scrollMonitor;
+@property(nonatomic,weak) NSView *modalView;
+@property(nonatomic,weak) NSView *modalBackground;
+@property(nonatomic,weak) NSResponder *modalPreviousResponder;
 @end
 @implementation DesktopHost
 + (instancetype)shared {static DesktopHost *host;static dispatch_once_t once;dispatch_once(&once,^{host=[DesktopHost new];});return host;}
@@ -82,9 +96,24 @@ static id Decode(NSString *value) {
   self.task.terminationHandler=^(NSTask *task){dispatch_async(dispatch_get_main_queue(),^{if(!weak.stopping)[weak backendFailed];});};
   if(![self.task launchAndReturnError:error])return NO;
   [self configureMenus];
-  self.scrollMonitor=[NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskScrollWheel handler:^NSEvent *(NSEvent *event){
+  self.scrollMonitor=[NSEvent addLocalMonitorForEventsMatchingMask:(NSEventMaskScrollWheel|NSEventMaskKeyDown) handler:^NSEvent *(NSEvent *event){
     DesktopHost *host=weak;
-    if(event.window==host.window && fabs(event.scrollingDeltaY)>.1)[host emit:@"scrollIntent" value:@{@"direction":event.scrollingDeltaY>0?@"up":@"down"}];
+    if(event.window==host.window && event.type==NSEventTypeKeyDown && host.modalView){
+      if(event.keyCode==53){[host emit:@"modalClose" value:NSNull.null];return nil;}
+      NSView *focused=CXResponderView(host.window.firstResponder);
+      if(event.keyCode==48){
+        NSView *candidate=focused?:host.window.contentView;BOOL reverse=(event.modifierFlags&NSEventModifierFlagShift)!=0;
+        for(NSUInteger index=0;index<1000;index++){
+          NSView *next=reverse?candidate.previousValidKeyView:candidate.nextValidKeyView;
+          if(!next || next==focused)break;
+          candidate=next;
+          if([candidate isDescendantOf:host.modalView] && [host.window makeFirstResponder:candidate])break;
+        }
+        return nil;
+      }
+      if(![focused isDescendantOf:host.modalView] && !(event.modifierFlags&NSEventModifierFlagCommand))return nil;
+    }
+    if(event.window==host.window && event.type==NSEventTypeScrollWheel && fabs(event.scrollingDeltaY)>.1)[host emit:@"scrollIntent" value:@{@"direction":event.scrollingDeltaY>0?@"up":@"down"}];
     return event;
   }];
   return YES;
@@ -101,6 +130,22 @@ static id Decode(NSString *value) {
   if(!NSThread.isMainThread){dispatch_async(dispatch_get_main_queue(),^{[self request:method payload:payload reply:reply];});return;}
   id value=Decode(payload);
   if(![value isKindOfClass:NSDictionary.class]||payload.length>16*1024*1024){reply(nil,@"invalid-native-request");return;}
+  if([method isEqual:@"window.modal"]){
+    NSNumber *tag=value[@"tag"];
+    if([tag isKindOfClass:NSNumber.class]){
+      NSView *view=CXFindView(self.window.contentView,tag.integerValue);
+      if(!view){reply(nil,@"modal-view-unavailable");return;}
+      if(!self.modalView)self.modalPreviousResponder=self.window.firstResponder;
+      self.modalView=view;[self.window makeFirstResponder:nil];
+      NSNumber *background=value[@"background"];
+      self.modalBackground=[background isKindOfClass:NSNumber.class]?CXFindView(self.window.contentView,background.integerValue):nil;
+      [self.modalBackground setAccessibilityHidden:YES];
+    }else{
+      self.modalView=nil;[self.modalBackground setAccessibilityHidden:NO];self.modalBackground=nil;
+      if(self.modalPreviousResponder)[self.window makeFirstResponder:self.modalPreviousResponder];self.modalPreviousResponder=nil;
+    }
+    reply(@YES,nil);return;
+  }
   if(!self.task.running){reply(nil,@"native-service-unavailable");return;}
   NSNumber *identifier=@(++self.sequence);self.pending[identifier]=[reply copy];
   [self send:@{@"id":identifier,@"method":method,@"value":value}];

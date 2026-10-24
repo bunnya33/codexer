@@ -41,7 +41,7 @@ static void CXConfigureSVGDrawing(void){
   CXConfigureSVGDrawing();
   self.dependencyProvider=[RCTAppDependencyProvider new];self.factory=[[RCTReactNativeFactory alloc]initWithDelegate:self];
   NSWindow *window=[[NSWindow alloc]initWithContentRect:NSMakeRect(0,0,1280,860) styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskResizable|NSWindowStyleMaskMiniaturizable backing:NSBackingStoreBuffered defer:NO];
-  window.releasedWhenClosed=NO;window.title=[host.mode isEqual:@"agent"]?@"Codexer PC Agent":@"RelayDesk";window.minSize=NSMakeSize(940,680);window.delegate=host;host.window=window;
+  window.autorecalculatesKeyViewLoop=YES;window.releasedWhenClosed=NO;window.title=[host.mode isEqual:@"agent"]?@"Codexer PC Agent":@"RelayDesk";window.minSize=NSMakeSize(940,680);window.delegate=host;host.window=window;
   window.contentView=[self.factory.rootViewFactory viewWithModuleName:@"RelayDesk"];[window center];
   if(![NSProcessInfo.processInfo.arguments containsObject:@"--background"])[host show];
   signal(SIGTERM,SIG_IGN);self.terminationSignal=dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL,SIGTERM,0,dispatch_get_main_queue());
