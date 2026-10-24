@@ -1,10 +1,14 @@
 # 客户端更新与设置界面
 
-Codexer Agent 和 Codexer Control 从当前登录的 Relay 获取各自的客户端版本。管理后台的“客户端更新与红点提示”按产品、系统和架构上传安装包，并填写包内的实际版本。Android 还必须填写 APK 的实际 `versionCode`，更新包须沿用原应用 ID 与签名。
+Codexer Agent 和 Codexer Control 从当前登录的 Relay 获取各自的客户端版本。管理后台左侧的“客户端更新”按产品、系统和架构上传安装包，并填写包内的实际版本。Android 还必须填写 APK 的实际 `versionCode`，更新包须沿用原应用 ID 与签名。
 
 ## 发布与检查
 
 Windows Agent 分为安装版和便携版；macOS Agent/Control 分为 Apple Silicon 和 Intel；Windows Control 使用原生安装包；Android 使用 APK。不同目标分别发布，安装包最多 512 MiB。服务器流式保存并计算 SHA-256，校验文件格式后原子替换版本元数据；失败时上一版继续可用。客户端包位于 Relay 数据目录的 `client-releases`，备份时一并保留。
+
+“安装包管理”展示全部当前发布和历史安装包，包括平台、文件名、版本/构建号、大小、上传时间、SHA-256 与说明，并统计数量和总占用；可按平台及当前/历史状态筛选。成功发布新包后保留上一版为历史，历史包不继续提供客户端更新或下载。升级时纳入原有当前发布，先前已自动删除的旧包无法恢复。
+
+删除前显示确认，确认后移除服务器文件并释放空间。删除历史包不影响当前发布；删除当前发布会同时停止该平台的更新和下载，不自动回退到历史版本，已安装客户端仍可使用。正在下载的包暂不能删除；上传和删除互斥，失败可重试。客户端版本目录与旧的手动下载目录独立，旧入口仍只保留最近上传的一包。
 
 客户端在登录、启动和此后每六小时检查，也可以从设置手动检查。桌面客户端的托盘/菜单栏图标显示红点；Android 在会话目录的设置按钮显示红点。打开设置或下载更新不会清除提示，安装到相同或更高版本后才会消失。网络暂时中断时保留已发现的新版本；退出登录或切换服务器后清除旧连接状态。
 
@@ -16,8 +20,9 @@ Windows Agent 便携版下载后打开文件所在目录，需退出旧版并手
 
 ## API
 
-- `GET /v1/admin/client-releases`：管理员查看全部已发布目标。
+- `GET /v1/admin/client-releases`：管理员读取当前目标映射 `releases` 和包含历史的安装包列表 `packages`。
 - `PUT /v1/admin/client-releases/{target}?name=...&version=...&buildNumber=...&notes=...`：管理员上传原始二进制包；说明最多 2000 字符。
+- `DELETE /v1/admin/client-releases/{target}/{releaseId}`：管理员删除指定安装包；删除当前版同时撤下该目标。目标/ID 不匹配或已删除返回 404，正在下载或上传返回 409。
 - `GET /v1/client-releases/{target}`：读取 `{release: null | metadata}`。
 - `GET /v1/client-releases/{target}/{releaseId}/download`：按不可变发布 ID 下载；支持 Range。被替换的旧发布返回不可用，客户端重新检查后重试。
 

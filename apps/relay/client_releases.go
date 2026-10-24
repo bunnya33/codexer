@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -46,6 +47,8 @@ type clientReleaseStore struct {
 	directory string
 	temporary bool
 	latest    map[string]*clientRelease
+	releases  map[string]*clientRelease
+	downloads map[string]int
 }
 
 func validClientRelease(v *clientRelease) bool {
@@ -64,7 +67,7 @@ func newClientReleaseStore(directory string) (*clientReleaseStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	u := &clientReleaseStore{directory: directory, temporary: temporary, latest: map[string]*clientRelease{}}
+	u := &clientReleaseStore{directory: directory, temporary: temporary, latest: map[string]*clientRelease{}, releases: map[string]*clientRelease{}, downloads: map[string]int{}}
 	data, err := os.ReadFile(filepath.Join(directory, "latest.json"))
 	if err == nil {
 		if json.Unmarshal(data, &u.latest) != nil || u.latest == nil {
@@ -81,6 +84,38 @@ func newClientReleaseStore(directory string) (*clientReleaseStore, error) {
 		}
 	} else if !os.IsNotExist(err) {
 		return nil, err
+	}
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		id := strings.TrimSuffix(entry.Name(), ".json")
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") || !uuidPattern.MatchString(id) {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(directory, entry.Name()))
+		var v clientRelease
+		if err != nil || json.Unmarshal(data, &v) != nil || v.ID != id || !validClientRelease(&v) {
+			return nil, errors.New("invalid-client-release-metadata")
+		}
+		info, err := os.Stat(filepath.Join(directory, id))
+		if os.IsNotExist(err) {
+			// A crash after deleting the payload may leave its metadata behind.
+			_ = os.Remove(filepath.Join(directory, entry.Name()))
+			continue
+		}
+		if err != nil || !info.Mode().IsRegular() || info.Size() != v.Size {
+			return nil, errors.New("client-release-file-missing")
+		}
+		u.releases[id] = &v
+	}
+	// Keep latest.json compatible and index packages published before history existed.
+	for _, v := range u.latest {
+		if err := AtomicJSON(filepath.Join(directory, v.ID+".json"), v, 0600); err != nil {
+			return nil, err
+		}
+		u.releases[v.ID] = v
 	}
 	return u, nil
 }
@@ -147,7 +182,63 @@ func (s *Server) clientReleaseRoutes() {
 			copy := *value
 			result[key] = &copy
 		}
-		return M{"releases": result}
+		packages := make([]*clientRelease, 0, len(u.releases))
+		for _, value := range u.releases {
+			copy := *value
+			packages = append(packages, &copy)
+		}
+		sort.Slice(packages, func(i, j int) bool {
+			if packages[i].UploadedAt == packages[j].UploadedAt {
+				return packages[i].ID < packages[j].ID
+			}
+			return packages[i].UploadedAt > packages[j].UploadedAt
+		})
+		return M{"releases": result, "packages": packages}
+	})
+	s.route("DELETE /v1/admin/client-releases/{target}/{releaseId}", "admin", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
+		u := s.clientReleases
+		if !u.upload.TryLock() {
+			fail(409, "client-upload-in-progress")
+		}
+		defer u.upload.Unlock()
+		s.exclusive.RLock()
+		defer s.exclusive.RUnlock()
+		s.principal(r, "admin")
+		u.mu.Lock()
+		defer u.mu.Unlock()
+		v := u.releases[r.PathValue("releaseId")]
+		if v == nil || v.Target != r.PathValue("target") {
+			fail(404, "client-release-unavailable")
+		}
+		if u.downloads[v.ID] > 0 {
+			fail(409, "client-release-in-use")
+		}
+		current := u.latest[v.Target]
+		removingCurrent := current != nil && current.ID == v.ID
+		if removingCurrent {
+			// Unpublish before removing the file, so a restart never advertises a missing package.
+			next := make(map[string]*clientRelease, len(u.latest))
+			for target, value := range u.latest {
+				if target != v.Target {
+					next[target] = value
+				}
+			}
+			if AtomicJSON(filepath.Join(u.directory, "latest.json"), next, 0600) != nil {
+				fail(500, "client-release-storage-error")
+			}
+		}
+		if err := os.Remove(filepath.Join(u.directory, v.ID)); err != nil && !os.IsNotExist(err) {
+			if removingCurrent && AtomicJSON(filepath.Join(u.directory, "latest.json"), u.latest, 0600) != nil {
+				delete(u.latest, v.Target)
+			}
+			fail(500, "client-release-delete-error")
+		}
+		if removingCurrent {
+			delete(u.latest, v.Target)
+		}
+		delete(u.releases, v.ID)
+		_ = os.Remove(filepath.Join(u.directory, v.ID+".json"))
+		return M{"ok": true}
 	})
 	s.route("GET /v1/client-releases/{target}", "", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
 		s.clientReleasePrincipal(r)
@@ -220,46 +311,50 @@ func (s *Server) clientReleaseRoutes() {
 		}
 		u.mu.Lock()
 		defer u.mu.Unlock()
-		previous := u.latest[release.Target]
-		u.latest[release.Target] = release
+		next := make(map[string]*clientRelease, len(u.latest)+1)
+		for target, value := range u.latest {
+			next[target] = value
+		}
+		next[release.Target] = release
 		destination := filepath.Join(u.directory, release.ID)
 		if os.Rename(file.Name(), destination) != nil {
-			if previous == nil {
-				delete(u.latest, release.Target)
-			} else {
-				u.latest[release.Target] = previous
-			}
 			fail(500, "client-release-storage-error")
 		}
-		if AtomicJSON(filepath.Join(u.directory, "latest.json"), u.latest, 0600) != nil {
+		metadata := filepath.Join(u.directory, release.ID+".json")
+		if AtomicJSON(metadata, release, 0600) != nil || AtomicJSON(filepath.Join(u.directory, "latest.json"), next, 0600) != nil {
 			os.Remove(destination)
-			if previous == nil {
-				delete(u.latest, release.Target)
-			} else {
-				u.latest[release.Target] = previous
-			}
+			os.Remove(metadata)
 			fail(500, "client-release-storage-error")
 		}
-		if previous != nil {
-			_ = os.Remove(filepath.Join(u.directory, previous.ID))
-		}
+		u.latest = next
+		u.releases[release.ID] = release
 		return M{"release": release}
 	})
 	s.route("GET /v1/client-releases/{target}/{releaseId}/download", "", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
 		s.clientReleasePrincipal(r)
 		u := s.clientReleases
-		u.mu.RLock()
+		u.mu.Lock()
 		v := u.latest[r.PathValue("target")]
 		if v == nil || v.ID != r.PathValue("releaseId") {
-			u.mu.RUnlock()
+			u.mu.Unlock()
 			fail(404, "client-release-unavailable")
 		}
 		file, err := os.Open(filepath.Join(u.directory, v.ID))
-		u.mu.RUnlock()
 		if err != nil {
+			u.mu.Unlock()
 			fail(404, "client-release-unavailable")
 		}
-		defer file.Close()
+		u.downloads[v.ID]++
+		u.mu.Unlock()
+		defer func() {
+			file.Close()
+			u.mu.Lock()
+			u.downloads[v.ID]--
+			if u.downloads[v.ID] == 0 {
+				delete(u.downloads, v.ID)
+			}
+			u.mu.Unlock()
+		}()
 		downloadHeaders(w)
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.Header().Set("ETag", `"`+v.SHA256+`"`)
