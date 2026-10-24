@@ -84,6 +84,7 @@ async function readSavedContext(source: string, threadId: string, codexHome: str
   if (!within || within === ".." || within.startsWith(`..${sep}`) || isAbsolute(within)) throw new AdapterError("headless-session-path-invalid");
   if (compressed && typeof zlib.createZstdDecompress !== "function") throw new AdapterError("headless-compression-unsupported");
   let context: RecordValue | null = null;
+  let sessionMetadata: RecordValue = {};
   let sessionVerified = false;
   const handle = await open(path, "r");
   try {
@@ -103,6 +104,11 @@ async function readSavedContext(source: string, threadId: string, codexHome: str
           if (event.type !== "session_meta" || record(event.payload).id !== threadId) throw new AdapterError("headless-session-path-invalid");
           sessionVerified = true;
         }
+        if (event.type === "session_meta") {
+          const metadata = record(event.payload);
+          if (metadata.id !== threadId) throw new AdapterError("headless-session-path-invalid");
+          sessionMetadata = metadata;
+        }
         if (event.type === "turn_context") context = record(event.payload);
       }
       const error = await completed;
@@ -114,7 +120,11 @@ async function readSavedContext(source: string, threadId: string, codexHome: str
       await completed;
     }
   } finally { await handle.close(); }
-  return context;
+  // New Codex records keep roots in session metadata. Explicit turn roots,
+  // including an empty list, remain authoritative and are validated by caller.
+  return context && context.workspace_roots === undefined
+    ? { ...context, workspace_roots: sessionMetadata.runtime_workspace_roots }
+    : context;
 }
 
 export function matchesSettings(response: RecordValue, settings: SavedSettings): boolean {
