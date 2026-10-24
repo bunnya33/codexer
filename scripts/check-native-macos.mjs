@@ -12,6 +12,6 @@ try{
   const binary=join(temporary,'vault-check');
   run('xcrun',[...common,join(mac,'test/vault.test.mm'),join(mac,'RelayDeskNative/NativeVault.mm'),'-framework','Foundation','-framework','Security','-o',binary]);
   run(binary,process.argv.length>2?process.argv.slice(2):[join(mac,'test/electron-v10.json')]);
-  run('plutil',['-lint',join(mac,'RelayDeskNative.xcodeproj/project.pbxproj'),join(mac,'RelayDeskNative/Info.plist'),join(mac,'RelayDeskNative/Runtime.entitlements')]);
+  run('plutil',['-lint',join(mac,'RelayDeskNative.xcodeproj/project.pbxproj'),join(mac,'RelayDeskNative/Info.plist'),join(mac,'RelayDeskNative/Runtime.entitlements'),join(mac,'RelayDeskNative/NodeRuntime.entitlements')]);
   console.log('macOS system adapters compile and vault checks pass. React Native application compilation still requires full Xcode.');
 }finally{await rm(temporary,{recursive:true,force:true});}
