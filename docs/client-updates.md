@@ -2,6 +2,8 @@
 
 Codexer Agent 和 Codexer Control 从当前登录的 Relay 获取各自的客户端版本。管理后台左侧的“客户端更新”按产品、系统和架构上传安装包，并填写包内的实际版本。Android 还必须填写 APK 的实际 `versionCode`，更新包须沿用原应用 ID 与签名。
 
+服务器 `0.3.28` 正式交付独立客户端更新与安装包管理页面。同期 Android `0.1.4`（versionCode 5）同步任务时间的居中与点击切换展示，APK 在本地 `release/android-0.1.4`，可覆盖 `0.1.3`；上传后台请选择 Android Control 并填写实际版本与构建号。Agent 本轮无需升级，继续使用 `0.2.12`。发布与安装验证见[验证记录](validation.md)。
+
 ## 发布与检查
 
 Windows Agent 分为安装版和便携版；macOS Agent/Control 分为 Apple Silicon 和 Intel；Windows Control 使用原生安装包；Android 使用 APK。不同目标分别发布，安装包最多 512 MiB。服务器流式保存并计算 SHA-256，校验文件格式后原子替换版本元数据；失败时上一版继续可用。客户端包位于 Relay 数据目录的 `client-releases`，备份时一并保留。

@@ -1,8 +1,16 @@
 # 当前 Go 迁移验证
 
-## 2026-10-24 服务器 0.3.28 / Android 0.1.4（发布准备）
+## 2026-10-24 服务器 0.3.28 / Android 0.1.4
 
 Android 接入已确认的居中时间展示和点击切换交互，与 Web 共用时间校验和本地日期格式。新增回归覆盖跨日、仅消息有时间时不回填任务时间、运行中不显示陈旧结束时间、非法与颠倒时间拒绝。服务器纳入后台客户端安装包管理和最终 Web 时间样式。Agent 后台核心、协议和 Electron 界面与上次发布无相关变更，继续使用 `0.2.12`；本次不生成桌面原生 Control 安装包。
+
+本地完整 Go 回归与 72 个 TypeScript 文件中的 494 项测试通过，根/Admin/Agent/旧控制端/移动端/Windows Native 共享 UI 类型、文档检查和 Web/Admin/内嵌 Go 生产构建通过。共享原生 UI 类型通过不代表 Windows/macOS Control 原生编译或实机验收。
+
+Android 在隔离构建目录完成 Gradle 原生 Release，包名 `com.bunnya33.codexer.remote`、版本 `0.1.4`、versionCode 5、arm64-v8a/x86_64、minSdk 24/targetSdk 36。APK 中确认包含任务时间组件的 Hermes 字节码；签名及 16 KiB ZIP 对齐校验通过，证书与 `0.1.3` 一致。包为 57,296,118 字节，SHA-256 为 `6c130038e9d207618801cd79505ec03568d25980f3c3e3e9db9f5b84706d6375`，保存在本地 `release/android-0.1.4`，附 `SHA256SUMS.txt` 与 `build-info.json`。
+
+独立 Android 15/API 35 模拟器从 `0.1.3` 覆盖安装、冷启动和版本读取成功，进程保持存活，崩溃缓冲区和致命 JS/运行错误均为空。没有使用真实手机或账号验证远程任务时间条的点击、在线同步及 Relay 更新提示；客户端安装包尚需单独上传后台。
+
+服务器正式 [v0.3.28](https://github.com/bunnya33/codexer/releases/tag/v0.3.28) 对应 `9ab952f`，[发布流程](https://github.com/bunnya33/codexer/actions/runs/40108083107) 全部成功，包含完整回归、PostgreSQL、Go race、类型/文档、生产构建、单文件验收与 Linux/macOS amd64/arm64 四平台包。Release 非草稿、非预发布，8 个附件齐全；四份实际下载的 SHA-256 文件与 GitHub 附件摘要逐项匹配。实际下载的 Linux amd64 包为 7,955,493 字节，SHA-256 为 `eb84ea945b3189d21606b4e66031e8c8081f39e5870adea33c22818b89c18a96`，版本/清单 `0.3.28`、ELF x86-64 和 0755 权限通过，保存在本地 `release/server-0.3.28`。本次未安装或重启生产服务器。
 
 ## 2026-10-24 网页任务时间预览（待发布）
 
