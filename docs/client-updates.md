@@ -35,4 +35,6 @@ Windows Agent 便携版下载后打开文件所在目录，需退出旧版并手
 
 Web/管理后台、Electron Agent、Android Hermes 代码包均完成构建，Windows Control 完成 React Native C++ 编译、链接、Hermes 编译与运行目录整理。实际浏览器检查了 320、390、844 和 1280 宽度、三套皮肤、分类与返回、搜索、滚动、宽窄切换、关闭、Escape 和顶部拖动。
 
-本次未发布服务器或生成 EXE/APK 安装包。Windows 原生界面自动验收工具因启动错误 `failed to write kernel assets` 无法运行，不能据此宣称原生点击和托盘红点已经实测；macOS 编译与 Android 系统安装、托盘/设置红点仍需目标设备验收。
+上述源码验收阶段尚未发布服务器或生成 EXE/APK。随后应用户要求发布了服务器 [v0.3.27](https://github.com/bunnya33/codexer/releases/tag/v0.3.27)，生成 Windows Electron Agent 0.2.12 安装版/便携版和 Android 0.1.3（versionCode 4）签名 APK；校验文件与构建信息随本地安装包保存。Android 与既有 APK 签名一致，独立 Android 15 模拟器从 0.1.1 覆盖安装、启动、底部设置面板、分类返回、三套皮肤切换和版本展示通过，崩溃缓冲区无记录。离线设置验收不代表已验证真实 Relay 的更新提示和系统安装来源授权。
+
+Windows 原生界面自动验收工具因启动错误 `failed to write kernel assets` 无法运行，不能据此宣称原生点击和托盘红点已经实测。桌面托盘/菜单栏和 Android 设置红点仍需目标设备及发布后的客户端目录验收；本次未交付新的 Windows/macOS Control 桌面安装包，也未重启生产服务器。发布及原生编译结果见[验证记录](validation.md)。

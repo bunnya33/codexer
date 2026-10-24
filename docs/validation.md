@@ -1,5 +1,17 @@
 # 当前 Go 迁移验证
 
+## 2026-10-24 服务器 0.3.27 与客户端安装包
+
+响应式设置和客户端更新目录完成 Go 回归、70 个测试文件中的 486 项测试，最终相关修改另跑 103 项更新检查、下载、桌面连接及设置交互测试。根/移动/原生共享 UI 类型、文档、Web/Admin/Agent、Android Hermes 和 Windows Control React Native C++/链接/Hermes 构建通过。浏览器实测 320、390、844、1280 宽度、分类与返回、搜索、三套皮肤、宽窄切换、滚动、关闭、Escape 和顶部拖动，详见[客户端更新](client-updates.md)。
+
+服务器 [v0.3.27](https://github.com/bunnya33/codexer/releases/tag/v0.3.27) 对应 `96bfba4`，[发布流程](https://github.com/bunnya33/codexer/actions/runs/40079625816) 成功，包含完整测试、PostgreSQL、Go race、类型/文档、生产构建、单文件验收及 Linux/macOS amd64/arm64 四平台包。正式 Release 非草稿、非预发布，8 个附件齐全；四份 SHA-256 文件均已下载并与 GitHub 归档摘要核对。实际 Linux amd64 包为 7,945,848 字节，SHA-256 为 `7e3a9516b06f58b88f43f13adb4dc0fbdc1775342e68a72406f195767a8811a8`，版本/清单 0.3.27、ELF x86-64 和 0755 权限通过。本次未安装或重启生产服务器。
+
+Windows Electron Agent 的[双平台 CI](https://github.com/bunnya33/codexer/actions/runs/40079625734)成功，Windows x64 安装版和便携版已下载至本地 `release/agent-0.2.12`。实际文件分别为 113,669,696 和 113,453,234 字节，资源元数据名称 Codexer Agent、版本 0.2.12；CI 对打包后的应用验证启动、原配置保留及拒绝重复实例。SHA-256 记录为安装版 `61a754840a64d147f5bd252b15ff88ca0475b535acbf3b3e252c44bbcfd45044`、便携版 `066081c527eeb331316fd64a08b3285dbacd4a11b498fa81efb0b55f830c23ca`。未将 EXE 安装到用户真实配置目录，也未重复操作真实任务。
+
+Android 在独立构建目录以既有发布密钥完成 Gradle Release，包名 `com.bunnya33.codexer.remote`、版本 0.1.3、versionCode 4、arm64-v8a/x86_64、minSdk 24/targetSdk 36。APK 为 57,292,302 字节，SHA-256 为 `e145d9bbd08a0adfbde5d60981fdcf958b7769d727a01810596a10ed81d65a64`；apksigner 和 16 KiB ZIP 对齐检查通过，签名证书 SHA-256 与既有 0.1.1 APK 一致。独立 Android 15/API 35 模拟器从 0.1.1 覆盖安装后启动成功，实测底部设置、分类与返回、三套皮肤切换和 0.1.3 版本展示，crash 缓冲区无记录。本次只验证隔离模拟器上的原生安装和界面，未验证真实手机、已发布 Relay 的红点、系统安装来源授权或真实账号远程任务；客户端包尚需单独上传 Relay 后台。
+
+macOS Control 的菜单栏图标 Objective-C++ 语法错误已在主分支 `d425817` 改为 `setTemplate:` 调用，未移动服务器发布标签；该变更不影响本次服务器、Windows Agent 或 Android 的有效负载。桌面原生 Control 未交付新安装包，Windows 原生点击/托盘的自动验收仍受工具启动错误限制，不能把编译、Electron Agent 验收或 Android 模拟器检查当作桌面 Control 实机验收。
+
 ## 2026-10-24 主分支整合验证
 
 以远端 `a0e57f1` 为基线整合现有功能分支，并先备份、再逐项核对旧工作区的未提交修改。保留远端 Electron Agent / Native Control 架构、新名称、图标及身份迁移；纳入 Android 样式与打包配置、session metadata 根目录恢复、后台 Agent 登录时长与永不过期、旧 Electron 控制端托盘及关闭修复，并补齐预览按需加载和异常退出回收。分支取舍见 [整合记录](main-consolidation.md)。源码版本为服务器 0.3.26、Agent / Control 0.2.11、手机端 0.1.2。

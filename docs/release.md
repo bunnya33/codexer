@@ -6,7 +6,9 @@
 
 服务器版本为 0.3.27，Windows Electron Codexer Agent 为 0.2.12，Android 为 0.1.3（versionCode 4）。APK 沿用既有包名和发布签名。Windows/macOS Control 保持 React Native 原生宿主，此次不交付新的 Control 桌面安装包。服务器 Release 仍通过管理后台分步准备与确认重启；发布包不代表生产服务器已安装。
 
-发布前完成 Go 回归、486 项测试、类型检查、Web/Admin/Agent 构建、Windows Control 原生编译和 Android Hermes 构建。安装包、CI 与校验结果在发布完成后补充。
+稳定版 [v0.3.27](https://github.com/bunnya33/codexer/releases/tag/v0.3.27) 已发布，标签对应 `96bfba4`。[服务器发布流程](https://github.com/bunnya33/codexer/actions/runs/40079625816) 通过完整回归、PostgreSQL、Go race、类型/文档、生产构建、独立单文件验收和四平台打包。8 个归档/校验附件齐全，四份 SHA-256 文件与发布附件摘要一致；实际下载的 Linux amd64 包通过哈希、版本/清单、ELF 架构和执行权限检查。生产服务器仍需在后台检查更新、准备 0.3.27 并确认重启，本次未直接安装或重启生产服务。
+
+Windows Electron Agent 0.2.12 的[打包与启动验收](https://github.com/bunnya33/codexer/actions/runs/40079625734)通过，安装版和便携版位于本地 `release/agent-0.2.12`，产品名称、版本、配置保留和单实例检查通过。Android 发布 APK 位于 `release/android-0.1.3`，Gradle Release 构建、签名与 16 KiB ZIP 对齐校验通过；签名与既有 0.1.1 APK 一致，独立 Android 15 模拟器覆盖安装和启动通过，并实测底部设置面板、分类返回、三套皮肤切换及版本展示。各目录附带 `SHA256SUMS.txt` 和构建信息。客户端安装包需另行上传 Relay 后台的对应目标，服务器 Release 不自动发布或安装客户端。完整验证范围见[验证记录](validation.md)。
 
 ## 主分支整合源码 0.3.26 / 桌面 0.2.11
 
