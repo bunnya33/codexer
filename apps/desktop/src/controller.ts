@@ -8,7 +8,7 @@ import type { AgentStatus, Settings, ViewState } from './types.js';
 import { canonicalProjectParents } from '../../pc-agent/src/project-directories.js';
 import { NEVER_EXPIRES_AT } from '../../../packages/shared/src/session-policy.js';
 
-export interface Vault { available(): boolean; read(): Promise<AgentCredentials | null>; write(value: AgentCredentials): Promise<void>; clear(): Promise<void> }
+export interface Vault { initialize?(): Promise<void>; available(): boolean; read(): Promise<AgentCredentials | null>; write(value: AgentCredentials): Promise<void>; clear(): Promise<void> }
 export interface Worker { start(credentials: AgentCredentials, settings: Settings): Promise<void>; disconnect(): Promise<void>; reconnect(): Promise<void>; stop(): Promise<void> }
 const settingsSchema = z.object({ relayUrl: z.string().max(2048), username: z.string().max(100), deviceName: z.string().trim().min(1).max(200), installationId: z.string().uuid(), codexHome: z.string().max(4096), codexBinary: z.string().max(4096), projectParents: z.array(z.string().min(1).max(4096)).max(20).default([]), runtime: z.enum(['auto','desktop','headless']), autoConnect: z.boolean(), openAtLogin: z.boolean(), minimizeToTray: z.boolean(), allowHttp: z.boolean() });
 export function defaultSettings(): Settings { return { relayUrl: '', username: '', deviceName: hostname(), installationId: randomUUID(), codexHome: join(homedir(), '.codex'), codexBinary: '', projectParents: [], runtime: 'auto', autoConnect: false, openAtLogin: false, minimizeToTray: true, allowHttp: false }; }
@@ -38,13 +38,15 @@ export class ConnectorController extends EventEmitter {
   }
   workerExited() { this.workerStarted = false; this.paused = true; this.publish({ phase: this.credentials ? 'disconnected' : 'signed-out', status: null, error: '本机服务已退出，请查看诊断并重新连接。' }); this.log('worker-exited'); }
   async initialize() {
+    this.publish({busy:true});
     try {
+      await this.vault.initialize?.();this.publish({secureStorage:this.vault.available()});
       const credentials = await this.vault.read();
       if (credentials?.session && credentials.installationId === this.view.settings.installationId && credentials.relayUrl === this.view.settings.relayUrl) {
-        this.credentials = credentials; this.publish({ loggedIn: true, phase: 'disconnected', expiresAt: credentials.expiresAt });
+        this.credentials = credentials; this.publish({ loggedIn: true, phase: 'disconnected', expiresAt: credentials.expiresAt,busy:false });
         if (this.view.settings.autoConnect) await this.connect().catch(() => undefined);
       } else if (credentials) await this.vault.clear();
-    } catch { this.log('credential-restore-failed'); this.publish({ error: '无法恢复系统加密的登录状态，请重新登录。' }); }
+    } catch { this.log('credential-restore-failed'); this.publish({ error: '无法恢复系统加密的登录状态，请重新登录。' }); }finally{this.publish({busy:false});}
   }
   private idleRequired() { if (this.workerStarted && (!this.view.status || this.view.status.activeTasks)) throw new Error('本机仍有任务运行或状态尚未确认，请等待任务结束后再登录或修改运行配置。'); }
   private async operation(action: () => Promise<void>, failureCode = 'operation-failed') {
@@ -66,6 +68,7 @@ export class ConnectorController extends EventEmitter {
   async login(username: string, password: string) { await this.operation(async () => {
     this.log('account-login-started');
     this.idleRequired();
+    await this.vault.initialize?.();this.publish({secureStorage:this.vault.available()});
     if (!this.vault.available()) throw new Error('系统安全存储不可用，无法保存登录会话。');
     const settings = this.view.settings, url = validateRelayUrl(settings.relayUrl.trim(), settings.allowHttp).origin;
     if (!username.trim() || !password || password.length > 128) throw new Error('请输入账号和密码。');

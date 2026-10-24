@@ -160,3 +160,13 @@ it('does not resume a connection cancelled during server verification', async ()
   await connecting;
   expect(controller.state().phase).toBe('disconnected'); expect(worker.reconnect).not.toHaveBeenCalled();
 });
+
+it('publishes the UI while asynchronous secure storage initializes and then restores availability',async()=>{
+  const {vault,worker,settings}=fixture();let unlock!:()=>void,available=false;
+  const read=vi.fn(async()=>null);
+  const controller=new ConnectorController({...vault,available:()=>available,read,initialize:()=>new Promise<void>(done=>{unlock=()=>{available=true;done();};})},worker,settings,async()=>{});
+  const pending=controller.initialize();
+  expect(controller.state()).toMatchObject({busy:true,secureStorage:false});expect(read).not.toHaveBeenCalled();
+  unlock();await pending;
+  expect(controller.state()).toMatchObject({busy:false,secureStorage:true});expect(read).toHaveBeenCalledOnce();
+});

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, safeStorage, shell, Tray, utilityProcess, type UtilityProcess } from 'electron';
 import { readFile, writeFile, mkdir, rename, rm, appendFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import {createHash} from 'node:crypto';
 import { ConnectorController, defaultSettings, type Vault, type Worker } from './controller.js';
 import { validateRelayUrl, type AgentCredentials } from '../../pc-agent/src/auth.js';
 import type { Settings } from './types.js';
@@ -11,7 +12,7 @@ let window: BrowserWindow | null = null, tray: Tray | null = null, controller: C
 let quitting = false, quitInProgress = false;
 const root = __dirname;
 // Keep the historical Keychain identity separate from the visible product name.
-app.setName('@codexer/desktop');
+app.setName(process.env.CODEXER_USER_DATA_DIR?'CodexerAgentFixture-'+createHash('sha256').update(process.env.CODEXER_USER_DATA_DIR).digest('hex').slice(0,16):'@codexer/desktop');
 if(process.platform==='win32')app.setAppUserModelId('com.codexer.connector');
 app.setPath('userData',process.env.CODEXER_USER_DATA_DIR||agentProfile(app.getPath('appData'),process.platform));
 async function atomicWrite(path: string, data: string | Buffer) { await writeFile(path + '.tmp', data, { mode: 0o600 }); await rename(path + '.tmp', path); }
@@ -23,13 +24,15 @@ else {
     app.setAboutPanelOptions({applicationName:'Codexer Agent'});
     const directory = app.getPath('userData'); await mkdir(directory, { recursive: true, mode: 0o700 });
     const credentialFile = join(directory, 'session.enc'), settingsFile = join(directory, 'settings.json');
-    const available = () => safeStorage.isEncryptionAvailable() && (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text');
+    let encryptionAvailable=false,storageReady:Promise<void>|undefined;
+    const available=()=>encryptionAvailable;
+    const initializeStorage=()=>storageReady??=(async()=>{encryptionAvailable=await safeStorage.isAsyncEncryptionAvailable()&&(process.platform!=='linux'||safeStorage.getSelectedStorageBackend()!=='basic_text');})();
     const nativeCredentialFile=join(directory,'session.native.enc');
     const migrationHelper=app.isPackaged?join(process.resourcesPath,'native/vault-migrate'):join(root,'native/vault-migrate');
-    const writeCredentials=async(credentials:AgentCredentials)=>{if(!available())throw new Error('secure-storage-unavailable');await atomicWrite(credentialFile,safeStorage.encryptString(JSON.stringify(credentials)));await rm(nativeCredentialFile,{force:true});};
+    const writeCredentials=async(credentials:AgentCredentials)=>{await initializeStorage();if(!available())throw new Error('secure-storage-unavailable');await atomicWrite(credentialFile,await safeStorage.encryptStringAsync(JSON.stringify(credentials)));await rm(nativeCredentialFile,{force:true});};
     const vault: Vault = {
-      available,
-      async read() { if (!available()) return null; const native=await readNativeCredentials(directory,migrationHelper);if(native){await writeCredentials(native);return native;} const value = await readFile(credentialFile).catch(() => null); return value ? JSON.parse(safeStorage.decryptString(value)) as AgentCredentials : null; },
+      available,initialize:initializeStorage,
+      async read() { if (!available()) return null; const native=await readNativeCredentials(directory,migrationHelper);if(native){await writeCredentials(native);return native;} const value = await readFile(credentialFile).catch(() => null); if(!value)return null;const decrypted=await safeStorage.decryptStringAsync(value);const credentials=JSON.parse(decrypted.result) as AgentCredentials;if(decrypted.shouldReEncrypt)await writeCredentials(credentials);return credentials; },
       write:writeCredentials,
       async clear() { await rm(credentialFile, { force: true });await rm(nativeCredentialFile,{force:true}); },
     };
@@ -74,7 +77,7 @@ else {
     window.on('maximize', publishWindowState); window.on('unmaximize', publishWindowState);
     window.on('enter-full-screen', publishWindowState); window.on('leave-full-screen', publishWindowState);
     window.on('focus', publishWindowState); window.on('blur', publishWindowState);
-    Menu.setApplicationMenu(process.platform === 'darwin' ? Menu.buildFromTemplate([{ label: 'Codexer Agent', submenu: [{ role: 'about' }, { type: 'separator' }, { label: '显示控制台', click: showWindow }, { role: 'hide' }, { label: '退出', click: () => app.quit() }] }, { role: 'editMenu' }]) : null);
+    Menu.setApplicationMenu(process.platform === 'darwin' ? Menu.buildFromTemplate([{ label: 'Codexer Agent', submenu: [{ label:'关于 Codexer Agent',role: 'about' }, { type: 'separator' }, { label: '显示控制台', click: showWindow }, { label:'隐藏 Codexer Agent',role: 'hide' }, { label: '退出 Codexer Agent', accelerator:'CommandOrControl+Q', click: () => app.quit() }] }, { role: 'editMenu' }]) : null);
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     window.webContents.on('will-navigate', event => event.preventDefault());
     window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
@@ -88,7 +91,7 @@ else {
       window?.webContents.send('codexer:state', state);
       const label = state.phase === 'connected' ? '已连接' : state.phase === 'signed-out' ? '未登录' : state.phase === 'disconnected' ? '已断开' : '连接中';
       tray?.setToolTip(`Codexer Agent · ${label}`);
-      tray?.setContextMenu(Menu.buildFromTemplate([{ label: `Codexer Agent · ${label}`, enabled: false }, { label: '显示控制台', click: showWindow }, { type: 'separator' }, { label: '连接', enabled: state.loggedIn && !state.busy && state.phase === 'disconnected', click: () => guarded(() => controller.connect()) }, { label: '断开远程连接', enabled: state.phase !== 'disconnected' && state.phase !== 'signed-out', click: () => guarded(() => controller.disconnect()) }, { label: '重连', enabled: state.loggedIn && !state.busy, click: () => guarded(() => controller.reconnect()) }, { type: 'separator' }, { label: '退出', click: () => app.quit() }]));
+      tray?.setContextMenu(Menu.buildFromTemplate([{ label: `Codexer Agent · ${label}`, enabled: false }, { label: '显示控制台', click: showWindow }, { type: 'separator' }, { label: '连接', enabled: state.loggedIn && !state.busy && state.phase === 'disconnected', click: () => guarded(() => controller.connect()) }, { label: '断开远程连接', enabled: state.phase !== 'disconnected' && state.phase !== 'signed-out', click: () => guarded(() => controller.disconnect()) }, { label: '重连', enabled: state.loggedIn && !state.busy, click: () => guarded(() => controller.reconnect()) }, { type: 'separator' }, { label: '退出 Codexer Agent', accelerator:'CommandOrControl+Q', click: () => app.quit() }]));
       const log = state.logs.at(-1);
       if (log && log.at > lastLogAt) {
         lastLogAt = log.at;
@@ -118,7 +121,7 @@ else {
     if (quitting || !controller) return;
     event.preventDefault(); if (quitInProgress) return; quitInProgress = true;
     void (async () => {
-      if (controller.state().status?.activeTasks) { const result = await dialog.showMessageBox({ type: 'warning', title: '退出 Codexer Agent', message: '本机仍有任务运行', detail: '退出会停止由连接器启动的本机运行服务。仅想停止远程控制时，请使用“断开”。', buttons: ['留在后台', '退出'], defaultId: 0, cancelId: 0 }); if (result.response === 0) { quitInProgress = false; return; } }
+      const active=!!controller.state().status?.activeTasks;const result=await dialog.showMessageBox({type:active?'warning':'question',title:'退出 Codexer Agent',message:active?'本机仍有任务运行':'退出 Codexer Agent？',detail:active?'退出会停止由连接器启动的本机运行服务。仅想停止远程控制时，请使用“断开”。':'退出后这台电脑将无法远程控制。关闭窗口可以继续在后台运行。',buttons:['留在后台','退出'],defaultId:0,cancelId:0});if(result.response===0){quitInProgress=false;return;}
       await controller.shutdown().catch(() => undefined); quitting = true; tray?.destroy(); app.quit();
     })();
   });

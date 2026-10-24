@@ -15,6 +15,8 @@ npm run package:desktop:mac:local -- --arm64
 
 Agent 沿用 `~/Library/Application Support/@codexer/desktop`，保留服务器、账号、installationId、Codex 路径、授权目录及启动偏好。历史 Electron Safe Storage 身份保持不变；原生 Agent 的 `session.native.enc` 使用原钥匙串密钥读取并转存为 Electron 加密的 `session.enc`。原加密文件只在成功转存后删除；钥匙串拒绝访问或服务器撤销会话时仍需授权或重新登录。
 
+钥匙串使用异步初始化，窗口会先显示，等待授权时不阻塞界面；拒绝访问不会降级为明文存储。
+
 关闭窗口默认留在菜单栏后台。设置中的启动和退出偏好继续有效。隔离测试用 `CODEXER_USER_DATA_DIR`，不会写正式配置或登录项。
 
 ## Codexer Control

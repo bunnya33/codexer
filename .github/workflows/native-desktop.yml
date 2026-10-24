@@ -5,6 +5,8 @@ on:
     branches: ['main']
     paths:
       - 'apps/control-native/**'
+      - 'apps/desktop/src/controller.ts'
+      - 'apps/desktop/src/types.ts'
       - 'apps/control-desktop/assets/**'
       - 'apps/mobile/**'
       - 'apps/pc-agent/**'
@@ -20,6 +22,8 @@ on:
   pull_request:
     paths:
       - 'apps/control-native/**'
+      - 'apps/desktop/src/controller.ts'
+      - 'apps/desktop/src/types.ts'
       - 'apps/control-desktop/assets/**'
       - 'apps/mobile/**'
       - 'apps/pc-agent/**'
