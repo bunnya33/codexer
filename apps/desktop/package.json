@@ -47,7 +47,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "Codexer-Agent-Setup-${version}-${arch}.${ext}"
     },
     "mac": {
       "target": [
@@ -69,6 +70,9 @@
     "dmg": {
       "title": "Codexer Agent"
     },
-    "artifactName": "Codexer-Agent-${version}-${os}-${arch}.${ext}"
+    "artifactName": "Codexer-Agent-${version}-${os}-${arch}.${ext}",
+    "portable": {
+      "artifactName": "Codexer-Agent-Portable-${version}-${arch}.${ext}"
+    }
   }
 }
