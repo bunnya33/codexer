@@ -1,5 +1,6 @@
 #import "DesktopHost.h"
 #import "NativeVault.h"
+#import <Security/Security.h>
 #import <ServiceManagement/ServiceManagement.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <sys/file.h>
@@ -174,8 +175,14 @@ static id Decode(NSString *value) {
       NSData *input=[[NSData alloc]initWithBase64EncodedString:value[@"value"] options:0];NSError *error=nil;NSData *output=nil;
       if(!input || input.length>65636){reply(nil,@"invalid-vault-input");return;}
       if([method isEqual:@"unprotect"] && input.length>=3 && memcmp(input.bytes,"v10",3)==0){
-        NSString *product=[self.mode isEqual:@"agent"]?@"Codexer":@"RelayDesk";
-        NSData *password=CXKeychainPassword([product stringByAppendingString:@" Safe Storage"],product,&error);
+        // The shipped Electron Agent had no top-level productName: Electron
+        // used its package name even though Finder displayed "Codexer".
+        NSArray<NSString *> *products=[self.mode isEqual:@"agent"]?@[@"@codexer/desktop",@"Codexer"]:@[@"RelayDesk"];
+        NSData *password=nil;
+        for(NSString *product in products){
+          password=CXKeychainPassword([product stringByAppendingString:@" Safe Storage"],product,&error);
+          if(password || error.code!=errSecItemNotFound)break;
+        }
         if(password)output=CXOpenElectron(input,password,&error);
       }else{NSData *key=CXVaultKey([NSBundle.mainBundle.bundleIdentifier stringByAppendingString:@".NativeVault"],[method isEqual:@"protect"],&error);if(key)output=[method isEqual:@"protect"]?CXSeal(input,key,&error):CXOpen(input,key,&error);}
       reply(output?[output base64EncodedStringWithOptions:0]:nil,output?nil:(error.localizedDescription?:@"secure-storage-unavailable"));return;
