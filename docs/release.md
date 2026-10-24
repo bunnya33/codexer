@@ -1,5 +1,13 @@
 # 本地发布与打包
 
+## 服务器 0.3.27 / Agent 0.2.12 / Android 0.1.3
+
+本次发布包含主分支 0.3.26 的整合修复，以及响应式控制端设置和客户端更新目录。手机 Web/Android 设置从底部滑出，宽屏使用左侧分类和右侧内容，保留三套皮肤、当前会话与草稿。后台可分别上传各平台客户端，客户端从当前 Relay 检查更新；桌面托盘/菜单栏和 Android 设置入口支持红点提示、校验下载与打开系统安装程序。详见[客户端更新](client-updates.md)。
+
+服务器版本为 0.3.27，Windows Electron Codexer Agent 为 0.2.12，Android 为 0.1.3（versionCode 4）。APK 沿用既有包名和发布签名。Windows/macOS Control 保持 React Native 原生宿主，此次不交付新的 Control 桌面安装包。服务器 Release 仍通过管理后台分步准备与确认重启；发布包不代表生产服务器已安装。
+
+发布前完成 Go 回归、486 项测试、类型检查、Web/Admin/Agent 构建、Windows Control 原生编译和 Android Hermes 构建。安装包、CI 与校验结果在发布完成后补充。
+
 ## 主分支整合源码 0.3.26 / 桌面 0.2.11
 
 以另一台设备更新的 Electron Agent / Native Control 架构为基线，合并 Android 样式与打包、session metadata 根目录恢复、后台 Agent 有效期设置、旧版控制端托盘/关闭修复及预览按需加载/租期回收。各产品版本、分支取舍及验证边界见 [整合记录](main-consolidation.md)。本轮整合源码，不创建服务器 Release，也不替换生产服务或已安装客户端。
