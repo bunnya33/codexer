@@ -1,5 +1,14 @@
 # Windows 原生版验收
 
+## 0.2.9 共用 Windows/macOS 主线（构建验收进行中）
+
+- 两端共用 `src` 中的应用、Agent、桥接与 Metro 适配规则，产品版本唯一来源为 `package.json`；Mac 的兼容运行时单独锁定。
+- 本机已完成 Windows/Mac 两套类型检查、Mac Metro Release JS bundle、Apple TurboModule Codegen，以及 AppKit 系统适配的 Objective-C++ 编译检查。
+- 122 项相关 TypeScript 测试、5 项真实 Node sidecar IPC 测试通过，覆盖旧配置/凭据迁移、设备标识、退出登录、防止未选择文件读取及特殊文件名。
+- 新加密封装的随机性、完整性、错误密钥和大小限制检查通过；旧 Electron v10 迁移额外使用实际 Electron 44.5.1 的隔离 mock Keychain 加密产物验证，不访问真实凭据。
+- 本机没有完整 Xcode。完整 Windows/Mac 原生编译、安装包、Mac 本机实测由同一提交的 GitHub 构建继续验证；未通过前不替换当前 Electron 0.1.16，也不标记原生版本已经交付。
+
+
 ## 2026-10-22 离线设备管理（本地构建）
 
 共享控制端设备选择框增加管理模式和离线删除确认，在线设备不可删除；删除后移除设备缓存，重新连接后恢复同步。Windows x64 Release/C++ 宿主、Hermes 字节码及控制端运行目录实际构建通过，原生类型检查通过。共享组件和真实浏览器交互、隔离 Relay/Agent 重连测试见 [验证记录](../../docs/validation.md)。本次沿用 0.2.7 本地配置，未生成安装 EXE、安装/替换用户应用或进行原生界面点击验收。

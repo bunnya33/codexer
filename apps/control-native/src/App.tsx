@@ -3,7 +3,7 @@ import { useTheme } from '../../mobile/src/styles';
 import { ThemePicker } from '../../mobile/src/theme-picker';
 import { Dialog } from '../../mobile/src/dialog';
 import { WindowClosePreference } from './adapters/control-settings';
-import { controlVersion } from './adapters/build-info';
+import { controlVersion, controlPlatform } from './adapters/build-info';
 import React,{useEffect,useState} from 'react';
 import {ActivityIndicator,Text,View} from 'react-native';
 import ControlApp from '../../mobile/App';
@@ -34,7 +34,7 @@ function NativeApp(){
     return()=>{disposed=true;diagnostics?.();off();menu();backend();};
   },[]);
   return <Boundary><View style={{flex:1,backgroundColor:c.bg}}>{!!error&&<Text accessibilityRole="alert" style={{backgroundColor:c.warningBg,color:c.danger,padding:12}}>{error}</Text>}{ready?(boot.mode==='agent'?<AgentApp/>:<ControlApp/>):<View style={{flex:1,justifyContent:'center',alignItems:'center',gap:16}}><ActivityIndicator color={c.accent}/><Text style={{color:c.text}}>正在读取本机配置…</Text></View>}
-    <Dialog open={settings} title="RelayDesk 设置" onClose={()=>setSettings(false)}><ThemePicker/><WindowClosePreference/><Text style={{fontSize:12,color:c.muted}}>Windows · {controlVersion}</Text></Dialog>
+    <Dialog open={settings} title="RelayDesk 设置" onClose={()=>setSettings(false)}><ThemePicker/><WindowClosePreference/><Text style={{fontSize:12,color:c.muted}}>{controlPlatform} · {controlVersion}</Text></Dialog>
   </View></Boundary>;
 }
 

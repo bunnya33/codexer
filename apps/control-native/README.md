@@ -1,6 +1,10 @@
-# Windows 原生客户端
+# Windows / macOS 共用原生客户端
 
-RelayDesk 控制端和 Codexer PC Agent 管理界面共用 React Native for Windows 0.84 原生宿主；应用界面随安装包交付，更新界面需要更新客户端。服务器继续提供 API 和实时数据。
+RelayDesk 控制端和 Codexer PC Agent 共用 `src/App.tsx`、`src/AgentApp.tsx`、`src/sidecar.ts` 与平台桥接协议，Windows/macOS 在同一主线同步功能。Windows 使用 RNW 0.84 / Fabric，macOS 使用 React Native macOS 0.83 / Fabric；两端产品版本统一来自本目录 `package.json`，本次源码版本为 `0.2.9`。
+
+macOS 的依赖单独锁定在 `macos/package-lock.json`，共享业务和 UI 不复制到 Mac 子项目。平台组件版本不同源于各平台宿主的兼容要求。界面随客户端交付，服务器提供 API 和实时数据。
+
+**本次 Mac 状态：** 共用界面类型检查、Metro 生产打包、TurboModule Codegen、AppKit 适配编译检查与凭据封装测试可独立完成；完整应用、DMG 和实机验收还需要完整 Xcode。这台开发机目前只有 Command Line Tools，不能把源码接入标记为已交付原生安装包。构建方式见 [Mac 原生构建](../../docs/mac.md)。
 
 ## 安装与使用
 
@@ -44,4 +48,4 @@ npx tsx scripts/accept-native-windows.ts
 
 增加 `--fresh-login` 时不预置会话，需从真实登录表单输入合成账号 `native-fixture`、密码 `native-fixture-password-12345`。脚本验证密码登录请求、加密保存凭据、历史及实时同步，不能用迁移已有登录状态的检查代替首次登录。
 
-本项目当前交付 Windows；macOS、iOS 和 Android 使用各自的宿主与发布流程，本次没有生成它们的安装包。
+Windows 的既有安装包与本次 `0.2.9` 源码要分别记录。macOS 完整编译与运行验收通过后才能替换本机旧 Electron 应用；iOS/Android 继续使用移动端宿主。

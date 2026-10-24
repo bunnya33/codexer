@@ -24,8 +24,8 @@
     "dev:desktop": "npm run build:desktop && npm run start --workspace @codexer/desktop",
     "package:desktop": "npm run build:desktop && npm run package --workspace @codexer/desktop",
     "package:desktop:win": "node scripts/build-native-windows.mjs --agent",
-    "package:desktop:mac": "npm run build:desktop && npm run package:mac --workspace @codexer/desktop",
-    "package:desktop:mac:local": "npm run build:desktop && npm run package:mac:local --workspace @codexer/desktop --",
+    "package:desktop:mac": "node scripts/build-native-macos.mjs --agent",
+    "package:desktop:mac:local": "node scripts/build-native-macos.mjs --agent",
     "build:control-desktop": "node scripts/build-control-desktop.mjs",
     "dev:control-desktop": "npm run build:control-desktop && npm run start --workspace @codexer/control-desktop",
     "package:control-desktop:win": "node scripts/build-native-windows.mjs --control",
@@ -62,7 +62,12 @@
     "check:input": "tsx scripts/accept-input.ts",
     "pretest": "node scripts/test-go.mjs",
     "build:protocol": "node scripts/build-protocol-schema.mjs",
-    "check:protocol": "node scripts/build-protocol-schema.mjs --check"
+    "check:protocol": "node scripts/build-protocol-schema.mjs --check",
+    "package:desktop:mac:legacy": "npm run build:desktop && npm run package:mac --workspace @codexer/desktop",
+    "package:desktop:mac:local:legacy": "npm run build:desktop && npm run package:mac:local --workspace @codexer/desktop --",
+    "package:control-desktop:mac": "node scripts/build-native-macos.mjs --control",
+    "package:macos-native": "node scripts/build-native-macos.mjs",
+    "check:macos-native": "node scripts/check-native-macos.mjs"
   },
   "dependencies": {
     "highlight.js": "^11.12.0",

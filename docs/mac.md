@@ -1,48 +1,53 @@
-# macOS 连接器
+# macOS 原生客户端
 
-Electron 客户端同时配置 macOS arm64（Apple Silicon）和 x64（Intel），打包目标为 DMG/ZIP。用户无需安装 Node。2026-10-02 已在 macOS 26.4 / Apple Silicon 上生成并安装 `0.1.1` ARM64 本地版本，确认窗口启动、包内 Node/SQLite、Codex 程序自动发现、桌面 IPC 连接和 App Server 目录读取。Intel 和完整远程任务流程仍需实机验收，详见 [验证范围](validation.md)。
+Windows 与 macOS 在同一主线维护 `apps/control-native`，共用 React Native 界面、设置与会话业务、桥接协议及 PC Agent 核心。产品版本来自 `apps/control-native/package.json`，本次源版本为 `0.2.9`。Mac 使用 React Native macOS 0.83.0 / React Native 0.83.10 / React 19.2.3，最低 macOS 14；Windows 保留其兼容的 RNW 版本，平台依赖各自锁定。
 
-2026-10-21 压缩会话兼容版本 `0.1.14` 已生成 Apple Silicon DMG/ZIP 与 SHA256，并替换 `/Applications/Codexer.app`。374 项回归、类型检查、严格签名、DMG/ZIP 与包内 7 个构建资源核对通过。实际打包 worker 在 Electron utilityProcess、隔离配置及仅系统 PATH 下，使用内置 Node `24.21.0` 完成压缩会话读取、原权限恢复与合成发送确认。旧应用保留备份，旧进程已关闭，仅一个新版主进程；原加密登录与设置校验值一致。本次启动采样确认阻塞于 macOS `SecItemCopyMatching` 钥匙串读取，等待解锁/授权，尚无新版启动后的连接日志；未用旧状态文件作为连接成功证据。服务器无需更新。
+## 当前状态
 
-2026-10-09 已同步 GitHub `main` 的 `5ca3e94`（服务器 `0.2.7`），生成 PC 连接器 `0.1.9` 的 ARM64 DMG/ZIP。315 项测试、类型检查、签名、归档及包内资源核对通过；隔离配置、测试钥匙串且 PATH 仅含系统目录时，实际应用启动并报告控制台就绪。真实钥匙串的首次授权需要用户完成。当前安装的旧版仍在运行，升级前请结束相关任务并退出连接器，再替换 Applications 中的应用。
+Mac 已接入共用原生项目及 AppKit 系统适配。本机目前只有 Command Line Tools，没有完整 Xcode，尚未完成整个应用编译、DMG/ZIP 生成和原生应用实机验收。当前安装的 PC Agent `0.1.16` 仍是可运行的旧 Electron 维护版。不能用 Metro、Codegen、类型检查或 AppKit 文件编译检查代替原生应用交付。
 
-2026-10-12 新建项目版本 `0.1.11` 已生成 Apple Silicon DMG/ZIP，并替换本机 Applications 中的 `0.1.10` 应用文件。目录授权默认空列表，原有配置保留。Mac 锁屏期间保留正在运行的旧进程，解锁后退出并重新打开 Codexer 才生效。签名/归档与包内 worker 已验证；原生窗口/Keychain 启动仍待解锁后检查。
+## 构建原生安装包
 
-2026-10-14 会话内音频卡片版本 `0.1.12` 已生成 Apple Silicon DMG/ZIP 与 SHA256，并替换本机 `/Applications/Codexer.app`。签名、DMG/ZIP、包内 main/preload/worker/UI 和版本核对通过；已安装包的 worker 在真实 Electron utilityProcess、隔离 Codex 数据目录与仅系统 PATH 下完成启动、SQLite、自动发现和停止检查。原有登录与目录授权的校验值保持一致，旧应用备份保留在本地。旧进程最初因活动会话触发退出保护；用户随后明确要求关闭进程，现已关闭旧进程并启动新版，仅有一个 Codexer 主进程。实际用户配置下日志确认 `agent-started`、`console-ready`，实时状态显示 Relay 与运行服务均已连接，原加密登录与设置校验值一致。未完成原生窗口的可视验收和 Keychain 首次授权提示验收。
+需要完整 Xcode（包括 macOS SDK 与首次启动组件）、Node 24、Ruby 3.2 或更新及 Bundler。只安装 `xcode-select --install` 提供的命令行工具不足以构建 React Native macOS。
 
-2026-10-18 文件附件版本 `0.1.13` 已生成 Apple Silicon DMG/ZIP 和 SHA256，并替换 `/Applications/Codexer.app`。严格签名、DMG/ZIP、包内 7 个资源和真实 Electron utilityProcess worker 的启动/停止、内置 SQLite、系统 PATH 下的 Codex 自动发现检查通过。旧进程已关闭，只保留一个新版主进程；原加密登录与设置的校验值一致。实际用户配置启动时，进程采样显示阻塞在 macOS `SecItemCopyMatching` / 钥匙串读取，尚未出现本次启动的 Agent 连接日志；需要解锁并完成系统钥匙串授权后再确认连接。未使用测试钥匙串替代真实凭据。
-
-## 安装和运行
-
-打开 DMG，把 Codexer 拖到 Applications，启动后按 [PC 连接器](pc-setup.md) 使用账号登录。后台入口在菜单栏，关闭窗口默认保留本机服务。开机启动通过系统登录项配置，用户可在系统设置中管理。本地版本使用 ad-hoc 签名，未做 Apple 公证；对外发行需要开发者签名和公证。
-
-macOS GUI 的 PATH 与终端不同。程序自动检查 `/Applications/Codex.app/Contents/Resources/codex`、ChatGPT 内置的 `ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex`、对应的用户 Applications 路径、`/opt/homebrew/bin/codex`、`/usr/local/bin/codex` 和进程 PATH。官方安装结构如果变化，请在设置中手动选 Codex 可执行文件；数据目录默认 `~/.codex`。
-
-会话由 Electron safeStorage 使用系统 Keychain 保护。密码不保存。凭据无法解密时重新登录，不回退为明文。首次运行可能出现系统 Keychain 权限提示，需要系统授权。
-
-## 开发和发布
-
-在 macOS 安装 Node 24，项目根目录执行：
-
-```bash
+```sh
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 npm ci
-npm run typecheck
-npm run package:desktop:mac
+npm ci --prefix apps/control-native/macos
+cd apps/control-native/macos
+bundle install
+cd ../../..
+npm run package:macos-native
 ```
 
-输出位于 `apps/desktop/release`。签名与 notarization 需要开发者自己的 Apple Developer 凭据，见 [发布文档](release.md)。Windows 无法完成 macOS 签名与真实平台测试。
+命令会安装 CocoaPods 依赖、编译原生宿主、打包共用 JS/Agent、附带当前架构的 Node 运行时，并制作 DMG、ZIP、SHA-256 与构建信息。默认同时生成 Codexer PC Agent 和 RelayDesk 控制端：
 
-只在当前 Mac 本地使用时，执行 `npm run package:desktop:mac:local`。此命令仅构建当前机器架构，使用 ad-hoc 签名，关闭该本地包的 hardened runtime 和公证，不需要 Apple Developer 证书；正式发行命令仍使用上述双架构配置。
+```sh
+npm run package:desktop:mac
+npm run package:control-desktop:mac
+```
 
-## 实机验收清单
+输出位于 `apps/control-native/release`，完整运行目录在 `apps/control-native/stage`。安装包版本与 Windows 使用同一个源版本；不得仅改文件名冒充同步版本。默认使用本机 ad-hoc 签名；外部分发需要设置 `CODEXER_MAC_SIGN_IDENTITY` 为自己的 Developer ID，并按 [发布约定](release.md) 完成 notarization。无签名/公证记录时不能声称已经公证。
 
-- Apple Silicon/Intel 上安装、首次启动、升级和卸载。
-- Keychain 保存/恢复、退出账号清除、改密后失效。
-- 菜单栏显示、关闭窗口、登录项、自动连接。
-- 自动程序发现、手动程序路径、官方 Codex 登录和目录读取。
-- 桌面 IPC 的 socket 路径与当前官方版本兼容性；现有适配路径为 `$CODEX_HOME/ipc/ipc.sock`，已在本机 Codex CLI `0.159.2` 环境确认握手，任务观测与控制仍需完整验收。
-- App Server 模式的任务发送、图片、审批、停止和队列。
-- 正在运行任务时断开/退出登录后任务保留；重新连接恢复同步。
-- 网络变化、休眠唤醒、会话到期与撤销。
+仅准备共用 UI、Codegen 和 Agent（不编译 AppKit 应用）可运行：
 
-如果桌面 IPC 无法接入但 App Server 可用，可选择“仅官方 App Server”；仍需验证同一会话 writer 的占用和释放行为，不能据此宣称桌面实时跟随已通过。
+```sh
+node scripts/build-native-macos.mjs --agent --prepare-only
+node apps/control-native/check-types.cjs --macos
+npm run check:macos-native
+CODEXER_NATIVE_SERVICE="$PWD/apps/control-native/macos/build/service/sidecar.cjs" node --test apps/control-native/test/sidecar.test.cjs
+```
+
+最后一组只检查 JavaScript、桥接定义、系统适配编译及加密协议，不生成可安装的原生应用。完整 Xcode 构建成功后还需实际启动原生应用验证登录、连接、托盘、权限、文件与预览，再替换 Applications 中的旧程序。
+
+## 配置和凭据
+
+Agent 沿用 `~/Library/Application Support/@codexer/desktop`，保留旧 `settings.json`、设备安装标识、授权目录、自动连接与登录启动设置；控制端使用 `~/Library/Application Support/@codexer/control-desktop`。原生凭据写入 `session.native.enc` / `control-session.native.enc`，密钥保存于系统 Keychain，使用带完整性校验的版本化加密封装。
+
+Agent 首次启动会尝试读取旧 `session.enc`。Electron macOS v10 凭据使用旧应用的 Safe Storage 钥匙串项解密；成功后才写入原生加密文件，不能通过创建新设备或明文保存来绕过迁移。钥匙串被拒绝、旧会话失效或原本未登录时，需要用户授权钥匙串或重新登录。退出登录会清除旧/新会话，避免下次从旧文件恢复已退出的账号。
+
+默认关闭窗口继续在菜单栏运行，菜单提供打开、设置与退出；启用“关闭窗口时退出进程”后显示退出确认。登录启动使用系统 SMAppService；系统要求批准后台项目时应由用户在系统设置中允许。内容预览使用隔离 WKWebView，应用主界面由 React Native / AppKit 原生渲染。
+
+隔离验收可设置 `CODEXER_NATIVE_DATA_DIR`，可选 `CODEXER_NATIVE_MODE=agent|control`。指定测试目录时不会修改系统登录启动项。测试不得读取真实登录凭据或把测试会话写入真实配置目录。
+
+旧 Electron 构建仅保留明确的回退入口 `npm run package:desktop:mac:legacy` / `npm run package:desktop:mac:local:legacy`，不作为后续原生交付。

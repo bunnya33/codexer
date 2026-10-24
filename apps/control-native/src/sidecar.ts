@@ -2,6 +2,7 @@ import {createInterface} from 'node:readline';
 import {readFile, writeFile, mkdir, rename, rm, stat} from 'node:fs/promises';
 import {join, basename, extname} from 'node:path';
 import {homedir} from 'node:os';
+import {pathToFileURL} from 'node:url';
 import {createHash, createDecipheriv, randomUUID} from 'node:crypto';
 import {ConnectorController, defaultSettings, type Worker, type Vault} from '../../desktop/src/controller';
 import type {Settings} from '../../desktop/src/types';
@@ -11,8 +12,11 @@ import {resolveCodexBinary} from '../../../packages/codex-adapter/src/binary';
 import {readLegacyControl} from './legacy-control';
 
 const mode = process.env.CODEXER_NATIVE_MODE === 'agent' ? 'agent' : 'control';
-const directory = process.env.CODEXER_NATIVE_DATA_DIR || join(process.env.APPDATA || homedir(), mode === 'agent' ? 'Codexer' : 'CodexerControl');
-const version = '0.2.7';
+const directory = process.env.CODEXER_NATIVE_DATA_DIR || (process.platform === 'darwin'
+  ? join(homedir(), 'Library', 'Application Support', '@codexer', mode === 'agent' ? 'desktop' : 'control-desktop')
+  : join(process.env.APPDATA || homedir(), mode === 'agent' ? 'Codexer' : 'CodexerControl'));
+const version = process.env.CODEXER_AGENT_BUILD_VERSION || 'development';
+const renderer = process.platform === 'darwin' ? 'react-native-macos' : 'react-native-windows';
 const send = (value: unknown) => process.stdout.write(JSON.stringify(value) + '\n');
 const pending = new Map<number, {resolve: (value: any) => void; reject: (error: Error) => void}>();
 let sequence = 0;
@@ -21,7 +25,7 @@ function native<T = any>(method: string, value: unknown = {}): Promise<T> {
 }
 const writes = new Map<string,Promise<void>>();
 async function atomic(path: string, value: string | Uint8Array) {
-  const write=(writes.get(path)||Promise.resolve()).catch(()=>{}).then(async()=>{await writeFile(path+'.tmp',value);await rename(path+'.tmp',path);});
+  const write=(writes.get(path)||Promise.resolve()).catch(()=>{}).then(async()=>{await writeFile(path+'.tmp',value,{mode:0o600});await rename(path+'.tmp',path);});
   writes.set(path,write);try{await write;}finally{if(writes.get(path)===write)writes.delete(path);}
 }
 async function json(path: string) {try {return JSON.parse(await readFile(path, 'utf8'));} catch {return null;}}
@@ -55,7 +59,7 @@ const transfers = new Map<string, AbortController>();
 const mime = (name: string) => ({'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.gif':'image/gif','.svg':'image/svg+xml','.pdf':'application/pdf','.txt':'text/plain','.json':'application/json'} as Record<string,string>)[extname(name).toLowerCase()] || 'application/octet-stream';
 
 const ready = (async () => {
-  await mkdir(directory, {recursive:true});
+  await mkdir(directory, {recursive:true,mode:0o700});
   preferences = {...preferences, ...await json(join(directory, 'preferences.json')), ...await json(join(directory, 'native-preferences.json'))};
   const oldControl = await json(join(directory, 'settings.json'));
   const oldServer = await json(join(directory, 'server.json'));
@@ -109,7 +113,7 @@ async function dispatch(method: string, value: any) {
     case 'diagnostics.snapshot':
       if(!process.env.CODEXER_NATIVE_DATA_DIR)throw new Error('diagnostics-disabled');
       await atomic(join(directory,'native-renderer-state.json'),JSON.stringify(value));return true;
-    case 'ready': await atomic(join(directory, 'native-startup.json'), JSON.stringify({version, mode, renderer:'react-native-windows', at:new Date().toISOString(), ...(value || {})})); return true;
+    case 'ready': await atomic(join(directory, 'native-startup.json'), JSON.stringify({version, mode, renderer, at:new Date().toISOString(), ...(value || {})})); return true;
     case 'preferences.read': return preferences;
     case 'preferences.save': {
       if (typeof value.closeExits !== 'boolean') throw new Error('invalid-preferences');
@@ -140,7 +144,7 @@ async function dispatch(method: string, value: any) {
     }
     case 'pick': {
       const paths: string[] = await native('pick', {kind:value.kind || 'files', multiple:value.multiple !== false});
-      return Promise.all(paths.map(async path => {selected.add(path); const info = await stat(path); return {path, uri:'file:///' + path.replaceAll('\\','/'), name:basename(path), size:info.size, mimeType:mime(path)};}));
+      return Promise.all(paths.map(async path => {selected.add(path); const info = await stat(path); return {path, uri:pathToFileURL(path).href, name:basename(path), size:info.size, mimeType:mime(path)};}));
     }
     case 'readChunk': {
       if (!selected.has(value.path) || !Number.isSafeInteger(value.position) || value.position < 0 || !Number.isSafeInteger(value.length) || value.length < 0 || value.length > 1024 * 1024) throw new Error('invalid-file-read');

@@ -1,4 +1,4 @@
-import {DeviceEventEmitter, TurboModuleRegistry} from 'react-native';
+import {DeviceEventEmitter, Platform, TurboModuleRegistry} from 'react-native';
 
 type Boot = {mode: 'control'|'agent'; version: string; closeExits: boolean; serverUrl: string};
 export const desktop = TurboModuleRegistry.getEnforcing<any>('RelayDesktop');
@@ -13,6 +13,13 @@ export async function request<T = unknown>(method: string, value: unknown = {}):
   }
 }
 export function subscribe(event: string, callback: (value: any) => void) {
+  if (Platform.OS === 'macos') {
+    const subscription = desktop.onEvent((encoded: string) => {
+      const message = JSON.parse(encoded);
+      if (message.event === event) callback(message.value);
+    });
+    return () => subscription.remove();
+  }
   const subscription = DeviceEventEmitter.addListener(event, (value: string) => callback(value ? JSON.parse(value) : null));
   return () => subscription.remove();
 }

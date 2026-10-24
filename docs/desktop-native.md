@@ -2,13 +2,21 @@
 
 2026-10-19 用户确认：后续桌面客户端统一使用 Native 实现。覆盖 RelayDesk 会话控制端和 Codexer PC 连接器，Windows 使用 React Native for Windows，macOS 使用 React Native macOS。React Native、原生宿主和组件库的具体版本以可构建、可验收的兼容组合为准。
 
-## 当前状态
+## 共用主线与版本
 
-Windows 新版 `0.2.0` 位于 `apps/control-native`。RelayDesk 复用移动端 React Native 会话组件；Codexer PC Agent 的管理界面使用 React Native 原生组件重写。两者共用 RNW 0.84 / Fabric / Windows App SDK 宿主，界面与 Hermes bundle 随安装包交付。
+Windows 和 macOS 共用 `apps/control-native/src` 的应用入口、PC Agent 管理界面、控制端界面、桥接协议及 Node sidecar，在同一主线提交和同步功能。Windows 的 C++ 宿主放在 `windows/`，Mac 的 AppKit / React Native macOS 宿主放在 `macos/`；只有系统功能使用平台适配，不能另建一套 Mac 业务界面或长期维护平台分支。
 
-后台复用现有 PC Agent TypeScript 核心，使用随包附带的 Node，通过本机 stdio RPC 连接原生宿主；DPAPI、托盘、窗口、文件对话框、图片压缩与系统操作由 C++ 原生层实现。网页和音频内容预览使用隔离 WebView2 窗口。Windows 安装 EXE 使用 NSIS，electron-builder 仅用于制作安装包，不包含 Electron 应用运行时。
+产品版本唯一来源是 `apps/control-native/package.json`，界面从宿主读取版本，sidecar 构建时注入同一版本，安装包也使用该版本。此次源版本为 `0.2.9`。Windows 使用 React Native Windows 0.84，Mac 使用当前支持 React Native 0.83.10 的 React Native macOS 0.83.0，依赖分别锁定，避免把不兼容的平台宿主塞进一个运行时。
 
-旧的 `apps/control-desktop`、`apps/desktop` Electron 源码仍保留用于旧版维护与尚未迁移的 macOS 发布；不作为本次 Windows 原生交付。安装、构建和验收方式见 [Windows 原生项目](../apps/control-native/README.md)。
+## 当前验收状态
+
+Windows 已有 RNW 原生发行版。本次共用代码应同时通过 Windows/Mac 类型检查，并分别完成平台原生构建后才能发布新安装包。
+
+Mac 新增 Fabric / TurboModule 宿主、钥匙串加密与旧 Electron v10 凭据迁移、菜单栏后台、关闭与退出、登录启动、文件选择、图片转换、系统剪贴板和隔离 WKWebView 内容预览。Agent 继续使用旧 Mac 配置目录 `~/Library/Application Support/@codexer/desktop`，保留安装标识和已有设置；新加密文件使用 `session.native.enc`，不把凭据降级为明文。
+
+当前开发机没有完整 Xcode，因此尚未完成完整原生编译、DMG 生成或本机替换。Metro 打包、Codegen、类型检查以及可由 Command Line Tools 完成的 AppKit/凭据测试不等于整个原生客户端已运行。实际结果记录在 `apps/control-native/VALIDATION.md`。
+
+默认 macOS 打包入口已改为原生构建，旧 Electron 打包仅保留 `:legacy` 后缀入口用于回退维护。原生验收通过前，本机继续保留可运行的旧版。
 
 ## 后续实现
 

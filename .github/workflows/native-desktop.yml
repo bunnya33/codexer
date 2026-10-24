@@ -1,0 +1,85 @@
+name: Shared native desktop clients
+on:
+  workflow_dispatch:
+  push:
+    branches: ['codex/native-desktop', 'main']
+    paths:
+      - 'apps/control-native/**'
+      - 'apps/mobile/**'
+      - 'apps/pc-agent/**'
+      - 'packages/**'
+      - 'scripts/build-native-*.mjs'
+      - 'scripts/check-native-macos.mjs'
+      - '.github/workflows/native-desktop.yml'
+  pull_request:
+    paths:
+      - 'apps/control-native/**'
+      - 'apps/mobile/**'
+      - 'apps/pc-agent/**'
+      - 'packages/**'
+      - 'scripts/build-native-*.mjs'
+      - 'scripts/check-native-macos.mjs'
+      - '.github/workflows/native-desktop.yml'
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/control-native/package-lock.json
+      - uses: microsoft/setup-msbuild@v2
+      - uses: NuGet/setup-nuget@v2
+      - name: Select installed C++ toolset
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe" -latest -products * -requires Microsoft.Component.MSBuild -property installationPath
+          $toolset = Get-ChildItem "$vs/MSBuild/Microsoft/VC/*/Platforms/x64/PlatformToolsets" -Directory | Where-Object Name -Match '^v14[35]$' | Sort-Object Name -Descending | Select-Object -First 1
+          if (!$toolset) { throw 'No supported Visual C++ desktop toolset found' }
+          "CODEXER_PLATFORM_TOOLSET=$($toolset.Name)" >> $env:GITHUB_ENV
+      - run: npm ci
+      - run: npm ci --prefix apps/control-native
+      - run: node scripts/build-native-sidecar.mjs
+      - run: node --test apps/control-native/test/sidecar.test.cjs
+      - run: npm run package:windows-native
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-Windows-x64
+          path: apps/control-native/release/*
+  macos:
+    runs-on: macos-15
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/control-native/macos/package-lock.json
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          working-directory: apps/control-native/macos
+          bundler-cache: true
+      - run: npm ci
+      - run: npm ci --prefix apps/control-native/macos
+      - run: npm run check:macos-native
+      - run: npm run package:macos-native
+      - run: node --test apps/control-native/test/sidecar.test.cjs
+        env:
+          CODEXER_NATIVE_SERVICE: apps/control-native/macos/build/service/sidecar.cjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-macOS
+          path: apps/control-native/release/*

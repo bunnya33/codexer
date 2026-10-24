@@ -1,0 +1,15 @@
+require_relative './node_modules/react-native-macos/scripts/react_native_pods'
+ENV['RCT_NEW_ARCH_ENABLED'] = '1'
+platform :macos, '14.0'
+prepare_react_native_project!
+target 'RelayDeskNative' do
+  use_native_modules!(['node', './node_modules/react-native/cli.js', 'config'])
+  use_react_native!(
+    :path => './node_modules/react-native-macos',
+    :fabric_enabled => true,
+    :app_path => __dir__
+  )
+  post_install do |installer|
+    react_native_post_install(installer, './node_modules/react-native-macos')
+  end
+end

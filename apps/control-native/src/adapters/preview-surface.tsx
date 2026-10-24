@@ -4,11 +4,12 @@ import {Pressable,Text,View} from 'react-native';
 import {nativePreviewShell} from '../../../../packages/client-shared/src/preview-runtime';
 import type {PreviewSurfaceProps} from '../../../mobile/src/preview-surface.types';
 import {request,subscribe} from '../bridge';
+import {controlPlatform} from './build-info';
 export function PreviewSurface({document,url,channel,height,expanded,title,onMessage,surfaceRef}:PreviewSurfaceProps){
   const { c } = useTheme();
   const [error,setError]=useState(''),[opened,setOpened]=useState(false);const alive=useRef(true);
   const receive=useRef(onMessage);receive.current=onMessage;
-  const open=useCallback(async()=>{try{setError('');await request('preview.open',{id:channel,title,html:nativePreviewShell(url??document??'',channel,!!url,true)});if(alive.current)setOpened(true);}catch{if(alive.current)setError('无法打开内容预览，请确认系统已安装 Microsoft Edge WebView2。');}},[channel,document,url,title]);
+  const open=useCallback(async()=>{try{setError('');await request('preview.open',{id:channel,title,html:nativePreviewShell(url??document??'',channel,!!url,true)});if(alive.current)setOpened(true);}catch{if(alive.current)setError(controlPlatform === 'macOS' ? '无法打开内容预览，请重试或查看本机诊断。' : '无法打开内容预览，请确认系统已安装 Microsoft Edge WebView2。');}},[channel,document,url,title]);
   useEffect(()=>{alive.current=true;const off=subscribe('previewMessage',event=>{if(event.id===channel){try{const value=JSON.parse(event.data);if(value.channel===channel)receive.current(value);}catch{}}});const closed=subscribe('previewClosed',event=>{if(event.id===channel)setOpened(false);});return()=>{alive.current=false;off();closed();void request('preview.close',{id:channel}).catch(()=>{});};},[channel]);
   useEffect(()=>{if(expanded)void open();},[expanded,open]);
   useImperativeHandle(surfaceRef,()=>({send:message=>{void request('preview.send',{id:channel,message}).catch(()=>{});}}),[channel]);

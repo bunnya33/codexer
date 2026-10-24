@@ -1,14 +1,15 @@
 {
   "name": "relaydesk-native",
-  "version": "0.2.8",
-  "description": "RelayDesk and PC Agent native Windows clients",
+  "version": "0.2.9",
+  "description": "RelayDesk and PC Agent shared native Windows and macOS clients",
   "author": "Codexer contributors",
   "private": true,
   "scripts": {
     "start": "react-native start",
     "windows": "npx @react-native-community/cli run-windows",
     "bundle": "react-native bundle --platform windows --dev false --entry-file index.js --bundle-output windows/RelayDesk/Bundle/index.windows.bundle --assets-dest windows/RelayDesk/Bundle",
-    "test:windows": "jest --config jest.config.windows.js"
+    "test:windows": "jest --config jest.config.windows.js",
+    "macos": "node ../../scripts/build-native-macos.mjs"
   },
   "dependencies": {
     "classic-level": "^3.0.0",

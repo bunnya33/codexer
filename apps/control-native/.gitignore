@@ -18,3 +18,11 @@ service/
 release/
 stage/
 stage-smoke-pid.txt
+
+macos/Pods/
+macos/build/
+macos/Bundle/
+macos/DerivedData/
+macos/*.xcworkspace/
+macos/*.xcuserstate
+macos/.xcode.env.local

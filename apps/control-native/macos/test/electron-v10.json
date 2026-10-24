@@ -1,0 +1,6 @@
+{
+  "plaintext": "{\"session\":\"synthetic-keychain-migration-fixture\",\"installationId\":\"synthetic-preserved-id\"}",
+  "password": "mock_password",
+  "ciphertext": "djEweItooyMRJI6JFCklbg2n99AFvJV4r6NT/gh88TiTTehqFk0SffPi9rn4a/5AEapDFu2jLFeIZDeh3OqjCWcLCIzN+vzMcj8jW5h+4S8sRsS7xJ5RN8KhNqC9FVxQota5",
+  "_fixtureOrigin": "Electron 44.5.1 safeStorage with isolated Chromium mock Keychain; synthetic credentials only."
+}

@@ -14,6 +14,8 @@
 #include <WebView2.h>
 #include <atomic>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <functional>
 #include <map>
 #include <mutex>
@@ -122,6 +124,14 @@ class Host {
       if (reply) reply(message.GetNamedValue(L"value", JsonValue::CreateNullValue()), winrt::to_string(message.GetNamedString(L"error", L"")));
     }
   }
+  std::wstring buildVersion() {
+    try {
+      std::ifstream stream(std::filesystem::path(directory) / L"native-build.json");
+      std::string bytes((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+      return std::wstring(JsonObject::Parse(winrt::to_hstring(bytes)).GetNamedString(L"version", L"development"));
+    } catch (...) { return L"development"; }
+  }
+
   void start() {
     SetEnvironmentVariableW(L"CODEXER_NATIVE_MODE", mode.c_str());
     SECURITY_ATTRIBUTES security{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
@@ -370,7 +380,7 @@ struct RelayDesktop {
   void Initialize(winrt::Microsoft::ReactNative::ReactContext const& context) noexcept {desktop::host->context=context;}
   REACT_SYNC_METHOD(boot)
   std::string boot() noexcept {
-    desktop::JsonObject value; value.Insert(L"mode",desktop::str(desktop::host->mode)); value.Insert(L"version",desktop::str(L"0.2.7")); value.Insert(L"closeExits",desktop::boolean(desktop::host->closeExits)); value.Insert(L"serverUrl",desktop::str(L"")); return winrt::to_string(value.Stringify());
+    desktop::JsonObject value; value.Insert(L"mode",desktop::str(desktop::host->mode)); value.Insert(L"version",desktop::str(desktop::host->buildVersion())); value.Insert(L"closeExits",desktop::boolean(desktop::host->closeExits)); value.Insert(L"serverUrl",desktop::str(L"")); return winrt::to_string(value.Stringify());
   }
   REACT_METHOD(request)
   void request(std::string method,std::string payload,winrt::Microsoft::ReactNative::ReactPromise<std::string> promise) noexcept {
