@@ -7,6 +7,7 @@ import { validateRelayUrl, type AgentCredentials } from '../../pc-agent/src/auth
 import type { Settings } from './types.js';
 import {agentProfile} from './profile.js';
 import {readNativeCredentials} from './native-credentials.js';
+import {agentLoginItemSettings} from './login-items.js';
 
 let window: BrowserWindow | null = null, tray: Tray | null = null, controller: ConnectorController;
 let quitting = false, quitInProgress = false;
@@ -67,7 +68,7 @@ else {
     let settings = defaultSettings();
     const saved = await readFile(settingsFile, 'utf8').catch(() => null);
     if (saved) { try { settings = { ...settings, ...JSON.parse(saved) }; } catch { /* Recover with defaults. */ } }
-    const persist = async (next: Settings) => { if (!process.env.CODEXER_USER_DATA_DIR) app.setLoginItemSettings({ openAtLogin: next.openAtLogin, ...(process.platform === 'win32' ? { path: process.env.PORTABLE_EXECUTABLE_FILE || process.execPath, args: [] } : {}) }); await atomicWrite(settingsFile, JSON.stringify(next, null, 2)); };
+    const persist = async (next: Settings) => { if(!process.env.CODEXER_USER_DATA_DIR)for(const item of agentLoginItemSettings(process.platform,next.openAtLogin,process.env.PORTABLE_EXECUTABLE_FILE||process.execPath))app.setLoginItemSettings(item); await atomicWrite(settingsFile, JSON.stringify(next, null, 2)); };
     try { controller = new ConnectorController(vault, worker, settings, persist, app.getVersion()); }
     catch { controller = new ConnectorController(vault, worker, defaultSettings(), persist, app.getVersion()); controller.log('settings-recovery-required'); }
     const icon = nativeImage.createFromPath(join(root, 'icon.png'));
