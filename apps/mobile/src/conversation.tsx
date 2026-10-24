@@ -16,6 +16,7 @@ import { ShimmerLabel } from './shimmer';
 import { DrawerSwipeBlock } from './drawer-swipe-block';
 import { FileDiff } from './file-diff';
 import { localAudioPath, stripInlineImageReferences } from '../../../packages/client-shared/src/audio';
+import { TurnTiming } from './turn-timing';
 
 type ImageSource = { uri: string; headers?: Record<string, string> };
 type ImageViewer = (source: ImageSource, name: string) => void;
@@ -84,12 +85,12 @@ function ExecutionGroup({ section, deviceId, threadId, onImage }: { section: Exe
 }
 
 type ActivityBlock = Extract<ReturnType<typeof buildActivityBlocks>[number], { kind: 'activity' }>;
-function Activity({ block, deviceId, threadId, onImage, questionRequestIds }: { block: ActivityBlock; deviceId: string; threadId: string; onImage: ImageViewer; questionRequestIds: string[] }) {
+function Activity({ block, turn, deviceId, threadId, onImage, questionRequestIds }: { block: ActivityBlock; turn: HistoryTurn; deviceId: string; threadId: string; onImage: ImageViewer; questionRequestIds: string[] }) {
   const { c, s } = useTheme();
   const [now, setNow] = useState(Date.now());
   useEffect(() => { if (block.state !== 'running') return; const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, [block.state]);
   return <View style={s.activity}>
-    <View style={s.activityHead}>{block.state === 'running' ? <ActivityIndicator size="small" color={c.accent} /> : <Clock3 size={14} color={c.muted} />}<Text style={s.activityText}>{activityLabel(block, now)}</Text></View>
+    <View><View style={s.activityHead}>{block.state === 'running' ? <ActivityIndicator size="small" color={c.accent} /> : <Clock3 size={14} color={c.muted} />}<Text style={s.activityText}>{activityLabel(block, now)}</Text></View><TurnTiming turn={turn} running={block.state === 'running'} /></View>
     <View style={s.line} />
     {activitySections(block).map(section => {
       if (section.kind === 'execution') return <ExecutionGroup key={section.id} section={section} deviceId={deviceId} threadId={threadId} onImage={onImage} />;
@@ -123,7 +124,7 @@ export function FileChangesPanel({ changes, compact = true }: { changes: NonNull
 export const TurnView = memo(function TurnView({ turn, active, deviceId, threadId, onImage, questionRequestIds }: { turn: HistoryTurn; active: boolean; deviceId: string; threadId: string; onImage: ImageViewer; questionRequestIds: string[] }) {
   const { s } = useTheme();
   return <View style={s.turn}>
-    {buildActivityBlocks(turn, active).map(block => block.kind === 'message' ? <Message key={block.item.id} item={block.item} deviceId={deviceId} threadId={threadId} onImage={onImage} /> : <Activity key={block.id} block={block} deviceId={deviceId} threadId={threadId} onImage={onImage} questionRequestIds={questionRequestIds} />)}
+    {buildActivityBlocks(turn, active).map(block => block.kind === 'message' ? <Message key={block.item.id} item={block.item} deviceId={deviceId} threadId={threadId} onImage={onImage} /> : <Activity key={block.id} block={block} turn={turn} deviceId={deviceId} threadId={threadId} onImage={onImage} questionRequestIds={questionRequestIds} />)}
     {!active && !!turn.fileChanges?.length && <FileChangesPanel changes={turn.fileChanges} compact={false} />}
     {turn.tokenUsage && <Text style={s.usage}>输入 {turn.tokenUsage.inputTokens.toLocaleString()} · 输出 {turn.tokenUsage.outputTokens.toLocaleString()} · 缓存命中 {turn.tokenUsage.cachedInputTokens.toLocaleString()}{turn.tokenUsage.state === 'partial' ? ' · 部分统计' : turn.tokenUsage.state === 'running' ? ' · 统计中' : ''}</Text>}
   </View>;
