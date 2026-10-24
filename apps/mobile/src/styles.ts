@@ -53,7 +53,7 @@ const useBaseStyles = themedStyles(c => StyleSheet.create({
   agentMessage: { alignSelf: 'stretch', paddingVertical: 2 },
   fileNames: { color: c.muted, fontSize: 12, marginBottom: 8 }, imageRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginBottom: 8 },
   image: { width: 116, height: 90, borderRadius: 4, backgroundColor: c.code },
-  activity: { gap: 14 }, activityHead: { minHeight: Platform.OS === 'web' ? 24 : 28, flexDirection: 'row', alignItems: 'center', gap: 7 },
+  activity: { gap: 14 }, activityHead: { minHeight: 24, flexDirection: 'row', alignItems: 'center', gap: 7 },
   activityText: { color: c.muted, fontSize: 12 }, line: { height: 1, backgroundColor: c.line },
   rotated: { transform: [{ rotate: '180deg' }] }, commentary: { paddingVertical: 3 },
   executionGroup: { gap: 0 }, executionHead: { minHeight: 32, flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'stretch' },
