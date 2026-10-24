@@ -1,5 +1,10 @@
 # 本地发布与打包
 
+## 主分支整合源码 0.3.26 / 桌面 0.2.11
+
+以另一台设备更新的 Electron Agent / Native Control 架构为基线，合并 Android 样式与打包、session metadata 根目录恢复、后台 Agent 有效期设置、旧版控制端托盘/关闭修复及预览按需加载/租期回收。各产品版本、分支取舍及验证边界见 [整合记录](main-consolidation.md)。本轮整合源码，不创建服务器 Release，也不替换生产服务或已安装客户端。
+
+
 
 ## 桌面客户端 0.2.10：Agent 恢复 Electron，统一产品名称
 

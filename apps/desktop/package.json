@@ -1,6 +1,6 @@
 {
   "name": "@codexer/desktop",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "description": "Codexer Agent — Windows and macOS Electron PC connector",
   "author": "Codexer contributors",
   "private": true,

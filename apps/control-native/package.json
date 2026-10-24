@@ -1,6 +1,6 @@
 {
   "name": "relaydesk-native",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "description": "Codexer Control shared native Windows and macOS client",
   "author": "Codexer contributors",
   "private": true,

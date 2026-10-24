@@ -54,7 +54,7 @@ Base URL 是 Relay 的 HTTP 或 HTTPS 地址；本机开发默认为 `http://127
 
 Web、App 和 PC Agent 均通过控制端账号密码登录；后台管理员使用独立入口 `/v1/admin/auth/login`。两类账号可同名，密码和权限独立。除健康与登录接口外，接口使用 `Authorization: Bearer <session>` 会话凭据。控制端只能访问同账号 PC；管理员不能登录 PC Agent、申请控制 WebSocket ticket 或控制任何设备。跨账号设备请求返回 404。
 
-密码使用加盐 scrypt 哈希。控制端/后台登录按前台续期计算空闲超时，管理员可设为 1–43200 分钟，默认 10080 分钟（7 天）；Agent 仍为 7 天固定有效期。改密和禁用账号会撤销该账号所有会话；退出撤销当前会话。客户端和 Agent 会话相互隔离，Agent 会话只允许访问其 PC。WebSocket 使用绑定当前会话的 60 秒一次性 ticket，连接后 5 秒内发送 client.authenticate。PC WebSocket 使用 Agent 登录会话和 X-Device-Id。登录接口有 IP 与账号尝试限速，公网必须使用 HTTPS/WSS。
+密码使用加盐 scrypt 哈希。控制端/后台登录按前台续期计算空闲超时，管理员可设为 1–43200 分钟，默认 10080 分钟（7 天）；Agent 有效期由管理员独立设为 1–36500 天或永不过期，默认 7 天。改密和禁用账号会撤销该账号所有会话；退出撤销当前会话。客户端和 Agent 会话相互隔离，Agent 会话只允许访问其 PC。WebSocket 使用绑定当前会话的 60 秒一次性 ticket，连接后 5 秒内发送 client.authenticate。PC WebSocket 使用 Agent 登录会话和 X-Device-Id。登录接口有 IP 与账号尝试限速，公网必须使用 HTTPS/WSS。
 
 HTTP 错误体是 `{ "error": "code" }`。常见状态：`400 invalid-request`、`401 unauthorized`、`403 origin-denied`、`404 device-not-found|snapshot-not-found|command-not-found`、`409 device-offline|stale-device-epoch|command-id-reused`、`429 rate-limited`。WebSocket 协议错误会返回 `{ "type":"error", "code":"..." }` 或关闭连接。调用方不能把命令接受当作 Codex 回答完成。
 
@@ -69,14 +69,14 @@ HTTP 错误体是 `{ "error": "code" }`。常见状态：`400 invalid-request`�
 | POST | `/v1/auth/logout` | 当前客户端会话 | `{loggedOut:true}` |
 | POST | `/v1/auth/active` | 当前控制端/后台会话，前台时每 30 秒及离开时调用 | `{expiresAt,idleTimeoutMinutes}`；已过期不续期，Agent 会话不可使用 |
 | GET | `/v1/me` | 客户端会话 | `{role,userId}` |
-| GET | `/v1/admin/auth-settings` | 管理员 | `{idleTimeoutMinutes}` |
-| PUT | `/v1/admin/auth-settings` | 管理员，`{idleTimeoutMinutes}`，1–43200 整数 | 保存并返回设置；按最后前台时间更新现有控制端/后台登录，已过期的不恢复 |
+| GET | `/v1/admin/auth-settings` | 管理员 | `{idleTimeoutMinutes,agentSessionDays}` |
+| PUT | `/v1/admin/auth-settings` | 管理员，非空 `{idleTimeoutMinutes?,agentSessionDays?}`；前者为 1–43200，后者为 0–36500 整数（0 永不过期） | 保存并返回完整设置；分别调整仍有效的浏览器/PC 登录，已过期的不恢复 |
 | POST | `/v1/users` | `{username,password}`，管理员 | `{id,name,role}` |
 | GET | `/v1/users` | 管理员 | `{users:[{id,name,role,created_at,revoked_at,login_enabled}]}` |
 | PUT | `/v1/users/:userId/password` | `{password}`，管理员 | `{reset:true}`；旧会话失效 |
 | DELETE | `/v1/users/:userId` | 管理员 | `{revoked:true}`；禁止禁用管理员 |
 | GET | `/v1/devices` | 普通账号 | `{devices:[{id,name,platform,created_at,last_seen_at,online}]}` |
-| GET | `/v1/agent/:deviceId/session` | 该 PC 的 Agent 会话 | `{active:true}` |
+| GET | `/v1/agent/:deviceId/session` | 该 PC 的 Agent 会话 | `{active:true,expiresAt}` |
 | DELETE | `/v1/devices/:deviceId` | 同账号 | `{revoked:true}`；撤销设备凭据，不清理同步数据 |
 | DELETE | `/v1/devices/:deviceId/data` | 普通账号、同账号离线设备 | `{removed:true}`；清理服务器同步数据并从设备列表移除，保留重连身份 |
 | GET | `/v1/devices/:deviceId/snapshot` | 无 | `{online,snapshot}` |
@@ -298,3 +298,7 @@ Agent 在自身 SQLite `usage.sqlite` 中按 `threadId + turnId` 保存逐轮统
 Relay 启动时若 `RELAY_WEB_DIR` 存在，在根路径提供 Web UI。Web/App 用账号密码登录；网页在当前站点 localStorage 中保存会话，App 使用系统安全存储。前台续期、回到前台重连，短暂网络故障保留会话；过期或被撤销后重新登录。各账号进入同账号 PC Agent 列表与会话，管理员另有独立账号管理入口。
 
 管理后台与远程控制端使用独立入口：`/admin` 只做账号管理；`/` 和 App 只做同账号 PC Agent 的选择与远程控制，不提供账号管理菜单。两个网页入口分别保存登录状态，后台不加载 PC 列表、会话或控制 WebSocket。
+
+## 会话内预览租期
+
+`POST /v1/devices/{deviceId}/threads/{threadId}/previews` 接受 `{url,channel,state?,clientId?}`，返回 `{path,expiresAt,leaseSeconds?}`。提供 clientId 时，同一登录及客户端的旧预览先撤销，再创建新的随机地址，最长 30 分钟，另有 90 秒租期，并返回 `leaseSeconds:90`。`PUT /v1/previews/{token}` 仅原登录可续租，`DELETE` 关闭地址及进行中的传输。每 30 秒续租，不延长地址的 30 分钟上限。旧客户端未传 clientId 时沿用原期限；新版客户端连接未返回 leaseSeconds 的旧服务器时不发起续租。公开分享互不替换。

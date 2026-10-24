@@ -1,5 +1,13 @@
 # 当前 Go 迁移验证
 
+## 2026-10-24 主分支整合验证
+
+以远端 `a0e57f1` 为基线整合现有功能分支，并先备份、再逐项核对旧工作区的未提交修改。保留远端 Electron Agent / Native Control 架构、新名称、图标及身份迁移；纳入 Android 样式与打包配置、session metadata 根目录恢复、后台 Agent 登录时长与永不过期、旧 Electron 控制端托盘及关闭修复，并补齐预览按需加载和异常退出回收。分支取舍见 [整合记录](main-consolidation.md)。源码版本为服务器 0.3.26、Agent / Control 0.2.11、手机端 0.1.2。
+
+最终完整 Go 测试、68 个 TypeScript 测试文件和 476 项测试通过。覆盖 SQLite 旧表迁移、登录策略部分更新/权限/边界、既有有效登录延长与失效登录不复活、永久登录重启与撤销、CLI 缓存期限、窗口销毁和关闭确认；预览覆盖 25 张卡片不自动运行、同客户端连续替换 25 次、跨标签页/登录隔离、旧服务器兼容、迟到请求释放，以及租期到期中断遗留传输。根/Admin/Agent/旧控制端/移动端/Windows Native 共享 UI 类型检查、文档/协议/生成运行时检查、Web/Admin/内嵌 Go 生产构建、Electron Agent 和旧控制端 JS 构建、Native Sidecar 构建及其 5 项回归通过。
+
+Edge 使用隔离的合成 Relay、Agent 和本地 100vh 页面，实测重复引用初始无 iframe、连续刷新 5 次不累积连接、旧地址失效，以及 390px / 1280px 的全屏、切换、关闭；内嵌高度不超过 480px，动画结束后截图检查通过，无页面脚本错误。没有放宽预览沙盒；实际报错手机的进程崩溃尚未复现。本轮本地未运行 PostgreSQL、Go race 或原生宿主编译/实机验收，没有生成新安装包、发布 tag、安装或重启生产服务；推送主分支后的自动构建结果另行记录。
+
 ## 2026-10-24 桌面产品更名与 Electron Agent 恢复
 
 用户决定 PC 连接器恢复 Electron，名称 Codexer Agent；Windows/macOS 原生控制端统一名称 Codexer Control。最新约定已写入根 AGENTS.md 与 [桌面架构](desktop-native.md)，取代之前两类产品全部 Native 的要求。Agent 0.2.10、Control 0.2.10，服务器版本保持 0.3.25。

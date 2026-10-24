@@ -6,7 +6,7 @@ beforeAll(async () => {
   const result = await build({entryPoints:['apps/control-native/src/bridge.ts'],bundle:true,write:false,platform:'node',format:'cjs',plugins:[{
     name:'native-promise-fixture', setup(builder) {
       builder.onResolve({filter:/^react-native$/},()=>({path:'native',namespace:'fixture'}));
-      builder.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:'export const TurboModuleRegistry = {getEnforcing:()=>fixtureNative}; export const DeviceEventEmitter = {};'}));
+      builder.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:'export const TurboModuleRegistry = {getEnforcing:()=>fixtureNative}; export const DeviceEventEmitter = {}; export const Platform = {OS:"windows"};'}));
     },
   }]});
   javascript = result.outputFiles[0]!.text;
