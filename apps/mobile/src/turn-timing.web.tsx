@@ -17,8 +17,8 @@ export function TurnTiming({ turn, running }: TurnTimingProps) {
   const start = recordedDate(turn.startedAtMs);
   const end = running ? undefined : recordedDate(turn.completedAtMs);
   const ended = end && (!start || end >= start) ? end : undefined;
-  return <div data-testid="turn-timing" aria-label="任务时间" style={{ display: 'flex', flexWrap: 'wrap', columnGap: 18, rowGap: 4, marginTop: 3, color: c.muted, fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif', fontSize: 12, lineHeight: '18px' }}>
-    <span>{start ? <>开始于 <time dateTime={start.toISOString()} title={start.toLocaleString('zh-CN', { timeZoneName: 'short' })}>{localTime(start)}</time></> : '开始时间未记录'}</span>
-    {!running && <span>{ended ? <>结束于 <time dateTime={ended.toISOString()} title={ended.toLocaleString('zh-CN', { timeZoneName: 'short' })}>{localTime(ended)}</time></> : '结束时间未记录'}</span>}
+  return <div data-testid="turn-timing" aria-label="任务时间" style={{ display: 'flex', flexWrap: 'wrap', columnGap: 7, rowGap: 4, marginTop: running ? 3 : 0, color: c.muted, fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif', fontSize: 12, lineHeight: '18px' }}>
+    {start ? <time aria-label="开始时间" dateTime={start.toISOString()} title={start.toLocaleString('zh-CN', { timeZoneName: 'short' })}>{localTime(start)}</time> : <span aria-label="开始时间未记录" title="开始时间未记录">—</span>}
+    {!running && <span style={{ display: 'inline-flex', gap: 7 }}><span aria-hidden="true">→</span>{ended ? <time aria-label="结束时间" dateTime={ended.toISOString()} title={ended.toLocaleString('zh-CN', { timeZoneName: 'short' })}>{localTime(ended)}</time> : <span aria-label="结束时间未记录" title="结束时间未记录">—</span>}</span>}
   </div>;
 }
