@@ -21,7 +21,16 @@ if(!flags.has('--skip-build')){
     msbuild=execFileSync(vswhere,['-latest','-products','*','-requires','Microsoft.Component.MSBuild','-find','MSBuild/**/Bin/MSBuild.exe'],{encoding:'utf8',windowsHide:true}).trim().split(/\r?\n/)[0];
   }
   if(!msbuild)throw new Error('Install Visual Studio C++ desktop tools and Windows SDK.');
-  await run(msbuild,['windows/RelayDesk.sln','/restore','/t:RelayDesk','/p:Configuration=Release','/p:Platform=x64',`/p:PlatformToolset=${process.env.CODEXER_PLATFORM_TOOLSET||'v145'}`,'/p:WindowsAppSDKSelfContained=true','/p:WindowsPackageType=None','/m:4','/v:minimal','/nologo'],app);
+  let sdk=process.env.CODEXER_WINDOWS_SDK;
+  if(!sdk){
+    const sdkRoot=join(process.env['ProgramFiles(x86)']||'C:/Program Files (x86)','Windows Kits/10');
+    const versions=(await readdir(join(sdkRoot,'Include'))).filter(value=>/^10\.0\.\d+\.0$/.test(value)).sort((a,b)=>b.localeCompare(a,undefined,{numeric:true}));
+    for(const candidate of versions){
+      try{await Promise.all([access(join(sdkRoot,'Include',candidate,'um/Windows.h')),access(join(sdkRoot,'Lib',candidate,'um/x64/kernel32.lib')),access(join(sdkRoot,'Lib',candidate,'ucrt/x64/ucrt.lib'))]);sdk=candidate;break;}catch{}
+    }
+  }
+  if(!sdk)throw new Error('Install the Windows SDK desktop headers and x64 libraries, or set CODEXER_WINDOWS_SDK.');
+  await run(msbuild,['windows/RelayDesk.sln','/restore','/t:RelayDesk','/p:Configuration=Release','/p:Platform=x64',`/p:PlatformToolset=${process.env.CODEXER_PLATFORM_TOOLSET||'v145'}`,`/p:WindowsTargetPlatformVersion=${sdk}`,'/p:WindowsAppSDKSelfContained=true','/p:WindowsPackageType=None','/m:4','/v:minimal','/nologo'],app);
 }
 const built=join(app,'windows/x64/Release');
 const bundle=await readFile(join(built,'Bundle/index.windows.bundle'));

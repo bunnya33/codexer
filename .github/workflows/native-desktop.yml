@@ -10,6 +10,7 @@ on:
       - 'packages/**'
       - 'scripts/build-native-*.mjs'
       - 'scripts/check-native-macos.mjs'
+      - 'scripts/accept-native-*.mjs'
       - '.github/workflows/native-desktop.yml'
   pull_request:
     paths:
@@ -19,6 +20,7 @@ on:
       - 'packages/**'
       - 'scripts/build-native-*.mjs'
       - 'scripts/check-native-macos.mjs'
+      - 'scripts/accept-native-*.mjs'
       - '.github/workflows/native-desktop.yml'
 permissions:
   contents: read
@@ -63,6 +65,11 @@ jobs:
           New-Item -ItemType Directory -Force diagnostics | Out-Null
           npm run package:windows-native 2>&1 | Tee-Object -FilePath diagnostics/windows-build.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify Windows native host startup
+        shell: pwsh
+        run: |
+          npx tsx scripts/accept-native-windows.ts 2>&1 | Tee-Object -FilePath diagnostics/windows-startup.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -99,14 +106,19 @@ jobs:
           mkdir -p diagnostics
           set -o pipefail
           npm run package:macos-native 2>&1 | tee diagnostics/macos-build.log
+      - name: Verify macOS sidecar and native host startup
+        shell: bash
+        env:
+          CODEXER_NATIVE_SERVICE: apps/control-native/macos/build/service/sidecar.cjs
+        run: |
+          set -o pipefail
+          node --test apps/control-native/test/sidecar.test.cjs 2>&1 | tee diagnostics/macos-sidecar.log
+          node scripts/accept-native-macos.mjs 2>&1 | tee diagnostics/macos-startup.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: native-macOS-diagnostics
           path: diagnostics/*
-      - run: node --test apps/control-native/test/sidecar.test.cjs
-        env:
-          CODEXER_NATIVE_SERVICE: apps/control-native/macos/build/service/sidecar.cjs
       - uses: actions/upload-artifact@v4
         with:
           name: native-macOS
