@@ -51,7 +51,7 @@ export const createAccount = (username: string, password: string, role: Role = '
 export const resetPassword = (id: string, password: string, role: Role = 'user') => request(`${accountsPath(role)}/${encodeURIComponent(id)}/password`, 'PUT', { password });
 export const disableAccount = (id: string, role: Role = 'user') => request(`${accountsPath(role)}/${encodeURIComponent(id)}`, 'DELETE');
 export const authSettings = () => request<AuthSettings>('/v1/admin/auth-settings');
-export const saveAuthSettings = (settings: AuthSettings) => request<AuthSettings>('/v1/admin/auth-settings', 'PUT', settings);
+export const saveAuthSettings = (settings: Partial<AuthSettings>) => request<AuthSettings>('/v1/admin/auth-settings', 'PUT', settings);
 export const touchLogin = () => request('/v1/auth/active', 'POST');
 export const agentRelease = async () => {const value=await request<{release:AgentRelease|null}>('/v1/admin/pc-agent/release');return value.release===null?null:agentReleaseSchema.parse(value.release);};
 export function uploadAgentRelease(file:File,version:string,signal:AbortSignal,progress:(fraction:number)=>void):Promise<AgentRelease>{

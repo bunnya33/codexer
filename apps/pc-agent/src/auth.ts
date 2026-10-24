@@ -26,7 +26,7 @@ export async function loginAgent(relayUrl: string, credentialFile: string, usern
 }
 export async function agentLoginValid(credentialFile: string): Promise<boolean> {
   const credentials = await readSecret<AgentCredentials>(credentialFile).catch(() => null);
-  if (!credentials?.session || credentials.expiresAt <= Date.now()) return false;
+  if (!credentials?.session) return false;
   validateRelayUrl(credentials.relayUrl);
   const response = await fetch(new URL("/v1/agent/" + credentials.deviceId + "/session", credentials.relayUrl), { headers: { authorization: "Bearer " + credentials.session }, signal: AbortSignal.timeout(10000) });
   return response.ok;

@@ -19,6 +19,9 @@ type Principal struct {
 
 var passwordSlots = make(chan struct{}, 2)
 
+// Largest valid JavaScript Date; old Agents also accept this numeric expiry.
+const neverExpiresAt int64 = 8640000000000000
+
 func passwordKey(password, salt string) []byte {
 	passwordSlots <- struct{}{}
 	defer func() { <-passwordSlots }()
@@ -120,26 +123,69 @@ func (s *Store) RevokeSessions(id string) {
 func (s *Store) IdleTimeout() int64 {
 	return num(s.One("SELECT idle_timeout_minutes FROM auth_settings WHERE id=1")["idle_timeout_minutes"])
 }
+func (s *Store) AuthSettings() M {
+	r := s.One("SELECT idle_timeout_minutes,agent_session_days FROM auth_settings WHERE id=1")
+	return M{"idleTimeoutMinutes": num(r["idle_timeout_minutes"]), "agentSessionDays": num(r["agent_session_days"])}
+}
 func (s *Store) Settings(minutes int64) M {
-	if minutes < 1 || minutes > 43200 {
+	return s.UpdateAuthSettings(M{"idleTimeoutMinutes": minutes})
+}
+func (s *Store) UpdateAuthSettings(settings M) M {
+	if len(settings) == 0 || len(settings) > 2 {
 		fail(400, "invalid-request")
 	}
+	for key, raw := range settings {
+		value := num(raw)
+		if key == "idleTimeoutMinutes" {
+			if value < 1 || value > 43200 {
+				fail(400, "invalid-request")
+			}
+		} else if key == "agentSessionDays" {
+			if value < 0 || value > 36500 {
+				fail(400, "invalid-request")
+			}
+		} else {
+			fail(400, "invalid-request")
+		}
+	}
+	var result M
 	s.Tx(func(t *Store) {
-		t.Q("DELETE FROM sessions WHERE device_id IS NULL AND expires_at<=$1", now())
-		t.Q("UPDATE auth_settings SET idle_timeout_minutes=$1 WHERE id=1", minutes)
-		t.Q("UPDATE sessions SET expires_at=last_active_at+$1 WHERE device_id IS NULL", minutes*60000)
+		at := now()
+		if raw, ok := settings["idleTimeoutMinutes"]; ok {
+			minutes := num(raw)
+			t.Q("DELETE FROM sessions WHERE device_id IS NULL AND expires_at<=$1", at)
+			t.Q("UPDATE auth_settings SET idle_timeout_minutes=$1 WHERE id=1", minutes)
+			t.Q("UPDATE sessions SET expires_at=last_active_at+$1 WHERE device_id IS NULL", minutes*60000)
+		}
+		if raw, ok := settings["agentSessionDays"]; ok {
+			days := num(raw)
+			// Remove expired credentials before extending the remaining logins.
+			t.Q("DELETE FROM sessions WHERE device_id IS NOT NULL AND expires_at<=$1", at)
+			t.Q("UPDATE auth_settings SET agent_session_days=$1 WHERE id=1", days)
+			if days == 0 {
+				t.Q("UPDATE sessions SET expires_at=$1 WHERE device_id IS NOT NULL", neverExpiresAt)
+			} else {
+				t.Q("UPDATE sessions SET expires_at=last_active_at+$1 WHERE device_id IS NOT NULL", days*86400000)
+			}
+		}
 		t.Q("DELETE FROM tickets WHERE session_hash IS NOT NULL AND NOT EXISTS(SELECT 1 FROM sessions WHERE hash=tickets.session_hash)")
+		result = t.AuthSettings()
 	})
-	return M{"idleTimeoutMinutes": minutes}
+	return result
 }
 func (s *Store) CreateSession(id, device string) M {
 	timeout := s.IdleTimeout() * 60000
+	at := now()
+	expires := at + timeout
 	if device != "" {
-		timeout = 604800000
+		days := num(s.AuthSettings()["agentSessionDays"])
+		expires = at + days*86400000
+		if days == 0 {
+			expires = neverExpiresAt
+		}
 	}
 	session := token(32)
-	expires := now() + timeout
-	if s.One("INSERT INTO sessions(hash,user_id,device_id,expires_at,last_active_at) SELECT $1,id,$3,$4,$5 FROM users WHERE id=$2 AND revoked_at IS NULL AND password_hash IS NOT NULL RETURNING hash", hash(session), id, nullable(device), expires, now()) == nil {
+	if s.One("INSERT INTO sessions(hash,user_id,device_id,expires_at,last_active_at) SELECT $1,id,$3,$4,$5 FROM users WHERE id=$2 AND revoked_at IS NULL AND password_hash IS NOT NULL RETURNING hash", hash(session), id, nullable(device), expires, at) == nil {
 		fail(401, "unauthorized")
 	}
 	return M{"session": session, "expiresAt": expires}

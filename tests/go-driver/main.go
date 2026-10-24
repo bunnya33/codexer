@@ -178,9 +178,9 @@ func main() {
 			case "finishCommand":
 				value = store.Finish(maparg(0))
 			case "authSettings":
-				value = relay.M{"idleTimeoutMinutes": store.IdleTimeout()}
+				value = store.AuthSettings()
 			case "setAuthSettings":
-				value = store.Settings(number(maparg(0)["idleTimeoutMinutes"]))
+				value = store.UpdateAuthSettings(maparg(0))
 			case "touchSession":
 				value = store.TouchSession(arg(0))
 			case "query":

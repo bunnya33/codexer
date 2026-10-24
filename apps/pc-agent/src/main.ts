@@ -23,7 +23,7 @@ if (action === "login") {
   console.log(await readFile(resolve(values.data, "status.json"), "utf8"));
 } else if (action === "run") {
   const credentials = await readSecret<AgentCredentials>(credentialFile).catch(() => { throw new Error("agent-not-logged-in: run npm run dev:agent -- login --username <account>"); });
-  if (!credentials.session || credentials.expiresAt <= Date.now()) throw new Error("account-session-expired: login again");
+  if (!credentials.session) throw new Error("account-session-expired: login again");
   const parents = await canonicalProjectParents(values['project-parent'] ?? []);
   const agent = new PcAgent(credentials, resolve(values.data), values.thread ?? (process.env.CODEX_THREAD_ID ? [process.env.CODEX_THREAD_ID] : []), values.pipe, undefined, values.runtime as "auto" | "desktop" | "headless", undefined, parents);
   await agent.start();

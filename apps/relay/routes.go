@@ -64,7 +64,16 @@ func (s *Server) routes() {
 			return result
 		})
 	}
-	s.route("POST /v1/auth/logout", "member", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
+	s.route("POST /v1/auth/logout", "", func(w http.ResponseWriter, r *http.Request, _ *Principal) any {
+		// PC credentials can revoke only their own device-scoped session.
+		value := r.Header.Get("Authorization")
+		if !strings.HasPrefix(value, "Bearer ") {
+			fail(401, "unauthorized")
+		}
+		p := s.Store.Session(strings.TrimPrefix(value, "Bearer "), r.Header.Get("x-device-id"))
+		if p == nil {
+			fail(401, "unauthorized")
+		}
 		s.Store.Logout(p.Hash)
 		s.CloseSessions(func(v *Principal) bool { return v.Hash == p.Hash }, "logged-out")
 		return M{"loggedOut": true}
@@ -81,15 +90,17 @@ func (s *Server) routes() {
 	})
 	s.route("POST /v1/ws/tickets", "user", func(w http.ResponseWriter, r *http.Request, p *Principal) any { return s.Store.Ticket(p) })
 	s.route("GET /v1/admin/auth-settings", "admin", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
-		return M{"idleTimeoutMinutes": s.Store.IdleTimeout()}
+		return s.Store.AuthSettings()
 	})
 	s.route("PUT /v1/admin/auth-settings", "admin", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
 		b := body(r)
-		value, ok := b["idleTimeoutMinutes"].(float64)
-		if len(b) != 1 || !ok || float64(int64(value)) != value {
-			fail(400, "invalid-request")
+		for _, raw := range b {
+			value, ok := raw.(float64)
+			if !ok || float64(int64(value)) != value {
+				fail(400, "invalid-request")
+			}
 		}
-		return s.Store.Settings(num(b["idleTimeoutMinutes"]))
+		return s.Store.UpdateAuthSettings(b)
 	})
 	for path, role := range map[string]string{"/v1/users": "user", "/v1/admin/accounts": "admin"} {
 		path, role := path, role
@@ -171,10 +182,11 @@ func (s *Server) routes() {
 		return M{"revoked": true}
 	})
 	s.route("GET /v1/agent/{deviceId}/session", "", func(w http.ResponseWriter, r *http.Request, _ *Principal) any {
-		if s.Store.Session(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), r.PathValue("deviceId")) == nil {
+		p := s.Store.Session(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), r.PathValue("deviceId"))
+		if p == nil {
 			fail(401, "unauthorized")
 		}
-		return M{"active": true}
+		return M{"active": true, "expiresAt": p.Expires}
 	})
 	for _, name := range []string{"snapshot", "catalog"} {
 		name := name

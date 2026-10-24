@@ -38,7 +38,7 @@ it("restricts idle policy to admins and renews only browser activity", async () 
           payload: { idleTimeoutMinutes: 2 },
         })
       ).json(),
-    ).toEqual({ idleTimeoutMinutes: 2 });
+    ).toEqual({ idleTimeoutMinutes: 2, agentSessionDays: 7 });
     const fresh = await store.createSession(user.id);
     const lastActive = Date.now() - 90000;
     await store.query("UPDATE sessions SET last_active_at=$2,expires_at=$3 WHERE hash=$1", [
@@ -115,7 +115,7 @@ it("persists policy changes without reviving expired logins", async () => {
     expect(await store.sessionPrincipal(session.session)).toBeNull();
     await store.close();
     store = await RelayStore.open(undefined, dir);
-    expect(await store.authSettings()).toEqual({ idleTimeoutMinutes: 1440 });
+    expect(await store.authSettings()).toEqual({ idleTimeoutMinutes: 1440, agentSessionDays: 7 });
   } finally {
     await store?.close();
     await rm(dir, { recursive: true, force: true });

@@ -99,6 +99,12 @@ func Open(databaseURL, directory string) (*Store, error) {
 		}
 	}
 	if s.SQLite {
+		if s.One("SELECT name FROM pragma_table_info('auth_settings') WHERE name='agent_session_days'") == nil {
+			if _, e = db.Exec("ALTER TABLE auth_settings ADD COLUMN agent_session_days INTEGER NOT NULL DEFAULT 7"); e != nil {
+				db.Close()
+				return nil, e
+			}
+		}
 		for _, column := range []string{"expires_at", "duration_minutes"} {
 			if s.One("SELECT name FROM pragma_table_info('preview_shares') WHERE name=$1", column) == nil {
 				initial := "0"
@@ -254,7 +260,7 @@ CREATE TABLE IF NOT EXISTS sessions(hash TEXT PRIMARY KEY,user_id TEXT NOT NULL 
 CREATE INDEX IF NOT EXISTS sessions_cleanup ON sessions(expires_at);
 CREATE TABLE IF NOT EXISTS tickets(hash TEXT PRIMARY KEY,expires_at BIGINT NOT NULL,owner_user_id TEXT REFERENCES users(id),session_hash TEXT);
 CREATE INDEX IF NOT EXISTS tickets_cleanup ON tickets(expires_at);
-CREATE TABLE IF NOT EXISTS auth_settings(id INTEGER PRIMARY KEY CHECK(id=1),idle_timeout_minutes INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS auth_settings(id INTEGER PRIMARY KEY CHECK(id=1),idle_timeout_minutes INTEGER NOT NULL,agent_session_days INTEGER NOT NULL DEFAULT 7);
 CREATE TABLE IF NOT EXISTS images(device_id TEXT NOT NULL REFERENCES devices(id),thread_id TEXT NOT NULL,id TEXT NOT NULL,payload TEXT NOT NULL,bytes BIGINT NOT NULL,uploaded BOOLEAN NOT NULL,expires_at BIGINT,created_at BIGINT NOT NULL,PRIMARY KEY(device_id,thread_id,id));
 CREATE INDEX IF NOT EXISTS images_cleanup ON images(expires_at) WHERE expires_at IS NOT NULL;
 CREATE TABLE IF NOT EXISTS weixin_bindings(id TEXT PRIMARY KEY,user_id TEXT UNIQUE NOT NULL REFERENCES users(id),bot_id TEXT UNIQUE NOT NULL,peer_id TEXT UNIQUE NOT NULL,base_url TEXT NOT NULL,token TEXT NOT NULL,context TEXT,cursor TEXT,created_at BIGINT NOT NULL,last_poll_at BIGINT,notifications BOOLEAN NOT NULL DEFAULT TRUE,replies BOOLEAN NOT NULL DEFAULT TRUE,poll_error TEXT,send_error TEXT,reply_target_code TEXT);

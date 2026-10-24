@@ -148,9 +148,9 @@ export class RelayStore {
     return this.rpc<boolean>("finishCommand", value);
   }
   authSettings() {
-    return this.rpc<{ idleTimeoutMinutes: number }>("authSettings");
+    return this.rpc<{ idleTimeoutMinutes: number; agentSessionDays: number }>("authSettings");
   }
-  setAuthSettings(value: { idleTimeoutMinutes: number }) {
+  setAuthSettings(value: { idleTimeoutMinutes?: number; agentSessionDays?: number }) {
     return this.rpc("setAuthSettings", value);
   }
   query(sql: string, args: unknown[] = []) {
