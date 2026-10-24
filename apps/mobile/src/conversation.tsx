@@ -90,7 +90,7 @@ function Activity({ block, turn, deviceId, threadId, onImage, questionRequestIds
   const [now, setNow] = useState(Date.now());
   useEffect(() => { if (block.state !== 'running') return; const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, [block.state]);
   return <View style={s.activity}>
-    <View><View style={s.activityHead}>{block.state === 'running' ? <ActivityIndicator size="small" color={c.accent} /> : <Clock3 size={14} color={c.muted} />}<Text style={s.activityText}>{activityLabel(block, now)}</Text></View>{block.state === 'running' && <TurnTiming turn={turn} running />}</View>
+    <View><View style={s.activityHead}>{block.state === 'running' ? <ActivityIndicator size="small" color={c.accent} /> : <Clock3 size={14} color={c.muted} />}<Text style={s.activityText}>{activityLabel(block, now)}</Text></View><TurnTiming turn={turn} kind="start" /></View>
     <View style={s.line} />
     {activitySections(block).map(section => {
       if (section.kind === 'execution') return <ExecutionGroup key={section.id} section={section} deviceId={deviceId} threadId={threadId} onImage={onImage} />;
@@ -129,7 +129,7 @@ export const TurnView = memo(function TurnView({ turn, active, deviceId, threadI
     {!active && !!turn.fileChanges?.length && <FileChangesPanel changes={turn.fileChanges} compact={false} />}
     {(turn.tokenUsage || Platform.OS === 'web' && !running) && <View style={{ gap: 4 }}>
       {turn.tokenUsage && <Text style={s.usage}>输入 {turn.tokenUsage.inputTokens.toLocaleString()} · 输出 {turn.tokenUsage.outputTokens.toLocaleString()} · 缓存命中 {turn.tokenUsage.cachedInputTokens.toLocaleString()}{turn.tokenUsage.state === 'partial' ? ' · 部分统计' : turn.tokenUsage.state === 'running' ? ' · 统计中' : ''}</Text>}
-      {!running && <TurnTiming turn={turn} running={false} />}
+      {!running && <TurnTiming turn={turn} kind="end" />}
     </View>}
   </View>;
 });
