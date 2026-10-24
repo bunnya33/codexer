@@ -665,6 +665,8 @@ export class RelayClient {
     if (!Number.isSafeInteger(value.expiresAt)||value.expiresAt<=0||!Number.isInteger(value.durationMinutes)||value.durationMinutes<1||value.durationMinutes>525600) throw new Error('服务器尚不支持分享有效期，请更新服务器');
     return {id:value.id,url:this.view.url+value.path,enabled:value.enabled,kind:value.kind,expiresAt:value.expiresAt,durationMinutes:value.durationMinutes};
   }
+  async clientRelease(target:import('../../../packages/shared/src/client-release').ClientTarget,signal?:AbortSignal){return this.api<{release:unknown}>('/v1/client-releases/'+target,undefined,'GET',false,signal);}
+  clientInstallerSource(target:string,id:string){return {uri:this.view.url+'/v1/client-releases/'+encodeURIComponent(target)+'/'+encodeURIComponent(id)+'/download',headers:{Authorization:'Bearer '+this.token}};}
   async agentRelease(signal?:AbortSignal):Promise<AgentRelease|null>{
     const value=await this.api<{release:AgentRelease|null}>('/v1/pc-agent/release',undefined,'GET',false,signal);
     return value.release===null?null:agentReleaseSchema.parse(value.release);

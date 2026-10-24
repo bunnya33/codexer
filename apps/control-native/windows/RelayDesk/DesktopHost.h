@@ -70,6 +70,8 @@ class Host {
   NOTIFYICONDATAW tray{};
   UINT taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
   bool trayAdded = false;
+  bool updateAvailable = false;
+  HICON updateIcon{};
   std::map<std::wstring, std::shared_ptr<PreviewWindow>> previews;
   static constexpr UINT RunMessage = WM_APP + 41, TrayMessage = WM_APP + 42, RestoreMessage = WM_APP + 43;
 
@@ -176,6 +178,23 @@ class Host {
     SendMessageW(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(tray.hIcon));
     SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(tray.hIcon));
     wcscpy_s(tray.szTip, name.c_str()); trayAdded = !!Shell_NotifyIconW(NIM_ADD, &tray);
+    setUpdateBadge(updateAvailable);
+  }
+  void setUpdateBadge(bool available) {
+    updateAvailable=available;if(!trayAdded)return;
+    auto base=static_cast<HICON>(LoadImageW(nullptr,(directory+L"\\icon.ico").c_str(),IMAGE_ICON,32,32,LR_LOADFROMFILE|LR_SHARED));
+    if(!base)base=LoadIconW(nullptr,IDI_APPLICATION);
+    HICON next{};
+    if(available){
+      auto screen=GetDC(nullptr),dc=CreateCompatibleDC(screen);BITMAPINFO info{};info.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);info.bmiHeader.biWidth=32;info.bmiHeader.biHeight=-32;info.bmiHeader.biPlanes=1;info.bmiHeader.biBitCount=32;info.bmiHeader.biCompression=BI_RGB;
+      void* pixels{};auto bitmap=CreateDIBSection(screen,&info,DIB_RGB_COLORS,&pixels,nullptr,0);DWORD maskBits[32]{};auto mask=CreateBitmap(32,32,1,1,maskBits);
+      if(bitmap&&mask&&pixels&&dc){ZeroMemory(pixels,32*32*4);auto previous=SelectObject(dc,bitmap);DrawIconEx(dc,0,0,base,32,32,0,nullptr,DI_NORMAL);GdiFlush();auto bytes=static_cast<unsigned char*>(pixels);
+        for(int y=0;y<32;y++)for(int x=0;x<32;x++){int d=(x-25)*(x-25)+(y-7)*(y-7);if(d>36)continue;auto offset=(y*32+x)*4;bool red=d<=20;bytes[offset]=red?58:255;bytes[offset+1]=red?55:255;bytes[offset+2]=red?235:255;bytes[offset+3]=255;}
+        SelectObject(dc,previous);ICONINFO icon{};icon.fIcon=TRUE;icon.hbmColor=bitmap;icon.hbmMask=mask;next=CreateIconIndirect(&icon);
+      }
+      if(bitmap)DeleteObject(bitmap);if(mask)DeleteObject(mask);DeleteDC(dc);ReleaseDC(nullptr,screen);
+    }
+    auto previous=updateIcon;updateIcon=next;tray.hIcon=next?next:base;wcscpy_s(tray.szTip,(name+(available?L" · 有新版本":L"")).c_str());Shell_NotifyIconW(NIM_MODIFY,&tray);if(previous)DestroyIcon(previous);
   }
   void restore() { window.Show(); ShowWindow(hwnd, SW_RESTORE); SetForegroundWindow(hwnd); }
   void exit(bool confirm = true) {
@@ -194,7 +213,7 @@ class Host {
   }
   void trayMenu() {
     POINT point{}; GetCursorPos(&point); auto menu = CreatePopupMenu();
-    AppendMenuW(menu, MF_STRING, 1, L"打开窗口"); AppendMenuW(menu, MF_STRING, 2, L"设置"); AppendMenuW(menu, MF_SEPARATOR, 0, nullptr); AppendMenuW(menu, MF_STRING, 3, L"退出进程…");
+    AppendMenuW(menu, MF_STRING, 1, L"打开窗口"); AppendMenuW(menu, MF_STRING, 2, updateAvailable?L"设置 · 有新版本":L"设置"); AppendMenuW(menu, MF_SEPARATOR, 0, nullptr); AppendMenuW(menu, MF_STRING, 3, L"退出进程…");
     SetForegroundWindow(hwnd); auto selected = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, point.x, point.y, 0, hwnd, nullptr); DestroyMenu(menu);
     if (selected == 1) restore();
     if (selected == 2) { restore(); emit(L"openSettings", JsonValue::CreateNullValue()); }
@@ -251,7 +270,7 @@ class Host {
   ~Host() {
     if (wheelHook) UnhookWindowsHookEx(wheelHook);
     wheelHost = nullptr;
-    quitting = true; if (trayAdded) Shell_NotifyIconW(NIM_DELETE,&tray);
+    quitting = true; if (trayAdded) Shell_NotifyIconW(NIM_DELETE,&tray);if(updateIcon)DestroyIcon(updateIcon);
     if (input) CloseHandle(input);
     if (job) CloseHandle(job);
     if (reader.joinable()) reader.join();
@@ -262,6 +281,8 @@ class Host {
 inline Host* host{};
 
 inline void Host::platform(std::wstring const& method, JsonObject const& value, Reply done) {
+  if(method==L"updates.badge"){setUpdateBadge(value.GetNamedBoolean(L"available",false));done(boolean(true),{});return;}
+  if(method==L"updates.open"){auto path=field(value,L"path");auto root=(std::filesystem::path(profile)/L"client-updates").lexically_normal();auto package=std::filesystem::path(path).lexically_normal();if(package.parent_path()!=root||package.extension()!=L".exe"){done(nullptr,"invalid-update-package");return;}auto result=reinterpret_cast<INT_PTR>(ShellExecuteW(hwnd,L"open",path.c_str(),nullptr,nullptr,SW_SHOWNORMAL));done(boolean(result>32),result>32?"":"update-open-failed");return;}
   if (method==L"window.theme") {
     BOOL dark = value.GetNamedBoolean(L"dark", false);
     auto color = [&](wchar_t const* key) { auto rgb = static_cast<unsigned int>(value.GetNamedNumber(key)); return RGB((rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255); };

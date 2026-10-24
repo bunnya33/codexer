@@ -1,6 +1,8 @@
 import type { AuthSettings } from '../../../packages/shared/src/session-policy';
 import {agentReleaseSchema} from '../../../packages/shared/src/agent-release';
 import type {AgentRelease} from '../../../packages/shared/src/agent-release';
+import {clientReleaseSchema} from '../../../packages/shared/src/client-release';
+import type {ClientRelease,ClientTarget} from '../../../packages/shared/src/client-release';
 export type { AuthSettings };
 import type { VersionInfo, UpdateJob, UpdateAction, UpdateSettings } from '../../../packages/shared/src/server-update';
 export type { VersionInfo, UpdateJob, UpdateAction, UpdateSettings };
@@ -54,6 +56,17 @@ export const authSettings = () => request<AuthSettings>('/v1/admin/auth-settings
 export const saveAuthSettings = (settings: Partial<AuthSettings>) => request<AuthSettings>('/v1/admin/auth-settings', 'PUT', settings);
 export const touchLogin = () => request('/v1/auth/active', 'POST');
 export const agentRelease = async () => {const value=await request<{release:AgentRelease|null}>('/v1/admin/pc-agent/release');return value.release===null?null:agentReleaseSchema.parse(value.release);};
+export async function clientReleases(){const value=await request<{releases:Record<string,unknown>}>('/v1/admin/client-releases');return Object.fromEntries(Object.entries(value.releases).map(([key,v])=>[key,clientReleaseSchema.parse(v)]));}
+export function uploadClientRelease(target:ClientTarget,file:File,version:string,buildNumber:number,notes:string,signal:AbortSignal,progress:(value:number)=>void):Promise<ClientRelease>{
+ return new Promise((resolve,reject)=>{
+  const xhr=new XMLHttpRequest(),cancel=()=>xhr.abort(),cleanup=()=>signal.removeEventListener('abort',cancel);
+  xhr.open('PUT','/v1/admin/client-releases/'+target+'?'+new URLSearchParams({name:file.name,version,buildNumber:String(buildNumber),notes}));xhr.timeout=10*60*1000;xhr.setRequestHeader('Authorization','Bearer '+session);xhr.setRequestHeader('Content-Type','application/octet-stream');
+  xhr.upload.onprogress=e=>{if(e.lengthComputable)progress(e.loaded/e.total);};
+  xhr.onload=()=>{cleanup();try{const value=JSON.parse(xhr.responseText);if(xhr.status===200){resolve(clientReleaseSchema.parse(value.release));return;}if(xhr.status===401)clearSession();const errors:Record<string,string>={'invalid-client-package':'安装包格式与目标不符','client-upload-in-progress':'已有客户端正在上传','invalid-client-release':'请检查版本、文件名和构建号','client-installer-too-large':'安装包超过 512 MiB','client-release-storage-error':'服务器保存失败，旧版仍然可用'};reject(new Error(errors[value.error]||'上传失败，请重试'));}catch{reject(new Error('服务器返回的安装包信息无效'));}};
+  xhr.onerror=()=>{cleanup();reject(new Error('网络错误，请重试'));};xhr.ontimeout=()=>{cleanup();reject(new Error('上传超时，请重试'));};xhr.onabort=()=>{cleanup();reject(new Error('上传已取消'));};
+  signal.addEventListener('abort',cancel,{once:true});if(signal.aborted){cleanup();reject(new Error('上传已取消'));return;}xhr.send(file);
+ });
+}
 export function uploadAgentRelease(file:File,version:string,signal:AbortSignal,progress:(fraction:number)=>void):Promise<AgentRelease>{
   return new Promise((resolve,reject)=>{
     const xhr=new XMLHttpRequest(),cancel=()=>xhr.abort();

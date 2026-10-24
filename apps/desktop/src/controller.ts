@@ -26,6 +26,7 @@ export class ConnectorController extends EventEmitter {
     super(); this.view = { settings: settingsSchema.parse(settings), loggedIn: false, secureStorage: vault.available(), busy: false, phase: 'signed-out', status: null, logs: [], error: '', expiresAt: null, version };
   }
   state(): ViewState { return structuredClone(this.view); }
+  updateConnection() { const value=this.credentials;return value?{url:value.relayUrl,session:value.session,deviceId:value.deviceId}:undefined; }
   private publish(patch: Partial<ViewState> = {}) { this.view = { ...this.view, ...patch }; this.emit('state', this.state()); }
   log(code: string) { this.publish({ logs: [...this.view.logs.slice(-199), { at: Date.now(), code: safeCode(code) }] }); }
   update(status: AgentStatus) {

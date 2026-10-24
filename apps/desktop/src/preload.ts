@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { DesktopApi, ViewState, WindowState } from './types.js';
 const invoke = (name: string, ...args: unknown[]) => ipcRenderer.invoke('codexer:' + name, ...args);
 const api: DesktopApi = {
+ updates: {cancel:()=>invoke('updates.cancel'),state:()=>invoke('updates.state'),check:()=>invoke('updates.check'),download:()=>invoke('updates.download'),open:()=>invoke('updates.open'),subscribe(callback){const listener=(_event:unknown,value:any)=>callback(value);ipcRenderer.on('codexer:updates',listener);return()=>ipcRenderer.removeListener('codexer:updates',listener);},onOpen(callback){ipcRenderer.on('codexer:openUpdates',callback);return()=>ipcRenderer.removeListener('codexer:openUpdates',callback);}},
   state: () => invoke('state'),
   subscribe(callback) { const listener = (_event: unknown, state: ViewState) => callback(state); ipcRenderer.on('codexer:state', listener); return () => ipcRenderer.removeListener('codexer:state', listener); },
   login: (username, password) => invoke('login', username, password), logout: () => invoke('logout'), connect: () => invoke('connect'), disconnect: () => invoke('disconnect'), reconnect: () => invoke('reconnect'), save: settings => invoke('save', settings), pick: kind => invoke('pick', kind), exportLogs: () => invoke('exportLogs'), openControl: () => invoke('openControl'),

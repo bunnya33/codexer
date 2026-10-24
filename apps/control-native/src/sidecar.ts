@@ -10,6 +10,7 @@ import type {AgentCredentials} from '../../pc-agent/src/auth';
 import {PcAgent} from '../../pc-agent/src/agent';
 import {resolveCodexBinary} from '../../../packages/codex-adapter/src/binary';
 import {readLegacyControl} from './legacy-control';
+import {DesktopClientUpdates} from '../../desktop/src/client-updates';
 
 const mode = process.env.CODEXER_NATIVE_MODE === 'agent' ? 'agent' : 'control';
 const directory = process.env.CODEXER_NATIVE_DATA_DIR || (process.platform === 'darwin'
@@ -58,6 +59,10 @@ const selected = new Set<string>();
 const transfers = new Map<string, AbortController>();
 const mime = (name: string) => ({'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.gif':'image/gif','.svg':'image/svg+xml','.pdf':'application/pdf','.txt':'text/plain','.json':'application/json'} as Record<string,string>)[extname(name).toLowerCase()] || 'application/octet-stream';
 
+const updateTarget=process.platform==='darwin'?(process.arch==='arm64'?'control-macos-arm64':'control-macos-x64'):'control-windows-x64';
+let lastUpdateBadge:boolean|undefined;
+const updates=new DesktopClientUpdates(updateTarget,version,join(directory,'client-updates'),value=>{send({event:'clientUpdate',value});if(lastUpdateBadge!==value.available){lastUpdateBadge=value.available;void native('updates.badge',{available:value.available}).catch(()=>{});}});
+function configureUpdates(saved:any){updates.configure(saved&&typeof saved.url==='string'&&typeof saved.session==='string'?{url:saved.url,session:saved.session}:undefined);}
 const ready = (async () => {
   await mkdir(directory, {recursive:true,mode:0o700});
   preferences = {...preferences, ...await json(join(directory, 'preferences.json')), ...await json(join(directory, 'native-preferences.json'))};
@@ -65,7 +70,7 @@ const ready = (async () => {
   const oldServer = await json(join(directory, 'server.json'));
   if (mode === 'control' && !preferences.serverUrl && typeof oldServer?.url === 'string') preferences.serverUrl = oldServer.url;
   send({event:'preferences', value:preferences});
-  if (mode !== 'agent') return;
+  if (mode !== 'agent') {configureUpdates(await readVault('control-session.native.enc'));return;}
   const vault: Vault = {
     available: () => true,
     async read() {const saved = await readVault('session.native.enc') || await legacyAgentCredentials(); if (saved) await writeVault('session.native.enc', saved); return saved as AgentCredentials | null;},
@@ -122,21 +127,26 @@ async function dispatch(method: string, value: any) {
       await atomic(join(directory, 'native-preferences.json'), JSON.stringify(preferences));
       send({event:'preferences', value:preferences}); return preferences;
     }
+    case 'updates.state': return updates.state();
+    case 'updates.check': await updates.check();return true;
+    case 'updates.download': await updates.download();return true;
+    case 'updates.cancel': updates.cancel();return true;
+    case 'updates.open': return native('updates.open',{path:await updates.verifiedPackage()});
     case 'credentials.read': {
-      const saved=await readVault('control-session.native.enc');if(saved)return saved;
+      const saved=await readVault('control-session.native.enc');if(saved){configureUpdates(saved);return saved;}
       if(await json(join(directory,'native-control-migrated.json')))return null;
       const previous=await readLegacyControl(directory,preferences.serverUrl);
       if(previous){await writeVault('control-session.native.enc',previous);await atomic(join(directory,'native-control-migrated.json'),'true');}
-      return previous;
+      configureUpdates(previous);return previous;
     }
     case 'credentials.save': {
       if (mode !== 'control' || typeof value.value !== 'string' || value.value.length > 32000) throw new Error('invalid-credentials');
       const parsed = JSON.parse(value.value);
-      await writeVault('control-session.native.enc', parsed);
+      await writeVault('control-session.native.enc', parsed);configureUpdates(parsed);
       if (typeof parsed.url === 'string') {preferences.serverUrl = parsed.url; await atomic(join(directory, 'native-preferences.json'), JSON.stringify(preferences));}
       return true;
     }
-    case 'credentials.clear': await atomic(join(directory,'native-control-migrated.json'),'true');await rm(join(directory, 'control-session.native.enc'), {force:true}); return true;
+    case 'credentials.clear': updates.configure(); await atomic(join(directory,'native-control-migrated.json'),'true');await rm(join(directory, 'control-session.native.enc'), {force:true}); return true;
     case 'storage.read': return json(join(directory, 'native-' + createHash('sha256').update(String(value.key)).digest('hex') + '.json'));
     case 'storage.write': {
       const content = JSON.stringify(value.value); if (content.length > 64000) throw new Error('storage-value-too-large');
@@ -193,7 +203,7 @@ async function dispatch(method: string, value: any) {
       const path = await native<string>('saveDialog', {name:'codexer-diagnostics.json'}); if (!path) return null;
       const state = controller!.state(); await writeFile(path, JSON.stringify({version, platform:process.platform, phase:state.phase, status:state.status, logs:state.logs},null,2)); return path;
     }
-    case 'shutdown': shutdown = true; for (const abort of transfers.values()) abort.abort(); await controller?.shutdown(); return true;
+    case 'shutdown': updates.dispose();shutdown = true; for (const abort of transfers.values()) abort.abort(); await controller?.shutdown(); return true;
     default: throw new Error('unknown-native-operation');
   }
 }

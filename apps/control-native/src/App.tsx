@@ -1,9 +1,10 @@
 import { ThemeProvider } from '../../mobile/src/theme';
+import {SettingsShell} from '../../mobile/src/settings-shell';
+import {ControlSettings} from './adapters/control-settings';
+import {useClientUpdates} from './adapters/client-updates';
+import {WeixinSettings} from '../../mobile/src/weixin-settings';
 import { useTheme } from '../../mobile/src/styles';
-import { ThemePicker } from '../../mobile/src/theme-picker';
 import { Dialog } from '../../mobile/src/dialog';
-import { WindowClosePreference } from './adapters/control-settings';
-import { controlVersion, controlPlatform } from './adapters/build-info';
 import React,{useEffect,useState} from 'react';
 import {ActivityIndicator,Text,View} from 'react-native';
 import ControlApp from '../../mobile/App';
@@ -19,6 +20,7 @@ class Boundary extends React.Component<{children:React.ReactNode},{error:boolean
 }
 function NativeApp(){
   const { c } = useTheme();
+  const updates=useClientUpdates();const [weixin,setWeixin]=useState(false);
   const [ready,setReady]=useState(false),[error,setError]=useState(''),[settings,setSettings]=useState(false);
   useEffect(()=>{
     let disposed=false,diagnostics:(()=>void)|undefined;
@@ -34,7 +36,7 @@ function NativeApp(){
     return()=>{disposed=true;diagnostics?.();off();menu();backend();};
   },[]);
   return <Boundary><View style={{flex:1,backgroundColor:c.bg}}>{!!error&&<Text accessibilityRole="alert" style={{backgroundColor:c.warningBg,color:c.danger,padding:12}}>{error}</Text>}{ready?(boot.mode==='agent'?<AgentApp/>:<ControlApp/>):<View style={{flex:1,justifyContent:'center',alignItems:'center',gap:16}}><ActivityIndicator color={c.accent}/><Text style={{color:c.text}}>正在读取本机配置…</Text></View>}
-    <Dialog open={settings} title="Codexer Control 设置" onClose={()=>setSettings(false)}><ThemePicker/><WindowClosePreference/><Text style={{fontSize:12,color:c.muted}}>{controlPlatform} · {controlVersion}</Text></Dialog>
+    <SettingsShell open={settings} onClose={()=>setSettings(false)} onWeixin={()=>{setSettings(false);setWeixin(true);}} updateAvailable={updates.available}>{section=><ControlSettings section={section} url={relay.getSnapshot().url} onWeixin={()=>setWeixin(true)} onLogout={()=>{setSettings(false);void relay.logout();}}/>}</SettingsShell><Dialog open={weixin} title="微信设置" onClose={()=>setWeixin(false)}><WeixinSettings/></Dialog>
   </View></Boundary>;
 }
 

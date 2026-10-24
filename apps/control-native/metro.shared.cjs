@@ -6,8 +6,8 @@ module.exports = function desktopConfig(platform, dependencyRoot) {
   const app = __dirname;
   const root = path.resolve(app, '../..');
   const runtime = platform === 'macos' ? 'react-native-macos' : 'react-native-windows';
-  const adapters = new Set(['runtime','attachment-picker','file-download','preview-storage','selection-storage','theme-storage','theme-platform','image-viewer','effort-slider','preview-range','preview-surface','audio-player','build-info','conversation-viewport','control-settings','composer-popover']);
-  const components = new Set(['image-viewer','effort-slider','preview-range','preview-surface','audio-player','conversation-viewport','control-settings','composer-popover']);
+  const adapters = new Set(['runtime','attachment-picker','file-download','preview-storage','selection-storage','theme-storage','theme-platform','image-viewer','effort-slider','preview-range','preview-surface','audio-player','build-info','conversation-viewport','control-settings','composer-popover','client-updates','client-platform-settings']);
+  const components = new Set(['image-viewer','effort-slider','preview-range','preview-surface','audio-player','conversation-viewport','control-settings','composer-popover','client-platform-settings']);
   const modules = {'react-native-safe-area-context':'safe-area.tsx','expo-status-bar':'status-bar.tsx','expo-image-picker':'image-picker.ts','expo-image-manipulator':'image-manipulator.ts','react-native-gesture-handler':'gesture-root.tsx'};
   const modal = path.join(app, 'src/adapters', platform === 'macos' ? 'modal.macos.tsx' : 'modal.tsx');
   const runtimeRoot = path.dirname(require.resolve(runtime + '/package.json', {paths:[dependencyRoot]}));

@@ -568,18 +568,20 @@ it('edits complete queued messages without dropping their attachments and reject
 });
 
 
-it('uses centered settings and operation dialogs, shows server and loaded-control versions, and puts project creation beside its heading', async () => {
+it('uses categorized settings with version information, keeps operation dialogs centered and project creation beside its heading', async () => {
   const test = await fixture({ controls: { active: false, text: '', images: [] } });
   try {
     await vi.waitFor(() => expect(test.header()).toContain('recent-pc-a'));
     const add = test.dom.window.document.querySelector('[aria-label="新建项目"]')!;
     expect(add.textContent).toBe(''); expect(add.parentElement?.textContent).toBe('项目');
     test.click('连接设置');
-    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[data-testid="dialog-card"]')?.textContent).toContain('8.7.6'));
-    const card = test.dom.window.document.querySelector<HTMLElement>('[data-testid="dialog-card"]')!;
+    await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[aria-label="关于与版本"]')).not.toBeNull());
+    test.click('关于与版本');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[data-testid="settings-shell"]')?.textContent).toContain('8.7.6'));
+    const card = test.dom.window.document.querySelector<HTMLElement>('[data-testid="settings-shell"]')!;
     expect(card.textContent).toContain('服务器版本'); expect(card.textContent).toContain('控制端版本');
     expect(card.textContent).toContain(controlVersion);
-    expect(test.dom.window.getComputedStyle(card.parentElement!).justifyContent).toBe('center');
+    expect(test.dom.window.document.querySelector('[data-testid="dialog-card"]')).toBeNull();
     await test.closeDialog('关闭设置');
     test.click('工作模式：默认');
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[data-testid="dialog-card"]')?.textContent).toContain('Plan Mode'));
@@ -646,6 +648,7 @@ it('shows the selected PC Agent version and marks older agents without guessing 
   try {
     await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-a']).toBe(false));
     test.click('连接设置');
+    await vi.waitFor(()=>expect(document.querySelector('[aria-label="服务器与设备"]')).not.toBeNull());test.click('服务器与设备');
     const version = () => document.querySelector('[data-testid="selected-agent-version"]')?.textContent;
     await vi.waitFor(() => expect(version()).toContain('pc-a · 在线\n0.1.16'));
     expect(version()).not.toContain('未上报');
@@ -655,6 +658,7 @@ it('shows the selected PC Agent version and marks older agents without guessing 
     test.click('选择设备 pc-b，在线');
     await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-b']).toBe(false));
     test.click('连接设置');
+    await vi.waitFor(()=>expect(document.querySelector('[aria-label="服务器与设备"]')).not.toBeNull());test.click('服务器与设备');
     await vi.waitFor(() => expect(version()).toContain('pc-b · 在线'));
     expect(version()).toContain('未上报'); expect(version()).not.toContain('0.1.16');
     expect(test.errors).toEqual([]);
@@ -670,6 +674,7 @@ it('switches three skins through settings without remounting the composer or los
     Object.getOwnPropertyDescriptor(test.dom.window.HTMLTextAreaElement.prototype, 'value')!.set!.call(input, text);
     input.dispatchEvent(new test.dom.window.Event('input', { bubbles: true }));
     test.click('连接设置');
+    await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[aria-label="外观"]')).not.toBeNull());test.click('外观');
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[role="radiogroup"]')).not.toBeNull());
     expect(test.dom.window.document.querySelectorAll('[role="radiogroup"] [role="radio"]')).toHaveLength(3);
     for (const [label, id, color] of [['暖白纸张', 'paper', '#faf7f1'], ['暖棕暗色', 'warm-dark', '#262322'], ['默认', 'default', '#ffffff']]) {
@@ -701,6 +706,7 @@ it('keeps a selected skin usable and explains a failed preference save', async (
   try {
     await vi.waitFor(() => expect(test.header()).toContain('recent-pc-a'));
     test.click('连接设置');
+    await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[aria-label="外观"]')).not.toBeNull());test.click('外观');
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="暖棕暗色"]')).not.toBeNull());
     test.click('暖棕暗色');
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[role="alert"]')?.textContent).toContain('偏好未能保存'));

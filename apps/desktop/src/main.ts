@@ -8,6 +8,8 @@ import type { Settings } from './types.js';
 import {agentProfile} from './profile.js';
 import {readNativeCredentials} from './native-credentials.js';
 import {agentLoginItemSettings} from './login-items.js';
+import {DesktopClientUpdates} from './client-updates';
+import {trayUpdateIcon} from './update-badge';
 
 let window: BrowserWindow | null = null, tray: Tray | null = null, controller: ConnectorController;
 let quitting = false, quitInProgress = false;
@@ -72,13 +74,21 @@ else {
     try { controller = new ConnectorController(vault, worker, settings, persist, app.getVersion()); }
     catch { controller = new ConnectorController(vault, worker, defaultSettings(), persist, app.getVersion()); controller.log('settings-recovery-required'); }
     const icon = nativeImage.createFromPath(join(root, 'icon.png'));
+    const updateTarget = process.platform==='darwin' ? (process.arch==='arm64'?'agent-macos-arm64':'agent-macos-x64') : process.env.PORTABLE_EXECUTABLE_FILE ? 'agent-windows-x64-portable' : 'agent-windows-x64-setup';
+    let lastBadge:boolean|undefined;
+    const updates = new DesktopClientUpdates(updateTarget,app.getVersion(),join(directory,'client-updates'),state=>{
+      if(window&&!window.isDestroyed())window.webContents.send('codexer:updates',state);
+      if(tray&&lastBadge!==state.available){lastBadge=state.available;tray.setImage(trayUpdateIcon(icon,state.available,process.platform==='darwin'));}
+    });
+    controller.on('state',()=>updates.configure(controller.updateConnection()));
+    app.on('will-quit',()=>updates.dispose());
     window = new BrowserWindow({ width: 1180, height: 800, minWidth: 940, minHeight: 680, title: 'Codexer Agent · 桌面连接器', frame: false, icon, backgroundColor: '#f5f7fb', show: false, webPreferences: { preload: join(root, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true } });
     const windowState = () => ({ maximized: !!window && (window.isMaximized() || window.isFullScreen()), focused: window?.isFocused() ?? false });
     const publishWindowState = () => window?.webContents.send('codexer:window:state', windowState());
     window.on('maximize', publishWindowState); window.on('unmaximize', publishWindowState);
     window.on('enter-full-screen', publishWindowState); window.on('leave-full-screen', publishWindowState);
     window.on('focus', publishWindowState); window.on('blur', publishWindowState);
-    Menu.setApplicationMenu(process.platform === 'darwin' ? Menu.buildFromTemplate([{ label: 'Codexer Agent', submenu: [{ label:'关于 Codexer Agent',role: 'about' }, { type: 'separator' }, { label: '显示控制台', click: showWindow }, { label:'隐藏 Codexer Agent',role: 'hide' }, { label: '退出 Codexer Agent', accelerator:'CommandOrControl+Q', click: () => app.quit() }] }, { role: 'editMenu' }]) : null);
+    Menu.setApplicationMenu(process.platform === 'darwin' ? Menu.buildFromTemplate([{ label: 'Codexer Agent', submenu: [{ label:'关于 Codexer Agent',role: 'about' }, { type: 'separator' }, { label: '显示控制台', click: showWindow }, {label:'版本与更新',click:()=>{showWindow();window?.webContents.send('codexer:openUpdates');}}, { label:'隐藏 Codexer Agent',role: 'hide' }, { label: '退出 Codexer Agent', accelerator:'CommandOrControl+Q', click: () => app.quit() }] }, { role: 'editMenu' }]) : null);
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     window.webContents.on('will-navigate', event => event.preventDefault());
     window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
@@ -92,7 +102,7 @@ else {
       window?.webContents.send('codexer:state', state);
       const label = state.phase === 'connected' ? '已连接' : state.phase === 'signed-out' ? '未登录' : state.phase === 'disconnected' ? '已断开' : '连接中';
       tray?.setToolTip(`Codexer Agent · ${label}`);
-      tray?.setContextMenu(Menu.buildFromTemplate([{ label: `Codexer Agent · ${label}`, enabled: false }, { label: '显示控制台', click: showWindow }, { type: 'separator' }, { label: '连接', enabled: state.loggedIn && !state.busy && state.phase === 'disconnected', click: () => guarded(() => controller.connect()) }, { label: '断开远程连接', enabled: state.phase !== 'disconnected' && state.phase !== 'signed-out', click: () => guarded(() => controller.disconnect()) }, { label: '重连', enabled: state.loggedIn && !state.busy, click: () => guarded(() => controller.reconnect()) }, { type: 'separator' }, { label: '退出 Codexer Agent', accelerator:'CommandOrControl+Q', click: () => app.quit() }]));
+      tray?.setContextMenu(Menu.buildFromTemplate([{ label: `Codexer Agent · ${label}`, enabled: false }, { label: '显示控制台', click: showWindow }, {label:'版本与更新',click:()=>{showWindow();window?.webContents.send('codexer:openUpdates');}}, { type: 'separator' }, { label: '连接', enabled: state.loggedIn && !state.busy && state.phase === 'disconnected', click: () => guarded(() => controller.connect()) }, { label: '断开远程连接', enabled: state.phase !== 'disconnected' && state.phase !== 'signed-out', click: () => guarded(() => controller.disconnect()) }, { label: '重连', enabled: state.loggedIn && !state.busy, click: () => guarded(() => controller.reconnect()) }, { type: 'separator' }, { label: '退出 Codexer Agent', accelerator:'CommandOrControl+Q', click: () => app.quit() }]));
       const log = state.logs.at(-1);
       if (log && log.at > lastLogAt) {
         lastLogAt = log.at;
@@ -101,6 +111,8 @@ else {
     });
     function handle(name: string, callback: (...args: any[]) => unknown) { ipcMain.handle('codexer:' + name, (event, ...args) => { if (event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('untrusted-sender'); return callback(...args); }); }
     handle('state', () => controller.state());
+    handle('updates.cancel',()=>updates.cancel());handle('updates.state',()=>updates.state());handle('updates.check',()=>updates.check());handle('updates.download',()=>updates.download());
+    handle('updates.open',async()=>{const current=controller.state();if(current.busy||current.status?.activeTasks)throw new Error('请等待本机任务完成后再安装更新');const path=await updates.verifiedPackage();if(updateTarget==='agent-windows-x64-portable'){shell.showItemInFolder(path);return;}const error=await shell.openPath(path);if(error)throw new Error('无法打开安装包，请重新下载后重试');});
     handle('window:state', windowState);
     handle('window:minimize', () => window?.minimize());
     handle('window:toggleMaximize', () => { if (window?.isFullScreen()) window.setFullScreen(false); else if (window?.isMaximized()) window.unmaximize(); else window?.maximize(); });

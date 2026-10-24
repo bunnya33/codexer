@@ -38,6 +38,8 @@ import { QueuedMessages } from './src/queued-messages';
 import { QueueEditor } from './src/queue-editor';
 import { Dialog } from './src/dialog';
 import { ControlSettings } from './src/control-settings';
+import {SettingsShell} from './src/settings-shell';
+import {useClientUpdates} from './src/client-updates';
 import { AttachmentMenu } from './src/attachment-menu';
 import { PermissionPicker, permissionLabels } from './src/permission-picker';
 import { pickAttachments } from './src/attachment-picker';
@@ -69,6 +71,7 @@ function AppContent() {
   const { width } = useWindowDimensions();
   const wide = ['web', 'windows', 'macos'].includes(Platform.OS) && width >= 900;
   const view = useSyncExternalStore(relay.subscribe, relay.getSnapshot);
+  const clientUpdates=useClientUpdates();
   const [restoring, setRestoring] = useState(true);
   const [loginBusy, setLoginBusy] = useState(false);
   const { deviceId, threadId, selectDevice: setDeviceId, selectThread: setThreadId } = useConversationSelection(view);
@@ -366,7 +369,7 @@ function AppContent() {
     selectDevice={id => { setDeviceId(id); setDraft(''); setImages([]); }} selectThread={selectThread}
     toggleProject={id => setExpandedProjects(current => current.includes(`${deviceId}:${id}`) ? current.filter(value => value !== `${deviceId}:${id}`) : [...current, `${deviceId}:${id}`])}
     createProject={() => { setProjectDeviceId(deviceId); setDrawerOpen(false); }} createThread={id => void createThread(id)} threadActions={item => { setDrawerOpen(false); setNewName(item.title); setActionThread({ id: item.id, title: item.title }); }}
-    close={() => setDrawerOpen(false)} settings={() => { setDrawerOpen(false); openMenu('settings'); }} refresh={() => void relay.refreshDevices()} />;
+    updateAvailable={clientUpdates.available} close={() => setDrawerOpen(false)} settings={() => { setDrawerOpen(false); openMenu('settings'); }} refresh={() => void relay.refreshDevices()} />;
 
   if (restoring) return <SafeAreaView style={[s.safe, s.center]}><ActivityIndicator color={c.accent} /></SafeAreaView>;
   if (view.phase === 'locked') return <Login connect={connect} busy={loginBusy} error={view.notice} />;
@@ -450,9 +453,9 @@ function AppContent() {
             <Pressable style={s.menuOption} disabled={managing} onPress={() => { const target = actionThread; if (target) void confirmAction('永久删除会话', `删除“${target.title}”后无法恢复。`).then(confirmed => { if (confirmed) void manageThread({ type: 'thread.delete', threadId: target.id }); }); }}><Trash2 size={18} color={c.danger} /><Text style={s.dangerText}>永久删除</Text></Pressable>
           </>}
     </Dialog>
-    <Dialog open={menuOpen} title={menu === 'settings' ? '设置' : menu === 'weixin' ? '微信设置' : menu === 'permissions' ? '会话权限' : '工作模式'} onClose={closeMenu}>
-        {menu === 'settings' ? menuOpen && <ControlSettings url={view.url} device={device && { name: device.name, online: device.online, agentVersion: snapshot?.agentVersion }} onWeixin={() => setMenu('weixin')} onLogout={() => { closeMenu(); void relay.logout().catch(() => undefined); }} />
-          : menu === 'weixin' ? menuOpen && <WeixinSettings />
+    <SettingsShell open={menuOpen&&menu==='settings'} onClose={closeMenu} onWeixin={()=>setMenu('weixin')} updateAvailable={clientUpdates.available}>{section=><ControlSettings section={section} url={view.url} device={device&&{name:device.name,online:device.online,agentVersion:snapshot?.agentVersion}} onWeixin={()=>setMenu('weixin')} onLogout={()=>{closeMenu();void relay.logout().catch(()=>{});}}/>}</SettingsShell>
+    <Dialog open={menuOpen&&menu!=='settings'} title={menu === 'weixin' ? '微信设置' : menu === 'permissions' ? '会话权限' : '工作模式'} onClose={closeMenu}>
+        {menu === 'weixin' ? menuOpen && <WeixinSettings />
           : menu === 'permissions' ? menuOpen && !!settings?.permissions && <PermissionPicker key={`${deviceId}:${threadId}`} settings={settings.permissions} enabled={ready && !busy && thread?.status === 'idle'} onChange={async mode => {
             if (!thread?.settings?.permissions) return false;
             const ok = await send({type: 'thread.permissions.update', threadId, mode, expectedPermissions: thread.settings.permissions.fingerprint});

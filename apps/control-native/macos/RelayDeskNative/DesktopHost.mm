@@ -19,6 +19,7 @@ static id Decode(NSString *value) {
 @property(nonatomic,strong) NSTask *task;
 @property(nonatomic,strong) NSFileHandle *input;
 @property(nonatomic,strong) NSStatusItem *statusItem;
+@property(nonatomic) BOOL updateAvailable;
 @property(nonatomic,strong) NSMutableDictionary<NSNumber *,CXReply> *pending;
 @property(nonatomic,strong) NSMutableDictionary<NSString *,NSWindow *> *previews;
 @property(nonatomic,strong) NSMutableDictionary<NSString *,WKWebView *> *webviews;
@@ -130,6 +131,14 @@ static id Decode(NSString *value) {
   self.statusItem=[NSStatusBar.systemStatusBar statusItemWithLength:NSSquareStatusItemLength];
   self.statusItem.button.image=[NSImage imageWithSystemSymbolName:[self.mode isEqual:@"agent"]?@"desktopcomputer":@"bubble.left.and.bubble.right" accessibilityDescription:[self.mode isEqual:@"agent"]?@"Codexer Agent":@"Codexer Control"];
   NSMenu *tray=[application copy];self.statusItem.menu=tray;
+  [self updateBadge:self.updateAvailable];
+}
+- (void)updateBadge:(BOOL)available {
+  self.updateAvailable=available;
+  NSImage *base=[NSImage imageWithSystemSymbolName:[self.mode isEqual:@"agent"]?@"desktopcomputer":@"bubble.left.and.bubble.right" accessibilityDescription:[self.mode isEqual:@"agent"]?@"Codexer Agent":@"Codexer Control"];
+  if(available){NSImage *image=[NSImage imageWithSize:NSMakeSize(20,20) flipped:NO drawingHandler:^BOOL(NSRect rect){[base drawInRect:NSMakeRect(0,1,18,18)];[[NSColor colorWithSRGBRed:235/255.0 green:55/255.0 blue:58/255.0 alpha:1]setFill];[[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(13,13,6,6)]fill];return YES;}];image.template=NO;self.statusItem.button.image=image;}
+  else self.statusItem.button.image=base;
+  self.statusItem.button.toolTip=available?@"Codexer Control · 有新版本":@"Codexer Control";
 }
 - (void)show {[self.window makeKeyAndOrderFront:nil];[NSApp activateIgnoringOtherApps:YES];}
 - (void)showSettings {[self show];[self emit:@"openSettings" value:NSNull.null];}
@@ -216,6 +225,8 @@ static id Decode(NSString *value) {
       NSData *jpeg=[bitmap representationUsingType:NSBitmapImageFileTypeJPEG properties:@{NSImageCompressionFactor:@(MIN(1,MAX(.1,[value[@"quality"] doubleValue])))}];
       reply(jpeg?@{@"base64":[jpeg base64EncodedStringWithOptions:0],@"width":@(w),@"height":@(h)}:nil,jpeg?nil:@"image-conversion-failed");return;
     }
+    if([method isEqual:@"updates.badge"]){[self updateBadge:[value[@"available"] boolValue]];reply(@YES,nil);return;}
+    if([method isEqual:@"updates.open"]){NSString *path=[value[@"path"] stringByStandardizingPath];NSString *root=[[self.profile stringByAppendingPathComponent:@"client-updates"] stringByStandardizingPath];if(![[path stringByDeletingLastPathComponent] isEqual:root]||![[path pathExtension] isEqual:@"dmg"]){reply(nil,@"invalid-update-package");return;}BOOL opened=[NSWorkspace.sharedWorkspace openURL:[NSURL fileURLWithPath:path]];reply(opened?@YES:nil,opened?nil:@"update-open-failed");return;}
     if([method isEqual:@"window.theme"]){BOOL dark=[value[@"dark"] boolValue];self.window.appearance=[NSAppearance appearanceNamed:dark?NSAppearanceNameDarkAqua:NSAppearanceNameAqua];NSUInteger rgb=[value[@"background"] unsignedIntegerValue];self.window.backgroundColor=[NSColor colorWithSRGBRed:((rgb>>16)&255)/255.0 green:((rgb>>8)&255)/255.0 blue:(rgb&255)/255.0 alpha:1];reply(@YES,nil);return;}
     if([method isEqual:@"preview.open"]){
       NSString *identifier=value[@"id"];NSString *html=value[@"html"];
