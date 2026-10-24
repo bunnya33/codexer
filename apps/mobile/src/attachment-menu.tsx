@@ -31,5 +31,5 @@ export function AttachmentMenu({ enabled, imagesEnabled, filesEnabled, filesSupp
 const useLocalStyles = themedStyles(c => StyleSheet.create({
   option: { minHeight: 56, paddingHorizontal: 10, gap: 14, flexDirection: 'row', alignItems: 'center', borderRadius: 14 },
   icon: { width: 36, height: 36, borderRadius: 18, backgroundColor: c.code, alignItems: 'center', justifyContent: 'center' },
-  label: { fontSize: 16, color: c.text }, hint: { paddingHorizontal: 10, paddingVertical: 8, color: c.muted, fontSize: 12, lineHeight: 18 },
+  label: { fontSize: 16, lineHeight: 22, includeFontPadding: false, color: c.text }, hint: { paddingHorizontal: 10, paddingVertical: 8, color: c.muted, fontSize: 12, lineHeight: 18, includeFontPadding: false },
 }));

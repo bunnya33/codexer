@@ -94,6 +94,19 @@ PC 连接器 `0.1.14` 在原路径不存在时读取对应压缩文件，校验�
 完整 52 个 TypeScript 测试文件、374 项回归、Go 测试、根/Admin/PC/控制端/移动端类型检查通过。最终 Apple Silicon DMG/ZIP、SHA256、严格签名、版本和包内 7 个资源核对通过。真实 app.asar worker 在 Electron utilityProcess、隔离 Codex 数据目录与仅系统 PATH 下，验证内置 Node `24.21.0` 的压缩读取、原只读沙箱/审批/目录恢复、合成 `turn.start` 确认和停止，不产生解压后的历史文件。
 
 已关闭旧连接器进程、备份旧应用并替换 `/Applications/Codexer.app` 为 `0.1.14`；仅一个新版主进程，原加密登录和设置校验值相同。实际启动阻塞于系统钥匙串读取（采样确认 `SecItemCopyMatching`），尚无本次启动后的连接日志，等待解锁和系统授权。原生界面验收未完成。本地包为 ad-hoc 签名、未 Apple 公证；服务器保持 `0.3.16`，本次未发布服务器标签或操作生产服务。
+## 2026-10-21 Android 样式与键盘布局
+
+Android 控制端 `0.1.1`（versionCode 2）release 构建通过。76 项相关测试、React Native 类型检查和 Web 生产导出通过；新增测试覆盖原生滑块点击、拖动、取消、禁用、端点和无障碍操作，以及弹窗在安全区域、窄屏和缩小视口内的定位。包签名、16 KB ZIP 对齐、双 ABI、内置 Hermes 字节码、非调试 Manifest、HTTP 标志和权限检查通过。输出 `release/android-0.1.1/Codexer-Control-0.1.1.apk`，57,138,478 字节，SHA256 `c6d16ecbbc3cf31dc35c6ae86e08e40fcccc661cd1be7fb6c08d8b8ee42dbde4`。
+
+改用独立 Android 15（API 35）模拟器，完成旧版至新版覆盖安装、合成账号登录及重启后登录／皮肤恢复。实际触摸验证强度点击至 ultra、拖动至 low、模型切换及命令保存；检查默认、暖白纸张、暖棕暗色设置页、模型／附件菜单、代码和差异配色。发现并修复键盘遮住输入框，以及打开菜单后键盘收起导致旧按钮坐标残留的问题，最终包复测通过；崩溃日志为空。测试服务仅使用合成数据，没有连接真实账号或操作 PC Agent。Web 本轮完成组件回归和导出，浏览器工具调用超时，未完成额外的真实浏览器验收。真机厂商字体、触摸、后台联网、权限和媒体行为未在本轮验证。
+
+## 2026-10-20 Android 控制端 APK
+
+基于服务器源码 `0.3.16` 构建 Android 控制端 `0.1.0`（versionCode 1），包名 `com.bunnya33.codexer.remote`。React Native 原生 release 构建通过，包含三套皮肤及长消息底部跟随修复；ARM64 手机与 x86_64 模拟器共用安装包，最低 Android 7.0（API 24）。使用独立 RSA 3072 发布密钥完成 APK v2 签名，未使用模板 debug 密钥；签名、SHA256、16 KB ZIP 对齐、非调试 Manifest、HTTP 兼容标志、权限排除、双 ABI 原生库及内置 Hermes 字节码检查通过。移动端类型与文档检查通过。
+
+输出 `release/android-0.1.0/Codexer-Control-0.1.0.apk`，57,132,666 字节，SHA256 为 `6d5cddb5dc4064eabe170d866a1aed00fd4e706dbf2484f9c5551cd42c0d0bde`。密钥和 DPAPI 保护的密码保留在源码目录外，未放入交付目录。
+
+本机新建的独立 Android 36.1 模拟器在安装应用前即发生 SurfaceFlinger 图形服务崩溃（`hasReadColorBufferDma` 断言），切换图形后端后仍未恢复，因此本轮未完成安装、启动、登录及原生交互验收。未操作用户手机或真实账号；隔离模拟器和合成服务已停止。APK 包检查不代替真机手势、后台联网、权限、上传和媒体行为验收。
 
 ## 2026-10-19 长消息底部跟随
 
@@ -277,7 +290,7 @@ Windows `0.1.2` 打包后的真实 utilityProcess + 临时 Relay + FakeDesktop �
 | --- | --- |
 | Windows | 本地打包和窗口验证；发行签名、全新机器安装/卸载、系统登录项注册与实际官方 Codex 版本任务验收；隔离测试跳过真实登录项修改 |
 | macOS | Apple Silicon `0.1.9` DMG/ZIP、本地签名、包内 Node/SQLite、隔离配置下应用启动、Codex 自动发现和真实 IPC 握手已验证；新版完整远程任务、Keychain、登录项、休眠、Intel 与发行签名/公证仍需验收 |
-| Android/iOS | 类型和 JS 导出；真实 APK/IPA、设备手势、后台联网、系统权限和商店发行未验收 |
+| Android/iOS | Android 签名 release APK、Manifest、双 ABI、Hermes 与 16 KB ZIP 对齐已检查；Android 安装/运行与真机交互未完成，iOS IPA、后台联网、系统权限和商店发行未验收 |
 | Linux systemd | 真实 systemd 非 root 构建沙箱和隔离分步更新通过；实际安装器首装/升级、生产 Relay unit、arm64 和断电恢复仍需验收 |
 | Docker/HTTPS | Dockerfile/Compose/Caddy 配置；需要具备 Docker 的环境及真实域名证书验收 |
 
