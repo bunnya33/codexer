@@ -44,7 +44,7 @@ for(const mode of modes){
   const name=mode==='agent'?'Codexer':'RelayDesk';
   const stage=join(app,'stage',`${name}-${version}-macos-${process.arch}`);
   await rm(stage,{recursive:true,force:true});await mkdir(stage,{recursive:true});
-  const product=join(stage,name+'.app');await cp(built,product,{recursive:true});
+  const product=join(stage,name+'.app');await cp(built,product,{recursive:true,verbatimSymlinks:true});
   const plist=join(product,'Contents/Info.plist');
   const builtVersion=execFileSync('/usr/libexec/PlistBuddy',['-c','Print :CFBundleShortVersionString',plist],{encoding:'utf8'}).trim();
   if(builtVersion!==version)throw new Error('Native output version mismatch; rebuild without --skip-build.');

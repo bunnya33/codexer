@@ -10,6 +10,14 @@ target 'RelayDeskNative' do
     :app_path => __dir__
   )
   post_install do |installer|
+    # react-native-svg 15.15.4 uses RCTAssert in this Mac source without
+    # importing its header. Keep the pinned dependency patch local to macOS.
+    svg_source = File.join(__dir__, 'node_modules/react-native-svg/apple/RNSVGUIKit.macos.mm')
+    svg_text = File.read(svg_source)
+    unless svg_text.include?('#import <React/RCTAssert.h>')
+      raise 'Unexpected react-native-svg macOS source' unless svg_text.include?('#import "RNSVGUIKit.h"')
+      File.write(svg_source, svg_text.sub('#import "RNSVGUIKit.h"', "#import \"RNSVGUIKit.h\"\n#import <React/RCTAssert.h>"))
+    end
     react_native_post_install(installer, './node_modules/react-native-macos')
   end
 end
