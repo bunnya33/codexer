@@ -43,6 +43,33 @@ beforeEach(() => {
 });
 afterEach(() => { client.disconnect(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
+it('keeps preview cleanup bound to its original server and credentials after disconnect', async () => {
+  await connectedSocket();
+  const path='/v1/previews/'+'b'.repeat(64)+'/';
+  vi.mocked(fetch).mockResolvedValueOnce(response({path,expiresAt:Date.now()+1800000,leaseSeconds:90})).mockResolvedValueOnce(new Response('<html/>'));
+  const source=await client.openPreview('device-test','thread-test','http://localhost:5173/','channel',null,new AbortController().signal);
+  const create=vi.mocked(fetch).mock.calls.find(([input])=>String(input).endsWith('/previews'))!;
+  expect(JSON.parse(String(create[1]!.body))).toMatchObject({clientId:expect.any(String),channel:'channel'});
+  vi.mocked(fetch).mockResolvedValueOnce(response({active:true}));await client.renewPreview(source);
+  expect(vi.mocked(fetch).mock.calls.at(-1)![1]?.method).toBe('PUT');
+  client.disconnect(true);
+  vi.mocked(fetch).mockResolvedValueOnce(response({closed:true}));await client.closePreview(source);
+  expect(vi.mocked(fetch).mock.calls.at(-1)).toEqual(['http://192.0.2.10:8899'+path.slice(0,-1),expect.objectContaining({method:'DELETE',keepalive:true,headers:{authorization:'Bearer '+'a'.repeat(40)}})]);
+  const calls=vi.mocked(fetch).mock.calls.length;
+  await client.closePreview('https://foreign.example'+path);await client.closePreview(source);
+  expect(fetch).toHaveBeenCalledTimes(calls);
+});
+
+it('keeps previews usable against older servers that do not advertise leases',async()=>{
+  await connectedSocket();
+  const path='/v1/previews/'+'c'.repeat(64)+'/';
+  vi.mocked(fetch).mockResolvedValueOnce(response({path,expiresAt:Date.now()+1800000})).mockResolvedValueOnce(new Response('<html/>'));
+  const source=await client.openPreview('device-test','thread-test','http://localhost:5173/','channel',null,new AbortController().signal);
+  const calls=vi.mocked(fetch).mock.calls.length;await client.renewPreview(source);
+  expect(fetch).toHaveBeenCalledTimes(calls);
+  vi.mocked(fetch).mockResolvedValueOnce(response({closed:true}));await client.closePreview(source);
+});
+
 it('reads the current installer and builds only a server-local authenticated download',async()=>{
   await client.connect('http://192.0.2.10:8899','test','test-password-12345');
   const release={id:'00000000-0000-4000-8000-000000000002',name:'PC-Agent.exe',version:'0.2.6',size:512,sha256:'a'.repeat(64),uploadedAt:1};

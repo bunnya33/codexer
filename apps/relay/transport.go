@@ -178,6 +178,7 @@ func (s *Server) CloseSessions(matches func(*Principal) bool, reason string) {
 }
 func (s *Server) heartbeat() {
 	s.mu.Lock()
+	s.prunePreviewsLocked(now())
 	pendingPrincipals := map[string]*Principal{}
 	shares := map[string]bool{}
 	for _, p := range s.pending {

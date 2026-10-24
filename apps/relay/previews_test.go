@@ -73,3 +73,29 @@ func TestPreviewPolicyRejectsHostAndTokenInjection(t *testing.T) {
 	r := httptest.NewRequest("GET", "http://relay.example/", nil)
 	expectFault(t, "invalid-request", func() { previewAssetSources(r, "../other") })
 }
+
+func TestPreviewLeaseReclaimsAbandonedStreamsAndPreservesLegacyAndSharedPreviews(t *testing.T) {
+	_, server, principal, _ := fixture(t)
+	at := now()
+	expired := strings.Repeat("a", 64)
+	server.previews[expired] = &Preview{Principal: principal, Client: "crashed-tab", Expires: at + 1800000, LeaseUntil: at - 1}
+	server.previews["active"] = &Preview{Principal: principal, Client: "live-tab", Expires: at + 1800000, LeaseUntil: at + 90000}
+	server.previews["legacy"] = &Preview{Principal: principal, Expires: at + 1800000}
+	server.previews["share"] = &Preview{Principal: &Principal{Share: "public"}, Expires: at + 86400000}
+	pending := &Pending{ID: "stream", Token: expired, Failure: make(chan error, 1)}
+	server.pending[pending.ID] = pending
+	server.mu.Lock()
+	server.prunePreviewsLocked(at)
+	server.mu.Unlock()
+	if len(server.previews) != 3 || server.previews[expired] != nil || server.pending[pending.ID] != nil {
+		t.Fatal("preview lease cleanup changed active previews")
+	}
+	select {
+	case err := <-pending.Failure:
+		if fault, ok := err.(Fault); !ok || fault.Code != "preview-closed" {
+			t.Fatalf("unexpected cancellation: %v", err)
+		}
+	default:
+		t.Fatal("abandoned stream was not canceled")
+	}
+}

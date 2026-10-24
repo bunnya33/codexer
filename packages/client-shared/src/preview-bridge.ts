@@ -103,12 +103,13 @@ export function previewRuntime(channel: string, saved: unknown) {
     }
   });
   let scheduled = false;
+  let lastHeight = 0;
   function measure() {
     if (scheduled) return; scheduled = true;
     requestAnimationFrame(() => {
       scheduled = false;
-      const height = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
-      send({ type: 'height', height: Math.min(2400, Math.max(120, Math.ceil(height))) });
+      const height = Math.min(2400, Math.max(120, Math.ceil(Math.max(document.body.scrollHeight, document.documentElement.scrollHeight))));
+      if (height !== lastHeight) { lastHeight = height; send({ type: 'height', height }); }
     });
   }
   window.addEventListener('DOMContentLoaded', () => {

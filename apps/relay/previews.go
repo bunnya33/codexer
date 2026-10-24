@@ -124,6 +124,8 @@ func previewDocument(text, channel string, state M, local string) string {
 
 type Preview struct {
 	Device, Thread, Origin, Channel string
+	Client                          string
+	LeaseUntil                      int64 // guarded by Server.mu; zero for older clients/public shares
 	Principal                       *Principal
 	Expires                         int64
 	State                           M
@@ -132,14 +134,42 @@ type Preview struct {
 	FilePath                        string
 }
 
+func previewExpired(p *Preview, at int64) bool {
+	return p.Expires <= at || p.LeaseUntil != 0 && p.LeaseUntil <= at
+}
+
+// Caller holds Server.mu. Rejecting pending transfers also closes idle HMR/SSE
+// connections when a crashed browser can no longer send its normal DELETE.
+func (s *Server) dropPreviewLocked(token string) {
+	delete(s.previews, token)
+	for id, pending := range s.pending {
+		if pending.Token == token {
+			delete(s.pending, id)
+			pending.Reject(Fault{410, "preview-closed"})
+		}
+	}
+}
+
+func (s *Server) prunePreviewsLocked(at int64) {
+	for token, preview := range s.previews {
+		if previewExpired(preview, at) {
+			s.dropPreviewLocked(token)
+		}
+	}
+}
+
 func (s *Server) previewFor(token string) *Preview {
 	if !hex64.MatchString(token) {
 		fail(400, "invalid-request")
 	}
 	s.mu.Lock()
 	p := s.previews[token]
+	if p != nil && previewExpired(p, now()) {
+		s.dropPreviewLocked(token)
+		p = nil
+	}
 	s.mu.Unlock()
-	if p == nil || p.Expires <= now() {
+	if p == nil {
 		fail(410, "preview-expired")
 	}
 	if p.Principal.Share != "" {
@@ -188,7 +218,10 @@ func (s *Server) previewRoutes() {
 	s.route("POST /v1/devices/{deviceId}/threads/{threadId}/previews", "user", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
 		s.deviceAccess(r, p)
 		b := body(r)
-		raw, channel := str(b["url"]), str(b["channel"])
+		raw, channel, client := str(b["url"]), str(b["channel"]), str(b["clientId"])
+		if _, ok := b["clientId"]; ok && (client == "" || jsLength(client) > 160) {
+			fail(400, "invalid-request")
+		}
 		u, e := url.Parse(raw)
 		if e != nil || !loopbackURL.MatchString(raw) || u.User != nil || jsLength(raw) > 2048 || channel == "" || jsLength(channel) > 160 {
 			fail(400, "invalid-preview-url")
@@ -199,6 +232,10 @@ func (s *Server) previewRoutes() {
 		}
 		token := hex.EncodeToString(data)
 		v := &Preview{Device: r.PathValue("deviceId"), Thread: r.PathValue("threadId"), Origin: u.Scheme + "://" + u.Host, Channel: channel, Principal: p, Expires: now() + 1800000, Cookies: map[string]string{}}
+		if client != "" {
+			v.Client = client
+			v.LeaseUntil = now() + 90000
+		}
 		if state, ok := b["state"].(map[string]any); ok {
 			state = M{"modelContent": state["modelContent"], "privateContent": state["privateContent"]}
 			if len(js(state)) <= 16384 {
@@ -206,10 +243,11 @@ func (s *Server) previewRoutes() {
 			}
 		}
 		s.mu.Lock()
+		s.prunePreviewsLocked(now())
 		count := 0
 		for t, x := range s.previews {
-			if x.Expires <= now() {
-				delete(s.previews, t)
+			if client != "" && x.Client == client && x.Principal.Hash == p.Hash && x.Principal.Share == "" {
+				s.dropPreviewLocked(t)
 			} else if x.Principal.Hash == p.Hash {
 				count++
 			}
@@ -242,7 +280,28 @@ func (s *Server) previewRoutes() {
 			path += "#" + u.Fragment
 		}
 		w.Header().Set("Cache-Control", "no-store")
-		return M{"path": "/v1/previews/" + token + path, "expiresAt": v.Expires}
+		result := M{"path": "/v1/previews/" + token + path, "expiresAt": v.Expires}
+		if client != "" {
+			result["leaseSeconds"] = 90
+		}
+		return result
+	})
+	s.route("PUT /v1/previews/{token}", "user", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
+		token := r.PathValue("token")
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		v := s.previews[token]
+		if v == nil || v.Principal.Hash != p.Hash || v.Principal.Share != "" {
+			fail(404, "preview-not-found")
+		}
+		if previewExpired(v, now()) {
+			s.dropPreviewLocked(token)
+			fail(410, "preview-expired")
+		}
+		if v.Client != "" {
+			v.LeaseUntil = now() + 90000
+		}
+		return M{"active": true}
 	})
 	s.route("DELETE /v1/previews/{token}", "user", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
 		token := r.PathValue("token")
@@ -252,18 +311,8 @@ func (s *Server) previewRoutes() {
 			s.mu.Unlock()
 			fail(404, "preview-not-found")
 		}
-		delete(s.previews, token)
-		pending := []*Pending{}
-		for id, v := range s.pending {
-			if v.Token == token {
-				delete(s.pending, id)
-				pending = append(pending, v)
-			}
-		}
+		s.dropPreviewLocked(token)
 		s.mu.Unlock()
-		for _, v := range pending {
-			v.Reject(Fault{410, "preview-closed"})
-		}
 		return M{"closed": true}
 	})
 	s.mux.HandleFunc("GET /v1/previews/{token}/__socket", s.previewSocket)

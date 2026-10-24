@@ -18,11 +18,13 @@ import { useTheme } from './styles';
 import { PreviewShareDialog } from './preview-share-dialog';
 
 const controlKey = (control: TweakControl) => `${control.group}:${control.label}:${control.kind}`;
+let stopActivePreview: (() => void) | undefined;
 export function PreviewCard({ reference, deviceId, threadId }: { reference: PreviewReference; deviceId: string; threadId: string }) {
   const { c } = useTheme();
   const ps = usePsStyles();
   const [revision, setRevision] = useState(0), [expanded, setExpanded] = useState(false), [tweaking, setTweaking] = useState(false);
   const [sharing,setSharing]=useState(false);
+  const [enabled, setEnabled] = useState(false);
   const [document, setDocument] = useState<string>(), [url, setUrl] = useState<string>(), [channel, setChannel] = useState('');
   const [height, setHeight] = useState(280), [error, setError] = useState(''), [loading, setLoading] = useState(true);
   const [controls, setControls] = useState<TweakControl[]>([]), [feedback, setFeedback] = useState<string | null>(null), [sending, setSending] = useState(false);
@@ -37,9 +39,18 @@ export function PreviewCard({ reference, deviceId, threadId }: { reference: Prev
     storageWrites.current = write; return write;
   }, [key]);
   useEffect(() => {
+    if (!enabled) return;
+    stopActivePreview?.();
+    const stop = () => { setEnabled(false); setExpanded(false); };
+    stopActivePreview = stop;
+    return () => { if (stopActivePreview === stop) stopActivePreview = undefined; };
+  }, [enabled]);
+  useEffect(() => {
+    if (!enabled) return;
     alive.current = true;
     const abort = new AbortController(), nextChannel = randomId(); active.current = nextChannel;
     let serverSource: string | undefined;
+    let renewal: ReturnType<typeof setInterval> | undefined;
     setLoading(true); setHeight(280); setError(''); setDocument(undefined); setUrl(undefined); setControls([]); setChannel(nextChannel); setAnnotating(false); setSelection(null);
     void (async () => {
       try {
@@ -54,19 +65,26 @@ export function PreviewCard({ reference, deviceId, threadId }: { reference: Prev
         } else {
           const value = await relay.openPreview(deviceId, threadId, reference.source, nextChannel, state.current, abort.signal);
           serverSource=value;
-          if (!abort.signal.aborted) setUrl(value);
+          if (!abort.signal.aborted) {
+            setUrl(value);
+            renewal = setInterval(() => {
+              void relay.renewPreview(value).catch(error => {
+                if (!abort.signal.aborted) { setError(fileError(error)); clearInterval(renewal); }
+              });
+            }, 30000);
+          }
           else void relay.closePreview(value).catch(()=>{});
         }
         if (!abort.signal.aborted) setLoading(false);
       } catch (error) { if (!abort.signal.aborted) { setLoading(false); setError(fileError(error)); } }
     })();
-    return () => { alive.current = false; active.current = ''; abort.abort(); if(serverSource) void relay.closePreview(serverSource).catch(()=>{}); };
-  }, [deviceId, threadId, reference.kind, reference.source, key, revision]);
+    return () => { alive.current = false; active.current = ''; abort.abort(); clearInterval(renewal); if(serverSource) void relay.closePreview(serverSource).catch(()=>{}); };
+  }, [enabled, deviceId, threadId, reference.kind, reference.source, key, revision]);
   const receive = useCallback((value: unknown) => {
     if (!value || typeof value !== 'object') return;
     const message = value as Record<string, unknown>;
     if (message.channel !== active.current) return;
-    if (message.type === 'height' && typeof message.height === 'number' && Number.isFinite(message.height)) setHeight(Math.min(2400, Math.max(120, message.height)));
+    if (message.type === 'height' && typeof message.height === 'number' && Number.isFinite(message.height)) setHeight(Math.min(480, Math.max(120, message.height)));
     if (message.type === 'state' && typeof message.id === 'string' && message.id.length <= 100) {
       const parsed = widgetState(message.state); if (!parsed) return;
       state.current = parsed;
@@ -108,16 +126,17 @@ export function PreviewCard({ reference, deviceId, threadId }: { reference: Prev
   const content = <View style={[ps.card, expanded && ps.fullCard]}>
     <View style={ps.header}><Text style={ps.title} numberOfLines={1}>{reference.title}</Text><View style={ps.actions}>
       <Pressable accessibilityRole="button" accessibilityLabel="分享网页" onPress={() => setSharing(true)} style={ps.icon}><Share2 size={16} color={c.muted}/></Pressable>
-      <Pressable accessibilityRole="button" accessibilityLabel="刷新预览" onPress={() => setRevision(value => value + 1)} style={ps.icon}><RefreshCw size={16} color={c.muted} /></Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel="刷新预览" onPress={() => { setEnabled(true); setRevision(value => value + 1); }} style={ps.icon}><RefreshCw size={16} color={c.muted} /></Pressable>
       <Pressable accessibilityRole="button" accessibilityLabel="调整预览参数" onPress={() => setTweaking(value => !value)} style={ps.icon}><SlidersHorizontal size={16} color={tweaking ? c.accent : c.muted} /></Pressable>
       <Pressable accessibilityRole="button" accessibilityLabel={annotating ? '取消元素标注' : '标注预览元素'} onPress={() => { surface.current?.send({type:'annotate',enabled:!annotating}); setAnnotating(!annotating); }} style={ps.icon}><Crosshair size={16} color={annotating ? c.accent : c.muted} /></Pressable>
       <Pressable accessibilityRole="button" accessibilityLabel="反馈给 Codex" onPress={() => setFeedback('')} style={ps.icon}><MessageSquare size={16} color={c.muted} /></Pressable>
-      <Pressable accessibilityRole="button" accessibilityLabel={expanded ? '收起全屏预览' : '展开全屏预览'} onPress={() => { setExpanded(value => !value); setRevision(value => value + 1); }} style={ps.icon}>{expanded ? <Minimize2 size={16} color={c.muted} /> : <Maximize2 size={16} color={c.muted} />}</Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel={expanded ? '收起全屏预览' : '展开全屏预览'} onPress={() => { setEnabled(true); setExpanded(value => !value); setRevision(value => value + 1); }} style={ps.icon}>{expanded ? <Minimize2 size={16} color={c.muted} /> : <Maximize2 size={16} color={c.muted} />}</Pressable>
+      {enabled && <Pressable accessibilityRole="button" accessibilityLabel="关闭预览" onPress={() => { setEnabled(false); setExpanded(false); }} style={ps.icon}><X size={16} color={c.muted}/></Pressable>}
     </View></View>
     {annotating && <View style={ps.annotation}><Text style={ps.link}>点击预览中的元素，选择要调整的位置。</Text></View>}
     {selection && <View style={ps.annotation}><Text style={ps.muted}>已选择 {selection.tag}：{selection.text || selection.selector}</Text><Pressable accessibilityRole="button" onPress={() => setFeedback('')}><Text style={ps.link}>反馈这个元素</Text></Pressable></View>}
     <View style={expanded && ps.fullPreview}>
-      {loading ? <View style={[ps.status, expanded && ps.fullStatus]}><ActivityIndicator color={c.accent} /><Text style={ps.muted}>正在从电脑加载预览…</Text></View> : error ? <View style={[ps.status, expanded && ps.fullStatus]}><Text style={ps.error}>{error}</Text><Pressable accessibilityRole="button" onPress={() => setRevision(value => value + 1)}><Text style={ps.link}>重试</Text></Pressable></View> : <PreviewSurface key={channel} surfaceRef={surface} document={document} url={url} channel={channel} height={height} expanded={expanded} title={reference.title} onMessage={receive} />}
+      {!enabled ? <View style={ps.status}><Pressable accessibilityRole="button" accessibilityLabel={`打开预览 ${reference.title}`} onPress={() => setEnabled(true)}><Text style={ps.link}>打开预览</Text></Pressable><Text style={ps.muted}>点击后加载并运行网页</Text></View> : loading ? <View style={[ps.status, expanded && ps.fullStatus]}><ActivityIndicator color={c.accent} /><Text style={ps.muted}>正在从电脑加载预览…</Text></View> : error ? <View style={[ps.status, expanded && ps.fullStatus]}><Text style={ps.error}>{error}</Text><Pressable accessibilityRole="button" onPress={() => setRevision(value => value + 1)}><Text style={ps.link}>重试</Text></Pressable></View> : <PreviewSurface key={channel} surfaceRef={surface} document={document} url={url} channel={channel} height={height} expanded={expanded} title={reference.title} onMessage={receive} />}
     </View>
     {tweaking && <ScrollView style={[ps.tweakScroll, expanded && ps.fullTweaks]} contentContainerStyle={ps.tweaks}><Text style={ps.group}>Tweak · 参数调节</Text>{!controls.length && <Text style={ps.muted}>这个预览没有提供可调参数。可以通过“反馈给 Codex”描述希望增加的控件。</Text>}{controls.map(control => <View key={control.id} style={ps.control}>
       <View style={ps.controlHead}><Text style={ps.label}>{control.group} · {control.label}</Text><Text style={ps.muted}>{control.kind === 'toggle' ? '' : String(control.value)}</Text></View>

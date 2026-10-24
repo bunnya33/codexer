@@ -27,7 +27,7 @@ it.each([false, true])('keeps native fullscreen previews at viewport height whil
   } finally { dom.window.close(); }
 });
 
-it('continues sizing inline native previews to bounded content height', () => {
+it('keeps the inline native frame inside its host viewport rather than resizing it twice', () => {
   const dom = new JSDOM(nativePreviewShell('<button>内容</button>', 'inline'), {
     runScripts: 'dangerously', beforeParse(window) { Object.assign(window, { ReactNativeWebView: { postMessage() {} } }); },
   });
@@ -35,10 +35,9 @@ it('continues sizing inline native previews to bounded content height', () => {
     const { window } = dom;
     const frame = window.document.querySelector('iframe')!;
     const height = (value: number) => window.dispatchEvent(new window.MessageEvent('message', { source: frame.contentWindow as unknown as Window, data: { channel: 'inline', type: 'height', height: value } }));
-    height(180); expect(frame.style.height).toBe('180px');
-    height(20); expect(frame.style.height).toBe('120px');
-    height(5000); expect(frame.style.height).toBe('2400px');
-    height(NaN); expect(frame.style.height).toBe('2400px');
+    for (const value of [180, 20, 5000, NaN]) {
+      height(value); expect(window.getComputedStyle(frame).height).toBe('100%');
+    }
   } finally { dom.window.close(); }
 });
 

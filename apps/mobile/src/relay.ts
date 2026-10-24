@@ -1,4 +1,5 @@
 import { clearCredentials as clearSavedCredentials, randomId, readCredentials, saveCredentials } from './runtime';
+import { previewClientId } from './preview-client';
 import { catalogSchema, eventSchema, historyPageSchema, imageRefSchema, MAX_IMAGE_BYTES, queuedMessageDetailsSchema, reduceEvent, snapshotSchema } from '../../../packages/protocol/src/index';
 import type { CommandResult, DeviceCatalog, DeviceSnapshot, HistoryTurn, ImageRef, RemoteCommand } from '../../../packages/protocol/src/index';
 import type { WeixinLogin, WeixinStatus } from '../../../packages/protocol/src/weixin';
@@ -77,6 +78,8 @@ export class RelayClient {
   private deviceVersions = new Map<string, number>();
   private removedDevices = new Set<string>();
   private devicesRequest = 0;
+  private previewClient = previewClientId();
+  private previewSessions = new Map<string, { base: string; session: string; leased: boolean }>();
   private weixinVersion = 0;
   private pending = new Map<string, { resolve: (result: CommandResult) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout>; deviceId: string }>();
 
@@ -619,9 +622,11 @@ export class RelayClient {
   }
 
   async openPreview(deviceId: string, threadId: string, url: string, channel: string, state: WidgetState | null, signal: AbortSignal): Promise<string> {
-    const result = await this.api<{ path: string; expiresAt: number }>(`/v1/devices/${encodeURIComponent(deviceId)}/threads/${encodeURIComponent(threadId)}/previews`, {url, channel, state}, 'POST', false, signal);
+    const owner = { base: this.view.url, session: this.token };
+    const result = await this.api<{ path: string; expiresAt: number; leaseSeconds?: number }>(`/v1/devices/${encodeURIComponent(deviceId)}/threads/${encodeURIComponent(threadId)}/previews`, {url, channel, state, clientId: this.previewClient}, 'POST', false, signal);
     if (!/^\/v1\/previews\/[a-f0-9]{64}\//.test(result.path)) throw new Error('预览地址无效');
-    const source = this.view.url + result.path;
+    const source = owner.base + result.path;
+    this.previewSessions.set(source, { ...owner, leased: result.leaseSeconds === 90 });
     try {
       const response = await fetch(source, { signal });
       if (!response.ok) {
@@ -634,10 +639,25 @@ export class RelayClient {
   }
 
   async closePreview(source: string): Promise<void> {
+    await this.previewSessionRequest(source, 'DELETE');
+  }
+
+  async renewPreview(source: string): Promise<void> {
+    if (!this.previewSessions.get(source)?.leased) return;
+    await this.previewSessionRequest(source, 'PUT');
+  }
+
+  private async previewSessionRequest(source: string, method: 'DELETE' | 'PUT'): Promise<void> {
+    const owner = this.previewSessions.get(source);
+    if (!owner) return;
+    if (method === 'DELETE') this.previewSessions.delete(source);
     const url=new URL(source);
-    if (url.origin!==new URL(this.view.url).origin) return;
+    if (url.origin!==new URL(owner.base).origin) return;
     const match=url.pathname.match(/^\/v1\/previews\/([a-f0-9]{64})\//);
-    if (match) await this.api(`/v1/previews/${match[1]}`,undefined,'DELETE');
+    if (match) await requestWithTimeout(async signal => {
+      const response = await fetch(owner.base + `/v1/previews/${match[1]}`, { method, headers: { authorization: `Bearer ${owner.session}` }, signal, ...(method === 'DELETE' ? { keepalive: true } : {}) });
+      if (!response.ok && !(method === 'DELETE' && [404, 410].includes(response.status))) throw new ApiError(response.status, (await response.json().catch(() => ({})) as {error?:string}).error ?? 'preview-expired');
+    });
   }
 
   private previewShareResult(value: {id:string; path:string; enabled:boolean; kind:'html'|'server'|'audio';expiresAt:number;durationMinutes:number}): PreviewShare {

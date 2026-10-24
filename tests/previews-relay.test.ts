@@ -67,6 +67,23 @@ it('previews a real local app through Agent/Relay with assets, API bytes, cookie
     expect((await app.inject({method:'DELETE',url:discardPath.replace(/\/$/,''),headers:other.headers})).statusCode).toBe(404);
     expect((await app.inject({method:'DELETE',url:discardPath.replace(/\/$/,''),headers:account.headers})).statusCode).toBe(200);
     expect((await app.inject({url:discardPath})).statusCode).toBe(410);
+    // A reload cannot run React unmount. Its stable client owner replaces the
+    // abandoned token before counting limits, without closing other tabs.
+    const clientCreate=(clientId:string,headers=account.headers)=>app.inject({method:'POST',url:endpoint,headers,payload:{url:source,channel:'reload',clientId}});
+    let previous='';
+    const tab=(await clientCreate('other-tab')).json().path as string;
+    for(let reload=0;reload<25;reload++){
+      const opened=await clientCreate('reloaded-tab');expect(opened.statusCode).toBe(200);
+      if(previous)expect((await app.inject({url:previous})).statusCode).toBe(410);
+      previous=opened.json().path as string;
+    }
+    const lease=previous.replace(/\/$/,'');
+    expect((await app.inject({method:'PUT',url:lease,headers:other.headers})).statusCode).toBe(404);
+    expect((await app.inject({method:'PUT',url:lease,headers:account.headers})).statusCode).toBe(200);
+    expect((await app.inject({url:tab})).statusCode).toBe(200);
+    expect((await app.inject({url:path})).statusCode).toBe(200);
+    await app.inject({method:'DELETE',url:lease,headers:account.headers});
+    expect((await app.inject({method:'PUT',url:lease,headers:account.headers})).statusCode).toBe(404);
     expect(JSON.stringify(await store.snapshot(registered.id))).not.toContain('demo=local');
     const events=await fetch(base+path+'events',{signal:eventsAbort.signal});
     expect(events.headers.get('content-type')).toContain('text/event-stream');

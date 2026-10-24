@@ -494,11 +494,7 @@ func (s *Server) background() {
 								delete(s.limits, k)
 							}
 						}
-						for k, v := range s.previews {
-							if v.Expires <= now() {
-								delete(s.previews, k)
-							}
-						}
+						s.prunePreviewsLocked(now())
 						for k, v := range s.audio {
 							if v.Expires <= now() {
 								v.cancel()
