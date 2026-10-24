@@ -214,7 +214,7 @@ static id Decode(NSString *value) {
       NSString *identifier=value[@"id"];NSString *html=value[@"html"];
       if(![identifier isKindOfClass:NSString.class]||!identifier.length||identifier.length>100||![html isKindOfClass:NSString.class]||html.length>3*1024*1024){reply(nil,@"invalid-preview");return;}
       if(self.previews[identifier]){[self.previews[identifier] makeKeyAndOrderFront:nil];reply(@YES,nil);return;}
-      WKWebViewConfiguration *configuration=[WKWebViewConfiguration new];configuration.websiteDataStore=WKWebsiteDataStore.nonPersistentDataStore;
+      WKWebViewConfiguration *configuration=[WKWebViewConfiguration new];configuration.websiteDataStore=WKWebsiteDataStore.nonPersistentDataStore;configuration.mediaTypesRequiringUserActionForPlayback=WKAudiovisualMediaTypeNone;
       [configuration.userContentController addScriptMessageHandler:self name:@"codexer"];
       [configuration.userContentController addUserScript:[[WKUserScript alloc]initWithSource:@"window.ReactNativeWebView={postMessage:m=>window.webkit.messageHandlers.codexer.postMessage(String(m))};" injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];
       WKWebView *web=[[WKWebView alloc]initWithFrame:NSMakeRect(0,0,1050,780) configuration:configuration];web.navigationDelegate=self;web.UIDelegate=self;

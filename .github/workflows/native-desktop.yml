@@ -76,9 +76,11 @@ jobs:
           name: native-Windows-diagnostics
           path: diagnostics/*
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: native-Windows-x64
           path: apps/control-native/release/*
+          if-no-files-found: ignore
   macos:
     runs-on: macos-15
     env:
@@ -120,6 +122,8 @@ jobs:
           name: native-macOS-diagnostics
           path: diagnostics/*
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: native-macOS
           path: apps/control-native/release/*
+          if-no-files-found: ignore

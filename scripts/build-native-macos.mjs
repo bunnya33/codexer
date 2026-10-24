@@ -57,6 +57,11 @@ for(const mode of modes){
   const license=await fetch(`https://raw.githubusercontent.com/nodejs/node/${process.version}/LICENSE`,{signal:AbortSignal.timeout(30000)});if(!license.ok)throw new Error('Cannot retrieve bundled Node license.');
   await writeFile(join(resources,'runtime/Node-LICENSE'),await license.text());
   await cp(join(app,'THIRD_PARTY_NOTICES.md'),join(resources,'THIRD_PARTY_NOTICES.md'));
+  const licenses=join(resources,'licenses');await mkdir(licenses,{recursive:true});
+  for(const dependency of ['react','react-native-macos','react-native-svg','lucide-react-native','zod','immer','markdown-it','markdown-it-task-lists','highlight.js','fast-text-encoding']){
+    const directory=join(mac,'node_modules',dependency);
+    for(const file of await readdir(directory))if(/^(licen[cs]e|notice|third.party)/i.test(file))await cp(join(directory,file),join(licenses,dependency.replaceAll('/','-')+'-'+file),{recursive:true});
+  }
   await writeFile(join(resources,'native-build.json'),JSON.stringify({name,version,mode,ui:'React Native macOS',reactNativeMacOS:'0.83.0',reactNative:'0.83.10',node:process.version,architecture:process.arch,sharedSource:'apps/control-native/src'},null,2));
   await access(join(resources,'main.jsbundle'));
   const actual=execFileSync('/usr/libexec/PlistBuddy',['-c','Print :CFBundleShortVersionString',join(product,'Contents/Info.plist')],{encoding:'utf8'}).trim();

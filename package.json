@@ -22,7 +22,7 @@
     "dev:admin": "npm run dev --workspace @codexer/admin",
     "build:desktop": "node scripts/build-desktop.mjs",
     "dev:desktop": "npm run build:desktop && npm run start --workspace @codexer/desktop",
-    "package:desktop": "npm run build:desktop && npm run package --workspace @codexer/desktop",
+    "package:desktop": "node scripts/build-native-desktop.mjs --agent",
     "package:desktop:win": "node scripts/build-native-windows.mjs --agent",
     "package:desktop:mac": "node scripts/build-native-macos.mjs --agent",
     "package:desktop:mac:local": "node scripts/build-native-macos.mjs --agent",
@@ -67,7 +67,10 @@
     "package:desktop:mac:local:legacy": "npm run build:desktop && npm run package:mac:local --workspace @codexer/desktop --",
     "package:control-desktop:mac": "node scripts/build-native-macos.mjs --control",
     "package:macos-native": "node scripts/build-native-macos.mjs",
-    "check:macos-native": "node scripts/check-native-macos.mjs"
+    "check:macos-native": "node scripts/check-native-macos.mjs",
+    "package:desktop:legacy": "npm run build:desktop && npm run package --workspace @codexer/desktop",
+    "package:control-desktop": "node scripts/build-native-desktop.mjs --control",
+    "package:native-desktop": "node scripts/build-native-desktop.mjs"
   },
   "dependencies": {
     "highlight.js": "^11.12.0",
