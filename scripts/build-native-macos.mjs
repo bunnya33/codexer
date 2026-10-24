@@ -36,7 +36,8 @@ if(flags.has('--prepare-only')){
 await writeFile(join(mac,'.xcode.env.local'),`export NODE_BINARY=${"'"+process.execPath.replaceAll("'","'\\''")+"'"}\n`);
 if(!flags.has('--skip-pods'))await run('bundle',['exec','pod','install']);
 const output=join(app,'release');await mkdir(output,{recursive:true});
-const modes=flags.has('--agent')?['agent']:flags.has('--control')?['control']:['agent','control'];
+if(flags.has('--control'))throw new Error('This macOS build delivers the Codexer PC Agent.');
+const modes=['agent'];
 const artifacts=[];
 const derived=join(mac,'DerivedData/native');
 if(!flags.has('--skip-build'))await run('xcodebuild',['-workspace','RelayDeskNative.xcworkspace','-scheme','RelayDeskNative','-configuration','Release','-derivedDataPath',derived,`ARCHS=${process.arch==='arm64'?'arm64':'x86_64'}`,'ONLY_ACTIVE_ARCH=YES','CODE_SIGNING_ALLOWED=NO',`MARKETING_VERSION=${version}`,`CURRENT_PROJECT_VERSION=${version}`,'build']);

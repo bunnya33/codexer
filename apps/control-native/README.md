@@ -1,10 +1,36 @@
-# Windows / macOS 共用原生客户端
+# 原生桌面与 PC Agent
 
-RelayDesk 控制端和 Codexer PC Agent 共用 `src/App.tsx`、`src/AgentApp.tsx`、`src/sidecar.ts` 与平台桥接协议，Windows/macOS 在同一主线同步功能。Windows 使用 RNW 0.84 / Fabric，macOS 使用 React Native macOS 0.83 / Fabric；两端产品版本统一来自本目录 `package.json`，本次源码版本为 `0.2.9`。
+Windows 既有 RelayDesk 控制端和 PC Agent 使用 React Native Windows。此次迁移范围是 **Codexer PC Agent**：把 Mac PC 连接器同步到 Windows Agent 的原生方案，两平台共用 `src/AgentApp.tsx`、`src/sidecar.ts`、控制器和桥接协议，并在 `main` 上维护。没有安装或发布 Mac RelayDesk 控制端。
 
-macOS 的依赖单独锁定在 `macos/package-lock.json`，共享业务和 UI 不复制到 Mac 子项目。平台组件版本不同源于各平台宿主的兼容要求。界面随客户端交付，服务器提供 API 和实时数据。
+PC Agent 产品版本统一来自本目录 `package.json`，本次为 `0.2.9`。Windows 使用 RNW 0.84 / Fabric；Mac 使用 React Native macOS 0.83 / Fabric，兼容依赖分别锁定。Mac 系统适配放在 `macos/`，共用业务和 UI 不复制到平台子项目。
 
-**本次 Mac 状态：** 共用界面类型检查、Metro 生产打包、TurboModule Codegen、AppKit 适配编译检查与凭据封装测试可独立完成；完整应用、DMG 和实机验收还需要完整 Xcode。这台开发机目前只有 Command Line Tools，不能把源码接入标记为已交付原生安装包。构建方式见 [Mac 原生构建](../../docs/mac.md)。
+Windows x64 与 Mac arm64 的 Agent 安装包已经由同一提交的 GitHub Actions 完整构建，实际验证和升级记录见 [验收记录](VALIDATION.md)。Mac 本机构建需要完整 Xcode，步骤见 [Mac 原生构建](../../docs/mac.md)。
+
+## PC Agent 安装
+
+Windows 使用 `Codexer-Native-Setup-0.2.9-x64.exe`；Mac 使用 `Codexer-Native-0.2.9-arm64.dmg` 或 `Codexer-Native-0.2.9-arm64-mac.zip`，将 `Codexer.app` 放进 Applications。Windows 最低 10 1809 x64，Mac 最低 macOS 14；附带 Node，不要求用户安装开发工具。此次 Mac 包为 ad-hoc 签名，未做 Developer ID 公证；未生成或验收 Intel Mac 包。
+
+升级沿用原来的账号设置、设备标识、授权目录、自动连接和关闭行为。Windows 数据目录为 `%APPDATA%\Codexer`，Mac 为 `~/Library/Application Support/@codexer/desktop`。凭据使用 Windows DPAPI / Mac Keychain 加密迁移，旧会话失效或原本未登录时需要重新登录。
+
+默认关闭窗口继续在托盘或菜单栏后台运行；菜单可打开、进入设置和退出。启用“关闭窗口时退出进程”后，退出需要确认。PC Agent 的连接、登录启动、目录授权和诊断使用同一份原生管理界面。
+
+## PC Agent 构建
+
+```sh
+npm ci
+# Windows
+npm ci --prefix apps/control-native
+npm run package:desktop:win
+# Mac，需要完整 Xcode 和 Bundler
+npm ci --prefix apps/control-native/macos
+npm run package:desktop:mac
+```
+
+`npm run package:desktop` 按当前系统选择原生 Agent。Windows/macOS 在同一主线维护，不再为 Mac Agent 另建功能分支。旧 Electron Agent 仅保留 `:legacy` 后缀的回退构建入口。输出位于 `apps/control-native/release`，完整运行目录在 `stage`。实际测试边界见 [验收记录](VALIDATION.md)。
+
+## 既有 Windows 控制端
+
+以下为原有 Windows RelayDesk 的使用和验收入口，不属于此次 Mac PC Agent 替换范围。
 
 ## 安装与使用
 
@@ -48,4 +74,4 @@ npx tsx scripts/accept-native-windows.ts
 
 增加 `--fresh-login` 时不预置会话，需从真实登录表单输入合成账号 `native-fixture`、密码 `native-fixture-password-12345`。脚本验证密码登录请求、加密保存凭据、历史及实时同步，不能用迁移已有登录状态的检查代替首次登录。
 
-Windows 的既有安装包与本次 `0.2.9` 源码要分别记录。macOS 完整编译与运行验收通过后才能替换本机旧 Electron 应用；iOS/Android 继续使用移动端宿主。
+本项目当前交付 Windows；macOS、iOS 和 Android 使用各自的宿主与发布流程，本次没有生成它们的安装包。

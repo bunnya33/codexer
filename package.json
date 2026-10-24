@@ -65,12 +65,10 @@
     "check:protocol": "node scripts/build-protocol-schema.mjs --check",
     "package:desktop:mac:legacy": "npm run build:desktop && npm run package:mac --workspace @codexer/desktop",
     "package:desktop:mac:local:legacy": "npm run build:desktop && npm run package:mac:local --workspace @codexer/desktop --",
-    "package:control-desktop:mac": "node scripts/build-native-macos.mjs --control",
-    "package:macos-native": "node scripts/build-native-macos.mjs",
+    "package:macos-native": "node scripts/build-native-macos.mjs --agent",
     "check:macos-native": "node scripts/check-native-macos.mjs",
     "package:desktop:legacy": "npm run build:desktop && npm run package --workspace @codexer/desktop",
-    "package:control-desktop": "node scripts/build-native-desktop.mjs --control",
-    "package:native-desktop": "node scripts/build-native-desktop.mjs"
+    "package:native-desktop": "node scripts/build-native-desktop.mjs --agent"
   },
   "dependencies": {
     "highlight.js": "^11.12.0",

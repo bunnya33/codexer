@@ -4,9 +4,13 @@
 
 ## 共用主线与版本
 
-Windows 和 macOS 共用 `apps/control-native/src` 的应用入口、PC Agent 管理界面、控制端界面、桥接协议及 Node sidecar，在同一主线提交和同步功能。Windows 的 C++ 宿主放在 `windows/`，Mac 的 AppKit / React Native macOS 宿主放在 `macos/`；只有系统功能使用平台适配，不能另建一套 Mac 业务界面或长期维护平台分支。
+Windows 和 macOS 共用 `apps/control-native/src` 的应用入口、PC Agent 管理界面、控制端界面、桥接协议及 Node sidecar，在同一主线提交和同步功能。Windows 的 C++ 宿主放在 `windows/`，Mac Agent 的 AppKit / React Native macOS 宿主放在 `macos/`；只有系统功能使用平台适配，不能另建一套 Mac 业务界面或长期维护平台分支。
 
 产品版本唯一来源是 `apps/control-native/package.json`，界面从宿主读取版本，sidecar 构建时注入同一版本，安装包也使用该版本。此次源版本为 `0.2.9`。Windows 使用 React Native Windows 0.84，Mac 使用当前支持 React Native 0.83.10 的 React Native macOS 0.83.0，依赖分别锁定，避免把不兼容的平台宿主塞进一个运行时。
+
+## 此次 PC Agent 迁移范围
+
+本次执行仅升级 Mac **Codexer PC 连接器（PC Agent）**，与 Windows Agent 共用原生方案及 `main`。RelayDesk 控制端不在本次 Mac 安装和发布范围；原有 Windows 控制端继续维护。
 
 ## 当前验收状态
 
@@ -14,9 +18,9 @@ Windows 已有 RNW 原生发行版。本次共用代码应同时通过 Windows/M
 
 Mac 新增 Fabric / TurboModule 宿主、钥匙串加密与旧 Electron v10 凭据迁移、菜单栏后台、关闭与退出、登录启动、文件选择、图片转换、系统剪贴板和隔离 WKWebView 内容预览。Agent 继续使用旧 Mac 配置目录 `~/Library/Application Support/@codexer/desktop`，保留安装标识和已有设置；新加密文件使用 `session.native.enc`，不把凭据降级为明文。
 
-当前开发机没有完整 Xcode，因此尚未完成完整原生编译、DMG 生成或本机替换。Metro 打包、Codegen、类型检查以及可由 Command Line Tools 完成的 AppKit/凭据测试不等于整个原生客户端已运行。实际结果记录在 `apps/control-native/VALIDATION.md`。
+完整 Windows x64 / Mac arm64 原生编译与安装包使用同一提交的 GitHub Actions；Mac 构建产物在当前电脑完成本机运行检查。当前开发机只有 Command Line Tools，本机构建仍需要完整 Xcode。测试和实际安装范围记录在 `apps/control-native/VALIDATION.md`。
 
-默认 macOS 打包入口已改为原生构建，旧 Electron 打包仅保留 `:legacy` 后缀入口用于回退维护。原生验收通过前，本机继续保留可运行的旧版。
+默认 macOS 打包入口已改为原生构建，旧 Electron 打包仅保留 `:legacy` 后缀入口用于回退维护。替换时保留旧应用备份及原有配置，实际升级记录见验收文档。
 
 ## 后续实现
 

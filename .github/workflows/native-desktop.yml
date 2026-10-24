@@ -1,8 +1,8 @@
-name: Shared native desktop clients
+name: Shared native PC agents
 on:
   workflow_dispatch:
   push:
-    branches: ['codex/native-desktop', 'main']
+    branches: ['main']
     paths:
       - 'apps/control-native/**'
       - 'apps/mobile/**'
@@ -110,7 +110,7 @@ jobs:
       - run: npm ci
       - run: npm ci --prefix apps/control-native/macos
       - run: npm run check:macos-native
-      - name: Package macOS native clients
+      - name: Package macOS PC Agent
         shell: bash
         run: |
           mkdir -p diagnostics

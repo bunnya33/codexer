@@ -6,7 +6,7 @@
 
 | 内容 | 处理与当前替代 |
 | --- | --- |
-| `start-pc.cmd`、`start-mac.sh`、`scripts/start-pc.ps1` | 删除依赖系统 Node 的旧用户启动器；普通用户使用 Electron 安装包 |
+| `start-pc.cmd`、`start-mac.sh`、`scripts/start-pc.ps1` | 删除依赖系统 Node 的旧用户启动器；普通用户使用附带运行时的桌面安装包 |
 | `scripts/claim-pairing.ts` | 删除只抛出“配对已移除”错误的占位入口 |
 | `scripts/pair-pc.ts` | 删除重复登录 CLI；开发统一使用 `npm run dev:agent -- login --username <account>` |
 | `scripts/local-token.ts`、`local:account` npm 命令 | 删除打印本地账号密码的旧工具 |
@@ -32,7 +32,7 @@
 
 | 目录/文件 | 保留原因 |
 | --- | --- |
-| `apps/pc-agent`、`packages/codex-adapter` | Electron 内置运行与官方 Codex 兼容层仍依赖 |
+| `apps/pc-agent`、`packages/codex-adapter` | Windows/macOS 原生桌面的 Node sidecar 和官方 Codex 兼容层仍依赖 |
 | `packages/codex-generated` | 官方协议生成类型及其类型引用链，不是另一套客户端实现 |
 | React Native 的 `.web.*` 与原生同名文件 | 平台解析使用不同实现，不能按 Windows 当前构建删除原生适配 |
 | `scripts/local-services.ts`、前端构建、验收/探测脚本 | 维护和开发仍有 npm 入口；不作为最终用户启动方案 |

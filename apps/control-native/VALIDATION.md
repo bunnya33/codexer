@@ -1,12 +1,17 @@
-# Windows 原生版验收
+# 原生客户端验收
 
-## 0.2.9 共用 Windows/macOS 主线（构建验收进行中）
+## 0.2.9 Windows/macOS PC Agent（2026-10-24）
 
-- 两端共用 `src` 中的应用、Agent、桥接与 Metro 适配规则，产品版本唯一来源为 `package.json`；Mac 的兼容运行时单独锁定。
-- 本机已完成 Windows/Mac 两套类型检查、Mac Metro Release JS bundle、Apple TurboModule Codegen，以及 AppKit 系统适配的 Objective-C++ 编译检查。
-- 122 项相关 TypeScript 测试、5 项真实 Node sidecar IPC 测试通过，覆盖旧配置/凭据迁移、设备标识、退出登录、防止未选择文件读取及特殊文件名。
-- 新加密封装的随机性、完整性、错误密钥和大小限制检查通过；旧 Electron v10 迁移额外使用实际 Electron 44.5.1 的隔离 mock Keychain 加密产物验证，不访问真实凭据。
-- 本机没有完整 Xcode。完整 Windows/Mac 原生编译、安装包、Mac 本机实测由同一提交的 GitHub 构建继续验证；未通过前不替换当前 Electron 0.1.16，也不标记原生版本已经交付。
+本次范围是 Codexer PC 连接器（PC Agent）。Mac 与 Windows Agent 共用 `src/AgentApp.tsx`、sidecar、桥接和控制器，在 `main` 同步功能；没有安装或发布 Mac RelayDesk 控制端。控制端专属的试验弹窗改动已撤回。
+
+- 同一运行时代码提交 `131a502` 的 GitHub Actions `40064248844` 完整构建 Windows x64 / Mac arm64 Agent，原生宿主及安装包检查成功。下载产物核对官方 artifact SHA-256，并核对 Mac 内层 DMG / ZIP SHA-256。后续收窄打包范围只影响产品选择，没有改变已验收的 Agent UI / 原生运行时代码。
+- Windows/Mac 两套类型检查、Mac Metro Release bundle、Apple Codegen、AppKit Objective-C++ 编译检查通过；122 项相关 TypeScript 测试和 5 项实际 Node sidecar IPC 测试通过，涵盖设置、凭据、设备身份和文件读取约束。
+- Mac 新加密封装的随机性、完整性、错误密钥和大小限制检查通过；旧 Electron v10 迁移使用实际 Electron 44.5.1 的隔离 mock Keychain 加密产物验证。旧 Agent Safe Storage 使用 npm 应用名 `@codexer/desktop`，仅在项目不存在时兼容旧 `Codexer` 名称，不在访问被拒绝时绕过钥匙串。
+- Mac 最终 Agent 包在本机启动成功：报告 `0.2.9`、`react-native-macos`、`agent-management`，重复实例退出，renderer 错误检查通过。应用采用正常 ad-hoc 签名，无测试 dylib 注入或允许 DYLD 环境注入的调试 entitlement；签名、Hermes 及随包 Node / Zstandard / LevelDB 检查通过。
+- 已替换 `/Applications/Codexer.app` 中的旧 Electron 0.1.16，并实际打开原生 Agent。设置页显示 `macOS · 0.2.9`，SVG 图标正常。原设置文件 SHA-256 和设备安装标识保持一致，授权目录、自动连接、登录启动及关闭后台偏好均保留。旧应用保存在本机 cache 备份中。
+- 文件夹选择、设置保存、退出确认、取消退出、关闭后台和恢复窗口使用独立 Agent 配置完成界面验收；正式安装使用原配置核对版本、设置与后台进程。正式配置升级前没有旧、新登录会话文件，安装后显示未登录属于既有状态，需要用户重新登录。
+
+边界：没有使用真实账号重新登录，没有控制用户的真实 Codex 任务；没有重启整台电脑验证登录项，未生成或验收 Intel Mac 包，Mac 包未做 Developer ID 公证。此前 Windows 控制端的历史验收记录见下文。
 
 
 ## 2026-10-22 离线设备管理（本地构建）
