@@ -41,15 +41,33 @@ jobs:
       - name: Select installed C++ toolset
         shell: pwsh
         run: |
-          $vs = & "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe" -latest -products * -requires Microsoft.Component.MSBuild -property installationPath
-          $toolset = Get-ChildItem "$vs/MSBuild/Microsoft/VC/*/Platforms/x64/PlatformToolsets" -Directory | Where-Object Name -Match '^v14[35]$' | Sort-Object Name -Descending | Select-Object -First 1
-          if (!$toolset) { throw 'No supported Visual C++ desktop toolset found' }
-          "CODEXER_PLATFORM_TOOLSET=$($toolset.Name)" >> $env:GITHUB_ENV
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+          Start-Transcript -Path diagnostics/windows-toolset.log
+          try {
+            $vs = & "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+            if (!$vs) { throw 'Visual C++ desktop tools are not installed' }
+            Write-Output "Visual Studio: $vs"
+            $toolsets = Get-ChildItem "$vs/MSBuild/Microsoft/VC" -Recurse -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^v14[35]$' -and $_.FullName -match 'PlatformToolsets' }
+            $toolsets | Select-Object FullName | Format-Table -AutoSize
+            $toolset = $toolsets | Sort-Object Name -Descending | Select-Object -First 1
+            if (!$toolset) { throw 'No supported Visual C++ desktop toolset found' }
+            "CODEXER_PLATFORM_TOOLSET=$($toolset.Name)" >> $env:GITHUB_ENV
+          } finally { Stop-Transcript }
       - run: npm ci
       - run: npm ci --prefix apps/control-native
       - run: node scripts/build-native-sidecar.mjs
       - run: node --test apps/control-native/test/sidecar.test.cjs
-      - run: npm run package:windows-native
+      - name: Package Windows native clients
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+          npm run package:windows-native 2>&1 | Tee-Object -FilePath diagnostics/windows-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-Windows-diagnostics
+          path: diagnostics/*
       - uses: actions/upload-artifact@v4
         with:
           name: native-Windows-x64
@@ -75,7 +93,17 @@ jobs:
       - run: npm ci
       - run: npm ci --prefix apps/control-native/macos
       - run: npm run check:macos-native
-      - run: npm run package:macos-native
+      - name: Package macOS native clients
+        shell: bash
+        run: |
+          mkdir -p diagnostics
+          set -o pipefail
+          npm run package:macos-native 2>&1 | tee diagnostics/macos-build.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-macOS-diagnostics
+          path: diagnostics/*
       - run: node --test apps/control-native/test/sidecar.test.cjs
         env:
           CODEXER_NATIVE_SERVICE: apps/control-native/macos/build/service/sidecar.cjs
