@@ -1,5 +1,17 @@
 # 当前 Go 迁移验证
 
+## 2026-10-26 服务器 0.3.29 / Agent 0.2.13 / Android 0.1.5
+
+删除空项目源码对应 `4fa81b468ecef4d1039778616e61c5ae6d24b63b`，已推送主分支并以稳定版 [v0.3.29](https://github.com/bunnya33/codexer/releases/tag/v0.3.29) 发布。[发布流程](https://github.com/bunnya33/codexer/actions/runs/40262262278) 全部成功，包含 PostgreSQL、Go race、根/Admin/Agent/旧控制端类型、完整 Go 回归、75 个 TypeScript 文件中的 514 项测试、文档、Web/Admin/内嵌 Go 生产构建、独立单文件验收和 Linux/macOS amd64/arm64 四平台包。移动端与 Windows Native 共享 UI 类型在本地通过。
+
+正式 Release 非草稿、非预发布，8 个附件齐全；四份实际下载的 SHA-256 文件及目标归档摘要逐项匹配。实际下载的 Linux amd64 包为 7,963,743 字节，SHA-256 `821a08f3c4cdccd43456c5b556ba5d9c678b5f885e38e7bfeea71cf79f79f206`，版本/清单、ELF x86-64 和 0755 权限正确，位于本地 `release/server-0.3.29`。未安装或重启生产服务。
+
+Windows/macOS Electron Agent 的[CI 构建及启动验收](https://github.com/bunnya33/codexer/actions/runs/40262258596)通过。本地 Electron 依赖下载停滞后停止本地打包，取回同一提交的 Windows CI 成品；下载归档为 227,136,837 字节，SHA-256 `1471e2c6a3c1e176dfdec4ca172b85dc1833887db454476812986a3d6698726a`，与 GitHub artifact digest 一致。Windows x64 安装版 `Codexer-Agent-Setup-0.2.13-x64.exe` 为 113,672,019 字节，SHA-256 `63467a9e88605063834d7c17dbea4371ba3bfc9e1a1b76a7e3de0743636a629f`；便携版为 113,455,531 字节，SHA-256 `6ec70b0ee9da017d87dc6b7227229ef13777f7cbb73a118fe597581adc988fd5`。EXE 产品名和版本为 Codexer Agent / 0.2.13，CI 验收记录确认合成配置下启动、配置保留和拒绝重复实例通过。文件保存在 `release/agent-0.2.13`，未覆盖安装用户当前 Agent 配置。
+
+Android 在隔离构建目录完成 Gradle 原生 Release，包名 `com.bunnya33.codexer.remote`、版本 `0.1.5`、versionCode 6、arm64-v8a/x86_64、minSdk 24/targetSdk 36。APK 包内 Hermes 字节码包含项目删除核验与失败提示，签名及 16 KiB ZIP 对齐校验通过；签名证书与 `0.1.4` 一致。APK 为 57,306,358 字节，SHA-256 `77f00b09fce742a253a41b412a28f8b54c68b1644bd991ad911adb2f86fe8532`，位于 `release/android-0.1.5`，附带校验和构建信息。独立 Android 15/API 35 模拟器从 `0.1.4` 覆盖安装、冷启动及版本读取成功，进程保持存活，崩溃缓冲区和致命 JS/运行错误为空。
+
+未使用真实手机或真实项目执行删除，也未覆盖安装用户的 Agent；项目菜单和删除确认交互沿用专项自动化验证，未新增浏览器实机截图验收。本次不交付 Windows/macOS 原生 Control 安装包；客户端仍需单独安装或上传 Relay 后台。服务器发布不自动发布或安装客户端。
+
 ## 2026-10-25 删除空项目（待发布）
 
 控制端项目菜单、确认选择、目录二次确认、取消/返回、归档会话计数、离线/旧 Agent 禁用和部分失败提示已接入共享界面。Agent 经官方项目/会话列表核验后删除空项目；目录删除固定路径和文件系统身份，拦截共享、链接、受保护目录及挂载点，处理过期确认、目录替换和旧列表读取。

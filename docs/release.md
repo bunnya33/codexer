@@ -1,12 +1,16 @@
 # 本地发布与打包
 
-## 服务器 0.3.29 / Agent 0.2.13 / Android 0.1.5（准备发布）
+## 服务器 0.3.29 / Agent 0.2.13 / Android 0.1.5
 
 控制端项目行改用 `…` 菜单，可新建会话或删除空项目。删除包含归档会话在内的会话数为 0 的项目时，可选择保留目录或连同目录一起删除，后者必须再次确认具体路径。Agent 用官方接口重新核验、检查目录身份及共享/受保护路径，并防止旧的目录读取将删除项写回。目录未完全删除时如实提示，不自动重试。
 
 此次涉及 Relay 协议、Agent 核心和共用控制 UI，需一并更新才能使用；旧 Agent 禁用删除入口。详见[删除空项目](project-deletion.md)。服务器版本 `0.3.29`，Windows Electron Agent `0.2.13`，Android `0.1.5`（versionCode 6），Android 沿用既有包名与签名。桌面原生 Control 共用此功能源码，本次不交付 Windows/macOS Control 安装包。
 
-服务器通过正式 Release 交付更新包，客户端包需单独上传 Relay 后台。发布更新包不代表生产服务器已安装或重启；最终发布、签名和启动检查结果另行记录。
+稳定版 [v0.3.29](https://github.com/bunnya33/codexer/releases/tag/v0.3.29) 已发布，标签对应 `4fa81b4`，[服务器发布流程](https://github.com/bunnya33/codexer/actions/runs/40262262278) 全部成功，包含完整回归（514 项 TypeScript 测试）、PostgreSQL、Go race、类型/文档、生产构建、独立单文件验收及四平台打包。8 个附件齐全，四份 SHA-256 文件与发布摘要一致，实际下载的 Linux amd64 包通过版本、清单、ELF 架构和执行权限校验。
+
+Windows Electron Agent 的[双平台 CI](https://github.com/bunnya33/codexer/actions/runs/40262258596)构建及启动验收通过，Windows x64 安装版和便携版取回至本地 `release/agent-0.2.13`，下载归档摘要、EXE 产品名称/版本及合成配置保留/单实例检查通过。Android 签名 APK 位于 `release/android-0.1.5/Codexer-Control-0.1.5.apk`，Gradle 原生 Release、Hermes 项目删除代码、签名与 16 KiB ZIP 对齐校验通过，隔离 Android 15 模拟器从 `0.1.4` 覆盖安装及冷启动成功，无崩溃或致命运行错误。各交付目录附带校验与构建记录，完整边界见[验证记录](validation.md)。
+
+服务器通过正式 Release 交付更新包，生产服务器需在后台检查更新、准备 `0.3.29` 并确认重启；本次未直接安装或重启生产服务。客户端包需单独安装或上传 Relay 后台的「客户端更新」，未自动替换用户现有 Agent 或控制端。
 
 ## 服务器 0.3.28 / Android 0.1.4
 
