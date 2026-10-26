@@ -1,19 +1,20 @@
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { mkdir, writeFile } from "node:fs/promises";
-import { hostname } from "node:os";
+import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { WebSocket } from "ws";
 import { DesktopAdapter, AdapterError } from "../../../packages/codex-adapter/src/desktop.js";
 import { HeadlessAdapter, readOfficialCatalog, readOfficialHistory } from "../../../packages/codex-adapter/src/headless.js";
 import { readRecentCatalog } from "../../../packages/codex-adapter/src/catalog.js";
 import { commandSchema, historyRequestSchema, MAX_MESSAGE_BYTES, MAX_THREADS, PROTOCOL_VERSION, reduceEvent, threadSchema } from "../../../packages/protocol/src/index.js";
-import type { DeviceCatalog, DeviceSnapshot, HistoryPage, RemoteCommand, RemoteEvent, RemoteThread } from "../../../packages/protocol/src/index.js";
+import type { DeviceCatalog, DeviceSnapshot, HistoryPage, ProjectDeletionPlan, RemoteCommand, RemoteEvent, RemoteThread } from "../../../packages/protocol/src/index.js";
 import { SerialQueue } from "../../../packages/shared/src/queue.js";
 import { CommandJournal } from "./journal.js";
 import type { QueuedMessage } from "./journal.js";
 import { UsageJournal } from "./usage.js";
 import { ProjectDirectories } from './project-directories.js';
+import { ProjectDirectoryDeletion } from './project-deletion.js';
 import { validateRelayUrl } from "./auth.js";
 import { ImageRegistry } from "../../../packages/codex-adapter/src/images.js";
 import { AttachmentInputs } from "../../../packages/codex-adapter/src/attachments.js";
@@ -62,6 +63,8 @@ export class PcAgent extends EventEmitter {
   private catalog: DeviceCatalog | null = null;
   private readonly createdThreads = new Map<string, DeviceCatalog["threads"][number]>();
   private readonly createdProjects = new Map<string, DeviceCatalog['projects'][number]>();
+  private readonly deletedProjects = new Set<string>();
+  private readonly projectDeletionPlans = new Map<string, { plan: ProjectDeletionPlan; project: DeviceCatalog['projects'][number]; fingerprint: string; directory?: ProjectDirectoryDeletion }>();
   private readonly projectDirectories: ProjectDirectories;
   private catalogSupported = false;
   private relayAllowed = true;
@@ -212,7 +215,7 @@ export class PcAgent extends EventEmitter {
       for (const thread of catalog.threads) this.createdThreads.delete(thread.id);
       for (const project of catalog.projects) this.createdProjects.delete(project.id);
       const projectCreation = this.headless ? { parents: await this.projectDirectories.list() } : undefined;
-      this.publishCatalog({ ...catalog, projectCreation, projects: [...this.createdProjects.values(), ...catalog.projects], threads: [...this.createdThreads.values(), ...catalog.threads] });
+      this.publishCatalog({ ...catalog, projectCreation, projectDeletion: this.headless ? true : undefined, projects: [...this.createdProjects.values(), ...catalog.projects].filter(project => !this.deletedProjects.has(project.id)), threads: [...this.createdThreads.values(), ...catalog.threads] });
     } catch { this.log("catalog-refresh-failed"); }
     finally { this.catalogReading = false; }
   }
@@ -221,7 +224,7 @@ export class PcAgent extends EventEmitter {
     this.catalog = catalog;
     this.adapter.models = catalog.models ?? [];
     if (this.headless) this.headless.models = catalog.models ?? [];
-    if (this.catalogSupported && (!previous || JSON.stringify([previous.projects, previous.threads, previous.models, previous.projectCreation]) !== JSON.stringify([catalog.projects, catalog.threads, catalog.models, catalog.projectCreation]))) this.send({ type: "device.catalog", catalog });
+    if (this.catalogSupported && (!previous || JSON.stringify([previous.projects, previous.threads, previous.models, previous.projectCreation, previous.projectDeletion]) !== JSON.stringify([catalog.projects, catalog.threads, catalog.models, catalog.projectCreation, catalog.projectDeletion]))) this.send({ type: "device.catalog", catalog });
   }
   private pinThread(threadId: string): void {
     this.pinnedThreads.delete(threadId);
@@ -298,6 +301,60 @@ export class PcAgent extends EventEmitter {
     await this.refreshCatalog();
     if (payload.type === 'thread.create') await this.scan();
     return value;
+  }
+  private async deleteProject(command: RemoteCommand & { payload: Extract<RemoteCommand['payload'], { type: 'project.delete.prepare' | 'project.delete' }> }, current: () => boolean): Promise<Record<string, unknown>> {
+    if (!this.headless || !this.catalog) throw new AdapterError('app-server-unavailable');
+    const { projectId } = command.payload;
+    const allowed = () => {
+      if (!current() || Date.now() >= command.expiresAt) throw new AdapterError('remote-disconnected');
+      if (!this.catalog?.projects.some(project => project.id === projectId)) throw new AdapterError('project-not-in-catalog');
+      if (this.catalog.threads.some(thread => thread.projectId === projectId) || [...this.createdThreads.values()].some(thread => thread.projectId === projectId)) throw new AdapterError('project-not-empty');
+    };
+    allowed();
+    await this.headless.connect();
+    for (const [token, entry] of this.projectDeletionPlans) if (entry.plan.expiresAt <= Date.now()) this.projectDeletionPlans.delete(token);
+    if (command.payload.type === 'project.delete.prepare') {
+      const catalog = await this.headless.projectDeletionCatalog();
+      allowed();
+      const project = catalog.projects.find(project => project.id === projectId);
+      if (!project) throw new AdapterError('project-not-in-catalog');
+      if (catalog.threads.some(thread => thread.projectId === projectId)) throw new AdapterError('project-not-empty');
+      let directory: ProjectDirectoryDeletion | undefined, directoryReason: string | undefined;
+      try { directory = await ProjectDirectoryDeletion.prepare(catalog, projectId, [this.directory, this.codexHome ?? process.env.CODEX_HOME ?? join(homedir(), '.codex')]); }
+      catch (error) { directoryReason = error instanceof AdapterError ? error.code : 'project-folder-unavailable'; }
+      const plan: ProjectDeletionPlan = { projectId, token: randomUUID(), expiresAt: Date.now() + 5 * 60_000, name: project.name, roots: project.roots, directoryDeletion: !!directory, ...(directoryReason ? { directoryReason } : {}) };
+      if (this.projectDeletionPlans.size >= 20) this.projectDeletionPlans.delete(this.projectDeletionPlans.keys().next().value!);
+      this.projectDeletionPlans.set(plan.token, { plan, project, fingerprint: JSON.stringify(project), directory });
+      return { ...plan };
+    }
+    const { token, deleteDirectory } = command.payload;
+    const entry = this.projectDeletionPlans.get(token);
+    if (!entry || entry.plan.projectId !== projectId || entry.plan.expiresAt <= Date.now()) throw new AdapterError('project-deletion-stale');
+    if (deleteDirectory && !entry.directory) throw new AdapterError(entry.plan.directoryReason ?? 'project-directory-unsafe');
+    await this.headless.deleteProject(projectId, async catalog => {
+      allowed();
+      if (entry.plan.expiresAt <= Date.now() || JSON.stringify(catalog.projects.find(project => project.id === projectId)) !== entry.fingerprint) throw new AdapterError('project-deletion-stale');
+      if (deleteDirectory) await entry.directory!.verify(catalog, projectId);
+      allowed();
+    });
+    // Publish removal before acknowledging it. In-flight older reads must not
+    // resurrect a deleted project or permit creating another thread under it.
+    this.deletedProjects.add(projectId);
+    this.createdProjects.delete(projectId);
+    for (const [key, value] of this.projectDeletionPlans) if (value.plan.projectId === projectId) this.projectDeletionPlans.delete(key);
+    this.publishCatalog({ ...this.catalog, generatedAt: Date.now(), projects: this.catalog.projects.filter(project => project.id !== projectId) });
+    if (deleteDirectory) {
+      try {
+        // External Codex clients may create a project/thread during the RPC.
+        // Recheck directory use after the official metadata deletion as well.
+        const fresh = await this.headless.projectDeletionCatalog();
+        if (fresh.projects.some(project => project.id === projectId)) throw new AdapterError('project-deletion-stale');
+        await entry.directory!.verify({ ...fresh, projects: [...fresh.projects, entry.project] }, projectId);
+        await entry.directory!.remove();
+      }
+      catch { return { projectId, acknowledgedByAppServer: true, directoryDeleted: false, directoryError: 'project-directory-delete-failed', remainingDirectories: entry.directory!.remainingPaths }; }
+    }
+    return { projectId, acknowledgedByAppServer: true, directoryDeleted: deleteDirectory };
   }
   private withQueue(thread: RemoteThread): RemoteThread {
     return { ...thread, queuedMessages: this.journal.queued(thread.id).slice(0, 20).map(message => ({ id: message.id, text: message.text.slice(0, 1000), imageCount: message.images.length, ...(this.state.runtime.capabilities.attachments ? { fileCount: message.attachments?.length ?? 0 } : {}), createdAt: message.createdAt, status: message.status })) };
@@ -551,6 +608,8 @@ export class PcAgent extends EventEmitter {
             if (Date.now() >= command.expiresAt) throw new AdapterError("command-expired");
             const value = command.payload.type === 'project.create'
               ? await this.createProject({ ...command, payload: command.payload }, current)
+              : command.payload.type === 'project.delete.prepare' || command.payload.type === 'project.delete'
+              ? await this.deleteProject({ ...command, payload: command.payload }, current)
               : command.payload.type === 'thread.create' || command.payload.type === 'thread.rename' || command.payload.type === 'thread.archive' || command.payload.type === 'thread.delete'
               ? await this.manageThread(command.payload, current)
               : command.payload.type === "thread.watch"

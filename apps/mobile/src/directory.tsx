@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, FlatList, Platform, Pressable, Text, TextInput, View } from 'react-native';
-import { FolderClosed, FolderOpen, FolderPlus, MoreHorizontal, RefreshCw, Search, Settings2, SquarePen, X } from 'lucide-react-native';
+import { FolderClosed, FolderOpen, FolderPlus, MoreHorizontal, RefreshCw, Search, Settings2, X } from 'lucide-react-native';
 import type { DirectoryProject, DirectoryRow, DirectoryThread } from '../../../packages/client-shared/src/directory';
 import type { RelayView } from './relay';
 import { directoryThreadHeight, useTheme } from './styles';
 import { DevicePicker } from './device-picker';
 import { DrawerSwipeBlock } from './drawer-swipe-block';
-type Props = { updateAvailable?:boolean; view: RelayView; deviceId: string; threadId: string; rows: DirectoryRow[]; search: string; wide: boolean; managing: boolean; paddingTop: number; paddingBottom: number; setSearch: (value: string) => void; selectDevice: (id: string) => void; selectThread: (id: string) => void; toggleProject: (id: string) => void; createProject: () => void; createThread: (id: string) => void; threadActions: (thread: { id: string; title: string }) => void; close: () => void; settings: () => void; refresh: () => void };
+type Props = { updateAvailable?:boolean; view: RelayView; deviceId: string; threadId: string; rows: DirectoryRow[]; search: string; wide: boolean; managing: boolean; paddingTop: number; paddingBottom: number; setSearch: (value: string) => void; selectDevice: (id: string) => void; selectThread: (id: string) => void; toggleProject: (id: string) => void; createProject: () => void; projectActions: (project: { id: string; name: string }) => void; threadActions: (thread: { id: string; title: string }) => void; close: () => void; settings: () => void; refresh: () => void };
 
 function RunningIndicator({label}: {label: string}) {
   const { s } = useTheme();
@@ -38,13 +38,12 @@ function ProjectRow({project, props}: {project: DirectoryProject; props: Props})
     return () => animation.stop();
   }, [project.expanded, bodyHeight, height]);
   const FolderIcon = project.expanded ? FolderOpen : FolderClosed;
-  const device = props.view.devices.find(item => item.id === props.deviceId);
   return <View testID={`directory-project-${project.id}`}>
     <View style={s.project}>
       <Pressable accessibilityRole="button" aria-expanded={project.expanded} accessibilityLabel={`${project.expanded ? '收起' : '展开'}项目 ${project.name}`} onPress={() => props.toggleProject(project.id)} style={({pressed}) => [s.projectToggle, pressed && s.pressed]}>
         <FolderIcon size={16} strokeWidth={1.6} color={c.muted} /><Text style={s.projectName} numberOfLines={1}>{project.name}</Text>{project.active && !project.expanded && <RunningIndicator label={`项目 ${project.name} 有会话正在运行`} />}
       </Pressable>
-      {project.expanded && project.id !== 'unassigned' && <Pressable accessibilityRole="button" accessibilityLabel={`在${project.name}中新建会话`} disabled={props.managing || !device?.online} onPress={() => props.createThread(project.id)} style={({pressed}) => [s.projectAction, pressed && s.pressed, (props.managing || !device?.online) && s.disabled]}><SquarePen size={16} strokeWidth={1.6} color={c.muted} /></Pressable>}
+      {project.id !== 'unassigned' && <Pressable accessibilityRole="button" accessibilityLabel={`管理项目 ${project.name}`} disabled={props.managing} onPress={() => props.projectActions(project)} style={({pressed}) => [s.projectAction, pressed && s.pressed, props.managing && s.disabled]}><MoreHorizontal size={16} strokeWidth={1.6} color={c.muted} /></Pressable>}
     </View>
     {mounted && <Animated.View testID={`directory-threads-${project.id}`} pointerEvents={project.expanded ? 'auto' : 'none'} aria-hidden={!project.expanded} accessibilityElementsHidden={!project.expanded} importantForAccessibility={project.expanded ? 'auto' : 'no-hide-descendants'} style={[s.projectBody, {height}]}>
       {project.threads.length ? <FlatList data={project.threads} keyExtractor={item => item.id} scrollEnabled={false} initialNumToRender={12} windowSize={5} getItemLayout={(_data, index) => ({length: directoryThreadHeight, offset: directoryThreadHeight * index, index})} style={[s.projectThreads, {height: bodyHeight}]} renderItem={({item}) => <ThreadRow item={item} props={props} showActivity={project.expanded} />} /> : <View style={s.projectEmpty}><Text style={s.projectEmptyText}>暂无聊天</Text></View>}

@@ -23,6 +23,7 @@ import { historyKey, relay } from './src/relay';
 import { useTheme } from './src/styles';
 import { Directory } from './src/directory';
 import { ProjectCreate } from './src/project-create';
+import { ProjectActions } from './src/project-actions';
 import { confirmAction, defaultRelayUrl } from './src/runtime';
 import { ComposerInput } from './src/composer';
 import { ConversationViewport } from './src/conversation-viewport';
@@ -75,6 +76,8 @@ function AppContent() {
   const [restoring, setRestoring] = useState(true);
   const [loginBusy, setLoginBusy] = useState(false);
   const { deviceId, threadId, selectDevice: setDeviceId, selectThread: setThreadId } = useConversationSelection(view);
+  const selectedDevice = useRef(deviceId);
+  selectedDevice.current = deviceId;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [expandedProjects, setExpandedProjects] = useState<string[]>([]);
@@ -94,6 +97,7 @@ function AppContent() {
   const [newName, setNewName] = useState('');
   const [managing, setManaging] = useState(false);
   const [projectDeviceId, setProjectDeviceId] = useState('');
+  const [actionProject, setActionProject] = useState<{ deviceId: string; id: string; name: string } | null>(null);
   const [preview, setPreview] = useState<ImageGallery | null>(null);
   const listRef = useRef<FlatList<HistoryTurn>>(null);
   const streamKey = historyKey(deviceId, threadId);
@@ -150,7 +154,8 @@ function AppContent() {
     const listener = AppState.addEventListener('change', state => relay.setForeground(state === 'active'));
     return () => listener.remove();
   }, []);
-  useEffect(() => { if (view.phase === 'locked') { setDraft(''); setImages([]); setDrawerOpen(false); setActionThread(null); setPreview(null); setEditingQueueId(null); closeMenu(); } }, [view.phase]);
+  useEffect(() => { if (view.phase === 'locked') { setDraft(''); setImages([]); setDrawerOpen(false); setActionThread(null); setActionProject(null); setProjectDeviceId(''); setPreview(null); setEditingQueueId(null); closeMenu(); } }, [view.phase]);
+  useEffect(() => { setActionProject(null); }, [deviceId]);
   useEffect(() => { if (view.phase === 'connected' && deviceId && !view.catalogs[deviceId]) void relay.loadCatalog(deviceId); }, [deviceId, view.catalogs, view.phase]);
   useEffect(() => {
     setPreview(null);
@@ -217,14 +222,14 @@ function AppContent() {
       void relay.loadCatalog(target).catch(() => relay.showNotice('项目已创建，列表刷新失败，请重试刷新。'));
     } finally { setManaging(false); }
   };
-  const createThread = async (projectId: string) => {
+  const createThread = async (projectId: string, target = deviceId) => {
     if (managing) return;
     setManaging(true);
     try {
-      const result = await relay.sendCommand(deviceId, { type: 'thread.create', projectId });
+      const result = await relay.sendCommand(target, { type: 'thread.create', projectId });
       if (result.status !== 'succeeded' || typeof result.result?.threadId !== 'string') throw new Error(result.code);
-      await relay.loadCatalog(deviceId);
-      selectThread(result.result.threadId);
+      await relay.loadCatalog(target);
+      if (selectedDevice.current === target) selectThread(result.result.threadId);
     } catch (error) { relay.showNotice(error instanceof Error ? error.message : String(error)); }
     finally { setManaging(false); }
   };
@@ -368,7 +373,7 @@ function AppContent() {
   const directory = <Directory view={view} deviceId={deviceId} threadId={threadId} rows={rows} search={search} wide={wide} managing={managing} paddingTop={wide ? 0 : insets.top} paddingBottom={wide ? 0 : insets.bottom} setSearch={setSearch}
     selectDevice={id => { setDeviceId(id); setDraft(''); setImages([]); }} selectThread={selectThread}
     toggleProject={id => setExpandedProjects(current => current.includes(`${deviceId}:${id}`) ? current.filter(value => value !== `${deviceId}:${id}`) : [...current, `${deviceId}:${id}`])}
-    createProject={() => { setProjectDeviceId(deviceId); setDrawerOpen(false); }} createThread={id => void createThread(id)} threadActions={item => { setDrawerOpen(false); setNewName(item.title); setActionThread({ id: item.id, title: item.title }); }}
+    createProject={() => { setProjectDeviceId(deviceId); setDrawerOpen(false); }} projectActions={project => { setActionProject({ ...project, deviceId }); setDrawerOpen(false); }} threadActions={item => { setDrawerOpen(false); setNewName(item.title); setActionThread({ id: item.id, title: item.title }); }}
     updateAvailable={clientUpdates.available} close={() => setDrawerOpen(false)} settings={() => { setDrawerOpen(false); openMenu('settings'); }} refresh={() => void relay.refreshDevices()} />;
 
   if (restoring) return <SafeAreaView style={[s.safe, s.center]}><ActivityIndicator color={c.accent} /></SafeAreaView>;
@@ -445,6 +450,21 @@ function AppContent() {
     </ConversationDrawer></PreviewContext.Provider></FileViewerProvider>
     {editingQueueId && <QueueEditor key={`${deviceId}:${threadId}:${editingQueueId}`} deviceId={deviceId} threadId={threadId} queueId={editingQueueId} onClose={() => setEditingQueueId(null)} />}
     {!!projectDeviceId && <ProjectCreate key={projectDeviceId} catalog={view.catalogs[projectDeviceId]} online={!!view.devices.find(item => item.id === projectDeviceId)?.online} create={createProject} close={() => setProjectDeviceId('')} />}
+    {actionProject && <ProjectActions key={`${actionProject.deviceId}:${actionProject.id}`} projectId={actionProject.id} name={actionProject.name} catalog={view.catalogs[actionProject.deviceId]} online={!!view.devices.find(device => device.id === actionProject.deviceId)?.online} close={() => setActionProject(null)} createThread={() => { setActionProject(null); void createThread(actionProject.id, actionProject.deviceId); }} send={async payload => {
+      const target = actionProject.deviceId;
+      const fresh = relay.getSnapshot().catalogs[target];
+      if (!fresh?.projects.some(project => project.id === payload.projectId)) throw new Error('project-not-in-catalog');
+      if (fresh.threads.some(thread => thread.projectId === payload.projectId)) throw new Error('project-not-empty');
+      setManaging(true);
+      try {
+        const result = await relay.sendCommand(target, payload);
+        if (payload.type === 'project.delete' && result.status === 'succeeded') {
+          setExpandedProjects(current => current.filter(value => value !== `${target}:${payload.projectId}`));
+          void relay.loadCatalog(target).catch(() => relay.showNotice('项目已删除，列表刷新失败，请重试刷新。'));
+        }
+        return result;
+      } finally { setManaging(false); }
+    }} />}
     <Dialog open={!!actionThread} title={renaming ? '重命名会话' : actionThread?.title ?? '会话操作'} busy={managing} onClose={() => { setActionThread(null); setRenaming(false); }}>
           {renaming ? <><TextInput style={s.field} value={newName} onChangeText={setNewName} autoFocus maxLength={1000} /><Pressable style={[s.primary, (!newName.trim() || managing) && s.disabled]} disabled={!newName.trim() || managing} onPress={() => actionThread && void manageThread({ type: 'thread.rename', threadId: actionThread.id, name: newName.trim() })}><Text style={s.primaryText}>保存</Text></Pressable></> : <>
             {actionThread && <ConversationId key={actionThread.id} threadId={actionThread.id} />}

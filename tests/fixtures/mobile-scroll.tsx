@@ -31,7 +31,7 @@ function Fixture() {
     <ConversationDrawer wide={false} open={open} onOpenChange={setOpen} directory={<Directory
       view={view} deviceId="fixture" threadId={selected} rows={rows} search="" wide={false}
       managing={false} paddingTop={0} paddingBottom={0} setSearch={() => {}} selectDevice={() => {}}
-      selectThread={id => { setSelected(id); setOpen(false); }} toggleProject={() => {}} createProject={() => {}} createThread={() => {}}
+      selectThread={id => { setSelected(id); setOpen(false); }} toggleProject={() => {}} createProject={() => {}} projectActions={() => {}}
       threadActions={() => {}} close={() => setOpen(false)} settings={() => {}} refresh={() => {}} />}>
       <DrawerSwipeArea>
         <Pressable accessibilityRole="button" accessibilityLabel="打开会话列表" onPress={() => setOpen(true)} style={s.header}>

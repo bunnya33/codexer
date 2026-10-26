@@ -537,6 +537,39 @@ export class HeadlessAdapter extends EventEmitter {
     }
   }
 
+  async projectDeletionCatalog(): Promise<DeviceCatalog> {
+    if (!this.connected || !this.rpc) throw new AdapterError('app-server-disconnected');
+    const projects = await listPages(this.rpc, 'project/list', {});
+    const threads: RecordValue[] = [];
+    // Interactive lists hide subagents; rollout scans can omit newly created empty
+    // threads. Check every source, both the state DB and the repaired rollout list.
+    const params = { modelProviders: [], sourceKinds: ['cli', 'vscode', 'exec', 'appServer', 'subAgent', 'subAgentReview', 'subAgentCompact', 'subAgentThreadSpawn', 'subAgentOther', 'unknown'] };
+    for (const useStateDbOnly of [true, false]) for (const archived of [false, true]) {
+      threads.push(...(await listPages(this.rpc, 'thread/list', { ...params, useStateDbOnly, archived })).map(thread => ({ ...thread, archived })));
+    }
+    // Display normalization truncates long paths/root lists; destructive operations
+    // must instead reject an incomplete or incompatible enumeration.
+    const validPath = (path: unknown) => typeof path === 'string' && isAbsolute(path) && path.length <= 4096;
+    const incompleteProject = projects.some(project => typeof project.id !== 'string' || !project.id || typeof project.name !== 'string' || project.name.length > 1000
+      || !Array.isArray(project.roots) || project.roots.length > 20 || project.roots.some(root => !validPath(record(root).path)));
+    const incompleteThread = threads.some(thread => typeof thread.id !== 'string' || !thread.id
+      || thread.projectId != null && typeof thread.projectId !== 'string' || thread.cwd != null && !validPath(thread.cwd));
+    if (incompleteProject || incompleteThread) throw new AdapterError('project-deletion-check-failed');
+    return normalizeOfficialCatalog('project-delete', projects, threads);
+  }
+
+  async deleteProject(projectId: string, verify: (catalog: DeviceCatalog) => Promise<void>): Promise<void> {
+    const catalog = await this.projectDeletionCatalog();
+    if (!catalog.projects.some(project => project.id === projectId)) throw new AdapterError('project-not-in-catalog');
+    if (catalog.threads.some(thread => thread.projectId === projectId) || [...this.newThreads.values()].some(value => record(value.thread).projectId === projectId)) throw new AdapterError('project-not-empty');
+    await verify(catalog);
+    try { await this.rpc!.request('project/delete', { projectId }, 30000); }
+    catch (error) {
+      if (error instanceof AdapterError) throw new AdapterError(error.uncertain ? 'project-deletion-unconfirmed' : 'project-deletion-rejected', error.uncertain);
+      throw error;
+    }
+  }
+
   async manage(payload: Extract<RemoteCommand['payload'], { type: 'thread.create' | 'thread.rename' | 'thread.archive' | 'thread.delete' }>, roots?: string[]): Promise<RecordValue> {
     if (!this.connected || !this.rpc) throw new AdapterError("app-server-disconnected");
     if (payload.type === 'thread.create') {

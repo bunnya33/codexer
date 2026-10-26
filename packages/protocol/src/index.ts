@@ -166,9 +166,16 @@ export const catalogSchema = z.object({
   threads: z.array(z.object({ id: idSchema, title: z.string().max(1000), cwd: z.string().max(4096).nullable(), projectId: idSchema.nullable(), updatedAt: z.number(), archived: z.boolean(), settings: modelSettingsSchema.optional() })).max(10000),
   models: z.array(modelOptionSchema).max(200).optional(),
   projectCreation: z.object({ parents: z.array(z.object({ id: idSchema, path: z.string().min(1).max(4096) })).max(20) }).optional(),
+  projectDeletion: z.literal(true).optional(),
 }).refine(value => jsonBytes(value) <= MAX_CATALOG_BYTES, "catalog-too-large")
   .refine(value => new Set(value.projects.map(project => project.id)).size === value.projects.length && new Set(value.threads.map(thread => thread.id)).size === value.threads.length, "duplicate-catalog-id");
 export type DeviceCatalog = z.infer<typeof catalogSchema>;
+
+export const projectDeletionPlanSchema = z.object({
+  projectId: idSchema, token: z.string().uuid(), expiresAt: z.number(), name: z.string().max(1000),
+  roots: z.array(z.string().max(4096)).max(20), directoryDeletion: z.boolean(), directoryReason: z.string().max(100).optional(),
+});
+export type ProjectDeletionPlan = z.infer<typeof projectDeletionPlanSchema>;
 
 const historyItemSchema = itemSchema.extend({ text: z.string().max(32000).optional(), command: z.string().max(8192).optional(), output: z.string().max(32000).optional() });
 export const historyTurnSchema = z.object({ id: idSchema, status: z.string().max(80), ...turnTimingFields, items: z.array(historyItemSchema).max(80), truncated: z.boolean() });
@@ -217,6 +224,8 @@ export const commandSchema = z.object({
   expiresAt: z.number().int(),
   payload: z.discriminatedUnion("type", [
     z.object({ type: z.literal("project.create"), parentId: idSchema, name: z.string().trim().min(1).max(100), relativePath: z.string().min(1).max(1024), mode: z.enum(["new", "existing"]) }),
+    z.object({ type: z.literal('project.delete.prepare'), projectId: idSchema }),
+    z.object({ type: z.literal('project.delete'), projectId: idSchema, token: z.string().uuid(), deleteDirectory: z.boolean() }),
     z.object({ type: z.literal("thread.create"), projectId: idSchema }),
     z.object({ type: z.literal("thread.rename"), threadId: idSchema, name: z.string().trim().min(1).max(1000) }),
     z.object({ type: z.literal("thread.archive"), threadId: idSchema }),

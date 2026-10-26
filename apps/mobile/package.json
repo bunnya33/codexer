@@ -1,6 +1,6 @@
 {
   "name": "@codexer/mobile",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "main": "index.ts",
   "dependencies": {
     "@expo/metro-runtime": "~57.0.16",
