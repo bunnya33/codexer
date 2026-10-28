@@ -25,5 +25,6 @@ try{
   await writeFile(join(app,'release/agent-acceptance.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
 }finally{
   if(child&&child.exitCode===null&&child.signalCode===null){const exited=new Promise(done=>child.once('exit',done));child.kill('SIGTERM');await Promise.race([exited,delay(5000)]);if(child.exitCode===null&&child.signalCode===null)child.kill('SIGKILL');}
-  await rm(directory,{recursive:true,force:true});
+  // Chromium helpers can briefly retain profile files after the main process exits.
+  await rm(directory,{recursive:true,force:true,maxRetries:10,retryDelay:200});
 }
