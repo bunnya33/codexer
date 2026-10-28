@@ -1,11 +1,12 @@
 import { useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
-import { SquarePen, Trash2 } from 'lucide-react-native';
+import { Check, Copy, SquarePen, Trash2 } from 'lucide-react-native';
 import { projectDeletionPlanSchema } from '../../../packages/protocol/src/index';
 import type { CommandResult, DeviceCatalog, ProjectDeletionPlan, RemoteCommand } from '../../../packages/protocol/src/index';
 import { projectDeletionError } from '../../../packages/client-shared/src/project-deletion';
 import { Dialog } from './dialog';
 import { useTheme } from './styles';
+import { copyText } from './runtime';
 
 type Payload = Extract<RemoteCommand['payload'], { type: 'project.delete.prepare' | 'project.delete' }>;
 export function ProjectActions({ projectId, name, catalog, online, send, createThread, close }: {
@@ -17,10 +18,18 @@ export function ProjectActions({ projectId, name, catalog, online, send, createT
   const [plan, setPlan] = useState<ProjectDeletionPlan | null>(null);
   const [remainingPaths, setRemainingPaths] = useState<string[]>([]);
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const [copiedPath, setCopiedPath] = useState(''), [copyError, setCopyError] = useState('');
   const pending = useRef(false);
   const count = catalog?.threads.filter(thread => thread.projectId === projectId).length ?? 0;
-  const exists = !!catalog?.projects.some(project => project.id === projectId);
+  const project = catalog?.projects.find(project => project.id === projectId);
+  const roots = [...new Set(project?.roots.filter(path => path.trim()) ?? [])];
+  const exists = !!project;
   const canDelete = online && exists && !!catalog?.projectDeletion && count === 0 && !busy;
+  const copyPath = async (path: string) => {
+    setCopiedPath(''); setCopyError('');
+    try { await copyText(path); setCopiedPath(path); }
+    catch { setCopyError('复制失败，请长按或选择项目路径手动复制。'); }
+  };
   const run = async (deleteDirectory?: boolean) => {
     if (pending.current || !canDelete || deleteDirectory !== undefined && !plan) return;
     pending.current = true; setBusy(true); setError('');
@@ -44,6 +53,16 @@ export function ProjectActions({ projectId, name, catalog, online, send, createT
   const option = (label: string, action: () => void, disabled = false, danger = false) => <Pressable accessibilityRole="button" disabled={disabled || busy} onPress={action} style={[s.menuOption, (disabled || busy) && s.disabled]}><Text style={danger ? s.dangerText : s.menuText}>{label}</Text></Pressable>;
   return <Dialog title={stage === 'directory' ? '再次确认删除目录' : stage === 'choose' ? '删除项目' : stage === 'done' ? '项目已删除' : name} busy={busy} onClose={close}>
     {stage === 'menu' ? <>
+      <View style={{ gap: 6 }}>
+        <Text style={s.sub}>项目路径</Text>
+        {roots.length ? roots.map(path => <View key={path} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <Text selectable style={[s.menuText, { minWidth: 0, lineHeight: 21 }]}>{path}</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel={`复制项目路径 ${path}`} onPress={() => void copyPath(path)} style={{ minHeight: 40, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+            {copiedPath === path ? <Check size={15} color={c.accent}/> : <Copy size={15} color={c.accent}/>}<Text style={{ fontSize: 13, color: c.accent }}>{copiedPath === path ? '已复制' : '复制'}</Text>
+          </Pressable>
+        </View>) : <Text style={s.sub}>暂无项目路径</Text>}
+        {!!copyError && <Text accessibilityRole="alert" style={s.error}>{copyError}</Text>}
+      </View>
       <Pressable accessibilityRole="button" disabled={busy || !online || !exists} onPress={createThread} style={[s.menuOption, (busy || !online || !exists) && s.disabled]}><SquarePen size={18} color={c.text}/><Text style={s.menuText}>新建会话</Text></Pressable>
       <Pressable accessibilityRole="button" disabled={!canDelete} onPress={() => void run()} style={[s.menuOption, !canDelete && s.disabled]}><Trash2 size={18} color={c.danger}/><Text style={s.dangerText}>删除项目</Text></Pressable>
       <Text style={s.sub}>{count ? `项目中有 ${count} 个会话（含归档），仅空项目可删除。` : '只有会话数为 0 的项目可以删除。'}</Text>

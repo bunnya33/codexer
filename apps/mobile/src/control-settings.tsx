@@ -8,12 +8,12 @@ import { useTheme } from './styles';
 import { ThemePicker } from './theme-picker';
 import { AgentDownload } from './agent-download';
 import { AgentVersion } from './agent-version';
-import type { SelectedAgent } from './agent-version';
 import {ClientUpdatePanel} from './client-update-panel';
 import {WindowClosePreference} from './client-platform-settings';
 import type {SettingsSection} from './settings-shell';
+import {RuntimeRefresh, type RuntimeRefreshDevice} from './runtime-refresh';
 
-export function ControlSettings({ url, device, onWeixin, onLogout,section='all' }: { url: string; device?: SelectedAgent; onWeixin: () => void; onLogout: () => void;section?:SettingsSection|'all' }) {
+export function ControlSettings({ url, device, onWeixin, onLogout,section='all' }: { url: string; device?: RuntimeRefreshDevice; onWeixin: () => void; onLogout: () => void;section?:SettingsSection|'all' }) {
   const { c, s } = useTheme();
   const styles = useLocalStyles();
   const [version, setVersion] = useState(''), [error, setError] = useState(''), [revision, setRevision] = useState(0);
@@ -32,6 +32,7 @@ export function ControlSettings({ url, device, onWeixin, onLogout,section='all' 
     {show('general')&&<View style={styles.group}><WindowClosePreference/><Text style={{color:c.muted,lineHeight:22,paddingVertical:14}}>设置仅保存在当前设备。界面外观在“外观”中选择，客户端升级在“更新与下载”中管理。</Text></View>}
     {show('updates')&&<ClientUpdatePanel/>}
     {show('updates')&&<AgentDownload url={url}/>}
+    {show('connection')&&<View style={styles.group}><RuntimeRefresh device={device}/></View>}
     {show('connection','about')&&<>
     <Text style={styles.label}>连接</Text>
     <View style={styles.group}><Text selectable style={styles.address}>{url}</Text></View>

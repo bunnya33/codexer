@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { resolveCodexBinary } from "./binary.js";
+import { resolveCodexRuntime, type CodexRuntime } from "./binary.js";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
@@ -142,21 +142,18 @@ export function matchesSettings(response: RecordValue, settings: SavedSettings):
   return true;
 }
 
-async function codexBinary(): Promise<string> {
-  return resolveCodexBinary().catch(() => { throw new AdapterError("codex-binary-not-found"); });
-}
-
 class AppServerRpc extends EventEmitter {
   private child: ChildProcessWithoutNullStreams | null = null;
   private pending = new Map<string, RpcWaiter>();
   private buffer = "";
   private closing = false;
   connected = false;
+  runtime?: CodexRuntime;
 
   async connect(): Promise<void> {
     if (this.connected) return;
-    const binary = await codexBinary();
-    const child = spawn(binary, ["app-server", "--stdio"], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+    this.runtime = await resolveCodexRuntime().catch(() => { throw new AdapterError("codex-binary-not-found"); });
+    const child = spawn(this.runtime.binary, ["app-server", "--stdio"], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
     this.child = child;
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => this.receive(chunk));
@@ -364,6 +361,7 @@ export class HeadlessAdapter extends EventEmitter {
   private pollTimer?: NodeJS.Timeout;
   private starting?: Promise<void>;
   private stopped = false;
+  private reloading = false;
   connected = false;
 
   connect(): Promise<void> {
@@ -374,13 +372,13 @@ export class HeadlessAdapter extends EventEmitter {
     return this.starting;
   }
 
-  private async open(): Promise<void> {
-    const rpc = new AppServerRpc();
+  private async open(rpc = new AppServerRpc()): Promise<void> {
     this.rpc = rpc;
     rpc.on("status", (connected: boolean) => {
       if (this.rpc !== rpc || this.stopped) return;
       this.connected = connected;
       if (!connected) {
+        clearInterval(this.pollTimer);
         for (const thread of this.watched.values()) this.emit("thread", { ...thread, status: "unavailable", ownerAvailable: false, activeTurnId: null, requests: [] });
         this.watched.clear();
         this.requests.clear();
@@ -429,6 +427,7 @@ export class HeadlessAdapter extends EventEmitter {
       this.scheduleRefresh(threadId);
     });
     await rpc.connect();
+    this.connected = true;
     this.pollTimer = setInterval(() => {
       for (const [id, thread] of this.watched) if (thread.status === "active" || thread.subAgents?.some(isSubAgentActive)) void this.follow(id);
     }, 2000);
@@ -445,7 +444,7 @@ export class HeadlessAdapter extends EventEmitter {
   }
 
   follow(threadId: string): Promise<boolean> {
-    if (!this.connected || !this.rpc) return Promise.resolve(false);
+    if (!this.connected || !this.rpc || this.reloading) return Promise.resolve(false);
     const existing = this.refreshing.get(threadId);
     if (existing) return existing;
     const refresh = this.refresh(threadId).finally(() => { this.refreshing.delete(threadId); });
@@ -514,6 +513,42 @@ export class HeadlessAdapter extends EventEmitter {
 
   getThread(threadId: string): RemoteThread | null { return this.watched.get(threadId) ?? null; }
   hasActiveTurn(): boolean { return this.pendingStarts > 0 || this.busyTurns.size > 0 || [...this.watched.values()].some(thread => thread.status === "active"); }
+
+  /** Caller serializes commands and history. Never replace an executing writer. */
+  async refreshRuntime(force = false): Promise<'unchanged' | 'deferred' | 'refreshed'> {
+    const previous = this.rpc;
+    if (!previous || !this.connected) {
+      if (!force) return 'unchanged';
+      await this.connect();
+      return 'refreshed';
+    }
+    const runtime = await resolveCodexRuntime();
+    if (!force && runtime.fingerprint === previous.runtime?.fingerprint) return 'unchanged';
+    const blocked = () => this.hasActiveTurn() || this.requests.size > 0 || this.newThreads.size > 0 || this.refreshing.size > 0
+      || [...this.watched.values()].some(thread => thread.subAgents?.some(isSubAgentActive));
+    if (this.reloading || this.starting || blocked()) return 'deferred';
+    this.reloading = true;
+    const replacement = new AppServerRpc();
+    try {
+      // Initialize the replacement first. A failed update leaves the old service alive.
+      await replacement.connect();
+      if (this.stopped || this.rpc !== previous || blocked()) { await replacement.stop(); return 'deferred'; }
+      clearInterval(this.pollTimer);
+      for (const timer of this.refreshTimers.values()) clearTimeout(timer);
+      this.refreshTimers.clear();
+      this.rpc = null; // Ignore the old process's exit event during the intentional handover.
+      await previous.stop();
+      if (this.stopped) { await replacement.stop(); return 'deferred'; }
+      await this.open(replacement);
+    } catch (error) {
+      await replacement.stop();
+      throw error;
+    } finally { this.reloading = false; }
+    // Keep effective settings, queues, images, and watch subscriptions across the swap.
+    void Promise.all([...this.watched.keys()].map(id => this.follow(id))).catch(() => undefined);
+    this.emit('status', true);
+    return 'refreshed';
+  }
 
   async history(threadId: string, cursor: string | null): Promise<HistoryPage> {
     if (!this.connected || !this.rpc) throw new AdapterError("app-server-disconnected");

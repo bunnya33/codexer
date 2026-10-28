@@ -70,6 +70,10 @@ export class PcAgent extends EventEmitter {
   private relayAllowed = true;
   private remotePaused = false;
   private remoteOperations = 0;
+  private runtimeRefreshRequested = false;
+  private runtimeRefreshCheck?: Promise<'unchanged' | 'deferred' | 'refreshed'>;
+  private runtimeRefreshDiagnostic = '';
+  private lastRuntimeRefreshAt = 0;
 
   constructor(private readonly credentials: AgentCredentials, private readonly directory: string, private readonly seedThreads: string[] = [], endpoint?: string, private readonly codexHome?: string, private readonly runtimePreference: "auto" | "desktop" | "headless" = "auto", private readonly catalogReader: { list: (deviceId: string) => Promise<DeviceCatalog>; history: (threadId: string, cursor: string | null, images?: ImageRegistry) => Promise<HistoryPage> } = { list: readOfficialCatalog, history: readOfficialHistory }, projectParents: string[] = []) {
     super();
@@ -84,7 +88,7 @@ export class PcAgent extends EventEmitter {
     this.journal = new CommandJournal(join(directory, "commands.sqlite"));
     this.usageJournal = new UsageJournal(join(directory, "usage.sqlite"));
     if (!["win32", "linux", "darwin"].includes(process.platform)) throw new Error("unsupported-platform");
-    this.state = { protocolVersion: PROTOCOL_VERSION, deviceId: credentials.deviceId, epoch: randomUUID(), lastSeq: 0, generatedAt: Date.now(), hostname: hostname(), platform: process.platform as DeviceSnapshot["platform"], agentVersion: process.env.CODEXER_AGENT_BUILD_VERSION || 'development', runtime: { kind: "official-desktop-ipc", connected: false, experimental: true, capabilities: { observe: true, startTurn: true, interrupt: true, approvals: true, userInput: true, modelUpdate: true, effortUpdate: true, collaborationModeUpdate: true, permissionsUpdate: true, mcpApprovals: true, images: true, subAgents: true } }, threads: {} };
+    this.state = { protocolVersion: PROTOCOL_VERSION, deviceId: credentials.deviceId, epoch: randomUUID(), lastSeq: 0, generatedAt: Date.now(), hostname: hostname(), platform: process.platform as DeviceSnapshot["platform"], agentVersion: process.env.CODEXER_AGENT_BUILD_VERSION || 'development', runtime: { kind: "official-desktop-ipc", connected: false, experimental: true, capabilities: { observe: true, startTurn: true, interrupt: true, approvals: true, userInput: true, modelUpdate: true, effortUpdate: true, collaborationModeUpdate: true, permissionsUpdate: true, mcpApprovals: true, images: true, subAgents: true, runtimeRefresh: true } }, threads: {} };
     const onThread = (source: DesktopAdapter | HeadlessAdapter, thread: RemoteThread | null) => {
       if (!thread) return;
       if (source !== this.adapterForThread(thread.id)) return;
@@ -156,10 +160,40 @@ export class PcAgent extends EventEmitter {
     await this.selectRuntime();
     this.connectRelay();
     await this.scan();
-    this.scanTimer = setInterval(() => { void this.selectRuntime(); void this.scan(); }, 15000);
+    this.scanTimer = setInterval(() => { void this.selectRuntime(); void this.scan(); void this.refreshRuntime().catch(() => undefined); }, 15000);
     void this.refreshCatalog();
     this.catalogTimer = setInterval(() => { void this.refreshCatalog(); }, 60000);
     this.log("agent-started");
+  }
+  /** Refresh the owned app-server without restarting the UI, Relay, or IPC owner. */
+  refreshRuntime(force = false): Promise<'unchanged' | 'deferred' | 'refreshed'> {
+    // A manual request arriving during an automatic check must still force a refresh.
+    if (force && this.runtimeRefreshCheck) return this.runtimeRefreshCheck.then(() => this.refreshRuntime(true));
+    if (force) this.runtimeRefreshRequested = true;
+    return this.runtimeRefreshCheck ??= this.commandQueue.run(() => this.refreshRuntimeNow(false))
+      .finally(() => { this.runtimeRefreshCheck = undefined; });
+  }
+  private refreshRuntimeNow(force: boolean): Promise<'unchanged' | 'deferred' | 'refreshed'> {
+    if (force) this.runtimeRefreshRequested = true;
+    return this.historyQueue.run(() => this.switchQueue.run(async () => {
+      if (this.stopped) return 'unchanged';
+      try {
+        const requested = this.runtimeRefreshRequested;
+        const result = requested && Date.now() - this.lastRuntimeRefreshAt < 15000 ? 'unchanged'
+          : await this.headless?.refreshRuntime(requested) ?? 'unchanged';
+        if (result !== 'deferred') this.runtimeRefreshRequested = false;
+        if (result === 'refreshed') this.lastRuntimeRefreshAt = Date.now();
+        if (result === 'refreshed' || result !== this.runtimeRefreshDiagnostic && (requested || result === 'deferred')) {
+          this.log(result === 'refreshed' ? 'codex-runtime-refreshed' : result === 'deferred' ? 'codex-runtime-refresh-deferred' : 'codex-runtime-current');
+        }
+        this.runtimeRefreshDiagnostic = result;
+        return result;
+      } catch (error) {
+        if (this.runtimeRefreshDiagnostic !== 'failed') this.log('codex-runtime-refresh-failed');
+        this.runtimeRefreshDiagnostic = 'failed';
+        throw new AdapterError('codex-runtime-refresh-failed');
+      }
+    }));
   }
   private selectRuntime(): Promise<void> {
     return this.switchQueue.run(async () => {
@@ -606,7 +640,9 @@ export class PcAgent extends EventEmitter {
           try {
             if (command.expectedEpoch !== this.state.epoch) throw new AdapterError("stale-device-epoch");
             if (Date.now() >= command.expiresAt) throw new AdapterError("command-expired");
-            const value = command.payload.type === 'project.create'
+            const value = command.payload.type === 'runtime.refresh'
+              ? { runtimeRefresh: await this.refreshRuntimeNow(true) }
+              : command.payload.type === 'project.create'
               ? await this.createProject({ ...command, payload: command.payload }, current)
               : command.payload.type === 'project.delete.prepare' || command.payload.type === 'project.delete'
               ? await this.deleteProject({ ...command, payload: command.payload }, current)
@@ -624,7 +660,7 @@ export class PcAgent extends EventEmitter {
                   if (!current()) throw new AdapterError("remote-disconnected");
                   return this.adapterForThread(payload.threadId).execute(command, inputs);
                 });
-            result = { commandId: command.commandId, deviceId: command.deviceId, status: "succeeded", code: command.payload.type === "thread.watch" ? "thread-watched" : command.payload.type.startsWith("turn.queue") ? "queue-updated" : "acknowledgedByAppServer" in value ? "app-server-acknowledged" : "desktop-acknowledged", result: value };
+            result = { commandId: command.commandId, deviceId: command.deviceId, status: "succeeded", code: command.payload.type === 'runtime.refresh' ? 'runtime-refresh-accepted' : command.payload.type === "thread.watch" ? "thread-watched" : command.payload.type.startsWith("turn.queue") ? "queue-updated" : "acknowledgedByAppServer" in value ? "app-server-acknowledged" : "desktop-acknowledged", result: value };
           } catch (error) {
             result = { commandId: command.commandId, deviceId: command.deviceId, status: error instanceof AdapterError && !error.uncertain ? "failed" : "unknown", code: error instanceof AdapterError ? error.code : "agent-execution-unconfirmed" };
             if (/^headless-[a-z-]+$/.test(result.code)) this.log(result.code);

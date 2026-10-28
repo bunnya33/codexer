@@ -1,11 +1,13 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { expect, it } from "vitest";
 import { ImageRegistry } from "../packages/codex-adapter/src/images.js";
 import { normalizeHistoryTurn } from "../packages/codex-adapter/src/normalize.js";
 import { commandSchema, jsonBytes, MAX_IMAGE_BYTES } from "../packages/protocol/src/index.js";
 import { decodeImage } from "../packages/shared/src/images.js";
+import { stripInlineImageReferences } from "../packages/client-shared/src/audio.js";
 import { command } from "./helpers.js";
 
 export const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aS1sAAAAASUVORK5CYII=";
@@ -38,4 +40,47 @@ it("supports image-only turns while retaining empty input and attachment limit v
   expect(commandSchema.safeParse(command({ type: "turn.start", threadId: "thread", text: "", images: ["a".repeat(64)] })).success).toBe(true);
   expect(commandSchema.safeParse(command({ type: "turn.start", threadId: "thread", text: " " })).success).toBe(false);
   expect(commandSchema.safeParse(command({ type: "turn.start", threadId: "thread", text: "", images: Array(5).fill("a".repeat(64)) })).success).toBe(false);
+});
+
+it.each(["native", "drive-citation", "encoded", "file-url"])("reads assistant Markdown pictures with Chinese names, spaces and percent signs (%s)", async format => {
+  const directory = await mkdtemp(join(tmpdir(), "codex-remote-image-"));
+  try {
+    const path = join(directory, "截图 100%.png");
+    await writeFile(path, Buffer.from(pngBase64, "base64"));
+    const native = path.replaceAll("\\", "/");
+    const citation = format === "file-url" ? pathToFileURL(path).href : format === "encoded" ? encodeURI(native)
+      : format === "drive-citation" && process.platform === "win32" ? "/" + native : native;
+    const text = `Here is the picture:\n\n![截图](<${citation}>)`;
+    const images = new ImageRegistry();
+    const turn = normalizeHistoryTurn({ id: "turn", items: [{ id: "answer", type: "agentMessage", text }] }, images, "thread-a");
+    const refs = turn.items[0]!.images!;
+    expect(refs).toHaveLength(1);
+    expect(await images.read("thread-a", refs[0]!.id)).toMatchObject({ name: "截图 100%.png", mimeType: "image/png", base64: pngBase64 });
+    expect(refs[0]).toMatchObject({ name: "截图 100%.png", source: format === "file-url" || format === "encoded" ? citation : encodeURI(citation) });
+    await expect(images.read("thread-b", refs[0]!.id)).rejects.toThrow("image-not-in-thread");
+    expect(stripInlineImageReferences(text, [refs[0]!.source!]).trim()).toBe("Here is the picture:");
+    expect(JSON.stringify(turn)).not.toContain(pngBase64);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+it("keeps literal percent sequences in native image paths", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "codex-remote-image-"));
+  try {
+    const path = join(directory, "literal%20name.png");
+    await writeFile(path, Buffer.from(pngBase64, "base64"));
+    const images = new ImageRegistry();
+    for (const item of [
+      { type: "userMessage", content: [{ type: "localImage", path }] },
+      { type: "imageView", path },
+      { type: "imageGeneration", savedPath: path },
+    ]) {
+      const [ref] = images.references("thread-a", item);
+      expect(await images.read("thread-a", ref!.id)).toMatchObject({ name: "literal%20name.png", base64: pngBase64 });
+    }
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+it.each(["https://example.com/image.png", "file://server/share/image.png", "//server/share/image.png", "relative.png", "/bad%00.png", "/bad%FF.png"])("does not register remote or invalid Markdown picture paths: %s", source => {
+  const images = new ImageRegistry();
+  expect(images.references("thread-a", { type: "agentMessage", text: `![image](${source})` })).toEqual([]);
 });

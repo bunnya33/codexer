@@ -12,7 +12,8 @@ import {DesktopClientUpdates} from './client-updates';
 import {trayUpdateIcon} from './update-badge';
 
 let window: BrowserWindow | null = null, tray: Tray | null = null, controller: ConnectorController;
-let quitting = false, quitInProgress = false;
+let quitting = false, quitInProgress = false, restartRequested = false;
+function restartAgent() { if (quitInProgress || quitting) return; restartRequested = true; app.quit(); }
 const root = __dirname;
 // Keep the historical Keychain identity separate from the visible product name.
 app.setName(process.env.CODEXER_USER_DATA_DIR?'CodexerAgentFixture-'+createHash('sha256').update(process.env.CODEXER_USER_DATA_DIR).digest('hex').slice(0,16):'@codexer/desktop');
@@ -65,6 +66,7 @@ else {
       },
       async disconnect() { if (child) await request('disconnect'); },
       async reconnect() { await request('reconnect'); },
+      async refreshRuntime() { await request('refreshRuntime'); },
       async stop() { if (child) { const old = child; try { await request('stop'); } finally { if (child === old) child = null; old.kill(); } } },
     };
     let settings = defaultSettings();
@@ -88,7 +90,7 @@ else {
     window.on('maximize', publishWindowState); window.on('unmaximize', publishWindowState);
     window.on('enter-full-screen', publishWindowState); window.on('leave-full-screen', publishWindowState);
     window.on('focus', publishWindowState); window.on('blur', publishWindowState);
-    Menu.setApplicationMenu(process.platform === 'darwin' ? Menu.buildFromTemplate([{ label: 'Codexer Agent', submenu: [{ label:'关于 Codexer Agent',role: 'about' }, { type: 'separator' }, { label: '显示控制台', click: showWindow }, {label:'版本与更新',click:()=>{showWindow();window?.webContents.send('codexer:openUpdates');}}, { label:'隐藏 Codexer Agent',role: 'hide' }, { label: '退出 Codexer Agent', accelerator:'CommandOrControl+Q', click: () => app.quit() }] }, { role: 'editMenu' }]) : null);
+    Menu.setApplicationMenu(process.platform === 'darwin' ? Menu.buildFromTemplate([{ label: 'Codexer Agent', submenu: [{ label:'关于 Codexer Agent',role: 'about' }, { type: 'separator' }, { label: '显示控制台', click: showWindow }, {label:'版本与更新',click:()=>{showWindow();window?.webContents.send('codexer:openUpdates');}}, { label:'隐藏 Codexer Agent',role: 'hide' }, { label: '重启 Codexer Agent', click: restartAgent }, { label: '退出 Codexer Agent', accelerator:'CommandOrControl+Q', click: () => app.quit() }] }, { role: 'editMenu' }]) : null);
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     window.webContents.on('will-navigate', event => event.preventDefault());
     window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
@@ -102,7 +104,7 @@ else {
       window?.webContents.send('codexer:state', state);
       const label = state.phase === 'connected' ? '已连接' : state.phase === 'signed-out' ? '未登录' : state.phase === 'disconnected' ? '已断开' : '连接中';
       tray?.setToolTip(`Codexer Agent · ${label}`);
-      tray?.setContextMenu(Menu.buildFromTemplate([{ label: `Codexer Agent · ${label}`, enabled: false }, { label: '显示控制台', click: showWindow }, {label:'版本与更新',click:()=>{showWindow();window?.webContents.send('codexer:openUpdates');}}, { type: 'separator' }, { label: '连接', enabled: state.loggedIn && !state.busy && state.phase === 'disconnected', click: () => guarded(() => controller.connect()) }, { label: '断开远程连接', enabled: state.phase !== 'disconnected' && state.phase !== 'signed-out', click: () => guarded(() => controller.disconnect()) }, { label: '重连', enabled: state.loggedIn && !state.busy, click: () => guarded(() => controller.reconnect()) }, { type: 'separator' }, { label: '退出 Codexer Agent', accelerator:'CommandOrControl+Q', click: () => app.quit() }]));
+      tray?.setContextMenu(Menu.buildFromTemplate([{ label: `Codexer Agent · ${label}`, enabled: false }, { label: '显示控制台', click: showWindow }, {label:'版本与更新',click:()=>{showWindow();window?.webContents.send('codexer:openUpdates');}}, { type: 'separator' }, { label: '连接', enabled: state.loggedIn && !state.busy && state.phase === 'disconnected', click: () => guarded(() => controller.connect()) }, { label: '断开远程连接', enabled: state.phase !== 'disconnected' && state.phase !== 'signed-out', click: () => guarded(() => controller.disconnect()) }, { label: '重连', enabled: state.loggedIn && !state.busy, click: () => guarded(() => controller.reconnect()) }, { label: '刷新 Codex 运行时', enabled: state.loggedIn && !state.busy && !!state.status, click: () => guarded(() => controller.refreshRuntime()) }, { type: 'separator' }, { label: '重启 Codexer Agent', click: restartAgent }, { label: '退出 Codexer Agent', accelerator:'CommandOrControl+Q', click: () => app.quit() }]));
       const log = state.logs.at(-1);
       if (log && log.at > lastLogAt) {
         lastLogAt = log.at;
@@ -124,7 +126,9 @@ else {
     handle('exportLogs', async () => { const result = await dialog.showSaveDialog(window!, { title: '导出脱敏诊断', defaultPath: 'codexer-diagnostics.json', filters: [{ name: 'JSON', extensions: ['json'] }] }); if (result.canceled || !result.filePath) return null; const state = controller.state(); await writeFile(result.filePath, JSON.stringify({ version: state.version, platform: process.platform, phase: state.phase, status: state.status, logs: state.logs }, null, 2)); return result.filePath; });
     handle('openControl', () => { const settings = controller.state().settings, url = validateRelayUrl(settings.relayUrl, settings.allowHttp); return shell.openExternal(url.origin); });
     await window.loadFile(join(root, 'renderer', 'index.html')); window.show();
-    await controller.initialize(); controller.log('console-ready');
+    await controller.initialize();
+    if (process.argv.includes('--codexer-reconnect') && controller.state().loggedIn && !controller.state().settings.autoConnect) await controller.connect().catch(() => undefined);
+    controller.log('console-ready');
     // Persist the installation ID even before the first login.
     await persist(controller.state().settings);
   }).catch(() => { void dialog.showErrorBox('Codexer Agent 启动失败', '无法初始化本地配置或运行依赖，请检查数据目录权限后重试。'); app.exit(1); });
@@ -134,8 +138,17 @@ else {
     if (quitting || !controller) return;
     event.preventDefault(); if (quitInProgress) return; quitInProgress = true;
     void (async () => {
-      const active=!!controller.state().status?.activeTasks;const result=await dialog.showMessageBox({type:active?'warning':'question',title:'退出 Codexer Agent',message:active?'本机仍有任务运行':'退出 Codexer Agent？',detail:active?'退出会停止由连接器启动的本机运行服务。仅想停止远程控制时，请使用“断开”。':'退出后这台电脑将无法远程控制。关闭窗口可以继续在后台运行。',buttons:['留在后台','退出'],defaultId:0,cancelId:0});if(result.response===0){quitInProgress=false;return;}
-      await controller.shutdown().catch(() => undefined); quitting = true; tray?.destroy(); app.quit();
+      const restarting = restartRequested;
+      const state = controller.state(), active = !!state.status?.activeTasks;
+      const result = await dialog.showMessageBox({ type: active ? 'warning' : 'question', title: restarting ? '重启 Codexer Agent' : '退出 Codexer Agent', message: active ? '本机仍有任务运行' : restarting ? '重启 Codexer Agent？' : '退出 Codexer Agent？', detail: restarting ? active ? '重启会停止由连接器启动的本机任务。刷新 Codex 运行时可以等待任务结束后再切换。' : '将重新打开 Agent，保留配置和登录状态，并恢复当前远程连接。' : active ? '退出会停止由连接器启动的本机运行服务。仅想停止远程控制时，请使用“断开”。' : '退出后这台电脑将无法远程控制。关闭窗口可以继续在后台运行。', buttons: ['留在后台', restarting ? '重启' : '退出'], defaultId: 0, cancelId: 0 });
+      if (result.response === 0) { quitInProgress = false; restartRequested = false; return; }
+      await controller.shutdown().catch(() => undefined);
+      if (restarting) {
+        const args = process.argv.slice(1).filter(value => value !== '--codexer-reconnect');
+        if (state.loggedIn && (state.phase === 'connected' || state.phase === 'reconnecting')) args.push('--codexer-reconnect');
+        app.relaunch({ execPath: process.env.PORTABLE_EXECUTABLE_FILE || process.execPath, args });
+      }
+      quitting = true; tray?.destroy(); app.quit();
     })();
   });
 }

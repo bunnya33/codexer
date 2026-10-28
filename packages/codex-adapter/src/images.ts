@@ -8,6 +8,7 @@ import type { ImagePayload, ImageRef } from "../../protocol/src/index.js";
 import { decodeImage, imageMime } from "../../shared/src/images.js";
 import { record } from "./normalize.js";
 import { localAudioPath } from "../../client-shared/src/audio.js";
+import { localFilePath } from "../../client-shared/src/file-links.js";
 
 type Source = { threadId: string; value: string; data: boolean; name: string };
 const markdown = new MarkdownIt({ html: false });
@@ -37,8 +38,14 @@ export class ImageRegistry {
     }
     return [...new Set(candidates)].slice(0, 8).flatMap(value => {
       let path = value;
-      if (path.startsWith("file://")) { try { path = fileURLToPath(path); } catch { return []; } }
       const data = /^data:image\/(png|jpeg|webp|gif);base64,/.test(path);
+      // Markdown encodes spaces/non-ASCII characters; native item paths are literal.
+      // Keep the original source below so the client can match the Markdown image.
+      if (!data && inline.has(value)) {
+        const local = localFilePath(value);
+        if (!local) return [];
+        path = local;
+      } else if (path.startsWith("file://")) { try { path = fileURLToPath(path); } catch { return []; } }
       if (!data && !isAbsolute(path)) return [];
       if (data && path.length > Math.ceil(MAX_IMAGE_BYTES / 3) * 4 + 40) return [];
       const id = createHash("sha256").update(threadId).update("\0").update(path).digest("hex");

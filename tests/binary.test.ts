@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { access, stat } from "node:fs/promises";
+import { access, stat, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { resolveCodexBinary } from "../packages/codex-adapter/src/binary.js";
 
@@ -52,4 +52,18 @@ it("skips a bundled binary without execute permission and falls back to Homebrew
     if (path === bundledBinary) throw new Error("not executable");
   });
   await expect(resolveCodexBinary()).resolves.toBe("/opt/homebrew/bin/codex");
+});
+
+it('prefers a complete Windows runtime over a newer leftover codex.exe', async () => {
+  vi.stubGlobal('process', {...process, platform: 'win32', env: {LOCALAPPDATA: '/local', PATH: ''}});
+  vi.mocked(readdir).mockResolvedValue(['complete', 'leftover'].map(name => ({name, isDirectory: () => true})) as never);
+  const root = join('/local', 'OpenAI', 'Codex', 'bin');
+  const complete = join(root, 'complete', 'codex.exe'), leftover = join(root, 'leftover', 'codex.exe');
+  vi.mocked(stat).mockImplementation(async path => {
+    if (![complete, leftover, join(root, 'complete', 'codex-code-mode-host.exe')].includes(String(path))) throw new Error('missing');
+    return {isFile: () => true, mtimeMs: String(path) === leftover ? 200 : 100} as Awaited<ReturnType<typeof stat>>;
+  });
+  await expect(resolveCodexBinary()).resolves.toBe(complete);
+  // An explicit selection stays authoritative.
+  await expect(resolveCodexBinary(leftover)).resolves.toBe(leftover);
 });

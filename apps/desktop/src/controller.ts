@@ -9,7 +9,7 @@ import { canonicalProjectParents } from '../../pc-agent/src/project-directories.
 import { NEVER_EXPIRES_AT } from '../../../packages/shared/src/session-policy.js';
 
 export interface Vault { initialize?(): Promise<void>; available(): boolean; read(): Promise<AgentCredentials | null>; write(value: AgentCredentials): Promise<void>; clear(): Promise<void> }
-export interface Worker { start(credentials: AgentCredentials, settings: Settings): Promise<void>; disconnect(): Promise<void>; reconnect(): Promise<void>; stop(): Promise<void> }
+export interface Worker { start(credentials: AgentCredentials, settings: Settings): Promise<void>; disconnect(): Promise<void>; reconnect(): Promise<void>; refreshRuntime?(): Promise<void>; stop(): Promise<void> }
 const settingsSchema = z.object({ relayUrl: z.string().max(2048), username: z.string().max(100), deviceName: z.string().trim().min(1).max(200), installationId: z.string().uuid(), codexHome: z.string().max(4096), codexBinary: z.string().max(4096), projectParents: z.array(z.string().min(1).max(4096)).max(20).default([]), runtime: z.enum(['auto','desktop','headless']), autoConnect: z.boolean(), openAtLogin: z.boolean(), minimizeToTray: z.boolean(), allowHttp: z.boolean() });
 export function defaultSettings(): Settings { return { relayUrl: '', username: '', deviceName: hostname(), installationId: randomUUID(), codexHome: join(homedir(), '.codex'), codexBinary: '', projectParents: [], runtime: 'auto', autoConnect: false, openAtLogin: false, minimizeToTray: true, allowHttp: false }; }
 // Diagnostic codes only; never accept arbitrary adapter/network exception messages.
@@ -141,6 +141,10 @@ export class ConnectorController extends EventEmitter {
   }
   async connect() { await this.operation(() => this.startConnection(), 'agent-connect-failed'); }
   async reconnect() { await this.operation(async () => { await this.disconnect(); await this.startConnection(); }, 'agent-reconnect-failed'); }
+  async refreshRuntime() { await this.operation(async () => {
+    if (!this.workerStarted || !this.worker.refreshRuntime) throw new Error('请先连接本机服务。');
+    await this.worker.refreshRuntime();
+  }, 'codex-runtime-refresh-failed'); }
   async disconnect() { this.generation++; this.loginAbort?.abort(); this.paused = true; this.publish({ phase: this.credentials ? 'disconnected' : 'signed-out' }); if (this.workerStarted) await this.worker.disconnect(); this.log('remote-paused'); }
   async shutdown() { await this.disconnect(); if (this.workerStarted) await this.worker.stop(); }
 }

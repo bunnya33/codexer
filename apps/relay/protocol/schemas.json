@@ -30,6 +30,19 @@
             "properties": {
               "type": {
                 "type": "string",
+                "const": "runtime.refresh"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
                 "const": "project.create"
               },
               "parentId": {
@@ -1169,6 +1182,9 @@
                         "type": "boolean"
                       },
                       "subAgents": {
+                        "type": "boolean"
+                      },
+                      "runtimeRefresh": {
                         "type": "boolean"
                       }
                     },
@@ -4054,6 +4070,19 @@
               },
               "payload": {
                 "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "runtime.refresh"
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ],
+                    "additionalProperties": false
+                  },
                   {
                     "type": "object",
                     "properties": {

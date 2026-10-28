@@ -593,11 +593,14 @@ func (s *Server) Submit(c M, raw ...[]byte) M {
 	if p == nil {
 		fail(409, "device-offline")
 	}
-	head := s.Store.One("SELECT epoch FROM snapshots WHERE device_id=$1", id)
+	head := s.Store.One("SELECT epoch,payload FROM snapshots WHERE device_id=$1", id)
 	if head == nil || head["epoch"] != c["expectedEpoch"] {
 		fail(409, "stale-device-epoch")
 	}
 	payload := obj(c["payload"])
+	if payload["type"] == "runtime.refresh" && obj(obj(obj(head["payload"])["runtime"])["capabilities"])["runtimeRefresh"] != true {
+		fail(409, "runtime-refresh-unsupported")
+	}
 	thread := str(payload["threadId"])
 	for _, image := range list(payload["images"]) {
 		if s.Store.Image(id, thread, str(image), true) == nil {
