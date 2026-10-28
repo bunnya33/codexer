@@ -1,5 +1,19 @@
 # 当前 Go 迁移验证
 
+## 2026-10-28 服务器 0.3.31 / Agent 0.2.15
+
+项目路径复制、Agent 重启、运行时自动重新发现与远程刷新对应 `94b1ba950ee54a790cba77b64534c27e3d316622`，以稳定版 [v0.3.31](https://github.com/bunnya33/codexer/releases/tag/v0.3.31) 发布。[服务器发布流程](https://github.com/bunnya33/codexer/actions/runs/40667505582) 全部成功，包含 79 个文件中的 543 项 TypeScript 测试、完整 Go 与 PostgreSQL 回归、Go race、根/Admin/Agent/旧控制端类型、文档、Web/Admin/内嵌 Go 生产构建、独立单文件运行验收及 Linux/macOS amd64/arm64 四平台包。移动端和 Windows Native 共享 UI 类型在本地通过。
+
+正式 Release 非草稿、非预发布且为最新稳定版，8 个附件齐全；四份实际下载的 SHA-256 文件与对应 GitHub 归档摘要一致。实际下载的 Linux amd64 包为 7,969,336 字节，SHA-256 `3af227493670fd65f87d42187dffa87781ef9aecddc936ceea98472f91ce96f9`，版本/清单、ELF x86-64 和 0755 权限正确，位于 `release/server-0.3.31`。
+
+Windows/macOS Electron Agent 的[CI 构建与启动验收](https://github.com/bunnya33/codexer/actions/runs/40668087490)对应 `afd1667` 并通过；与服务器标签相比仅增加验收脚本对临时配置目录文件占用的清理重试。此前 Windows 启动、配置保留和拒绝重复实例检查均已通过，首次 CI 在删除临时文件时因 `EBUSY` 失败；修正后整条流程通过。本地隔离配置另验证真实 Agent 重启、取消重启及设置不变。未用测试进程接管用户现有 Agent 配置。
+
+已取回 Windows CI 安装版和便携版，下载归档 SHA-256 与 GitHub artifact digest 一致；两个 EXE 的产品名及版本均为 Codexer Agent / `0.2.15`，本地两份交付目录的逐文件 SHA-256 一致。校验文件、CI 验收结果和来源记录保存在 `release/agent-0.2.15`。
+
+本地 70 项相关回归通过；项目路径复制检查覆盖完整 Windows 长路径、中文、空格、字面百分号、多目录分别复制、离线复制、浏览器剪贴板回退及失败/缺失路径提示。运行时刷新检查覆盖账号与设备隔离、旧 Agent 能力拦截、严格指令字段、指令去重、延后请求保留、冷却、替代服务启动失败保留旧服务及任务/审批/未保存会话时延后；不抢占其他进程的会话 writer。
+
+服务器 Release 交付更新包，未安装或重启生产服务。Windows Agent 安装版与便携版独立交付于 `release/agent-0.2.15`，未覆盖安装到用户现有配置。Android 和 Windows/macOS 原生 Control 共用界面源码，本次不发布这些客户端的新安装包；类型检查不代表原生编译或真实设备验收。项目路径复制不要求升级 Agent；远程运行时刷新需 Agent `0.2.15`。
+
 ## 2026-10-26 服务器 0.3.29 / Agent 0.2.13 / Android 0.1.5
 
 删除空项目源码对应 `4fa81b468ecef4d1039778616e61c5ae6d24b63b`，已推送主分支并以稳定版 [v0.3.29](https://github.com/bunnya33/codexer/releases/tag/v0.3.29) 发布。[发布流程](https://github.com/bunnya33/codexer/actions/runs/40262262278) 全部成功，包含 PostgreSQL、Go race、根/Admin/Agent/旧控制端类型、完整 Go 回归、75 个 TypeScript 文件中的 514 项测试、文档、Web/Admin/内嵌 Go 生产构建、独立单文件验收和 Linux/macOS amd64/arm64 四平台包。移动端与 Windows Native 共享 UI 类型在本地通过。

@@ -6,6 +6,10 @@ Control 项目「…」菜单在新建会话和删除项目上方显示项目路
 
 包含 `0.3.30` 的远程运行时刷新功能；该功能仍需 Agent `0.2.15`。服务器包内嵌 Web 和 Admin。Android、Windows/macOS 原生 Control 共用此次界面源码，本次未生成新客户端安装包。服务器部署结果单独记录，生成包不代表已更新运行中的服务。
 
+稳定版 [v0.3.31](https://github.com/bunnya33/codexer/releases/tag/v0.3.31) 已发布，标签对应 `94b1ba9`，[服务器发布流程](https://github.com/bunnya33/codexer/actions/runs/40667505582) 全部成功，包含 79 个文件中的 543 项 TypeScript 测试、PostgreSQL、Go race、类型与文档、生产构建、独立单文件验收和四平台打包。8 个附件齐全，四份 SHA-256 文件与对应发布归档摘要一致；实际下载的 Linux amd64 包通过版本、清单、ELF 架构和执行权限校验，位于本地 `release/server-0.3.31`。
+
+Windows Agent `0.2.15` 的[构建及启动验收](https://github.com/bunnya33/codexer/actions/runs/40668087490)通过，安装版和便携版独立交付于 `release/agent-0.2.15`。服务器需在管理后台重新检查更新、准备 `0.3.31` 并确认重启；本次发布未安装或重启生产服务，也未覆盖本机正在运行的 Agent。完整检查与边界见[验证记录](validation.md)。
+
 ## 服务器 0.3.30 / Agent 0.2.15：重启与运行时刷新
 
 Agent 托盘增加完整重启及无需退出界面的 Codex 运行时刷新。修复自动发现的路径被固定进 Worker 环境变量，Codex 更新后自动重新发现并在运行时空闲时切换；有任务、待回复请求或未保存新会话时延后，替代服务初始化失败保留旧服务。沿用配置、设备身份、加密登录及退出确认，便携版从原始 EXE 重启。包含 `0.2.14` 的回复图片路径修复。
