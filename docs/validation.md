@@ -1,5 +1,15 @@
 # 当前 Go 迁移验证
 
+## 2026-10-30 服务器 0.3.32：切换会话保留草稿
+
+会话编辑框草稿对应 `5fd2e0bd3daa6822acc331d02569fc561e6132ec`，以稳定版 [v0.3.32](https://github.com/bunnya33/codexer/releases/tag/v0.3.32) 发布。[服务器发布流程](https://github.com/bunnya33/codexer/actions/runs/40985094571) 全部成功，包含 79 个文件中的 553 项 TypeScript 测试、完整 Go 与 PostgreSQL 回归、Go race、根/Admin/Agent/旧控制端类型、文档、Web/Admin/内嵌 Go 生产构建、独立单文件运行验收及 Linux/macOS amd64/arm64 四平台包。
+
+本地 4 个文件中的 74 项 UI 回归通过，覆盖多行文字在会话切换与重选后恢复、不同电脑相同会话 ID 隔离、后台图片和文件上传、图片上传失败后返回重试、发送成功仅清理原会话已提交草稿及发送失败保留，以及账号/服务器切换和退出登录后的迟到结果隔离。退出登录取消未完成的文件分片上传。移动端及 Windows Native 共享 UI 类型检查、根项目类型、文档、生产构建通过；类型检查不代表原生编译或实机验收。
+
+正式 Release 非草稿、非预发布且为最新稳定版，8 个附件齐全；四份实际下载的 SHA-256 文件与对应 GitHub 归档摘要一致。实际下载的 Linux amd64 包为 7,970,532 字节，SHA-256 `f3831011f407468be5c810917365b4344063e08032e23272a1e6e22abdf9f82a`，版本/清单、ELF x86-64 和 0755 权限正确，位于 `release/server-0.3.32`。正式包、校验文件和构建记录同时复制到用户项目的同名交付目录。
+
+草稿仅保存在当前打开的控制端内存，按服务器、账号、电脑和会话隔离；刷新页面、关闭应用、退出登录或切换账号/服务器后清空，不跨设备或浏览器标签页同步。已启动上传在切换会话后继续；打开选择器后切换会话的迟到选择仍按原逻辑丢弃。服务器发布提供 Web 更新，未安装或重启生产服务；PC Agent 无需为此升级，也未覆盖用户正在运行的 Agent。本次未交付 Android 或 Windows/macOS 原生 Control 新安装包，已安装客户端需单独构建更新。
+
 ## 2026-10-28 服务器 0.3.31 / Agent 0.2.15
 
 项目路径复制、Agent 重启、运行时自动重新发现与远程刷新对应 `94b1ba950ee54a790cba77b64534c27e3d316622`，以稳定版 [v0.3.31](https://github.com/bunnya33/codexer/releases/tag/v0.3.31) 发布。[服务器发布流程](https://github.com/bunnya33/codexer/actions/runs/40667505582) 全部成功，包含 79 个文件中的 543 项 TypeScript 测试、完整 Go 与 PostgreSQL 回归、Go race、根/Admin/Agent/旧控制端类型、文档、Web/Admin/内嵌 Go 生产构建、独立单文件运行验收及 Linux/macOS amd64/arm64 四平台包。移动端和 Windows Native 共享 UI 类型在本地通过。

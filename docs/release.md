@@ -6,6 +6,10 @@ Control 的文字、图片和文件附件草稿按服务器、账号、电脑与
 
 草稿保存在当前打开的控制端内存，刷新页面、关闭应用或退出/切换账号及服务器后清空，不提供跨设备或浏览器标签页同步。Web 随服务器更新，PC Agent 无需更新。Android 与 Windows/macOS 原生 Control 共用源码，已安装客户端需单独构建更新。
 
+稳定版 [v0.3.32](https://github.com/bunnya33/codexer/releases/tag/v0.3.32) 已发布，标签对应 `5fd2e0b`，[服务器发布流程](https://github.com/bunnya33/codexer/actions/runs/40985094571) 全部成功，包含 79 个文件中的 553 项 TypeScript 测试、PostgreSQL、Go race、类型与文档、生产构建、独立单文件验收和四平台打包。本地另通过 74 项相关 UI 回归、移动端及 Windows Native 共享 UI 类型检查。8 个正式附件齐全，四份校验文件与发布归档摘要一致；实际下载的 Linux amd64 包通过版本、清单、ELF 架构和 0755 权限校验，位于 `release/server-0.3.32`。
+
+服务器需在管理后台检查更新、准备 `0.3.32` 并确认重启；本次发布未安装或重启生产服务，也未交付 Android 或 Windows/macOS 原生 Control 的新安装包。完整检查与草稿边界见[验证记录](validation.md)。
+
 ## 服务器 0.3.31：项目路径查看与复制
 
 Control 项目「…」菜单在新建会话和删除项目上方显示项目路径，支持完整路径一键复制、复制成功反馈和失败时手动选择。多目录项目逐个显示，离线时可复制已同步路径。复用现有目录数据和各平台剪贴板适配，PC Agent 无需为此功能更新。
