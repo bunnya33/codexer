@@ -44,11 +44,10 @@ import {useClientUpdates} from './src/client-updates';
 import { AttachmentMenu } from './src/attachment-menu';
 import { PermissionPicker, permissionLabels } from './src/permission-picker';
 import { pickAttachments } from './src/attachment-picker';
-import type { AttachmentAsset } from './src/attachment-picker';
 import { MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES } from '../../packages/protocol/src/uploads';
+import { useConversationDraft } from './src/conversation-drafts';
+import type { DraftImage, DraftAttachment } from './src/conversation-drafts';
 
-type DraftImage = { key: number; uri: string; name: string; asset?: ImagePicker.ImagePickerAsset; id?: string; loading: boolean; error?: string };
-type DraftAttachment = { key: number; asset: AttachmentAsset; id?: string; loading: boolean; error?: string };
 function Login({ connect, busy, error }: { connect: (url: string, username: string, password: string) => void; busy: boolean; error: string }) {
   const { c, s, theme } = useTheme();
   const [url, setUrl] = useState(defaultRelayUrl);
@@ -81,9 +80,9 @@ function AppContent() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [expandedProjects, setExpandedProjects] = useState<string[]>([]);
-  const [draft, setDraft] = useState('');
-  const [images, setImages] = useState<DraftImage[]>([]);
-  const [files, setFiles] = useState<DraftAttachment[]>([]);
+  const draftScope = view.phase !== 'locked' && view.userId ? JSON.stringify([view.url, view.userId]) : '';
+  const { draft: composerDraft, setText: setDraft, setImages, setFiles, getDraft, isCurrent: draftIsCurrent, clearSubmitted } = useConversationDraft(draftScope, deviceId, threadId);
+  const { text: draft, images, files } = composerDraft;
   const fileUploads = useRef(new Map<number, AbortController>());
   const [busy, setBusy] = useState(false);
   const [menu, setMenu] = useState<'settings' | 'mode' | 'weixin' | 'permissions'>('settings');
@@ -132,7 +131,7 @@ function AppContent() {
     if (direction === 'up' && scrollPosition.current.nearTop) loadEarlierRef.current();
   }, [scrollToBottom]);
   const nextImageKey = useRef(0);
-  useEffect(() => () => { for (const upload of fileUploads.current.values()) upload.abort(); fileUploads.current.clear(); }, []);
+  useEffect(() => () => { for (const upload of fileUploads.current.values()) upload.abort(); fileUploads.current.clear(); }, [draftScope]);
   const moveImage = useCallback((direction: ImageDirection) => setPreview(current => {
     if (!current) return null;
     const index = current.index + direction;
@@ -154,14 +153,11 @@ function AppContent() {
     const listener = AppState.addEventListener('change', state => relay.setForeground(state === 'active'));
     return () => listener.remove();
   }, []);
-  useEffect(() => { if (view.phase === 'locked') { setDraft(''); setImages([]); setDrawerOpen(false); setActionThread(null); setActionProject(null); setProjectDeviceId(''); setPreview(null); setEditingQueueId(null); closeMenu(); } }, [view.phase]);
+  useEffect(() => { if (view.phase === 'locked') { setDrawerOpen(false); setActionThread(null); setActionProject(null); setProjectDeviceId(''); setPreview(null); setEditingQueueId(null); closeMenu(); } }, [view.phase]);
   useEffect(() => { setActionProject(null); }, [deviceId]);
   useEffect(() => { if (view.phase === 'connected' && deviceId && !view.catalogs[deviceId]) void relay.loadCatalog(deviceId); }, [deviceId, view.catalogs, view.phase]);
   useEffect(() => {
     setPreview(null);
-    setFiles([]);
-    for (const upload of fileUploads.current.values()) upload.abort();
-    fileUploads.current.clear();
     setEditingQueueId(null);
     olderAnchor.current = null;
     earlierRequest.current = null;
@@ -207,7 +203,7 @@ function AppContent() {
   const rows = useMemo(() => buildDirectoryRows({catalog, snapshot, deviceId, expandedProjects, search}), [catalog, deviceId, expandedProjects, search, snapshot]);
 
   const connect = async (url: string, username: string, password: string) => { setLoginBusy(true); try { await relay.connect(url, username, password, true); } catch { /* Error appears in the login view. */ } finally { setLoginBusy(false); } };
-  const selectThread = (id: string) => { setThreadId(id); setDraft(''); setImages([]); setDrawerOpen(false); };
+  const selectThread = (id: string) => { setThreadId(id); setDrawerOpen(false); };
   const createProject = async (payload: Extract<RemoteCommand['payload'], { type: 'project.create' }>) => {
     const target = projectDeviceId;
     setManaging(true);
@@ -247,18 +243,17 @@ function AppContent() {
   const send = async (payload: RemoteCommand['payload'], clearDraft = false) => {
     if (busy) return false;
     setBusy(true);
-    const scope = currentStreamKey.current;
     try {
       const result = await relay.sendCommand(deviceId, payload);
       if (result.status !== 'succeeded') throw new Error(result.code);
-      if (clearDraft && scope === currentStreamKey.current) { setDraft(''); setImages([]); setFiles([]); }
+      if (clearDraft) clearSubmitted(composerDraft);
       return true;
-    } catch (error) { relay.showNotice(error instanceof Error ? error.message : String(error)); return false; }
+    } catch (error) { if (draftIsCurrent()) relay.showNotice(error instanceof Error ? error.message : String(error)); return false; }
     finally { setBusy(false); }
   };
   const uploadDraft = async (image: DraftImage, targetDeviceId: string, targetThreadId: string) => {
     const asset = image.asset;
-    if (!asset) return;
+    if (!asset || !draftIsCurrent()) return;
     setImages(current => current.map(item => item.key === image.key ? { ...item, loading: true, error: undefined } : item));
     try {
       const supported = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(asset.mimeType ?? '');
@@ -280,6 +275,7 @@ function AppContent() {
       }
       if (!base64) throw new Error('无法读取图片');
       if (Math.ceil(base64.length * 3 / 4) > uploadLimit) throw new Error('图片压缩后仍过大');
+      if (!draftIsCurrent()) return;
       const uploaded = await relay.uploadImage(targetDeviceId, targetThreadId, { name, mimeType, base64 });
       setImages(current => current.map(item => item.key === image.key ? { key: item.key, uri: item.uri, name, id: uploaded.id, loading: false } : item));
     } catch (error) {
@@ -288,7 +284,8 @@ function AppContent() {
     }
   };
   const addImages = (assets: ImagePicker.ImagePickerAsset[]) => {
-    for (const asset of assets.slice(0, MAX_IMAGES - images.length)) {
+    if (!draftIsCurrent()) return;
+    for (const asset of assets.slice(0, MAX_IMAGES - getDraft().images.length)) {
       const image: DraftImage = { key: ++nextImageKey.current, uri: asset.uri, name: (asset.fileName ?? 'image').slice(0, 255), asset, loading: true };
       setImages(current => [...current, image]);
       void uploadDraft(image, deviceId, threadId);
@@ -299,18 +296,19 @@ function AppContent() {
     const scope = currentStreamKey.current;
     try {
       const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsMultipleSelection: true, selectionLimit: MAX_IMAGES - images.length, base64: true, quality: 0.85 });
-      if (!result.canceled && scope === currentStreamKey.current) addImages(result.assets);
-    } catch (error) { relay.showNotice(error instanceof Error ? error.message : '无法读取图片'); }
+      if (!result.canceled && draftIsCurrent() && scope === currentStreamKey.current) addImages(result.assets);
+    } catch (error) { if (draftIsCurrent()) relay.showNotice(error instanceof Error ? error.message : '无法读取图片'); }
   };
   const pickCamera = async () => {
     const scope = currentStreamKey.current;
     try {
       if (Platform.OS !== 'web' && !(await ImagePicker.requestCameraPermissionsAsync()).granted) { relay.showNotice('请允许相机权限，或选择照片'); return; }
       const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], base64: true, quality: 0.85 });
-      if (!result.canceled && scope === currentStreamKey.current) addImages(result.assets);
-    } catch (error) { relay.showNotice(error instanceof Error ? error.message : '无法打开相机'); }
+      if (!result.canceled && draftIsCurrent() && scope === currentStreamKey.current) addImages(result.assets);
+    } catch (error) { if (draftIsCurrent()) relay.showNotice(error instanceof Error ? error.message : '无法打开相机'); }
   };
   const uploadFile = async (file: DraftAttachment, targetDevice = deviceId, targetThread = threadId) => {
+    if (!draftIsCurrent()) return;
     const abort = new AbortController(); fileUploads.current.get(file.key)?.abort(); fileUploads.current.set(file.key, abort);
     setFiles(current => current.map(item => item.key === file.key ? { ...item, loading: true, error: undefined } : item));
     try {
@@ -324,13 +322,13 @@ function AppContent() {
     const scope = currentStreamKey.current, targetDevice = deviceId, targetThread = threadId;
     try {
       const assets = await pickAttachments();
-      if (scope !== currentStreamKey.current) return;
-      for (const asset of assets.slice(0, MAX_ATTACHMENTS - files.length)) {
+      if (!draftIsCurrent() || scope !== currentStreamKey.current) return;
+      for (const asset of assets.slice(0, MAX_ATTACHMENTS - getDraft().files.length)) {
         if (asset.size > MAX_ATTACHMENT_BYTES) { relay.showNotice(`${asset.name} 超过 20 MB`); continue; }
         const file: DraftAttachment = { key: ++nextImageKey.current, asset, loading: true };
         setFiles(current => [...current, file]); void uploadFile(file, targetDevice, targetThread);
       }
-    } catch (error) { relay.showNotice(error instanceof Error ? error.message : '无法读取文件'); }
+    } catch (error) { if (draftIsCurrent()) relay.showNotice(error instanceof Error ? error.message : '无法读取文件'); }
   };
   const removeFile = (file: DraftAttachment) => {
     fileUploads.current.get(file.key)?.abort();
@@ -371,7 +369,7 @@ function AppContent() {
   loadEarlierRef.current = loadEarlier;
 
   const directory = <Directory view={view} deviceId={deviceId} threadId={threadId} rows={rows} search={search} wide={wide} managing={managing} paddingTop={wide ? 0 : insets.top} paddingBottom={wide ? 0 : insets.bottom} setSearch={setSearch}
-    selectDevice={id => { setDeviceId(id); setDraft(''); setImages([]); }} selectThread={selectThread}
+    selectDevice={setDeviceId} selectThread={selectThread}
     toggleProject={id => setExpandedProjects(current => current.includes(`${deviceId}:${id}`) ? current.filter(value => value !== `${deviceId}:${id}`) : [...current, `${deviceId}:${id}`])}
     createProject={() => { setProjectDeviceId(deviceId); setDrawerOpen(false); }} projectActions={project => { setActionProject({ ...project, deviceId }); setDrawerOpen(false); }} threadActions={item => { setDrawerOpen(false); setNewName(item.title); setActionThread({ id: item.id, title: item.title }); }}
     updateAvailable={clientUpdates.available} close={() => setDrawerOpen(false)} settings={() => { setDrawerOpen(false); openMenu('settings'); }} refresh={() => void relay.refreshDevices()} />;

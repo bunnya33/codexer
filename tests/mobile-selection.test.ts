@@ -19,7 +19,11 @@ let javascript = '', css = '';
 beforeAll(async () => {
   const result = await build({ entryPoints: ['tests/fixtures/selection-app.tsx'], outdir: '.local/selection-tests', bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic',
     resolveExtensions: ['.web.tsx', '.web.ts', '.web.js', '.tsx', '.ts', '.jsx', '.js', '.json'], nodePaths: [resolve('apps/mobile/node_modules')], alias: { 'react-native': 'react-native-web' },
-    plugins: [{ name: 'fixture-file-picker', setup(build) { build.onResolve({ filter: /^\.\/src\/attachment-picker$/ }, () => ({ path: 'picker', namespace: 'fixture' })); build.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({ contents: 'export async function pickAttachments() { return window.__pickAttachments(); }', loader: 'js' })); } }],
+    plugins: [{ name: 'fixture-pickers', setup(build) {
+      build.onResolve({ filter: /^\.\/src\/attachment-picker$/ }, () => ({ path: 'files', namespace: 'fixture' }));
+      build.onResolve({ filter: /^expo-image-picker$/ }, () => ({ path: 'images', namespace: 'fixture' }));
+      build.onLoad({ filter: /.*/, namespace: 'fixture' }, ({ path }) => ({ contents: path === 'files' ? 'export async function pickAttachments() { return window.__pickAttachments(); }' : 'export async function launchImageLibraryAsync() { return window.__pickImages(); } export const launchCameraAsync = launchImageLibraryAsync; export async function requestCameraPermissionsAsync() { return {granted:true}; }', loader: 'js' }));
+    } }],
     define: { 'process.env.NODE_ENV': '"production"', __DEV__: 'false', global: 'globalThis', 'process.env': '{}' } });
   javascript = result.outputFiles!.find(file => file.path.endsWith('.js'))!.text;
   css = result.outputFiles!.find(file => file.path.endsWith('.css'))?.text ?? '';
@@ -35,6 +39,9 @@ type FixtureOptions = {
   storage?: Record<string, string>; userId?: string; devices?: typeof devices; catalogs?: Record<string, DeviceCatalog>;
   delayDevices?: boolean; delayCatalog?: string; blockedStorage?: boolean; blockedThemeStorage?: boolean;
   filePicker?: () => Promise<{ name: string; size: number; mimeType: string; readChunk: (offset: number, length: number) => Promise<string> }[]>;
+  imagePicker?: () => Promise<{ canceled: boolean; assets: { uri: string; fileName: string; width: number; height: number; mimeType: string; base64: string }[] }>;
+  imageUpload?: { wait?: Promise<void>; fail?: boolean };
+  submission?: { wait?: Promise<void>; fail?: boolean };
   controls?: { active: boolean; text: string; images: string[]; failEffort?: boolean };
   paging?: { delay?: boolean; fail?: boolean; exhausted?: boolean };
   removal?: { confirmed: boolean; fail?: boolean; calls: string[] };
@@ -56,6 +63,7 @@ async function fixture(options: FixtureOptions = {}) {
   const sockets: { onmessage?: (event: { data: string }) => void }[] = [];
   const deviceGate = gate(), catalogGate = gate(), historyGate = gate();
   const uploadRequests: string[] = []; let uploadedFile: { name: string; size: number; mimeType: string };
+  const imageUploads: { path: string; name: string; id: string }[] = [];
   const earlierRequests: string[] = [];
   const historyRequests: string[] = [], commands: RemoteCommand[] = [], errors: unknown[] = [];
   const dom = new JSDOM(`<style>${css}</style><div id="root"></div>`, {
@@ -69,10 +77,17 @@ async function fixture(options: FixtureOptions = {}) {
       window.confirm = () => options.removal?.confirmed ?? false;
       window.addEventListener('error', event => errors.push(event.error));
       window.matchMedia = (() => ({ matches: false, addListener() {}, removeListener() {} })) as unknown as typeof window.matchMedia;
-      Object.assign(window, { __pickAttachments: options.filePicker ?? (async () => []), ResizeObserver: class { observe() {} unobserve() {} disconnect() {} }, AbortSignal, fetch: async (input: string, init?: RequestInit) => {
+      Object.assign(window, { __pickAttachments: options.filePicker ?? (async () => []), __pickImages: options.imagePicker ?? (async () => ({ canceled: true, assets: [] })), ResizeObserver: class { observe() {} unobserve() {} disconnect() {} }, AbortSignal, fetch: async (input: string, init?: RequestInit) => {
         const path = new URL(input).pathname;
         const response = (value: unknown) => new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json' } });
         if (path === '/health') return response({ version: '8.7.6' });
+        if (path.endsWith('/images') && init?.method === 'POST') {
+          const { name } = JSON.parse(String(init.body)), id = (imageUploads.length + 1).toString(16).padStart(64, '0');
+          imageUploads.push({ path, name, id });
+          await options.imageUpload?.wait;
+          if (options.imageUpload?.fail) return new Response(JSON.stringify({ error: 'image-upload-failed' }), { status: 503 });
+          return response({ id, name });
+        }
         if (path.endsWith('/attachments') && init?.method === 'POST') { uploadedFile = JSON.parse(String(init.body)); uploadRequests.push(path); return response({ id: 'f'.repeat(64) }); }
         if (path.includes('/attachments/') && init?.method === 'DELETE') return response({ ok: true });
         if (path.includes('/attachments/') && init?.method === 'PUT') { const data = JSON.parse(String(init.body)); const offset = data.offset + Buffer.from(data.base64, 'base64').length; uploadRequests.push(path); return response({ offset, attachment: { ...uploadedFile, id: 'f'.repeat(64), sha256: 'e'.repeat(64) } }); }
@@ -112,6 +127,10 @@ async function fixture(options: FixtureOptions = {}) {
           if (!controls && !options.permissions && !options.requests) return response({ commandId: 'fixture-command' });
           let result: Record<string, unknown> = {}, code = 'ok';
           const payload = command.payload;
+          if (payload.type === 'turn.start' || payload.type === 'turn.queue') {
+            await options.submission?.wait;
+            if (options.submission?.fail) code = 'turn-start-rejected';
+          }
           if (payload.type === 'thread.effort.update') {
             if (controls?.failEffort) code = 'stale-settings';
             else settings.reasoningEffort = payload.effort;
@@ -193,7 +212,7 @@ async function fixture(options: FixtureOptions = {}) {
     await vi.waitFor(() => expect(dom.window.document.querySelector(`[aria-label="${label}"]`)).toBeNull());
   };
   const close = () => { deviceGate.release(); catalogGate.release(); historyGate.release(); app().close(); dom.window.close(); };
-  return { dom, current, historyRequests, uploadRequests, earlierRequests, commands, errors, app, header, click, closeDialog, close, deviceGate, catalogGate, historyGate };
+  return { dom, current, historyRequests, uploadRequests, imageUploads, earlierRequests, commands, errors, app, header, click, closeDialog, close, deviceGate, catalogGate, historyGate };
 }
 
 async function pagingFixture(paging: NonNullable<FixtureOptions['paging']>) {
@@ -781,7 +800,7 @@ it('discards a late file selection when the user has switched devices', async ()
   } finally { selection.release(); test.close(); }
 });
 
-it('cancels a chunk read when switching conversations and cannot send an unfinished file', async () => {
+it('keeps a file upload in its original draft while switching conversations', async () => {
   const chunk = gate();
   const test = await fixture({ controls: { active: false, text: '', images: [] }, filePicker: async () => [{ name: 'slow.txt', size: 1, mimeType: 'text/plain', readChunk: async () => { await chunk.promise; return 'YQ=='; } }] });
   try {
@@ -791,9 +810,187 @@ it('cancels a chunk read when switching conversations and cannot send an unfinis
     expect(test.dom.window.document.querySelector('[aria-label="发送消息"]')?.getAttribute('aria-disabled')).toBe('true');
     const row = [...test.dom.window.document.querySelectorAll('[role="button"]')].find(element => element.textContent === 'older-pc-a') as HTMLElement;
     row.click(); await vi.waitFor(() => expect(test.header()).toContain('older-pc-a'));
-    chunk.release(); await new Promise(resolve => setTimeout(resolve, 50));
-    expect(test.uploadRequests).toHaveLength(1); expect(test.commands.some(command => command.payload.type === 'turn.start')).toBe(false);
-    expect(test.dom.window.document.querySelector('[aria-label="移除文件 slow.txt"]')).toBeNull(); expect(test.errors).toEqual([]);
+    chunk.release(); await vi.waitFor(() => expect(test.uploadRequests).toHaveLength(2));
+    expect(test.commands.some(command => command.payload.type === 'turn.start')).toBe(false);
+    expect(test.dom.window.document.querySelector('[aria-label="移除文件 slow.txt"]')).toBeNull();
+    await selectDraftThread(test, 'recent-pc-a');
+    expect(test.dom.window.document.querySelector('[aria-label="移除文件 slow.txt"]')).not.toBeNull();
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="发送消息"]')?.getAttribute('aria-disabled')).not.toBe('true'));
+    test.click('发送消息');
+    await vi.waitFor(() => expect(test.commands.some(command => command.payload.type === 'turn.start' && command.payload.threadId === 'recent-pc-a' && command.payload.attachments?.[0] === 'f'.repeat(64))).toBe(true));
+    expect(test.errors).toEqual([]);
+  } finally { chunk.release(); test.close(); }
+});
+
+const composer = (test: Awaited<ReturnType<typeof fixture>>) => test.dom.window.document.querySelector<HTMLTextAreaElement>('[aria-label="给 Codex 发送消息"]')!;
+function writeDraft(test: Awaited<ReturnType<typeof fixture>>, text: string) {
+  const input = composer(test);
+  Object.getOwnPropertyDescriptor(test.dom.window.HTMLTextAreaElement.prototype, 'value')!.set!.call(input, text);
+  input.dispatchEvent(new test.dom.window.Event('input', { bubbles: true }));
+}
+async function selectDraftThread(test: Awaited<ReturnType<typeof fixture>>, id: string) {
+  const row = [...test.dom.window.document.querySelectorAll('[role="button"]')].find(element => element.textContent === id) as HTMLElement;
+  row.click();
+  await vi.waitFor(() => expect(test.header()).toContain(id));
+}
+async function selectDraftDevice(test: Awaited<ReturnType<typeof fixture>>, from: string, to: string) {
+  test.click(`切换 PC Agent，当前：${from}，在线`);
+  await vi.waitFor(() => expect(test.dom.window.document.querySelector(`[aria-label="选择设备 ${to}，在线"]`)).not.toBeNull());
+  test.click(`选择设备 ${to}，在线`);
+  await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing[to]).toBe(false));
+}
+const draftImage = (name = '草稿 截图.png') => ({ uri: 'data:image/png;base64,ZmFrZQ==', fileName: name, width: 1, height: 1, mimeType: 'image/png', base64: 'ZmFrZQ==' });
+async function addDraftImage(test: Awaited<ReturnType<typeof fixture>>) {
+  test.click('添加附件');
+  await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="添加图片"]')).not.toBeNull());
+  test.click('添加图片');
+  await vi.waitFor(() => expect(test.imageUploads.length).toBeGreaterThan(0));
+}
+
+it('restores independent multiline drafts after immediate conversation switches and repeated selection', async () => {
+  const test = await fixture({ controls: { active: false, text: '', images: [] } });
+  try {
+    await vi.waitFor(() => expect(composer(test)?.readOnly).toBe(false));
+    writeDraft(test, '第一个会话的草稿\n保留换行  和空格');
+    await selectDraftThread(test, 'older-pc-a');
+    expect(composer(test).value).toBe('');
+    writeDraft(test, '第二个会话的内容');
+    await selectDraftThread(test, 'recent-pc-a');
+    expect(composer(test).value).toBe('第一个会话的草稿\n保留换行  和空格');
+    await selectDraftThread(test, 'recent-pc-a');
+    expect(composer(test).value).toBe('第一个会话的草稿\n保留换行  和空格');
+    await selectDraftThread(test, 'older-pc-a');
+    expect(composer(test).value).toBe('第二个会话的内容');
+    expect(test.commands).toEqual([]); expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it('separates drafts for identical thread ids on different PCs', async () => {
+  const catalogs = Object.fromEntries(devices.map(device => [device.id, { ...catalog(device.id), threads: [{ ...catalog(device.id).threads[0]!, id: 'same-thread', title: 'Shared thread id' }] }]));
+  const test = await fixture({ catalogs, controls: { active: false, text: '', images: [] } });
+  try {
+    await vi.waitFor(() => expect(composer(test)?.readOnly).toBe(false));
+    writeDraft(test, 'PC A 草稿');
+    await selectDraftDevice(test, 'pc-a', 'pc-b');
+    expect(composer(test).value).toBe('');
+    writeDraft(test, 'PC B 草稿');
+    await selectDraftDevice(test, 'pc-b', 'pc-a');
+    expect(composer(test).value).toBe('PC A 草稿');
+    await selectDraftDevice(test, 'pc-a', 'pc-b');
+    expect(composer(test).value).toBe('PC B 草稿'); expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it('restores an image uploaded in the background only to its original draft and sends the correct image id', async () => {
+  const upload = gate();
+  const test = await fixture({ controls: { active: false, text: '', images: [] }, imagePicker: async () => ({ canceled: false, assets: [draftImage()] }), imageUpload: { wait: upload.promise } });
+  try {
+    await vi.waitFor(() => expect(composer(test)?.readOnly).toBe(false));
+    writeDraft(test, '带截图的消息');
+    await addDraftImage(test);
+    expect(test.dom.window.document.querySelector('[aria-label="发送消息"]')?.getAttribute('aria-disabled')).toBe('true');
+    await selectDraftThread(test, 'older-pc-a');
+    expect(composer(test).value).toBe('');
+    expect(test.dom.window.document.querySelector('[aria-label="预览待发送图片 草稿 截图.png"]')).toBeNull();
+    writeDraft(test, '保留另一个会话');
+    upload.release();
+    await selectDraftThread(test, 'recent-pc-a');
+    expect(composer(test).value).toBe('带截图的消息');
+    expect(test.dom.window.document.querySelector('[aria-label="预览待发送图片 草稿 截图.png"]')).not.toBeNull();
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="发送消息"]')?.getAttribute('aria-disabled')).not.toBe('true'));
+    test.click('发送消息');
+    await vi.waitFor(() => expect(composer(test).value).toBe(''));
+    expect(test.commands.find(command => command.payload.type === 'turn.start')?.payload).toMatchObject({ threadId: 'recent-pc-a', text: '带截图的消息', images: [test.imageUploads[0]!.id] });
+    expect(test.imageUploads.map(upload => upload.path)).toEqual(['/v1/devices/pc-a/threads/recent-pc-a/images']);
+    await selectDraftThread(test, 'older-pc-a'); expect(composer(test).value).toBe('保留另一个会话');
+    await selectDraftThread(test, 'recent-pc-a');
+    expect(composer(test).value).toBe(''); expect(test.dom.window.document.querySelector('[aria-label="移除 草稿 截图.png"]')).toBeNull();
+    expect(test.errors).toEqual([]);
+  } finally { upload.release(); test.close(); }
+});
+
+it.each([false, true])('handles a delayed submission without clearing another draft (failure=%s)', async fail => {
+  const pending = gate();
+  const test = await fixture({ controls: { active: false, text: '', images: [] }, submission: { wait: pending.promise, fail } });
+  try {
+    await vi.waitFor(() => expect(composer(test)?.readOnly).toBe(false));
+    await selectDraftThread(test, 'older-pc-a'); writeDraft(test, '另一个草稿');
+    await selectDraftThread(test, 'recent-pc-a'); writeDraft(test, '正在发送的草稿');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="发送消息"]')?.getAttribute('aria-disabled')).not.toBe('true'));
+    test.click('发送消息');
+    await vi.waitFor(() => expect(test.commands.some(command => command.payload.type === 'turn.start')).toBe(true));
+    await selectDraftThread(test, 'older-pc-a'); pending.release();
+    await vi.waitFor(() => expect(composer(test).readOnly).toBe(false));
+    expect(composer(test).value).toBe('另一个草稿');
+    await selectDraftThread(test, 'recent-pc-a'); expect(composer(test).value).toBe(fail ? '正在发送的草稿' : '');
+    expect(test.errors).toEqual([]);
+  } finally { pending.release(); test.close(); }
+});
+
+it('retains an upload error and lets the original conversation retry its image after switching back', async () => {
+  const imageUpload = { fail: true };
+  const test = await fixture({ controls: { active: false, text: '', images: [] }, imagePicker: async () => ({ canceled: false, assets: [draftImage()] }), imageUpload });
+  try {
+    await vi.waitFor(() => expect(composer(test)?.readOnly).toBe(false));
+    await addDraftImage(test);
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="重试上传 草稿 截图.png"]')).not.toBeNull());
+    await selectDraftThread(test, 'older-pc-a');
+    await selectDraftThread(test, 'recent-pc-a');
+    expect(test.dom.window.document.querySelector('[aria-label="发送消息"]')?.getAttribute('aria-disabled')).toBe('true');
+    imageUpload.fail = false; test.click('重试上传 草稿 截图.png');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="重试上传 草稿 截图.png"]')).toBeNull());
+    expect(test.imageUploads).toHaveLength(2); expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it('clears all drafts on logout and ignores late image uploads even after logging back into the same account', async () => {
+  const upload = gate();
+  const test = await fixture({ controls: { active: false, text: '', images: [] }, imagePicker: async () => ({ canceled: false, assets: [draftImage()] }), imageUpload: { wait: upload.promise } });
+  try {
+    await vi.waitFor(() => expect(composer(test)?.readOnly).toBe(false));
+    writeDraft(test, '退出前的草稿'); await addDraftImage(test);
+    await test.app().relay.logout();
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="账号"]')).not.toBeNull());
+    await test.app().relay.connect(origin, 'user-a', 'fixture-password');
+    await vi.waitFor(() => expect(composer(test)?.readOnly).toBe(false));
+    expect(composer(test).value).toBe('');
+    writeDraft(test, '重新登录后的新草稿'); upload.release();
+    await new Promise(resolve => setTimeout(resolve, 40));
+    expect(composer(test).value).toBe('重新登录后的新草稿');
+    expect(test.dom.window.document.querySelector('[aria-label="预览待发送图片 草稿 截图.png"]')).toBeNull();
+    expect(test.errors).toEqual([]);
+  } finally { upload.release(); test.close(); }
+});
+
+it.each([[origin, 'user-b'], ['http://other-relay.test', 'user-a']])('keeps drafts private when changing to %s as %s', async (url, user) => {
+  const test = await fixture({ controls: { active: false, text: '', images: [] }, imagePicker: async () => ({ canceled: false, assets: [draftImage()] }) });
+  try {
+    await vi.waitFor(() => expect(composer(test)?.readOnly).toBe(false));
+    writeDraft(test, '上一个账号和服务器的内容'); await addDraftImage(test);
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="发送消息"]')?.getAttribute('aria-disabled')).not.toBe('true'));
+    await test.app().relay.connect(url!, user!, 'fixture-password');
+    await vi.waitFor(() => expect(composer(test)?.readOnly).toBe(false));
+    expect(composer(test).value).toBe('');
+    expect(test.dom.window.document.querySelector('[aria-label="预览待发送图片 草稿 截图.png"]')).toBeNull();
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it('cancels pending file uploads on logout and never restores them into a later login', async () => {
+  const chunk = gate();
+  const test = await fixture({ controls: { active: false, text: '', images: [] }, filePicker: async () => [{ name: 'private.txt', size: 1, mimeType: 'text/plain', readChunk: async () => { await chunk.promise; return 'YQ=='; } }] });
+  try {
+    await vi.waitFor(() => expect(composer(test)?.readOnly).toBe(false));
+    test.click('添加附件'); await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="添加文件"]')).not.toBeNull()); test.click('添加文件');
+    await vi.waitFor(() => expect(test.uploadRequests).toHaveLength(1));
+    await test.app().relay.logout();
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="账号"]')).not.toBeNull());
+    await test.app().relay.connect(origin, 'user-a', 'fixture-password');
+    await vi.waitFor(() => expect(composer(test)?.readOnly).toBe(false));
+    chunk.release(); await new Promise(resolve => setTimeout(resolve, 40));
+    expect(test.uploadRequests).toHaveLength(1);
+    expect(test.dom.window.document.querySelector('[aria-label="移除文件 private.txt"]')).toBeNull();
+    expect(test.errors).toEqual([]);
   } finally { chunk.release(); test.close(); }
 });
 
