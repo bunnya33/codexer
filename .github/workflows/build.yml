@@ -17,6 +17,13 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - uses: jurplel/install-qt-action@v4
+        if: runner.os == 'Windows'
+        with:
+          version: '6.8.3'
+          arch: win64_msvc2022_64
+          archives: qtbase
+          cache: true
       - run: npm ci
       - run: npm ci --prefix apps/control-native
         if: runner.os == 'Windows'
@@ -32,8 +39,12 @@ jobs:
       - run: npm run mobile:typecheck
       - run: npm test
       - run: npm run check:docs
-      - run: npm run package:desktop:win
+      - name: Package Qt Windows Agent
         if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:CODEXER_QT_ROOT = $env:QT_ROOT_DIR
+          npm run package:desktop:win
       - run: npm run package:desktop:mac:local -- --arm64
         if: runner.os == 'macOS'
       - run: npm run package:windows-native
@@ -48,6 +59,7 @@ jobs:
           path: |
             apps/control-native/release/*.*
             apps/desktop/release/*.*
+            apps/agent-qt/release/*.*
   server:
     runs-on: ubuntu-latest
     services:

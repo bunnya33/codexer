@@ -4,6 +4,9 @@ apps/web/dist/
 apps/admin/dist/
 apps/desktop/dist/
 apps/desktop/release/
+apps/agent-qt/build/
+apps/agent-qt/stage/
+apps/agent-qt/release/
 apps/control-desktop/dist/
 apps/control-desktop/release/
 .vite/

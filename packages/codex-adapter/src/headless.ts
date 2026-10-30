@@ -199,7 +199,11 @@ class AppServerRpc extends EventEmitter {
         if (!waiter) continue;
         clearTimeout(waiter.timer);
         this.pending.delete(key);
-        if (message.error) waiter.reject(new AdapterError(`${waiter.method}-rejected:${String(record(message.error).message ?? "unknown")}`));
+        if (message.error) {
+          const messageText = String(record(message.error).message ?? "unknown");
+          waiter.reject(new AdapterError(waiter.method === 'thread/resume' && /already has an active writer/i.test(messageText)
+            ? 'thread-writer-busy' : `${waiter.method}-rejected:${messageText}`));
+        }
         else waiter.resolve(record(message.result));
       } else if (typeof message.method === "string" && (typeof message.id === "string" || typeof message.id === "number")) {
         this.emit("serverRequest", { id: message.id, method: message.method, params: record(message.params) } satisfies ServerRequest);
@@ -353,6 +357,9 @@ export class HeadlessAdapter extends EventEmitter {
   private busyTurns = new Set<string>();
   private completedTurns = new Set<string>();
   private pendingStarts = 0;
+  private pendingOperations = 0;
+  private ownedWriters = new Map<string, number>();
+  private releaseCheck?: Promise<{released: number; deferred: number}>;
   private plans = new Map<string, unknown>();
   private diffs = new Map<string, string>();
   private usage = new Map<string, RecordValue>();
@@ -388,6 +395,7 @@ export class HeadlessAdapter extends EventEmitter {
         this.busyTurns.clear();
         this.completedTurns.clear();
         this.pendingStarts = 0;
+        this.ownedWriters.clear();
       }
       this.emit("status", connected);
     });
@@ -514,6 +522,29 @@ export class HeadlessAdapter extends EventEmitter {
   getThread(threadId: string): RemoteThread | null { return this.watched.get(threadId) ?? null; }
   hasActiveTurn(): boolean { return this.pendingStarts > 0 || this.busyTurns.size > 0 || [...this.watched.values()].some(thread => thread.status === "active"); }
 
+  /** Recycle only our fully idle app-server; unsubscribe alone does not release Codex's writer lock. */
+  releaseIdleWriters(force = false): Promise<{released: number; deferred: number}> {
+    return this.releaseCheck ??= this.releaseOwnedWriters(force).finally(() => { this.releaseCheck = undefined; });
+  }
+  private async releaseOwnedWriters(force: boolean): Promise<{released: number; deferred: number}> {
+    const result = {released: 0, deferred: this.ownedWriters.size};
+    const rpc = this.rpc;
+    const blocked = () => !this.connected || this.rpc !== rpc || this.stopped || this.reloading || this.pendingOperations > 0 || this.newThreads.size > 0
+      || this.hasActiveTurn() || this.requests.size > 0 || this.refreshing.size > 0
+      || [...this.watched.values()].some(thread => thread.subAgents?.some(isSubAgentActive));
+    if (!rpc || blocked()) return result;
+    if (!result.deferred) return result;
+    for (const [threadId, usedAt] of this.ownedWriters) {
+      // The entire server must be idle: all of its writers are released together.
+      if (!force && Date.now() - usedAt < 5000 || blocked()) return result;
+      const metadata = await rpc.request('thread/read', {threadId, includeTurns: false});
+      const source = record(metadata.thread), status = record(source.status).type;
+      if (source.id !== threadId || !['idle', 'notLoaded'].includes(String(status)) || blocked()) return result;
+    }
+    if (await this.refreshRuntime(true) === 'refreshed') {result.released = result.deferred; result.deferred = 0;}
+    return result;
+  }
+
   /** Caller serializes commands and history. Never replace an executing writer. */
   async refreshRuntime(force = false): Promise<'unchanged' | 'deferred' | 'refreshed'> {
     const previous = this.rpc;
@@ -524,7 +555,7 @@ export class HeadlessAdapter extends EventEmitter {
     }
     const runtime = await resolveCodexRuntime();
     if (!force && runtime.fingerprint === previous.runtime?.fingerprint) return 'unchanged';
-    const blocked = () => this.hasActiveTurn() || this.requests.size > 0 || this.newThreads.size > 0 || this.refreshing.size > 0
+    const blocked = () => this.hasActiveTurn() || this.pendingOperations > 0 || this.requests.size > 0 || this.newThreads.size > 0 || this.refreshing.size > 0
       || [...this.watched.values()].some(thread => thread.subAgents?.some(isSubAgentActive));
     if (this.reloading || this.starting || blocked()) return 'deferred';
     this.reloading = true;
@@ -538,6 +569,7 @@ export class HeadlessAdapter extends EventEmitter {
       this.refreshTimers.clear();
       this.rpc = null; // Ignore the old process's exit event during the intentional handover.
       await previous.stop();
+      this.ownedWriters.clear();
       if (this.stopped) { await replacement.stop(); return 'deferred'; }
       await this.open(replacement);
     } catch (error) {
@@ -613,6 +645,7 @@ export class HeadlessAdapter extends EventEmitter {
       const threadId = record(result.thread).id;
       if (typeof threadId !== 'string') throw new AdapterError('incompatible-app-server-response', true);
       this.newThreads.set(threadId, result);
+      this.ownedWriters.set(threadId, Date.now());
       this.settings.set(threadId, {model: result.model, effort: result.reasoningEffort ?? null, approvalPolicy: result.approvalPolicy, approvalsReviewer: result.approvalsReviewer, sandboxPolicy: result.sandbox, runtimeWorkspaceRoots: roots});
       const source = record(result.thread);
       this.watched.set(threadId, normalizeThread({ ...source, model: result.model, reasoningEffort: result.reasoningEffort,
@@ -622,11 +655,17 @@ export class HeadlessAdapter extends EventEmitter {
     }
     await this.rpc.request(payload.type === 'thread.rename' ? 'thread/name/set' : payload.type === 'thread.archive' ? 'thread/archive' : 'thread/delete',
       payload.type === 'thread.rename' ? { threadId: payload.threadId, name: payload.name } : { threadId: payload.threadId }, 30000);
-    if (payload.type !== 'thread.rename') { this.unfollow(payload.threadId); this.newThreads.delete(payload.threadId); }
+    if (payload.type !== 'thread.rename') { this.unfollow(payload.threadId); this.newThreads.delete(payload.threadId); this.ownedWriters.delete(payload.threadId); }
     return { threadId: payload.threadId, acknowledgedByAppServer: true };
   }
 
   async execute(command: RemoteCommand, imageInputs: UserInput[] = []): Promise<RecordValue> {
+    await this.releaseCheck;
+    this.pendingOperations++;
+    try { return await this.executeCommand(command, imageInputs); }
+    finally { this.pendingOperations--; }
+  }
+  private async executeCommand(command: RemoteCommand, imageInputs: UserInput[]): Promise<RecordValue> {
     const rpc = this.rpc;
     if (!rpc || !this.connected) throw new AdapterError("app-server-disconnected");
     const payload = command.payload;
@@ -766,6 +805,7 @@ export class HeadlessAdapter extends EventEmitter {
     }
     if (latest?.collaborationMode) settings.collaborationMode = latest.collaborationMode;
     const resumed = await rpc.request("thread/resume", { threadId, excludeTurns: true, approvalPolicy: settings.approvalPolicy, approvalsReviewer: settings.approvalsReviewer, sandbox: settings.sandbox, cwd: settings.cwd, runtimeWorkspaceRoots: settings.roots, model: settings.model, modelProvider: settings.modelProvider, ...(settings.serviceTier ? { serviceTier: settings.serviceTier } : {}) }, 30000);
+    this.ownedWriters.set(threadId, Date.now());
     if (!matchesSettings(resumed, settings)) throw new AdapterError("headless-settings-mismatch");
     return settings;
   }
@@ -782,6 +822,7 @@ export class HeadlessAdapter extends EventEmitter {
     this.busyTurns.clear();
     this.completedTurns.clear();
     this.pendingStarts = 0;
+    this.ownedWriters.clear();
     this.connected = false;
     await this.rpc?.stop();
     this.rpc = null;

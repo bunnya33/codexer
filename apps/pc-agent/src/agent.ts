@@ -51,6 +51,7 @@ export class PcAgent extends EventEmitter {
   private readonly awaitingQueuedTurn = new Set<string>();
   private flushTimer?: NodeJS.Timeout;
   private scanTimer?: NodeJS.Timeout;
+  private writerReleaseTimer?: NodeJS.Timeout;
   private catalogTimer?: NodeJS.Timeout;
   private reconnectTimer?: NodeJS.Timeout;
   private heartbeatTimer?: NodeJS.Timeout;
@@ -161,11 +162,20 @@ export class PcAgent extends EventEmitter {
     this.connectRelay();
     await this.scan();
     this.scanTimer = setInterval(() => { void this.selectRuntime(); void this.scan(); void this.refreshRuntime().catch(() => undefined); }, 15000);
+    this.writerReleaseTimer = setInterval(() => { void this.releaseIdleSessions(false).catch(() => undefined); }, 5000);
     void this.refreshCatalog();
     this.catalogTimer = setInterval(() => { void this.refreshCatalog(); }, 60000);
     this.log("agent-started");
   }
   /** Refresh the owned app-server without restarting the UI, Relay, or IPC owner. */
+  releaseIdleSessions(force = true): Promise<{released: number; deferred: number}> {
+    return this.commandQueue.run(async () => {
+      if (this.stopped || !this.headless) return {released: 0, deferred: 0};
+      const result = await this.headless.releaseIdleWriters(force);
+      if (result.released) this.log('idle-session-writers-released');
+      return result;
+    });
+  }
   refreshRuntime(force = false): Promise<'unchanged' | 'deferred' | 'refreshed'> {
     // A manual request arriving during an automatic check must still force a refresh.
     if (force && this.runtimeRefreshCheck) return this.runtimeRefreshCheck.then(() => this.refreshRuntime(true));
@@ -264,6 +274,31 @@ export class PcAgent extends EventEmitter {
     this.pinnedThreads.delete(threadId);
     this.pinnedThreads.set(threadId, Date.now());
     if (this.pinnedThreads.size > 8) this.pinnedThreads.delete(this.pinnedThreads.keys().next().value!);
+  }
+  private async executeWithHandoff(command: RemoteCommand, inputs: UserInput[]): Promise<Record<string, unknown>> {
+    if (!('threadId' in command.payload)) throw new AdapterError('unsupported-command');
+    const threadId = command.payload.threadId, previous = this.adapterForThread(threadId);
+    try { return await previous.execute(command, inputs); }
+    catch (error) {
+      // Only a rejected resume proves the original message was never sent.
+      // Never retry timeouts or an uncertain turn/start response in another runtime.
+      if (!(error instanceof AdapterError) || error.code !== 'thread-writer-busy' || error.uncertain
+        || previous !== this.headless || this.runtimePreference === 'headless' || !this.adapter.connected) throw error;
+      this.adapter.unfollow(threadId);
+      if (!await this.adapter.follow(threadId)) throw error;
+      const deadline = Date.now() + 2000;
+      while (!this.adapter.getThread(threadId)?.ownerAvailable && Date.now() < deadline && this.adapter.connected)
+        await new Promise(done => setTimeout(done, 25));
+      const thread = this.adapter.getThread(threadId);
+      if (!thread?.ownerAvailable) throw error;
+      if (this.stopped || this.remotePaused || !this.relayAllowed) throw new AdapterError('remote-disconnected');
+      if (Date.now() >= command.expiresAt) throw new AdapterError('command-expired');
+      this.headlessThreads.delete(threadId);
+      this.headless?.unfollow(threadId);
+      this.commit({type: 'thread.updated', thread: threadSchema.parse(this.withQueue(this.usageJournal.enrichThread(thread)))});
+      this.log('thread-desktop-owner-restored');
+      return this.adapter.execute(command, inputs);
+    }
   }
   private async watchThread(threadId: string): Promise<void> {
     if (!this.catalog?.threads.some(thread => thread.id === threadId)) throw new AdapterError("thread-not-in-catalog");
@@ -433,7 +468,7 @@ export class PcAgent extends EventEmitter {
             payload: { type: "turn.start", threadId, text: queued.text, images: queued.images, attachments: queued.attachments } };
           const inputs = await this.imageInputs(threadId, queued.images, queued.attachments);
           if (this.remotePaused || !this.relayAllowed || this.stopped) { this.journal.queueStatus(queued.id, "queued"); this.awaitingQueuedTurn.delete(threadId); return; }
-          await adapter.execute(command, inputs);
+          await this.executeWithHandoff(command, inputs);
           this.journal.removeQueued(queued.id);
         } catch (error) {
           this.awaitingQueuedTurn.delete(threadId);
@@ -487,7 +522,7 @@ export class PcAgent extends EventEmitter {
           const steer: RemoteCommand = { ...command, commandId: message.id, payload: { type: "turn.steer", threadId: payload.threadId, turnId: payload.turnId, text: message.text, images: message.images, attachments: message.attachments } };
           const inputs = await this.imageInputs(payload.threadId, message.images, message.attachments);
           if (!allowed()) throw new AdapterError("remote-disconnected");
-          const result = await this.adapterForThread(payload.threadId).execute(steer, inputs);
+          const result = await this.executeWithHandoff(steer, inputs);
           this.journal.removeQueued(message.id);
           this.publishQueue(payload.threadId);
           return { ...result, queueId: message.id };
@@ -658,7 +693,7 @@ export class PcAgent extends EventEmitter {
                   if (!('threadId' in payload)) throw new AdapterError('unsupported-command');
                   const inputs = await this.imageInputs(payload.threadId, payload.type === "turn.start" || payload.type === "turn.steer" ? payload.images ?? [] : [], payload.type === "turn.start" || payload.type === "turn.steer" ? payload.attachments ?? [] : []);
                   if (!current()) throw new AdapterError("remote-disconnected");
-                  return this.adapterForThread(payload.threadId).execute(command, inputs);
+                  return this.executeWithHandoff(command, inputs);
                 });
             result = { commandId: command.commandId, deviceId: command.deviceId, status: "succeeded", code: command.payload.type === 'runtime.refresh' ? 'runtime-refresh-accepted' : command.payload.type === "thread.watch" ? "thread-watched" : command.payload.type.startsWith("turn.queue") ? "queue-updated" : "acknowledgedByAppServer" in value ? "app-server-acknowledged" : "desktop-acknowledged", result: value };
           } catch (error) {
@@ -712,7 +747,7 @@ export class PcAgent extends EventEmitter {
   async stop(): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
-    clearTimeout(this.flushTimer); clearTimeout(this.scanTimer); clearTimeout(this.catalogTimer); clearTimeout(this.reconnectTimer); clearInterval(this.heartbeatTimer);
+    clearTimeout(this.flushTimer); clearTimeout(this.scanTimer); clearTimeout(this.catalogTimer); clearTimeout(this.reconnectTimer); clearInterval(this.heartbeatTimer); clearInterval(this.writerReleaseTimer);
     this.socket?.close(1000, "agent-stopping");
     this.adapter.stop();
     await this.headless?.stop();

@@ -4,7 +4,7 @@ import {PassThrough} from 'node:stream';
 import {HeadlessAdapter} from '../packages/codex-adapter/src/headless.js';
 import {normalizeThread} from '../packages/codex-adapter/src/normalize.js';
 
-const fixture = vi.hoisted(() => ({version: 'old', failInitialize: false, children: [] as Array<{kill: ReturnType<typeof vi.fn>; stdout: PassThrough; received: string[]}>}));
+const fixture = vi.hoisted(() => ({version: 'old', failInitialize: false, rejectResume: false, children: [] as Array<{kill: ReturnType<typeof vi.fn>; stdout: PassThrough; received: string[]}>}));
 vi.mock('../packages/codex-adapter/src/binary.js', () => ({resolveCodexRuntime: async () => ({binary: fixture.version, fingerprint: fixture.version})}));
 vi.mock('node:child_process', () => ({spawn: vi.fn(() => {
   const child = Object.assign(new EventEmitter(), {stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), kill: vi.fn(), received: [] as string[]});
@@ -15,14 +15,15 @@ vi.mock('node:child_process', () => ({spawn: vi.fn(() => {
     if (!request.id) return;
     const result = request.method === 'thread/read' ? {thread: {id: 'thread-test', cwd: '/test', status: {type: 'idle'}, preview: 'Test'}}
       : request.method === 'thread/turns/list' || request.method === 'thread/list' ? {data: [], nextCursor: null} : {};
-    const response = fixture.failInitialize && request.method === 'initialize' ? {error: {message: 'incomplete installation'}} : {result};
+    const response = fixture.failInitialize && request.method === 'initialize' ? {error: {message: 'incomplete installation'}}
+      : fixture.rejectResume && request.method === 'thread/resume' ? {error: {message: 'thread synthetic already has an active writer'}} : {result};
     queueMicrotask(() => child.stdout.write(JSON.stringify({id: request.id, ...response}) + '\n'));
   });
   fixture.children.push(child);
   return child;
 })}));
 const adapters: HeadlessAdapter[] = [];
-beforeEach(() => {fixture.version = 'old'; fixture.failInitialize = false; fixture.children = [];});
+beforeEach(() => {fixture.version = 'old'; fixture.failInitialize = false; fixture.rejectResume = false; fixture.children = [];});
 afterEach(async () => {for (const adapter of adapters.splice(0)) await adapter.stop();});
 async function connected() {
   const adapter = new HeadlessAdapter(); adapters.push(adapter);
@@ -30,6 +31,13 @@ async function connected() {
   adapter.watched.set('thread-test', normalizeThread({id: 'thread-test', threadRuntimeStatus: {type: 'idle'}, turns: []}, 0));
   return adapter;
 }
+
+it('normalizes a rejected active writer into an actionable conflict without retrying the message', async () => {
+  const adapter = await connected(); fixture.rejectResume = true;
+  await expect((adapter as any).rpc.request('thread/resume', {threadId: 'synthetic'})).rejects.toMatchObject({code: 'thread-writer-busy', uncertain: false});
+  expect(fixture.children[0]!.received.filter(method => method === 'thread/resume')).toHaveLength(1);
+  expect(fixture.children[0]!.received).not.toContain('turn/start');
+});
 
 it('switches only the owned idle server and preserves selected settings and subscriptions', async () => {
   const adapter = await connected();

@@ -33,9 +33,9 @@ jobs:
       - run: npm ci
       - run: npm run typecheck --workspace @codexer/desktop
       - run: npx vitest run tests/desktop-controller.test.ts tests/agent-profile.test.ts
-      - name: Package Windows Agent
+      - name: Package legacy Electron Windows Agent
         if: runner.os == 'Windows'
-        run: npm run package:desktop:win
+        run: npm run package:desktop:electron:win
       - name: Package macOS Agent
         if: runner.os == 'macOS'
         run: npm run package:desktop:mac:local -- --arm64

@@ -2,11 +2,11 @@
 
 ## 普通用户安装
 
-Windows x64 使用 `Codexer-Agent-Setup-<版本>-x64.exe`（安装版）或 `Codexer-Agent-Portable-<版本>-x64.exe`（便携版），Mac 使用 `Codexer-Agent-<版本>-mac-arm64.dmg` 或 x64 包。2026-10-24 起 Windows/macOS 的 PC 连接器统一恢复 Electron，安装包位于 `apps/desktop/release`；与原生控制端 Codexer Control 使用不同图标。无需安装 Node、npm、Git 或下载源码。构建决策见 [桌面架构](desktop-native.md)，签名流程见 [发布](release.md)。
+Windows x64 新版使用 `Codexer-Agent-Qt-Setup-<版本>-x64.exe`（安装版）或 `Codexer-Agent-Qt-Portable-<版本>-x64.exe`（便携版），位于 `apps/agent-qt/release`。2026-10-30 起优先将连接器迁为 Qt；Mac 暂保留既有 Electron DMG/x64 包，Qt Mac 源码需独立编译验收。与原生控制端 Codexer Control 使用不同图标。无需安装 Qt、Node、npm、Git 或下载源码。构建决策见 [桌面架构](desktop-native.md)，签名流程见 [发布](release.md)。
 
 本机必须已安装并登录官方 Codex，任务使用该电脑原有的模型、账号/密钥、工作目录和权限。连接器不代替官方 Codex。macOS 安装和验证见 [macOS 文档](mac.md)。
 
-Agent 使用本地管理界面及自定义标题栏，支持拖动、最小化、最大化/还原和关闭。默认关闭缩小到托盘；在设置中启用“关闭窗口时退出进程”后，每次关闭均需确认。
+Qt Agent 使用原生本地管理界面及系统标题栏，支持拖动、最小化、最大化/还原和关闭。默认关闭缩小到托盘；取消设置中的“关闭窗口时保留在托盘”后，每次关闭均需确认。托盘提供重启、运行时刷新和释放空闲会话。
 
 ## 首次连接
 

@@ -1,0 +1,49 @@
+name: Qt Codexer Agent Windows
+on:
+  workflow_dispatch:
+  push:
+    branches: ['main']
+    paths:
+      - 'apps/agent-qt/**'
+      - 'apps/desktop/src/**'
+      - 'apps/desktop/package.json'
+      - 'apps/pc-agent/**'
+      - 'packages/**'
+      - 'scripts/build-qt-agent.mjs'
+      - 'scripts/accept-qt-agent.mjs'
+      - '.github/workflows/qt-agent.yml'
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          arch: win64_msvc2022_64
+          archives: qtbase
+          cache: true
+      - run: npm ci
+      - run: npx vitest run tests/session-release.test.ts tests/writer-handoff.test.ts tests/runtime-refresh.test.ts tests/desktop-controller.test.ts
+      - name: Build and package native Qt Agent
+        shell: pwsh
+        run: |
+          $env:CODEXER_QT_ROOT = $env:QT_ROOT_DIR
+          npm run package:desktop:win
+      - run: npm run check:qt-agent
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Codexer-Agent-Qt-Windows
+          path: |
+            apps/agent-qt/release/*
+            .local/qt-agent-acceptance-latest.json
+          if-no-files-found: ignore

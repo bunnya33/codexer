@@ -1,7 +1,7 @@
 {
   "name": "@codexer/desktop",
-  "version": "0.2.15",
-  "description": "Codexer Agent — Windows and macOS Electron PC connector",
+  "version": "0.2.16",
+  "description": "Codexer Agent — Qt desktop connector with shared TypeScript core",
   "author": "Codexer contributors",
   "private": true,
   "type": "module",

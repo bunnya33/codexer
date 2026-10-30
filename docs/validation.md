@@ -1,5 +1,17 @@
 # 当前 Go 迁移验证
 
+## 2026-10-30 Windows Qt Agent 0.2.16 与会话写入锁
+
+用户要求优先将连接器迁为 Qt，Control 保留现有 React Native。Windows x64 Qt 6.8.3 Widgets / MSVC 实际 Release 编译通过；后台复用 `ConnectorController`、`PcAgent` 与协议代码，独立 Node 随包交付。Windows 安装版与便携版已生成，安装版 32,373,397 字节，SHA-256 `fd1b801b5ba5f4f4ea3fc6fa6ba2af34bb89cea6a59189fac55d8183a1363a08`；便携版 32,156,911 字节，SHA-256 `f53c08843e3d1f3c48ef2e393c9d0d79f366d8f13d478f4ed7609a9f2442c83b`。解开安装包后，40 个文件中的原生 EXE、Qt DLL、Node、后台 bundle 和构建清单与 stage 逐字节一致，产品名/版本为 Codexer Agent / 0.2.16，未包含 Electron/Chromium 运行时。动态 Qt 库、VC 运行库和许可证随包交付。
+
+隔离合成配置通过新配置启动、DPAPI 加解密、已有 `session.native.enc` 恢复、旧 Electron `v10` 加密登录迁移、installationId 保留、单实例与关闭后台验收；最终便携 EXE 也通过全部三类配置验收。旧加密源保留，迁移目标继续系统加密；测试没有连接真实账号。Qt 界面加 Node 后台在空闲未连接状态采样约 146–153 MiB，最终便携版约 150–158 MiB；旧 Electron 连接器此前五个进程采样约 698 MiB。任务和连接状态不同，不据此计算固定节省比例，Codex app-server、工具与模型任务额外进程未计入 Qt 空闲数据。
+
+完整 Go 与 81 个文件中的 573 项 TypeScript 回归通过；调整最终释放实现后，46 项会话释放、交接、运行时与 headless 专项回归再次通过。根/Admin/Agent/旧控制端、移动端类型与文档检查通过。真实 Codex 独立临时数据目录验证：A 持有合成会话时，B 恢复返回 active writer；`thread/unsubscribe` 返回成功后 B 仍被拒绝，说明取消订阅并不释放 writer。新版 Adapter 确认空闲并重建自身 app-server 后报告释放 1 个会话，B 成功恢复同一个会话 ID。合成历史使用本地注入创建，无模型请求、无真实会话修改。
+
+自动释放每 5 秒检查自身写入者，等待最短 5 秒；所有自有写入者空闲时才可重建后台，运行任务、命令、审批/回复、子任务或未保存新会话会延后。替代服务初始化失败保留旧服务。仅明确拒绝恢复的冲突可重新发现兼容桌面 owner 并交接未发送的指令；超时、未知结果、过期和暂停不重发。此轮没有验证用户报错原会话的实际交接，也不能强制释放官方 Codex/其他 CLI 正在持有的会话。
+
+本次交付 Windows 安装包与便携包，未覆盖当前正在运行且记录有活跃任务的 Agent；生产服务器也未安装或重启。Control 的中文错误说明已更新共享源码，Web 需另行构建部署。macOS Qt 平台源码已准备，但未实际编译、打包或进行钥匙串/启动项实机验收，既有 Mac 发行版保留。
+
 ## 2026-10-30 服务器 0.3.32：切换会话保留草稿
 
 会话编辑框草稿对应 `5fd2e0bd3daa6822acc331d02569fc561e6132ec`，以稳定版 [v0.3.32](https://github.com/bunnya33/codexer/releases/tag/v0.3.32) 发布。[服务器发布流程](https://github.com/bunnya33/codexer/actions/runs/40985094571) 全部成功，包含 79 个文件中的 553 项 TypeScript 测试、完整 Go 与 PostgreSQL 回归、Go race、根/Admin/Agent/旧控制端类型、文档、Web/Admin/内嵌 Go 生产构建、独立单文件运行验收及 Linux/macOS amd64/arm64 四平台包。
