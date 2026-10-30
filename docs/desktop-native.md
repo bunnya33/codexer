@@ -4,7 +4,7 @@
 
 | 产品 | 用途 | 实现 | 代码与版本来源 | 图标 |
 | --- | --- | --- | --- | --- |
-| Codexer Agent | 在被控制电脑登录、连接 Relay、执行本机任务 | Qt Widgets + 本地 Node / PC Agent 核心 | `apps/agent-qt` / `apps/desktop/package.json` | 蓝色终端与绿色连接点 |
+| Codexer Agent | 在被控制电脑登录、连接 Relay、执行本机任务 | Qt Widgets + 同进程 C++/Qt 后台（Windows 0.2.17 起） | `apps/agent-qt` / `apps/desktop/package.json` | 蓝色终端与绿色连接点 |
 | Codexer Control | 远程选择设备、项目和会话并操作 Codex | React Native for Windows / React Native macOS | `apps/control-native` / `apps/control-native/package.json` | 紫色屏幕与青色对话框 |
 
 两个产品都在 `main` 维护。Windows/macOS 复用各产品的业务代码与版本，只把系统 API 放入平台适配层。服务器继续使用 Go，服务器版本与桌面客户端独立。
@@ -21,7 +21,7 @@
 
 Qt Agent 输出到 `apps/agent-qt/release`，旧 Electron 输出到 `apps/desktop/release`，Control 输出到 `apps/control-native/release`。React Native 工程保留的 Agent 模式只属于历史迁移代码，不是交付入口。
 
-Qt Agent 的 Widgets 原生界面、动态 Qt 库与独立 Node 后台随包交付，用户无需安装 Qt 或 Node，不附带 Chromium/Electron。复用已有控制器、协议、设备身份及任务逻辑，不使用 WebEngine 或 WebView 加载应用主界面。Control 的原生 UI 随安装包交付；服务器提供 API、实时状态与文件数据。构建与许可证见 [Qt Agent](../apps/agent-qt/README.md)。
+Qt Agent 0.2.17 的 Widgets 原生界面与 C++/Qt 后台在同一进程，动态 Qt 库、SQLite 插件和 Zstd 解压库随包交付。运行及安装内容不再依赖 Node 或 JavaScript 引擎；构建工具仍使用 Node。沿用现有协议、设备身份与任务行为，不使用 WebEngine 或 WebView 加载应用主界面。Control 的原生 UI 随安装包交付；服务器提供 API、实时状态与文件数据。构建与许可证见 [Qt Agent](../apps/agent-qt/README.md)。
 
 ## 改名与迁移
 

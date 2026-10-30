@@ -1,5 +1,11 @@
 # 本地发布与打包
 
+## Windows Agent 0.2.17：C++/Qt 后台
+
+在 0.2.16 Qt 界面迁移基础上，继续移除 Node 后台、JS bundle 和运行时。UI 与原生后台同进程运行，Qt 工作线程负责连接、官方 Codex RPC/IPC、会话/审批/队列、文件与更新。保留既有配置、设备身份和加密登录；不需要更新服务器或 Control。macOS 暂保留既有发行入口，本轮不宣称 Qt Mac 已构建。
+
+构建与原生回归见 [Qt Agent](../apps/agent-qt/README.md)。内存、原生编译、包校验和实机验收分别记录在 [验证范围](validation.md)，不把旧版 TypeScript 测试当作新后台验收。
+
 ## Windows Agent 0.2.16：Qt 连接器与会话释放
 
 连接器改用 Qt 6.8.3 Widgets 原生界面和独立 Node 后台，复用既有登录控制器、PC Agent 与协议核心。保留设备身份、DPAPI/旧 Electron 登录迁移、托盘、关闭留后台、退出确认、重启、自动连接与登录项、运行时刷新和更新入口；Control 保留现有 React Native 宿主。

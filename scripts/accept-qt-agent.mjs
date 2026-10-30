@@ -39,16 +39,18 @@ for (const kind of ['fresh', 'native-credentials', 'electron-v10']) {
   try {
     const result = await waitFile(report, child); assert(result.ok); assert(result.vaultRoundTrip); assert.equal(result.version, version); assert.equal(result.tabs, 5);
     assert.equal(result.installationId, settings.installationId); assert.equal(result.loggedIn, kind !== 'fresh');
-    const memory = JSON.parse(execFileSync(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', `$p=Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -eq ${result.processId} -or $_.ProcessId -eq ${result.backendPid} }; @($p | Select-Object ProcessId,ParentProcessId,Name,WorkingSetSize) | ConvertTo-Json -Compress`], {encoding: 'utf8', windowsHide: true}));
+    await new Promise(done => setTimeout(done, 2000)); result.memorySampleDelayMs = 2000;
+    const memory = [].concat(JSON.parse(execFileSync(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', `$p=Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -eq ${result.processId} -or $_.ProcessId -eq ${result.backendPid} }; @($p | Select-Object ProcessId,ParentProcessId,Name,ExecutablePath,WorkingSetSize,PrivatePageCount) | ConvertTo-Json -Compress`], {encoding: 'utf8', windowsHide: true})));
     result.memory = memory; result.workingSetBytes = memory.reduce((sum, entry) => sum + Number(entry.WorkingSetSize), 0);
-    assert.equal(memory.length, 2); assert(!JSON.stringify(result).includes(credentials.session));
+    result.privateBytes = memory.reduce((sum, entry) => sum + Number(entry.PrivatePageCount), 0);
+    assert.equal(memory.length, 1); assert.equal(result.backend, 'C++/Qt'); assert.equal(result.nodeRuntime, false); assert.equal(result.processId, result.backendPid); assert(!JSON.stringify(result).includes(credentials.session));
     const second = spawn(executable, ['--background'], {env, windowsHide: true, stdio: 'ignore'});
     assert.equal(await new Promise(done => second.once('exit', done)), 0); assert.equal(child.exitCode, null);
     result.singleInstance = true;
     if (kind === 'electron-v10') {await access(join(profile, 'session.native.enc')); assert((await readFile(join(profile, 'session.enc'))).subarray(0, 3).toString() === 'v10'); result.encryptedMigration = true;}
     assert.equal(JSON.parse(await readFile(join(profile, 'settings.json'), 'utf8')).installationId, settings.installationId);
     await new Promise((done, fail) => {if (child.exitCode !== null) return child.exitCode === 0 ? done() : fail(new Error('Agent exit')); child.once('exit', code => code === 0 ? done() : fail(new Error('Agent shutdown ' + code)));});
-    results.push({kind, ...result}); console.log(JSON.stringify({kind, ok: result.ok, loggedIn: result.loggedIn, workingSetMiB: Math.round(result.workingSetBytes / 1048576), singleInstance: true}));
+    results.push({kind, ...result}); console.log(JSON.stringify({kind, ok: result.ok, loggedIn: result.loggedIn, workingSetMiB: Math.round(result.workingSetBytes / 1048576), privateMiB: Math.round(result.privateBytes / 1048576), singleInstance: true}));
   } finally {if (child.exitCode === null) child.kill();}
 }
 await writeFile(join(directory, 'results.json'), JSON.stringify({version, results}, null, 2));

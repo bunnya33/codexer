@@ -29,7 +29,8 @@ jobs:
         with:
           version: '6.8.3'
           arch: win64_msvc2022_64
-          archives: qtbase
+          modules: qtwebsockets
+          archives: qtbase qtwebsockets
           cache: true
       - run: npm ci
       - run: npx vitest run tests/session-release.test.ts tests/writer-handoff.test.ts tests/runtime-refresh.test.ts tests/desktop-controller.test.ts
@@ -38,6 +39,7 @@ jobs:
         run: |
           $env:CODEXER_QT_ROOT = $env:QT_ROOT_DIR
           npm run package:desktop:win
+      - run: npm run check:qt-backend
       - run: npm run check:qt-agent
       - uses: actions/upload-artifact@v4
         if: always()

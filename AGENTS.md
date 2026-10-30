@@ -2,7 +2,7 @@
 
 2026-10-30 用户更新决定：**优先将 PC 连接器 Codexer Agent 改为 Qt，以降低内存；Codexer Control 暂不迁移，继续使用 React Native 原生宿主。** 本条取代 2026-10-24 连接器使用 Electron 的约定；控制端约定保持。
 
-- Codexer Agent 使用 `apps/agent-qt` 的 Qt Widgets 界面和本地 Node 后台，复用 `apps/desktop/src/controller.ts`、`apps/pc-agent` 与协议核心。不使用 Qt WebEngine/WebView 承载管理界面。Windows 默认 `package:desktop:win` 生成 Qt 包；旧 Electron 显式入口保留用于回退。macOS Qt 源码与实际编译验收分开记录，未完成验收前保留既有发行版。
+- Codexer Agent 使用 `apps/agent-qt` 的 Qt Widgets 界面和同进程 C++/Qt 后台；2026-10-30 用户进一步确认后台也须移除 Node 以降低常驻内存。沿用共享协议与行为，TypeScript 仅保留旧发行入口及迁移对照。不使用 Qt WebEngine/WebView 承载管理界面。Windows 默认 `package:desktop:win` 生成 Qt 包；旧 Electron 显式入口保留用于回退。macOS Qt 源码与实际编译验收分开记录，未完成验收前保留既有发行版。
 - Codexer Control 的 Windows/macOS 共用 `apps/control-native/src`、`apps/mobile` 的界面与业务状态，Windows 使用 React Native for Windows，macOS 使用 React Native macOS。主界面本机渲染，随客户端安装包交付。预览用户网页可使用隔离 WebView。
 - 两类产品在 `main` 维护，平台差异只放进相应系统适配层；不得为 Windows/Mac 长期维护独立功能分支或复制整套业务界面。
 - Agent 版本来自 `apps/desktop/package.json`，Control 版本来自 `apps/control-native/package.json`；各产品两平台使用同一版本来源。UI、后台与安装包读取对应来源，不另写版本常量。

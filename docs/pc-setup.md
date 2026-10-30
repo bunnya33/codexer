@@ -2,7 +2,7 @@
 
 ## 普通用户安装
 
-Windows x64 新版使用 `Codexer-Agent-Qt-Setup-<版本>-x64.exe`（安装版）或 `Codexer-Agent-Qt-Portable-<版本>-x64.exe`（便携版），位于 `apps/agent-qt/release`。2026-10-30 起优先将连接器迁为 Qt；Mac 暂保留既有 Electron DMG/x64 包，Qt Mac 源码需独立编译验收。与原生控制端 Codexer Control 使用不同图标。无需安装 Qt、Node、npm、Git 或下载源码。构建决策见 [桌面架构](desktop-native.md)，签名流程见 [发布](release.md)。
+Windows x64 新版使用 `Codexer-Agent-Qt-Setup-<版本>-x64.exe`（安装版）或 `Codexer-Agent-Qt-Portable-<版本>-x64.exe`（便携版），位于 `apps/agent-qt/release`。2026-10-30 起优先将连接器迁为 Qt；Windows 0.2.17 起界面与后台均为 C++/Qt，包内和运行时不再依赖 Node；Mac 暂保留既有 Electron DMG/x64 包，Qt Mac 源码需独立编译验收。与原生控制端 Codexer Control 使用不同图标。无需安装 Qt、Node、npm、Git 或下载源码。构建决策见 [桌面架构](desktop-native.md)，签名流程见 [发布](release.md)。
 
 本机必须已安装并登录官方 Codex，任务使用该电脑原有的模型、账号/密钥、工作目录和权限。连接器不代替官方 Codex。macOS 安装和验证见 [macOS 文档](mac.md)。
 

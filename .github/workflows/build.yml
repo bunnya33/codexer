@@ -22,7 +22,8 @@ jobs:
         with:
           version: '6.8.3'
           arch: win64_msvc2022_64
-          archives: qtbase
+          modules: qtwebsockets
+          archives: qtbase qtwebsockets
           cache: true
       - run: npm ci
       - run: npm ci --prefix apps/control-native
@@ -45,6 +46,8 @@ jobs:
         run: |
           $env:CODEXER_QT_ROOT = $env:QT_ROOT_DIR
           npm run package:desktop:win
+      - run: npm run check:qt-backend
+        if: runner.os == 'Windows'
       - run: npm run package:desktop:mac:local -- --arm64
         if: runner.os == 'macOS'
       - run: npm run package:windows-native

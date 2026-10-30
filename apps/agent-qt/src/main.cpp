@@ -1,10 +1,12 @@
 #include <QtWidgets>
 #include <QtNetwork>
 #include <functional>
+#include "native.h"
 #ifdef Q_OS_WIN
 #include <windows.h>
 #include <wincrypt.h>
 #include <tlhelp32.h>
+#include <bcrypt.h>
 #endif
 
 #ifdef Q_OS_MACOS
@@ -72,10 +74,26 @@ static bool oldAgentRunning() {
 #endif
 }
 using Reply = std::function<void(QJsonValue, QString)>;
+static QByteArray legacyUnprotect(const QByteArray &bytes, const QByteArray &wrapped, QString &error) {
+#ifdef Q_OS_WIN
+  if (!bytes.startsWith("v10") || bytes.size() < 31 || !wrapped.startsWith("DPAPI")) {error = "unsupported-credential-key"; return {};}
+  auto key = vault(wrapped.mid(5), false, error); if (!error.isEmpty() || key.size() != 32) return {};
+  BCRYPT_ALG_HANDLE algorithm{}; BCRYPT_KEY_HANDLE handle{};
+  if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_AES_ALGORITHM, nullptr, 0) < 0) {error = "secure-storage-unavailable"; return {};}
+  BCryptSetProperty(algorithm, BCRYPT_CHAINING_MODE, reinterpret_cast<PUCHAR>(const_cast<wchar_t *>(BCRYPT_CHAIN_MODE_GCM)), sizeof(BCRYPT_CHAIN_MODE_GCM), 0);
+  QByteArray plain(bytes.size() - 31, '\0'); ULONG written = 0; BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO info; BCRYPT_INIT_AUTH_MODE_INFO(info);
+  info.pbNonce = reinterpret_cast<PUCHAR>(const_cast<char *>(bytes.constData() + 3)); info.cbNonce = 12; info.pbTag = reinterpret_cast<PUCHAR>(const_cast<char *>(bytes.constData() + bytes.size() - 16)); info.cbTag = 16;
+  NTSTATUS status = BCryptGenerateSymmetricKey(algorithm, &handle, nullptr, 0, reinterpret_cast<PUCHAR>(key.data()), key.size(), 0);
+  if (status >= 0) status = BCryptDecrypt(handle, reinterpret_cast<PUCHAR>(const_cast<char *>(bytes.constData() + 15)), bytes.size() - 31, &info, nullptr, 0, reinterpret_cast<PUCHAR>(plain.data()), plain.size(), &written, 0);
+  SecureZeroMemory(key.data(), key.size()); if (handle) BCryptDestroyKey(handle); BCryptCloseAlgorithmProvider(algorithm, 0); if (status < 0) {error = "credential-decryption-failed"; return {};} plain.resize(written); return plain;
+#else
+  return vault(bytes, false, error);
+#endif
+}
 
 class AgentWindow : public QMainWindow {
-  QProcess service;
-  QByteArray buffer;
+  Native::Service *service;
+  QThread worker;
   QHash<int, Reply> replies;
   int sequence = 0;
   bool quitting = false, restart = false, reconnectAfterRestart = false, initialized = false, smoke = false, ready = false, startupProcessed = false;
@@ -153,27 +171,14 @@ public:
     menu->addAction("退出 Codexer Agent", this, [this] {exitAgent(false);}); tray->setContextMenu(menu); tray->setToolTip("Codexer Agent");
     connect(tray, &QSystemTrayIcon::activated, this, [this](auto reason) {if (reason == QSystemTrayIcon::Trigger || reason == QSystemTrayIcon::DoubleClick) restore();});
     if (!smoke) tray->show();
-    connect(&service, &QProcess::readyReadStandardOutput, this, [this] {receive();});
-    connect(&service, &QProcess::readyReadStandardError, this, [this] {service.readAllStandardError();});
-    connect(&service, &QProcess::errorOccurred, this, [this](auto) {showError("无法启动本机后台服务，请重新安装完整连接器。");});
-    connect(&service, &QProcess::finished, this, [this](int, auto) {
-      if (quitting) qApp->quit();
-      else {summary->setText("后台服务已退出"); showError("后台服务已停止，请从托盘重启连接器。");}
-    });
-    auto environment = QProcessEnvironment::systemEnvironment();
-    environment.insert("CODEXER_USER_DATA_DIR", profile); // loginItem suppression depends on the original test flag, supplied separately.
-    if (!qEnvironmentVariableIsSet("CODEXER_USER_DATA_DIR")) environment.insert("CODEXER_QT_REAL_PROFILE", "1");
-    service.setProcessEnvironment(environment);
-    auto root = QCoreApplication::applicationDirPath();
-    service.start(root + "/runtime/" +
-#ifdef Q_OS_WIN
-      "node.exe",
-#else
-      "node",
-#endif
-      {root + "/service/agent.cjs"});
+    service = new Native::Service(profile); service->moveToThread(&worker);
+    connect(&worker, &QThread::started, service, &Native::Service::start);
+    connect(&worker, &QThread::finished, service, &QObject::deleteLater);
+    connect(service, &Native::Service::message, this, [this](QJsonObject value) {receive(value);});
+    connect(service, &Native::Service::finished, this, [this] {worker.quit(); qApp->quit();}); worker.start();
     if (smoke) QTimer::singleShot(20000, this, [this] {if (!ready) {writeSmoke(false); qApp->exit(2);}});
   }
+  ~AgentWindow() override {if (worker.isRunning()) {QMetaObject::invokeMethod(service, [this] {service->submit({{"id", -1}, {"method", "shutdown"}});}, Qt::QueuedConnection); worker.quit(); worker.wait(15000);}}
   void restore() {showNormal(); raise(); activateWindow();}
   bool restartRequested() const {return restart;}
   bool reconnectRequested() const {return reconnectAfterRestart;}
@@ -187,8 +192,7 @@ public:
     if (!smoke && QMessageBox::question(this, reboot ? "重启连接器" : "退出连接器", message, QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) return;
     const auto phase = state["phase"].toString(); reconnectAfterRestart = phase == "connected" || phase == "connecting" || phase == "reconnecting";
     quitting = true; restart = reboot; tray->hide();
-    request("shutdown", {}, [this](QJsonValue, QString) {service.closeWriteChannel();});
-    QTimer::singleShot(12000, this, [this] {if (service.state() != QProcess::NotRunning) service.kill(); else qApp->quit();});
+    request("shutdown");
   }
 protected:
   void closeEvent(QCloseEvent *event) override {
@@ -205,9 +209,9 @@ private:
   }
   void showError(QString text) {errorLabel->setText(text); errorLabel->setVisible(!text.isEmpty());}
   void request(QString method, QJsonObject value = {}, Reply callback = {}) {
-    if (service.state() != QProcess::Running) {if (callback) callback({}, "service-unavailable"); return;}
+    if (!worker.isRunning()) {if (callback) callback({}, "service-unavailable"); return;}
     const int id = ++sequence; replies.insert(id, [this, callback](QJsonValue result, QString error) {if (!error.isEmpty()) showError(error); if (callback) callback(result, error);});
-    service.write(QJsonDocument(QJsonObject{{"id", id}, {"method", method}, {"value", value}}).toJson(QJsonDocument::Compact) + '\n');
+    QMetaObject::invokeMethod(service, [this, id, method, value] {service->submit({{"id", id}, {"method", method}, {"value", value}});}, Qt::QueuedConnection);
     QTimer::singleShot(45000, this, [this, id] {if (replies.contains(id)) {auto callback = replies.take(id); callback({}, "操作未及时完成，请查看连接与诊断。");}});
   }
   void save(std::function<void()> next = {}) {
@@ -241,12 +245,9 @@ private:
       if (smoke && !ready) {ready = true; QTimer::singleShot(500, this, [this] {smokeTest();});}
     }
   }
-  void receive() {
-    buffer += service.readAllStandardOutput(); if (buffer.size() > 2 * 1024 * 1024) {service.kill(); return;}
-    for (int index; (index = buffer.indexOf('\n')) >= 0;) {
-      const auto line = buffer.left(index); buffer.remove(0, index + 1); const auto message = QJsonDocument::fromJson(line).object();
-      if (message.contains("nativeId")) {platform(message); continue;}
-      if (message.contains("id")) {const int id = message["id"].toInt(); if (replies.contains(id)) {auto callback = replies.take(id); callback(message["value"], message["error"].toString());} continue;}
+  void receive(QJsonObject message) {
+      if (message.contains("nativeId")) {platform(message); return;}
+      if (message.contains("id")) {const int id = message["id"].toInt(); if (replies.contains(id)) {auto callback = replies.take(id); callback(message["value"], message["error"].toString());} return;}
       const auto event = message["event"].toString();
       if (event == "state") apply(message["value"].toObject());
       if (event == "fatal") showError(message["value"].toString());
@@ -261,11 +262,11 @@ private:
         if (available) {QPainter painter(&badge); painter.setRenderHint(QPainter::Antialiasing); painter.setPen(QPen(Qt::white, 2)); painter.setBrush(QColor("#e53e3e")); painter.drawEllipse(QPointF(25, 7), 5, 5);}
         tray->setIcon(QIcon(badge));
       }
-    }
   }
   void platform(QJsonObject message) {
     const auto method = message["method"].toString(); const auto value = message["value"].toObject(); QString error; QJsonValue result;
     if (method == "protect" || method == "unprotect") {auto bytes = vault(QByteArray::fromBase64(value["value"].toString().toLatin1()), method == "protect", error); result = QString::fromLatin1(bytes.toBase64());}
+    else if (method == "legacyUnprotect") {auto bytes = legacyUnprotect(QByteArray::fromBase64(value["value"].toString().toLatin1()), QByteArray::fromBase64(value["key"].toString().toLatin1()), error); result = QString::fromLatin1(bytes.toBase64());}
     else if (method == "vault.available") {auto bytes = vault("probe", true, error); result = error.isEmpty() && !bytes.isEmpty();}
     else if (method == "loginItem") result = loginItem(value["enabled"].toBool(), error);
     else if (method == "saveDialog") result = QFileDialog::getSaveFileName(this, "保存诊断", QDir::homePath() + '/' + value["name"].toString());
@@ -274,12 +275,13 @@ private:
     else if (method == "showPackage") result = QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(value["path"].toString()).absolutePath()));
     else error = "unknown-platform-operation";
     QJsonObject reply{{"nativeId", message["nativeId"]}, {"value", result}}; if (!error.isEmpty()) reply["error"] = error;
-    service.write(QJsonDocument(reply).toJson(QJsonDocument::Compact) + '\n');
+    QMetaObject::invokeMethod(service, [this, reply] {service->submit(reply);}, Qt::QueuedConnection);
   }
   void writeSmoke(bool success) {
     smokeResults["ok"] = success; smokeResults["ui"] = "Qt Widgets"; smokeResults["qtVersion"] = qVersion(); smokeResults["version"] = state["version"]; smokeResults["secureStorage"] = state["secureStorage"]; smokeResults["tabs"] = tabs->count();
-    smokeResults["processId"] = QCoreApplication::applicationPid(); smokeResults["backendPid"] = service.processId();
+    smokeResults["processId"] = QCoreApplication::applicationPid(); smokeResults["backendPid"] = QCoreApplication::applicationPid(); smokeResults["backend"] = "C++/Qt"; smokeResults["nodeRuntime"] = false;
     smokeResults["loggedIn"] = state["loggedIn"]; smokeResults["installationId"] = settings["installationId"]; smokeResults["phase"] = state["phase"];
+    smokeResults["status"] = state["status"]; smokeResults["startupError"] = state["startupError"];
     QFile report(smokePath); if (report.open(QIODevice::WriteOnly)) report.write(QJsonDocument(smokeResults).toJson());
   }
   void smokeTest() {

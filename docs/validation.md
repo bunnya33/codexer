@@ -1,5 +1,17 @@
 # 当前 Go 迁移验证
 
+## 2026-10-30 Agent 0.2.17 原生后台
+
+Windows x64 的 Qt 6.8.3 Widgets 界面和同进程 C++/Qt 后台已实际使用 MSVC 原生编译。后台为 Qt 工作线程，安装内容无 Node、JavaScript 引擎、agent.cjs 或 Electron。官方 Rust Codex app-server 按需独立运行。Control、Go 服务器和 Mac 既有发行入口保持本轮范围。
+
+隔离原生回归 42 项通过，包括运行时刷新/替代失败保留旧进程、活动任务与待审批延后、writer 拒绝后桌面交接、未知结果不重发、设置拒绝不误报、权限确认、SQLite 旧命令/发送中队列、历史时序、项目创建与目录身份变化保护、文件/图片线程隔离、预览 loopback 授权及更新下载哈希。真实临时 CODEX_HOME 验证同 ID 写入者释放后能恢复；不发送模型任务。共享 TypeScript/Zod 对照 231 组通过。既有 Go 与 573 项 TypeScript 回归通过，但不以它们替代原生后台验收。
+
+三种隔离配置分别覆盖首次启动、已有原生登录与旧 Electron v10 加密迁移，保留设备身份、单实例和正常关闭。完整应用与本地合成 Relay、隔离真实 Codex 运行时连接，所有上行消息通过协议检查，进程树无 Node。内存以 Windows CIM 工作集和 PrivatePageCount（私有提交内存）分别记录；它们不是同一指标。最终包与便携启动结果见本次发行目录的验收说明。macOS Qt、真实账号完整远程模型任务及长期驻留仍须单独实机验收。
+
+最终 Windows 安装版为 10,879,121 字节，SHA-256 `79a3d45c1e6db20ad790fe834cb5d53c7ab8ba62dae1aa37c4f259736dea3853`；便携版为 10,662,504 字节，SHA-256 `32b67fcfcf953cdbd8282df5ac8dca4e7fd9e7811c115b4cfb222daf622aa6e7`。解包后的 38 个文件与 stage 逐字节一致，两种 EXE 的摘要均通过校验。便携版使用每次启动独立的 NSIS 临时目录，避免重复启动删除另一实例的 DLL；并行隔离配置连接及原配置重复启动验收通过。
+
+stage 的未连接主进程约 90 MiB 工作集、33 MiB 私有提交内存；最终便携版未连接主进程就绪后 2 秒约 95 MiB / 35–36 MiB，连接本地合成 Relay 与真实隔离 Codex 后 5 秒约 100 MiB / 37 MiB。Rust Codex 子进程另约 96 MiB / 17 MiB，初始化 Git、控制台及便携启动器另计。首次启动的即时采样曾达 137 MiB / 69 MiB，因此不把短时采样当作恒定或长期上限，也不以不同状态计算固定节省比例。本轮交付位于 `release/agent-native-0.2.17`；当前生产 Agent 仍有活动任务，未强行覆盖安装或停止官方 Codex。
+
 ## 2026-10-30 Windows Qt Agent 0.2.16 与会话写入锁
 
 用户要求优先将连接器迁为 Qt，Control 保留现有 React Native。Windows x64 Qt 6.8.3 Widgets / MSVC 实际 Release 编译通过；后台复用 `ConnectorController`、`PcAgent` 与协议代码，独立 Node 随包交付。Windows 安装版与便携版已生成，安装版 32,373,397 字节，SHA-256 `fd1b801b5ba5f4f4ea3fc6fa6ba2af34bb89cea6a59189fac55d8183a1363a08`；便携版 32,156,911 字节，SHA-256 `f53c08843e3d1f3c48ef2e393c9d0d79f366d8f13d478f4ed7609a9f2442c83b`。解开安装包后，40 个文件中的原生 EXE、Qt DLL、Node、后台 bundle 和构建清单与 stage 逐字节一致，产品名/版本为 Codexer Agent / 0.2.16，未包含 Electron/Chromium 运行时。动态 Qt 库、VC 运行库和许可证随包交付。

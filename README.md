@@ -7,7 +7,7 @@
 | 模块 | 技术 | 职责与交付 |
 | --- | --- | --- |
 | 控制客户端 | React Native + Expo + TypeScript | iOS、Android、Web 及既有 Windows 原生控制端复用 UI 和远程控制逻辑 |
-| PC 连接器 Codexer Agent | Qt Widgets + TypeScript/Node 核心 | Windows Qt 原生连接器；macOS Qt 迁移待编译验收，既有包保留 |
+| PC 连接器 Codexer Agent | Qt Widgets + C++/Qt 后台（Windows） | Windows Qt 原生连接器；macOS Qt 迁移待编译验收，既有包保留 |
 | 管理后台 | React + Vite + TypeScript | `/admin/` 侧栏控制台、两类独立账号、登录策略、服务器更新 |
 | Relay | Go + HTTP/WebSocket | 登录认证、账号隔离、设备状态、命令与历史转发；SQLite 或 PostgreSQL |
 
