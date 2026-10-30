@@ -6,7 +6,6 @@ import { controlPlatform, controlVersion } from './build-info';
 import { relay } from './relay';
 import { useTheme } from './styles';
 import { ThemePicker } from './theme-picker';
-import { AgentDownload } from './agent-download';
 import { AgentVersion } from './agent-version';
 import {ClientUpdatePanel} from './client-update-panel';
 import {WindowClosePreference} from './client-platform-settings';
@@ -31,7 +30,6 @@ export function ControlSettings({ url, device, onWeixin, onLogout,section='all' 
     {show('appearance')&&<ThemePicker />}
     {show('general')&&<View style={styles.group}><WindowClosePreference/><Text style={{color:c.muted,lineHeight:22,paddingVertical:14}}>设置仅保存在当前设备。界面外观在“外观”中选择，客户端升级在“更新与下载”中管理。</Text></View>}
     {show('updates')&&<ClientUpdatePanel/>}
-    {show('updates')&&<AgentDownload url={url}/>}
     {show('connection')&&<View style={styles.group}><RuntimeRefresh device={device}/></View>}
     {show('connection','about')&&<>
     <Text style={styles.label}>连接</Text>

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, Text, View } from "react-native";
 import { useClientUpdates } from "./client-updates";
 import { useTheme } from "./styles";
+import type { ClientUpdatePhase } from "./client-update-state";
 export function ClientUpdatePanel() {
   const { c } = useTheme(),
     updates = useClientUpdates(),
@@ -9,6 +10,8 @@ export function ClientUpdatePanel() {
     live = useRef(true);
   const [busy, setBusy] = useState(false),
     [progress, setProgress] = useState(0),
+    [phase, setPhase] = useState<ClientUpdatePhase>("downloading"),
+    [note, setNote] = useState(""),
     [error, setError] = useState("");
   useEffect(() => {
     live.current = true;
@@ -40,6 +43,7 @@ export function ClientUpdatePanel() {
           accessibilityLabel="检查客户端更新"
           disabled={busy || updates.checking}
           onPress={() => {
+            if (task.current) return;
             setError("");
             void updates.check().catch(() => {
               if (live.current) setError("检查失败，请重试");
@@ -60,14 +64,31 @@ export function ClientUpdatePanel() {
           accessibilityRole="button"
           disabled={busy}
           onPress={() => {
+            if (task.current) return;
             const abort = new AbortController();
             task.current = abort;
             setBusy(true);
             setProgress(0);
+            setPhase("downloading");
+            setNote("");
             setError("");
             void updates
-              .download(abort.signal, (value) => {
-                if (live.current) setProgress(value);
+              .download(
+                abort.signal,
+                (value) => {
+                  if (live.current) setProgress(value);
+                },
+                (value) => {
+                  if (live.current) setPhase(value);
+                },
+              )
+              .then((result) => {
+                if (live.current && !abort.signal.aborted)
+                  setNote(
+                    result === "permission-required"
+                      ? "请在系统设置中允许安装此来源的应用，返回后点击重试安装。安装包已保留。"
+                      : "已打开系统安装程序，请按系统提示完成安装。",
+                  );
               })
               .catch((value) => {
                 if (live.current)
@@ -81,18 +102,33 @@ export function ClientUpdatePanel() {
           style={{ padding: 15, borderRadius: 12, backgroundColor: c.accent }}
         >
           <Text style={{ color: c.onAccent, textAlign: "center" }}>
-            {busy ? `正在下载 ${Math.floor(progress * 100)}%` : "下载更新"}
+            {busy
+              ? phase === "verifying"
+                ? "正在校验安装包…"
+                : phase === "installing"
+                  ? "正在打开安装程序…"
+                  : progress >= 1
+                    ? "下载完成，正在准备校验…"
+                    : `正在下载 ${Math.floor(progress * 100)}%`
+              : note
+                ? "重试安装"
+                : "下载更新"}
           </Text>
         </Pressable>
       )}
-      {busy && (
+      {busy && phase !== "installing" && (
         <Pressable
           accessibilityRole="button"
           onPress={() => task.current?.abort()}
           style={{ padding: 12, alignSelf: "center" }}
         >
-          <Text style={{ color: c.accent }}>取消下载</Text>
+          <Text style={{ color: c.accent }}>取消更新</Text>
         </Pressable>
+      )}
+      {!!note && (
+        <Text accessibilityLiveRegion="polite" style={{ color: c.muted, lineHeight: 22 }}>
+          {note}
+        </Text>
       )}
       {!!(error || updates.error) && (
         <Text accessibilityRole="alert" style={{ color: c.danger }}>

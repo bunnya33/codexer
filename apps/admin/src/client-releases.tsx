@@ -383,8 +383,7 @@ export function ClientReleases() {
           {busy && <progress max={1} value={progress} />}
         </form>
         <p className="footnote">
-          填写安装包实际版本；Android 沿用原应用 ID 和签名，并填写实际 versionCode。旧“PC Agent
-          安装包”入口继续用于手动下载。
+          填写安装包实际版本；Android 沿用原应用 ID 和签名，并填写实际 versionCode。
         </p>
       </section>
       {deleting && (

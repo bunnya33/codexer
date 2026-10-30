@@ -7,6 +7,7 @@ import { relay } from "./relay";
 import { controlVersion } from "./build-info";
 import appConfig from "../app.json";
 import { downloadClientUpdate } from "./client-update-download";
+import type { ClientUpdatePhase } from "./client-update-state";
 const checker = new ClientUpdateChecker();
 let consumers = 0;
 const connectionKey = () => {
@@ -34,7 +35,11 @@ export function useClientUpdates() {
     ),
     version: controlVersion,
     check: () => checker.check(),
-    download: async (signal: AbortSignal, progress: (value: number) => void) => {
+    download: async (
+      signal: AbortSignal,
+      progress: (value: number) => void,
+      phase?: (value: ClientUpdatePhase) => void,
+    ) => {
       const key = connectionKey(),
         abort = new AbortController();
       const cancel = () => abort.abort();
@@ -49,11 +54,12 @@ export function useClientUpdates() {
         const release = checker.getSnapshot().release;
         if (!clientUpdateAvailable(release, controlVersion, appConfig.expo.android.versionCode))
           throw new Error("没有可下载的新版本");
-        await downloadClientUpdate(
+        return await downloadClientUpdate(
           relay.clientInstallerSource(release!.target, release!.id),
           release!,
           abort.signal,
           progress,
+          phase,
         );
       } finally {
         off();

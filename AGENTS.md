@@ -1,5 +1,7 @@
 # 桌面客户端技术约定
 
+2026-10-30 用户确认：后续日常开发、验证和提交统一在最新 `main` 上完成，不再新建功能分支。开始前核对 `origin/main` 并保留已有未提交改动；历史分支与工作目录未经要求不删除。
+
 2026-10-30 用户更新决定：**优先将 PC 连接器 Codexer Agent 改为 Qt，以降低内存；Codexer Control 暂不迁移，继续使用 React Native 原生宿主。** 本条取代 2026-10-24 连接器使用 Electron 的约定；控制端约定保持。
 
 - Codexer Agent 使用 `apps/agent-qt` 的 Qt Widgets 界面和同进程 C++/Qt 后台；2026-10-30 用户进一步确认后台也须移除 Node 以降低常驻内存。沿用共享协议与行为，TypeScript 仅保留旧发行入口及迁移对照。不使用 Qt WebEngine/WebView 承载管理界面。Windows 默认 `package:desktop:win` 生成 Qt 包；旧 Electron 显式入口保留用于回退。macOS Qt 源码与实际编译验收分开记录，未完成验收前保留既有发行版。
