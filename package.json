@@ -41,6 +41,7 @@
     "mobile:typecheck": "npm run typecheck --workspace @codexer/mobile",
     "mobile:export": "npm run check:preview-runtime && npm run export --workspace @codexer/mobile",
     "icons:mobile": "node scripts/generate-mobile-icons.mjs",
+    "icons:android": "node scripts/generate-android-icons.mjs",
     "dev:web": "node scripts/dev-web.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit && npm run typecheck --workspace @codexer/admin && npm run typecheck --workspace @codexer/desktop && npm run typecheck:control-desktop",
     "test": "vitest run",

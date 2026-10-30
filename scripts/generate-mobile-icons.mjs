@@ -2,6 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pngjs from 'pngjs';
+import { generateAndroidIcons } from './generate-android-icons.mjs';
 
 const { PNG } = pngjs;
 const target = fileURLToPath(new URL('../apps/mobile/assets/', import.meta.url));
@@ -44,7 +45,5 @@ function draw(name, size, background, monochrome = false, symbolScale = 1) {
 
 draw('icon.png', 1024, true);
 draw('favicon.png', 48, true);
-draw('android-icon-background.png', 512, true, false, 0);
-draw('android-icon-foreground.png', 512, false, false, 0.85);
-draw('android-icon-monochrome.png', 432, false, true, 0.85);
+generateAndroidIcons();
 draw('splash-icon.png', 1024, false, false, 0.8);

@@ -253,6 +253,10 @@ Android 控制端 `0.1.1`（versionCode 2）release 构建通过。76 项相关�
 
 # 验证范围
 
+## 2026-10-30 Android 0.1.7 应用图标
+
+Android `0.1.7`（versionCode 8）使用用户提供的兔子图案作为应用图标，生成普通、自适应前景/背景及单色资源。应用图标源和生成脚本可重复生成，iOS/Web 图标与启动图未改变。Android Release 构建、APK v2 签名、16 KiB ZIP 对齐和包版本检查通过；APK 已保存在 `release/android-0.1.7/Codexer-Control-0.1.7.apk`。本轮未发布到客户端目录或应用商店。
+
 ## 2026-10-30 Android 0.1.6 更新收尾与旧安装包入口
 
 Android `0.1.6`（versionCode 7）将 APK SHA-256 校验移到本地 Expo 模块的原生后台队列，分开显示下载、校验和启动安装程序。启动安装程序使用 `startActivity` 并立即返回；安装来源未授权时先打开系统授权页面，返回后复用缓存重新校验并安装。控制端的旧 Windows Agent EXE 下载卡片与管理后台的旧安装包上传卡片已移除，Agent 继续走独立客户端更新目录。旧 API 与已保存的包保留兼容。

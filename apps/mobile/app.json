@@ -3,7 +3,7 @@
     "name": "Codexer",
     "slug": "codexer",
     "scheme": "codexer",
-    "version": "0.1.6",
+    "version": "0.1.7",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -17,8 +17,9 @@
       }
     },
     "android": {
+      "icon": "./assets/android-icon.png",
       "package": "com.bunnya33.codexer.remote",
-      "versionCode": 7,
+      "versionCode": 8,
       "permissions": [
         "android.permission.REQUEST_INSTALL_PACKAGES"
       ],
@@ -27,7 +28,7 @@
         "android.permission.SYSTEM_ALERT_WINDOW"
       ],
       "adaptiveIcon": {
-        "backgroundColor": "#192426",
+        "backgroundColor": "#7297df",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
