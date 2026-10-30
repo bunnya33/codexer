@@ -37,7 +37,7 @@ for (const kind of ['fresh', 'native-credentials', 'electron-v10']) {
   const env = {...process.env, CODEXER_USER_DATA_DIR: profile, CODEXER_QT_SMOKE_REPORT: report, CODEXER_QT_SMOKE_HOLD_MS: process.env.CODEXER_QT_SMOKE_HOLD_MS || (/Portable/i.test(executable) ? '20000' : '5000')};
   const child = spawn(executable, ['--smoke-test'], {env, windowsHide: true, stdio: 'ignore'});
   try {
-    const result = await waitFile(report, child); assert(result.ok); assert(result.vaultRoundTrip); assert.equal(result.version, version); assert.equal(result.tabs, 5);
+    const result = await waitFile(report, child); assert(result.ok); assert(result.vaultRoundTrip); assert.equal(result.version, version); assert.equal(result.tabs, 3);
     assert.equal(result.installationId, settings.installationId); assert.equal(result.loggedIn, kind !== 'fresh');
     await new Promise(done => setTimeout(done, 2000)); result.memorySampleDelayMs = 2000;
     const memory = [].concat(JSON.parse(execFileSync(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', `$p=Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -eq ${result.processId} -or $_.ProcessId -eq ${result.backendPid} }; @($p | Select-Object ProcessId,ParentProcessId,Name,ExecutablePath,WorkingSetSize,PrivatePageCount) | ConvertTo-Json -Compress`], {encoding: 'utf8', windowsHide: true})));

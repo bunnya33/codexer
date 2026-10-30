@@ -72,7 +72,8 @@
     "check:qt-agent": "node scripts/accept-qt-agent.mjs",
     "check:qt-backend": "node scripts/check-native-backend.mjs",
     "package:desktop:electron:win": "npm run build:desktop && npm run package:win --workspace @codexer/desktop",
-    "package:desktop:electron:mac:local": "npm run build:desktop && npm run package:mac:local --workspace @codexer/desktop --"
+    "package:desktop:electron:mac:local": "npm run build:desktop && npm run package:mac:local --workspace @codexer/desktop --",
+    "check:qt-memory": "node scripts/measure-qt-agent.mjs"
   },
   "dependencies": {
     "highlight.js": "^11.12.0",

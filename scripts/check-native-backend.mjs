@@ -17,4 +17,6 @@ async function run(file, args, capture = false) {
 const report = join(root, '.local/native-tests.txt');
 await run(join(root, 'apps/agent-qt/build', process.platform === 'win32' ? 'Release/CodexerNativeTests.exe' : 'CodexerNativeTests'), ['-o', report + ',txt']);
 console.log('Native backend regression passed. Report: ' + report);
+await run(join(root, 'apps/agent-qt/build', process.platform === 'win32' ? 'Release/CodexerUiTests.exe' : 'CodexerUiTests'), ['-o', join(root,'.local/native-ui-tests.txt') + ',txt']);
+console.log('Native UI interaction regression passed. Report: .local/native-ui-tests.txt');
 await run(process.execPath, [join(root, 'node_modules/tsx/dist/cli.mjs'), join(root, 'scripts/check-native-protocol.ts')]);

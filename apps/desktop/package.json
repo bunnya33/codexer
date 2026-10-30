@@ -1,7 +1,7 @@
 {
   "name": "@codexer/desktop",
-  "version": "0.2.17",
-  "description": "Codexer Agent — Qt desktop connector with shared TypeScript core",
+  "version": "0.2.18",
+  "description": "Codexer Agent — native Qt desktop connector",
   "author": "Codexer contributors",
   "private": true,
   "type": "module",
