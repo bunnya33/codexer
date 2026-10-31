@@ -106,6 +106,7 @@ HTTP 错误体是 `{ "error": "code" }`。常见状态：`400 invalid-request`�
 | GET | `/v1/admin/overview` | 账号总量/启用量、在线 PC、在线控制连接及进程运行秒数；不暴露会话内容 |
 | GET | `/v1/admin/metrics` | 管理员聚合性能指标：进程资源、排队、数据库、HTTP、事件、广播和清理；`Cache-Control: no-store`，见 [指标说明](relay-metrics.md) |
 | GET | `/v1/admin/system/resources` | 管理员资源面板快照，`Cache-Control: no-store`；整机/进程 CPU、内存与系统/数据分区空间，共享短时采样缓存，见 [指标说明](relay-metrics.md) |
+| GET | `/v1/admin/system/logs` | 仅管理员；脱敏诊断日志，`Cache-Control: no-store`。可选 `level=info|warn|error`、`category=connection|protocol|storage|http|background`、`deviceId`（精确）、`code`（包含）、`before`（上一页游标）、`limit=1..200`（默认 100）。返回 `entries,nextCursor,retained,capacity,persistent,file,maxFileBytes,fileCount,capturedAt`；记录按 ID 倒序，`nextCursor=null` 表示无更多记录。字段与保存范围见 [服务器日志](admin.md#服务器日志) |
 | GET | `/v1/admin/system/version` | 可选 `?force=true`；返回 `currentVersion,latestVersion,hasUpdate,checkedAt,warning,release,supported,gitSupported,method,tags,autoInstall,job` |
 | POST | `/v1/admin/system/update` | `{tag:'vX.Y.Z',action?:'update'|'build'|'restart',jobId?:uuid}`；update 只准备版本；build/restart 匹配已有 jobId 和阶段；不接受 URL 或命令 |
 | PUT | `/v1/admin/system/update-settings` | `{method?:'release'|'git',autoInstall?:boolean}`；至少一项；autoInstall 只自动准备 Release，不自动重启；Git 禁止自动准备 |

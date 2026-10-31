@@ -1,33 +1,41 @@
 package relay
 
+import "strconv"
+
 // Match the shared Zod parser: strip unknown object fields, preserve record
 // fields, and apply browser string limits in UTF-16 units.
 func projectProtocol(schema M, value any) {
+	if projectProtocolAt(schema, value, "") != nil {
+		fail(400, "invalid-message")
+	}
+}
+func projectProtocolAt(schema M, value any, path string) *logIssue {
 	for _, union := range []string{"oneOf", "anyOf"} {
 		if choices, ok := schema[union].([]any); ok {
 			for _, choice := range choices {
 				branch := obj(choice)
 				if protocolShape(branch, value) {
-					projectProtocol(branch, value)
-					return
+					return projectProtocolAt(branch, value, path)
 				}
 			}
-			return
+			return nil
 		}
 	}
 	if text, ok := value.(string); ok {
 		n := jsLength(text)
 		if v, ok := schema["maxLength"]; ok && int64(n) > num(v) {
-			fail(400, "invalid-message")
+			return &logIssue{path, "maxLength:" + strconv.FormatInt(num(v), 10)}
 		}
 		if v, ok := schema["minLength"]; ok && int64(n) < num(v) {
-			fail(400, "invalid-message")
+			return &logIssue{path, "minLength:" + strconv.FormatInt(num(v), 10)}
 		}
 	}
 	if values, ok := value.([]any); ok {
 		if item, ok := schema["items"].(map[string]any); ok {
-			for _, v := range values {
-				projectProtocol(item, v)
+			for i, v := range values {
+				if issue := projectProtocolAt(item, v, path+"/"+strconv.Itoa(i)); issue != nil {
+					return issue
+				}
 			}
 		}
 	}
@@ -36,17 +44,24 @@ func projectProtocol(schema M, value any) {
 		extra, record := schema["additionalProperties"].(map[string]any)
 		for key, v := range values {
 			if property, ok := properties[key]; ok {
-				projectProtocol(obj(property), v)
+				if issue := projectProtocolAt(obj(property), v, path+safeLogPath([]string{key})); issue != nil {
+					return issue
+				}
 			} else if record {
-				projectProtocol(extra, v)
+				if issue := projectProtocolAt(extra, v, path+"/*"); issue != nil {
+					return issue
+				}
 			} else if object {
 				delete(values, key)
 			}
 			if names, ok := schema["propertyNames"].(map[string]any); ok {
-				projectProtocol(names, key)
+				if issue := projectProtocolAt(names, key, path+"/*"); issue != nil {
+					return issue
+				}
 			}
 		}
 	}
+	return nil
 }
 func protocolShape(schema M, value any) bool {
 	if constant, ok := schema["const"]; ok && js(constant) != js(value) {

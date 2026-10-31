@@ -26,17 +26,59 @@ type Peer struct {
 	once            sync.Once
 	buffered        atomic.Int64
 	inbound         atomic.Int64
+	connectionID    string
+	connectedAt     int64
+	source          string
+	diagnosticMu    sync.Mutex
+	lastMessage     logContext
 }
 
 func (p *Peer) Principal() *Principal { p.mu.Lock(); defer p.mu.Unlock(); return p.principal }
 func (p *Peer) Close(code int, reason string) {
+	p.close(code, reason, "server")
+}
+func (p *Peer) close(code int, reason, initiator string) {
 	p.once.Do(func() {
+		p.diagnosticMu.Lock()
+		entry := serverLogEntry{Level: "info", Category: "connection", Code: closeReason(reason), Source: p.source, CloseCode: code, logContext: p.lastMessage}
+		p.diagnosticMu.Unlock()
+		entry.Initiator = initiator
+		if p.connectedAt > 0 {
+			entry.DurationMS = now() - p.connectedAt
+		}
+		entry.ConnectionID = p.connectionID
+		if principal := p.Principal(); principal != nil {
+			entry.DeviceID = principal.Device
+		}
+		if code != 1000 && code != 1001 || reason == "heartbeat-timeout" {
+			entry.Level = "warn"
+		}
+		if code == 1011 {
+			entry.Level = "error"
+		}
+		p.s.logs.add(entry)
 		close(p.done)
 		if p.ws != nil {
-			_ = p.ws.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, reason), time.Now().Add(time.Second))
+			// Reserved codes describe local observations and must never go on the wire.
+			if code != 1005 && code != 1006 && code != 1015 {
+				_ = p.ws.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, reason), time.Now().Add(time.Second))
+			}
 			_ = p.ws.Close()
 		}
 	})
+}
+
+func (p *Peer) readClosed(e error) {
+	code, reason, initiator := 1006, "transport-error", "transport"
+	if e == websocket.ErrReadLimit {
+		code, reason, initiator = 1009, "payload-too-large", "server"
+	} else if closed, ok := e.(*websocket.CloseError); ok && closed.Code != 1006 {
+		code, reason, initiator = closed.Code, closeReason(closed.Text), "peer"
+		if code == 1000 && reason == "peer-closed" {
+			reason = "client-closed"
+		}
+	}
+	p.close(code, reason, initiator)
 }
 func (p *Peer) Send(v any) bool { return p.sendBytes([]byte(js(v))) }
 func (p *Peer) sendBytes(b []byte) bool {
@@ -74,7 +116,11 @@ func (s *Server) peer(w http.ResponseWriter, r *http.Request, p *Principal) *Pee
 	if e != nil {
 		return nil
 	}
-	peer := &Peer{s: s, ws: ws, principal: p, devices: map[string]bool{}, queue: make(chan []byte, 128), done: make(chan struct{})}
+	source := "client"
+	if r.URL.Path == "/v1/ws/device" {
+		source = "device"
+	}
+	peer := &Peer{s: s, ws: ws, principal: p, devices: map[string]bool{}, queue: make(chan []byte, 128), done: make(chan struct{}), connectionID: uuid(), connectedAt: now(), source: source}
 	peer.lastPong.Store(now())
 	ws.SetReadLimit(messageLimit)
 	ws.SetPongHandler(func(string) error { peer.lastPong.Store(now()); return nil })
@@ -96,6 +142,7 @@ func (s *Server) peer(w http.ResponseWriter, r *http.Request, p *Principal) *Pee
 				e := ws.WriteMessage(websocket.TextMessage, b)
 				peer.buffered.Add(-int64(len(b)))
 				if e != nil {
+					peer.close(1006, "write-error", "transport")
 					return
 				}
 			}
@@ -257,6 +304,7 @@ func (s *Server) deviceSocket(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer s.wg.Done()
 		defer p.Close(1001, "connection-closed")
+		failureLogged := false
 		defer s.safe(func() {
 			s.lane(id, func() {
 				s.mu.Lock()
@@ -280,6 +328,9 @@ func (s *Server) deviceSocket(w http.ResponseWriter, r *http.Request) {
 					code = 1008
 					reason = f.Code
 				}
+				if !failureLogged {
+					s.deviceFailure(p, nil, 0, e)
+				}
 				p.Close(code, reason)
 			}
 		}()
@@ -302,9 +353,11 @@ func (s *Server) deviceSocket(w http.ResponseWriter, r *http.Request) {
 			s.Broadcast(id, M{"type": "device.presence", "deviceId": id, "online": true})
 		})
 		announceSnapshot, announceCatalog := true, true
+		s.logs.add(serverLogEntry{Level: "info", Category: "connection", Code: "device-connected", Source: "device", logContext: logContext{ConnectionID: p.connectionID, DeviceID: id}})
 		for {
 			kind, b, e := p.ws.ReadMessage()
 			if e != nil {
+				p.readClosed(e)
 				return
 			}
 			if kind != websocket.TextMessage {
@@ -313,11 +366,28 @@ func (s *Server) deviceSocket(w http.ResponseWriter, r *http.Request) {
 			}
 			var m M
 			if json.Unmarshal(b, &m) != nil {
+				s.logs.add(serverLogEntry{Level: "warn", Category: "protocol", Code: "invalid-json", Source: "device", logContext: logContext{ConnectionID: p.connectionID, DeviceID: id, MessageBytes: int64(len(b))}})
 				p.Close(1008, "invalid-message")
 				return
 			}
 			sanitize(m)
-			s.Validate("device", m)
+			context := deviceLogContext(p.connectionID, id, m, len(b))
+			p.diagnosticMu.Lock()
+			if context.AgentVersion == "" {
+				context.AgentVersion = p.lastMessage.AgentVersion
+			}
+			p.lastMessage = context
+			p.diagnosticMu.Unlock()
+			func() {
+				defer func() {
+					if e := recover(); e != nil {
+						s.deviceFailure(p, m, len(b), e)
+						failureLogged = true
+						panic(e)
+					}
+				}()
+				s.Validate("device", m)
+			}()
 			if m["type"] == "device.preview" {
 				if s.agent(id) == p {
 					s.acceptPreview(id, m)
@@ -340,6 +410,7 @@ func (s *Server) deviceSocket(w http.ResponseWriter, r *http.Request) {
 						} else {
 							logStorageFailure(e)
 						}
+						s.deviceFailure(p, m, len(b), e)
 						p.Close(code, reason)
 					}
 				}()
@@ -395,6 +466,7 @@ func (s *Server) deviceSocket(w http.ResponseWriter, r *http.Request) {
 						defer func() {
 							if e := recover(); e != nil {
 								if f, ok := e.(Fault); ok && f.Code == "sequence-gap" {
+									s.deviceFailure(p, m, len(b), e)
 									p.Send(M{"type": "device.resync", "reason": "sequence-gap"})
 								} else {
 									panic(e)
@@ -459,6 +531,7 @@ func (s *Server) clientSocket(w http.ResponseWriter, r *http.Request) {
 		for {
 			kind, b, e := p.ws.ReadMessage()
 			if e != nil {
+				p.readClosed(e)
 				return
 			}
 			if kind != websocket.TextMessage {
@@ -484,6 +557,7 @@ func (s *Server) clientSocket(w http.ResponseWriter, r *http.Request) {
 								p.Send(M{"type": "error", "code": f.Code})
 							}
 						} else {
+							s.logs.add(serverLogEntry{Level: "error", Category: "storage", Code: "relay-storage-error", Source: "client", SQLState: str(storageFailureEvent(e)["sqlState"]), logContext: logContext{ConnectionID: p.connectionID}})
 							p.Send(M{"type": "error", "code": "server-error"})
 						}
 					}

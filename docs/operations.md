@@ -58,6 +58,14 @@ pg_dump --dbname="$DATABASE_URL" -Fc > codexer-postgres.dump
 
 恢复前停止 Relay，备份现有库，在明确的目标库用 `pg_restore`；同时备份 `infra/.env` 和 Caddy volumes。不要执行 `docker compose down -v`，它会删除持久数据。
 
+## 服务器诊断日志
+
+服务器 0.3.33 起可在 `/admin/` →「服务器日志」查看具体断连原因。Agent 显示“服务器拒绝设备消息”时，先按设备 ID 筛选，展开 `invalid-message` 等拒绝记录，查看校验字段/规则、消息字节数和序号，再用连接 ID 对照关闭代码、连接时长和关闭发起方（服务器、对端或传输异常）。`1008` 表示策略/协议拒绝，`1009` 表示消息过大，`1011`/`relay-storage-error` 表示存储处理异常；`connection-replaced` 是同一设备被新连接替换，`session-expired` 是登录失效，`heartbeat-timeout` 是心跳超时。对端主动关闭和异常断流不能据此认定是服务器拒绝。若对端未给出受支持的原因，只记录 `peer-closed` 或传输异常，不推测具体原因。
+
+`RELAY_DATA_DIR` 下的 `server-logs.jsonl` 和 `server-logs.jsonl.1` 由服务账号写入（文件 0600），单份上限 2 MiB，轮转删除更早文件；内存及页面上限为最近 2000 条。systemd 默认数据目录 `/var/lib/codexer`，Docker 使用持久数据 volume。日志在重启后从文件恢复；文件限额与条数限额各自生效。未设置数据目录或写盘失败时仅保留内存，页面会明确提示；修复权限/空间后新记录会再次尝试写盘。日志不能替代完整 journal/代理日志，启动前及旧版本未记录的错误无法追溯。
+
+记录仅含结构化诊断字段，不含消息正文、文件、登录凭据或原始异常文本。设备和连接标识仍是运维信息，复制分享前确认对象。无需升级 Agent 即可让服务器记录之后发生的错误；此次没有修改 Agent 的通用拒绝提示。
+
 ## 常见问题
 
 | 现象 | 检查 |

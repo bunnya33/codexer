@@ -61,6 +61,7 @@ type Server struct {
 	closing        atomic.Bool
 	metrics        *Metrics
 	resources      *resourceMonitor
+	logs           *serverLogs
 	wx             *Weixin
 	updates        *Updates
 	uploads        *uploadStore
@@ -131,6 +132,7 @@ func New(store *Store, options Options) (*Server, error) {
 		}
 		s.wx = wx
 	}
+	s.logs = newServerLogs(options.DataDir)
 	s.routes()
 	s.background()
 	return s, nil
@@ -148,6 +150,20 @@ func (s *Server) Handler() http.Handler {
 					status, code = f.Status, f.Code
 				}
 				s.metrics.Observe("http", start, status >= 500)
+				if status >= 500 || status == 429 || r.URL.Path == "/v1/ws/device" {
+					entry := serverLogEntry{Level: "error", Category: "http", Code: httpLogCode(code), HTTPStatus: status, Route: r.Pattern}
+					if status == 429 {
+						entry.Level = "warn"
+					}
+					if r.URL.Path == "/v1/ws/device" {
+						entry.Source, entry.Category, entry.Route = "device", "connection", "GET /v1/ws/device"
+						if status < 500 {
+							entry.Level = "warn"
+						}
+					}
+					entry.SQLState = str(storageFailureEvent(e)["sqlState"])
+					s.logs.add(entry)
+				}
 				writeJSON(w, status, M{"error": code})
 			} else {
 				s.metrics.Observe("http", start, false)
@@ -371,32 +387,8 @@ func (s *Server) Validate(name string, m M) {
 		}
 	}
 	if name == "device" {
-		if m["type"] == "device.snapshot" {
-			snapshot := obj(m["snapshot"])
-			if len(obj(snapshot["threads"])) > 20 {
-				fail(400, "invalid-message")
-			}
-			for id, t := range obj(snapshot["threads"]) {
-				if str(obj(t)["id"]) != id || len(js(t)) > 256*1024 {
-					fail(400, "invalid-message")
-				}
-			}
-		}
-		if m["type"] == "device.catalog" {
-			catalog := obj(m["catalog"])
-			if len(js(catalog)) > 6*1024*1024 {
-				fail(400, "invalid-message")
-			}
-			for _, name := range []string{"projects", "threads"} {
-				ids := map[string]bool{}
-				for _, v := range list(catalog[name]) {
-					id := str(obj(v)["id"])
-					if ids[id] {
-						fail(400, "invalid-message")
-					}
-					ids[id] = true
-				}
-			}
+		if deviceConstraintIssue(m) != nil {
+			fail(400, "invalid-message")
 		}
 	}
 }
@@ -525,8 +517,9 @@ func (s *Server) background() {
 }
 func (s *Server) safe(fn func()) {
 	defer func() {
-		if recover() != nil {
+		if e := recover(); e != nil {
 			s.metrics.Inc("backgroundErrors", 1)
+			s.logs.add(serverLogEntry{Level: "error", Category: "background", Code: "background-operation-failed", SQLState: str(storageFailureEvent(e)["sqlState"])})
 		}
 	}()
 	fn()

@@ -93,6 +93,15 @@ export function uploadAgentRelease(file:File,version:string,signal:AbortSignal,p
 }
 export const overview = () => request<Overview>('/v1/admin/overview');
 export const serverResources = (signal?: AbortSignal) => request<ServerResources>('/v1/admin/system/resources', 'GET', undefined, signal);
+export type ServerLog = {id:number;at:number;level:'info'|'warn'|'error';category:string;code:string;source?:string;initiator?:string;durationMs?:number;connectionId?:string;deviceId?:string;threadId?:string;messageType?:string;agentVersion?:string;seq?:number;messageBytes?:number;threadBytes?:number;threadCount?:number;closeCode?:number;httpStatus?:number;route?:string;sqlState?:string;issues?:{path:string;rule:string}[]};
+export type ServerLogPage = {entries:ServerLog[];nextCursor:number|null;retained:number;capacity:number;persistent:boolean;file:string;maxFileBytes:number;fileCount:number;capturedAt:number};
+export type ServerLogFilter = {level:string;category:string;deviceId:string;code:string};
+export const serverLogs = (filter:ServerLogFilter, before:number|null, signal?:AbortSignal) => {
+  const query=new URLSearchParams({limit:'100'});
+  for(const [key,value] of Object.entries(filter))if(value.trim())query.set(key,value.trim());
+  if(before!==null)query.set('before',String(before));
+  return request<ServerLogPage>('/v1/admin/system/logs?'+query,'GET',undefined,signal);
+};
 export const versionInfo = (force = false) => request<VersionInfo>('/v1/admin/system/version' + (force ? '?force=true' : ''));
 export const updateServer = (tag: string, action: UpdateAction = 'update', jobId?: string) => request<UpdateJob>('/v1/admin/system/update','POST',{tag,action,...(jobId ? {jobId} : {})});
 export const updateSettings = (settings: boolean | Partial<UpdateSettings>) => request<UpdateSettings>('/v1/admin/system/update-settings','PUT',typeof settings === 'boolean' ? {autoInstall:settings} : settings);
