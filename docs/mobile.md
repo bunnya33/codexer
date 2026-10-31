@@ -67,6 +67,8 @@ Android `0.1.6`（versionCode 7）修复更新停留在“正在下载 100%”�
 
 Android `0.1.7`（versionCode 8）将应用图标替换为兔子图案，包含自适应图标的前景、背景和单色资源；可覆盖 `0.1.6`。图标源文件保存在 `apps/mobile/assets/android-icon-source.png`，运行 `npm run icons:android` 可重新生成 Android 图标资源。
 
+Android `0.1.8`（versionCode 9）打入最新共享会话界面，结束时间在任务完成后固定显示于 Token 下方并靠左，开始时间不再点击切换。包名、图标与发布签名延续 `0.1.7`，可覆盖安装；APK 位于 `release/android-0.1.8/Codexer-Control-0.1.8.apk`。已验证独立 Android 15 模拟器覆盖安装和冷启动，未验收真实手机或登录后的远程任务。每轮 Token 的后台采集修复需配合 PC Agent `0.2.22`。
+
 ## 网络和平台范围
 
 当前 App 配置允许用户指定 HTTP 地址以兼容内网部署；公网使用 HTTPS。Web 登录会话使用站点 localStorage（自动迁移旧 sessionStorage），原生使用 SecureStore。前台续期、离开前台停止周期续期，回到前台重新检查登录并重连。有效时长由管理员在后台设置，网络错误保留登录并重试。图片上传/查看、历史分页、队列/引导/停止、模型修改、审批、账号改密失效及系统后台/前台切换均需按 [验证范围](validation.md) 做真实 iOS/Android 设备验收。Windows 开发机上的 JS 导出不代替手势、系统后台和安装包测试。
