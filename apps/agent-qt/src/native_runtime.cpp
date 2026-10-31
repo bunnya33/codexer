@@ -458,6 +458,8 @@ void Service::applyThreadLimit(const QJsonValue &value) {
   if (!value.isDouble() || value.toDouble() != next || next < 1 || next > MaxSyncedThreads)
     throw Error("invalid-agent-settings");
   threadLimit = next;
+  if (snapshot.isEmpty())
+    return;
   trimThreadPreviews(threadLimit);
   status();
 }

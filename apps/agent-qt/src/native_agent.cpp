@@ -64,7 +64,7 @@ void Service::connectAgent() {
             .toObject();
     if (session["active"] != true)
       throw Error("session-invalid");
-    applyThreadLimit(session["threadLimit"]);
+    applyThreadLimit(session.value("threadLimit"));
     if (session["expiresAt"].isDouble()) {
       credentials["expiresAt"] = session["expiresAt"];
       storeCredentials(credentials);
@@ -219,7 +219,10 @@ void Service::status() {
   if (view.isEmpty())
     return;
   lastStatus = now();
-  auto threads = snapshot["threads"].toObject();
+  // Status may be requested before connectAgent creates the canonical snapshot.
+  // Read through a const view so missing keys cannot create a partial snapshot.
+  const auto current = snapshot;
+  auto threads = current["threads"].toObject();
   int count = 0;
   for (const auto &v : threads)
     if (v.toObject()["status"] == "active")
@@ -227,7 +230,7 @@ void Service::status() {
   count = qMax(count, busyTurns.size());
   bool connected =
       relay && relay->state() == QAbstractSocket::ConnectedState && !paused;
-  auto runtime = snapshot["runtime"].toObject();
+  auto runtime = current["runtime"].toObject();
   Object status{{"relayConnected", connected},
                 {"paused", paused},
                 {"sessionValid", allowed},
@@ -255,9 +258,9 @@ void Service::status() {
                            {"requests", t["requests"].toArray().size()}});
       }
       save(dataDirectory + "/status.json",
-           json(merged(status, {{"deviceId", snapshot["deviceId"]},
-                                {"epoch", snapshot["epoch"]},
-                                {"lastSeq", snapshot["lastSeq"]},
+           json(merged(status, {{"deviceId", current["deviceId"]},
+                                {"epoch", current["epoch"]},
+                                {"lastSeq", current["lastSeq"]},
                                 {"threads", list}})));
     } catch (...) {
     }

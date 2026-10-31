@@ -619,6 +619,83 @@ private slots:
              QJsonValue("image/png"));
     QVERIFY_EXCEPTION_THROWN(agent->readImage("other", id), Error);
   }
+  void firstConnectionAfterLoadingServerLimit_data() {
+    QTest::addColumn<int>("limit");
+    QTest::newRow("legacy-no-limit") << 0;
+    QTest::newRow("default-limit") << 20;
+    QTest::newRow("extended-limit") << 30;
+  }
+  void firstConnectionAfterLoadingServerLimit() {
+    QFETCH(int, limit);
+    agent->snapshot = {};
+    agent->status();
+    QVERIFY(agent->snapshot.isEmpty());
+    agent->applyThreadLimit(limit ? QJsonValue(limit) : QJsonValue(QJsonValue::Undefined));
+    QVERIFY(agent->snapshot.isEmpty());
+    QTcpServer http;
+    QWebSocketServer websocket("Synthetic", QWebSocketServer::NonSecureMode);
+    QVERIFY(http.listen(QHostAddress::LocalHost, 0));
+    QList<Object> received;
+    connect(&websocket, &QWebSocketServer::newConnection, &websocket, [&] {
+      auto peer = websocket.nextPendingConnection();
+      connect(peer, &QWebSocket::textMessageReceived, &websocket, [&](QString text) {
+        received.append(parse(text.toUtf8()).toObject());
+      });
+      Object welcome{{"type", "device.welcome"}, {"features", Array{"catalog"}}};
+      if (limit) welcome["threadLimit"] = limit;
+      peer->sendTextMessage(QString::fromUtf8(json(welcome)));
+    });
+    connect(&http, &QTcpServer::newConnection, &http, [&] {
+      auto peer = http.nextPendingConnection();
+      auto handler = std::make_shared<QMetaObject::Connection>();
+      *handler = connect(peer, &QTcpSocket::readyRead, peer, [&, peer, handler] {
+        const auto request = peer->peek(peer->bytesAvailable());
+        if (!request.contains("\r\n\r\n")) return;
+        disconnect(*handler);
+        if (request.startsWith("GET /v1/ws/device ")) {
+          websocket.handleConnection(peer);
+          return;
+        }
+        peer->readAll();
+        Object result{{"release", QJsonValue::Null}};
+        if (request.startsWith("GET /v1/agent/")) {
+          result = {{"active", true}};
+          if (limit) result["threadLimit"] = limit;
+        }
+        const auto body = json(result);
+        peer->write("HTTP/1.1 200 OK\r\nContent-Length: " + QByteArray::number(body.size()) +
+                    "\r\nConnection: close\r\n\r\n" + body);
+        peer->disconnectFromHost();
+        connect(peer, &QTcpSocket::disconnected, peer, &QObject::deleteLater);
+      });
+    });
+    agent->credentials["relayUrl"] = "http://127.0.0.1:" + QString::number(http.serverPort());
+    QString previousEpoch;
+    for (int attempt = 0; attempt < 2; ++attempt) {
+      received.clear();
+      try {
+        agent->connectAgent();
+      } catch (const Error &error) {
+        QFAIL(qPrintable(error.code));
+      }
+      QVERIFY(waitFor([&] { return !received.isEmpty(); }, 3000));
+      QCOMPARE(received.first()["type"], QJsonValue("device.snapshot"));
+      const auto state = received.first()["snapshot"].toObject();
+      QCOMPARE(state["deviceId"], agent->credentials["deviceId"]);
+      QCOMPARE(state["protocolVersion"], QJsonValue(1));
+      QCOMPARE(state["agentVersion"], QJsonValue(CODEXER_AGENT_VERSION));
+      QVERIFY(!state["hostname"].toString().isEmpty());
+      QVERIFY(!state["epoch"].toString().isEmpty());
+      QVERIFY(state["epoch"].toString() != previousEpoch);
+      QVERIFY(state["threads"].isObject());
+      QVERIFY(state["runtime"].toObject()["capabilities"].isObject());
+      QVERIFY(!agent->paused);
+      QCOMPARE(agent->threadLimit, limit ? limit : DefaultSyncedThreads);
+      previousEpoch = state["epoch"].toString();
+      agent->closeAgent();
+      QVERIFY(agent->snapshot.isEmpty());
+    }
+  }
   void relaySnapshotAndReconnect() {
     QWebSocketServer server("Synthetic", QWebSocketServer::NonSecureMode);
     QVERIFY(server.listen(QHostAddress::LocalHost, 0));
