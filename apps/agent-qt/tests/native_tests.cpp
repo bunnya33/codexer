@@ -388,6 +388,31 @@ private slots:
       found |= v.toObject()["id"] == "prompt";
     QVERIFY(found);
   }
+  void incompleteActiveTurnIdentity() {
+    auto thread = raw();
+    thread["threadRuntimeStatus"] = Object{{"type", "active"}};
+    const Array identities{Object{}, Object{{"turnId", QJsonValue::Null}},
+                           Object{{"turnId", ""}}, Object{{"id", ""}},
+                           Object{{"turnId", ""}, {"id", "fallback"}},
+                           Object{{"turnId", "current"}, {"id", "legacy"}},
+                           Object{{"turnId", QString(161, 'x')}}};
+    const Array expected{QJsonValue::Null, QJsonValue::Null, QJsonValue::Null,
+                         QJsonValue::Null, "fallback", "current", QJsonValue::Null};
+    for (int i = 0; i < identities.size(); ++i) {
+      auto turn = identities[i].toObject();
+      turn["status"] = "inProgress";
+      turn["items"] = Array{};
+      thread["turns"] = Array{Object{{"id", "previous"}, {"status", "inProgress"}}, turn};
+      auto out = normalizeThread(thread, 0);
+      QCOMPARE(out["status"], QJsonValue("active"));
+      QCOMPARE(out["activeTurnId"], expected[i]);
+      QVERIFY(!out["turns"].toArray().last().toObject()["id"].toString().isEmpty());
+    }
+    thread["turns"] = Array{Object{{"id", "current"}, {"status", "inProgress"}}};
+    QCOMPARE(normalizeThread(thread, 1)["activeTurnId"], QJsonValue("current"));
+    thread["threadRuntimeStatus"] = Object{{"type", "idle"}};
+    QVERIFY(normalizeThread(thread, 2)["activeTurnId"].isNull());
+  }
   void asyncQuestions() {
     auto thread = raw();
     thread["threadRuntimeStatus"] = Object{{"type", "active"}};

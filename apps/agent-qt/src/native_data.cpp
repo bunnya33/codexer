@@ -531,10 +531,19 @@ static Object normalizeItem(
       item["command"].toString().size() > (history ? 8192 : 4096);
   return out;
 }
+static QJsonValue turnIdentity(const Object &turn) {
+  for (const auto &key : {"turnId", "id"}) {
+    auto value = turn[key];
+    if (value.isString() && !value.toString().isEmpty() &&
+        value.toString().size() <= 160)
+      return value;
+  }
+  return QJsonValue::Null;
+}
 Object normalizeTurn(
     const Object &raw, bool history, const QString &threadId,
     const std::function<Array(const QString &, const Object &)> &images) {
-  Object result{{"id", raw["turnId"].toString(raw["id"].toString("unknown"))},
+  Object result{{"id", turnIdentity(raw).toString("unknown")},
                 {"status", text(raw["status"], 80).isEmpty()
                                ? "unknown"
                                : text(raw["status"], 80)},
@@ -690,7 +699,7 @@ Object normalizeThread(
   for (const auto &v : turns) {
     const auto turn = v.toObject();
     if (turn["status"] == "inProgress")
-      activeId = turn["turnId"].toString(turn["id"].toString());
+      activeId = turnIdentity(turn);
     for (const auto &iv : turn["items"].toArray())
       for (const auto &a : subAgents(iv.toObject(), raw["id"].toString())) {
         auto id = a.toObject()["threadId"].toString();
@@ -743,7 +752,9 @@ Object normalizeThread(
         {"id", stringId(r["id"])},
         {"kind", kind},
         {"turnId",
-         p["turnId"].isString() ? p["turnId"] : QJsonValue(QJsonValue::Null)},
+         p["turnId"].isString() && !p["turnId"].toString().isEmpty() &&
+                 p["turnId"].toString().size() <= 160
+             ? p["turnId"] : QJsonValue(QJsonValue::Null)},
         {"details", truncated ? Object{} : details},
         {"detailsTruncated", truncated},
         {"respondable", !truncated && (QStringList{"commandApproval",
@@ -760,7 +771,7 @@ Object normalizeThread(
   }
   for (const auto &tv : turns) {
     const auto t = tv.toObject();
-    if (t["status"] != "inProgress")
+    if (t["status"] != "inProgress" || turnIdentity(t).isNull())
       continue;
     auto items = t["items"].toArray();
     QSet<QString> answered;
@@ -817,7 +828,7 @@ Object normalizeThread(
       requests.append(
           Object{{"id", "async:" + item["id"].toString()},
                  {"kind", "userInput"},
-                 {"turnId", t["turnId"].toString(t["id"].toString())},
+                 {"turnId", turnIdentity(t)},
                  {"details", Object{{"source", "asyncMessage"},
                                     {"sourceItemId", item["id"]},
                                     {"questions", qs},

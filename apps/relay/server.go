@@ -372,6 +372,9 @@ func (s *Server) enqueueLane(id string, fn func()) bool {
 	return true
 }
 func (s *Server) Validate(name string, m M) {
+	if name == "device" {
+		normalizeLegacyActiveTurn(m)
+	}
 	s.refine(name, m)
 	projectProtocol(obj(s.schemaValues[name]), m)
 	if e := s.schemas[name].Validate(m); e != nil {

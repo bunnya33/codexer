@@ -46,6 +46,10 @@ const items=[
 const turn={id:'turn',turnId:'turn',status:'completed',startedAt:100,completedAt:102,items,itemTimingsById:{cmd:{startedAtMs:100200,completedAtMs:100500}}};
 const base={id:'thread-test',title:'Contract',cwd:'C:/sandbox',threadRuntimeStatus:{type:'idle'},turns:[turn],requests:[],updatedAt:102000};
 add('thread',base); add('history',turn);
+for(const identity of [{},{turnId:null},{turnId:''},{id:''},{turnId:'',id:'fallback'},{turnId:'current',id:'legacy'},{turnId:'x'.repeat(161)},{turnId:123,id:'fallback'}]) {
+  add('thread',{...base,threadRuntimeStatus:{type:'active'},turns:[{id:'previous',status:'inProgress',items:[]},{...identity,status:'inProgress',items:[]}]});
+}
+for(const turnId of ['',null,'x'.repeat(161)]) add('thread',{...base,requests:[{id:'request',method:'mcpServer/elicitation/request',params:{turnId}}]});
 add('thread',{...base,turns:[{...turn,status:'inProgress',items:[...items,{id:'q',type:'agentMessage',questions:[{title:'Pick',options:['A','B']}]}]}],threadRuntimeStatus:{type:'active'}});
 add('thread',{...base,requests:[{id:1,method:'item/commandExecution/requestApproval',params:{threadId:'thread-test',turnId:'turn',command:'dir',availableDecisions:['accept','decline']}}]});
 add('thread',{...base,turns:[{...turn,items:[{id:'spawn',type:'collabAgentToolCall',tool:'spawnAgent',senderThreadId:'thread-test',receiverThreadIds:['child'],agentsStates:{child:{status:'running'}},prompt:'Task',model:'model'},{id:'done',type:'collabAgentToolCall',tool:'wait',receiverThreadIds:['child'],agentsStates:{child:{status:'completed',message:'Done'}}}]}]});

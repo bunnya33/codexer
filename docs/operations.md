@@ -66,6 +66,8 @@ pg_dump --dbname="$DATABASE_URL" -Fc > codexer-postgres.dump
 
 记录仅含结构化诊断字段，不含消息正文、文件、登录凭据或原始异常文本。设备和连接标识仍是运维信息，复制分享前确认对象。无需升级 Agent 即可让服务器记录之后发生的错误；此次没有修改 Agent 的通用拒绝提示。
 
+若出现 `/event/change/thread/activeTurnId · minLength:1`，Qt Agent 0.2.18 可能把临时未知的轮次 ID 发为空字符串。服务器 0.3.34 将该可空字段的空字符串转换为 `null`，兼容事件及快照；Qt Agent 0.2.19 同时修复发送源。两条具有相同连接 ID/序号的拒绝与关闭日志对应同一次断连。无需删除会话或重启官方 Codex；服务器更新生效后，在已暂停的 Agent 中重新点击连接。
+
 ## 常见问题
 
 | 现象 | 检查 |

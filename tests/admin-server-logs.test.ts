@@ -8,9 +8,9 @@ beforeAll(async()=>{const result=await build({stdin:{contents:`import {createRoo
 const entry=(id=10)=>({id,at:1793412673175,level:'warn',category:'protocol',code:'invalid-message',deviceId:'device-test',connectionId:'connection-test',messageType:'device.snapshot',closeCode:1008,messageBytes:1234,issues:[{path:'/snapshot/threads/*/title',rule:'type'}]});
 const page=(entries=[entry()],nextCursor:number|null=null,persistent=true)=>({entries,nextCursor,persistent,retained:101,capacity:2000,file:'server-logs.jsonl',maxFileBytes:2097152,fileCount:2,capturedAt:Date.now()});
 const json=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status});
-async function fixture(respond:(url:string,init:RequestInit,call:number)=>Response|Promise<Response>){
+async function fixture(respond:(url:string,init:RequestInit,call:number)=>Response|Promise<Response>,clipboard:'async'|'http'|'denied'|'blocked'='async'){
   const calls:{url:string;init:RequestInit}[]=[],copies:string[]=[],errors:unknown[]=[];
-  const dom=new JSDOM('<div id="root"></div>',{url:'http://admin.test',runScripts:'dangerously',pretendToBeVisual:true,beforeParse(w){Object.assign(w,{AbortController,AbortSignal,fetch:async(url:string,init:RequestInit)=>{calls.push({url,init});return respond(url,init,calls.length);}});Object.defineProperty(w.navigator,'clipboard',{value:{writeText:async(text:string)=>{copies.push(text);}}});w.addEventListener('error',e=>errors.push(e.error));}});
+  const dom=new JSDOM('<div id="root"></div>',{url:'http://admin.test',runScripts:'dangerously',pretendToBeVisual:true,beforeParse(w){Object.assign(w,{AbortController,AbortSignal,fetch:async(url:string,init:RequestInit)=>{calls.push({url,init});return respond(url,init,calls.length);}});if(clipboard!=='http'&&clipboard!=='blocked')Object.defineProperty(w.navigator,'clipboard',{value:{writeText:async(text:string)=>{if(clipboard==='denied')throw new Error('permission-denied');copies.push(text);}}});Object.assign(w.document,{execCommand:(command:string)=>{const field=w.document.activeElement as HTMLTextAreaElement;if(clipboard==='blocked'||command!=='copy'||field?.tagName!=='TEXTAREA'||field.selectionEnd!==field.value.length)return false;copies.push(field.value);return true;}});w.addEventListener('error',e=>errors.push(e.error));}});
   dom.window.eval(source);
   const wait=(check:()=>void)=>vi.waitFor(check,{timeout:3000,interval:10});
   await wait(()=>expect(calls.length).toBe(1));
@@ -65,4 +65,14 @@ it('aborts in-flight requests on navigation and forwards expired admin sessions'
   const f=await fixture(()=>new Promise(done=>{finish=done;}));
   try{f.refresh();expect(f.calls.length).toBe(1);(f.dom.window as any).stopPanel();expect(f.calls[0]!.init.signal?.aborted).toBe(true);finish(json(page()));await new Promise(done=>setTimeout(done,10));expect(f.errors).toEqual([]);}finally{f.close();}
   const expired=await fixture(()=>json({error:'unauthorized'},401));try{await expired.wait(()=>expect((expired.dom.window as any).expired).toBe(1));}finally{expired.close();}
+});
+
+it.each(['http','denied'] as const)('copies diagnostics with visible row feedback when clipboard mode is %s',async mode=>{
+  const f=await fixture(()=>json(page()),mode);
+  try{await f.wait(()=>expect(f.dom.window.document.querySelector('.server-log-summary')).not.toBeNull());f.dom.window.document.querySelector<HTMLButtonElement>('.server-log-summary')!.click();await f.wait(()=>expect(f.button('复制诊断')).toBeDefined());f.button('复制诊断').click();await f.wait(()=>expect(f.button('已复制')).toBeDefined());expect(f.copies.length).toBe(1);expect(JSON.parse(f.copies[0]!)).toMatchObject({deviceId:'device-test',code:'invalid-message'});expect(f.dom.window.document.querySelector('.server-log-details [role="status"]')?.textContent).toContain('已复制');expect(f.dom.window.document.querySelector('textarea')).toBeNull();expect(f.errors).toEqual([]);}finally{f.close();}
+});
+
+it('shows and selects manual diagnostic text beside the button when both clipboard methods fail',async()=>{
+  const f=await fixture(()=>json(page()),'blocked');
+  try{await f.wait(()=>expect(f.dom.window.document.querySelector('.server-log-summary')).not.toBeNull());f.dom.window.document.querySelector<HTMLButtonElement>('.server-log-summary')!.click();await f.wait(()=>expect(f.button('复制诊断')).toBeDefined());f.button('复制诊断').click();await f.wait(()=>expect(f.dom.window.document.querySelector('textarea')).not.toBeNull());const area=f.dom.window.document.querySelector('textarea')!;expect(JSON.parse(area.value)).toMatchObject({deviceId:'device-test'});expect(area.readOnly).toBe(true);expect(area.selectionEnd).toBe(area.value.length);expect(f.dom.window.document.activeElement).toBe(area);expect(f.button('重试复制')).toBeDefined();expect(f.copies).toEqual([]);}finally{f.close();}
 });

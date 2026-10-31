@@ -11,6 +11,27 @@ import (
 
 // JSON schema covers structure; these checks preserve the original protocol's
 // cross-field and encoded-size constraints, which JSON schema cannot express.
+// Qt Agent 0.2.18 represents a temporarily unknown active turn as "". The
+// protocol's nullable field already models that state; do not relax ID rules.
+func normalizeLegacyActiveTurn(message M) {
+	normalize := func(thread M) {
+		if value, ok := thread["activeTurnId"].(string); ok && value == "" {
+			thread["activeTurnId"] = nil
+		}
+	}
+	switch message["type"] {
+	case "device.event":
+		change := obj(obj(message["event"])["change"])
+		if change["type"] == "thread.updated" {
+			normalize(obj(change["thread"]))
+		}
+	case "device.snapshot":
+		for _, thread := range obj(obj(message["snapshot"])["threads"]) {
+			normalize(obj(thread))
+		}
+	}
+}
+
 func validateRefinements(v any) {
 	if refinementIssue(v, "") != nil {
 		fail(400, "invalid-message")

@@ -220,15 +220,19 @@ export function normalizeRequests(state: RecordValue): InteractiveRequest[] {
     const detailsTruncated = jsonBytes(details) > 16384 || typeof params.command === "string" && params.command.length > 16384 || typeof params.reason === "string" && params.reason.length > 8192;
     if (detailsTruncated) details = {};
     const approval = kind === 'mcpElicitation' ? mcpApproval(params) : undefined;
-    return { id: String(request.id).slice(0, 160), kind, turnId: typeof params.turnId === "string" ? params.turnId : null, ...(typeof params.command === "string" ? { command: text(params.command, 16384) } : {}), ...(typeof params.reason === "string" ? { reason: text(params.reason, 8192) } : {}), details, detailsTruncated, ...(approval && !detailsTruncated ? {approval} : {}), respondable: !detailsTruncated && (["commandApproval", "fileApproval", "userInput"].includes(kind) || !!approval) };
+    return { id: String(request.id).slice(0, 160), kind, turnId: typeof params.turnId === "string" && params.turnId.length > 0 && params.turnId.length <= 160 ? params.turnId : null, ...(typeof params.command === "string" ? { command: text(params.command, 16384) } : {}), ...(typeof params.reason === "string" ? { reason: text(params.reason, 8192) } : {}), details, detailsTruncated, ...(approval && !detailsTruncated ? {approval} : {}), respondable: !detailsTruncated && (["commandApproval", "fileApproval", "userInput"].includes(kind) || !!approval) };
   });
   return [...requests, ...asyncInputRequests(desktopTurns(state))].slice(0, 40);
+}
+function turnIdentity(turn: RecordValue | undefined): string | null {
+  for (const value of [turn?.turnId, turn?.id]) if (typeof value === 'string' && value.length > 0 && value.length <= 160) return value;
+  return null;
 }
 export function normalizeThread(state: RecordValue, revision: number, images?: ImageRegistry): RemoteThread {
   const settings = modelSettings(state);
   const turns = desktopTurns(state);
   const active = [...turns].reverse().find(turn => turn.status === "inProgress");
-  const activeId = active?.turnId ?? active?.id;
+  const activeId = turnIdentity(active);
   const runtime = record(state.threadRuntimeStatus);
   const runtimeType = runtime.type;
   const status = runtimeType === "active" || runtimeType === "idle" || runtimeType === "systemError" || runtimeType === "notLoaded" ? runtimeType : "unavailable";
@@ -249,7 +253,7 @@ export function normalizeThread(state: RecordValue, revision: number, images?: I
       const steps = Array.isArray(turn.plan) ? turn.plan : array(plan.plan ?? plan.steps);
       const diff = typeof turn.diff === "string" ? turn.diff : "";
       return {
-        id: typeof turn.turnId === "string" ? turn.turnId : String(turn.id ?? "unknown"), status: text(turn.status, 80) || "unknown",
+        id: turnIdentity(turn) ?? "unknown", status: text(turn.status, 80) || "unknown",
         ...turnTiming(turn),
         ...(changes ? { fileChanges: changes } : {}),
         ...(items.length > 20 ? { itemsTruncatedBefore: true } : {}),

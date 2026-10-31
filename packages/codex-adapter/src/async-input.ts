@@ -15,7 +15,7 @@ export function asyncQuestionRequestId(item: Raw): string | null {
 export function asyncInputRequests(turns: Raw[]): InteractiveRequest[] {
   const requests: InteractiveRequest[] = [];
   for (const turn of turns) {
-    const turnId = turn.turnId ?? turn.id;
+    const turnId = [turn.turnId, turn.id].find(value => typeof value === 'string' && value.length > 0 && value.length <= 160);
     if (turn.status !== 'inProgress' || typeof turnId !== 'string' || !turnId.length || turnId.length > 160) continue;
     const items = Array.isArray(turn.items) ? turn.items.map(record) : [];
     const answered = new Map<string, number>();
