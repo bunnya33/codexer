@@ -4,7 +4,7 @@
 
 每轮任务完成后，结束时间固定显示在 Token 用量下方并靠左对齐；运行中或没有有效结束记录时隐藏。处理状态上方的开始时间保留为居中静态文字，移除点击时间切换起止时间的功能。保留本地日期格式和 Web 时区提示。Android 与原生 Control 共用源码，已安装客户端需另行构建更新；PC Agent 沿用 0.2.22。
 
-构建、界面验收及服务器发布结果见[验证记录](validation.md)。
+稳定版 [v0.3.37](https://github.com/bunnya33/codexer/releases/tag/v0.3.37) 已发布，对应提交 `3943d3d`；[正式发布流程](https://github.com/bunnya33/codexer/actions/runs/41194745887)全部通过，Linux/macOS 双架构的四个平台包及 SHA-256 共 8 个附件齐全。在管理后台检查更新、准备 0.3.37 并重启启用，随后刷新网页版即可。构建、界面验收及发布结果见[验证记录](validation.md)。
 
 ## Qt Agent 0.2.22：恢复每轮 Token 用量
 
