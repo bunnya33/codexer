@@ -8,6 +8,10 @@
 
 服务器包单独发布，Qt Agent 0.2.20 提供 Windows 安装版和便携版；完整的后台限额自动应用需要升级 Agent。生产部署、正式包与正在运行的客户端分别验收，不覆盖活动任务中的 Agent/Codex。
 
+稳定版 [v0.3.36](https://github.com/bunnya33/codexer/releases/tag/v0.3.36) 对应 `1f62cb2`，[服务器发布流程](https://github.com/bunnya33/codexer/actions/runs/41169572595)通过完整回归、PostgreSQL、Go race、生产构建、独立程序和四目标打包，8 个正式附件齐全。Qt Agent 的 [Windows CI](https://github.com/bunnya33/codexer/actions/runs/41169572610) 编译、打包与迁移验收通过；本地安装版/便携版、校验文件及报告在 `release/agent-native-0.2.20`。
+
+发布后生产健康接口仍为 `0.3.35`，需在后台检查更新、准备 `0.3.36` 并重启启用。更新后可在「系统设置」保存 1–30 个预览的目标；已暂停 Agent 需重新连接，后台限额自动应用需 Agent 0.2.20。正式包核验和部署边界见[验证记录](validation.md)。
+
 ## 服务器 0.3.35：已上传安装包版本修正
 
 管理后台的安装包列表增加「修改版本」，可直接修正已上传包的版本号与 Android 实际 versionCode。保存后无需重新上传，保留原文件、签名、哈希、发布 ID、上传时间与当前/历史状态；当前发布在客户端下次检查更新时使用修正信息。管理员权限、并发修改冲突及写盘失败回滚均在服务端处理。

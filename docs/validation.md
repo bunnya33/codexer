@@ -10,6 +10,12 @@ Windows MSVC / Qt 6.8.3 Release 实际构建及安装版/便携版打包完成�
 
 安装版产品名/版本为 Codexer Agent / 0.2.20，安装版 SHA-256 `f858109367a7c523d5a48fbda99b3c253c594a6c3a41c2fa35bbccd70bf1bd7c`；便携版 `ccf5c63b8997053743a61444d6d48bbf6926d900b560adc312cfb4f1de4c257a`。交付和验收文件在 `release/agent-native-0.2.20`。本轮未覆盖或重启工作的 Agent/Codex，未构建 macOS Qt 或原生 Control。正式服务器发布与生产部署另行确认。
 
+Qt Agent 的 [Windows 正式 CI](https://github.com/bunnya33/codexer/actions/runs/41169572610) 已通过，包含真实 Qt 编译、安装版/便携版打包、原生后台/UI/跨语言协议和启动迁移验收，对应提交 `1f62cb2`。
+
+服务器稳定版 [v0.3.36](https://github.com/bunnya33/codexer/releases/tag/v0.3.36) 已发布，[正式流程](https://github.com/bunnya33/codexer/actions/runs/41169572595)全部成功，包含 PostgreSQL、Go race 和四目标打包。8 个附件齐全，四份校验文件与发布摘要一致。Linux amd64 正式包 8,020,985 字节，实际下载 SHA-256 为 `0b0a340584e9da722832f614690b13325c120ac0044c5de8d98ca9f84bacf6a5`；VERSION/清单均为 0.3.36，程序为 ELF x86-64、0755，内嵌会话上限设置与在线下发接口。归档和验证 JSON 位于 `release/server-0.3.36`。
+
+发布后生产健康接口仍返回 `0.3.35`；当前没有可用 SSH 登录，本轮未直接部署。需通过后台检查更新、准备 0.3.36 并重启启用，再保存目标上限。旧 Agent 因协议错误暂停时需重新点击连接；自动遵守管理员目标需要升级到 Qt Agent 0.2.20。
+
 ## 2026-10-31 服务器 0.3.35 安装包版本修正
 
 管理后台和管理员 PATCH 接口支持修正已有包的版本号与 Android versionCode。Go 回归覆盖权限、非法版本/构建号、目标不匹配、上传互斥、旧页面冲突、当前/历史包修改和重启持久化、正在下载时修改不改变字节、写盘失败回滚以及删除后编辑。包 ID、文件名、说明、大小、SHA-256 与上传时间保持原值；编辑历史版本不会发布它。
