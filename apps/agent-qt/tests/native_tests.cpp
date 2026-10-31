@@ -208,6 +208,13 @@ public:
                                               {"revision", 0},
                                               {"conversationState", raw}}}}}});
   }
+  void patch(const Array &patches, qint64 base, qint64 revision) {
+    send({{"type", "broadcast"}, {"method", "thread-stream-state-changed"},
+          {"sourceClientId", "synthetic-owner"}, {"version", 11},
+          {"params", Object{{"conversationId", "thread-test"}, {"hostId", "local"},
+              {"change", Object{{"type", "patches"}, {"baseRevision", double(base)},
+                                {"revision", double(revision)}, {"patches", patches}}}}}});
+  }
 };
 class NativeTests : public QObject {
   Q_OBJECT
@@ -289,6 +296,27 @@ class NativeTests : public QObject {
     agent->snapshot["threads"] = threads;
     agent->catalog["threads"] = entries;
   }
+  Object counts(double input, double output, double cached) {
+    return {{"totalTokens", input + output}, {"inputTokens", input},
+            {"outputTokens", output}, {"cachedInputTokens", cached}};
+  }
+  Object usageState(const QString &turnId, bool active, const Object &total,
+                    const QString &previous = "old") {
+    auto result = raw();
+    result["latestModel"] = "model-a";
+    result["threadRuntimeStatus"] = Object{{"type", active ? "active" : "idle"}};
+    result["latestTokenUsageInfo"] = Object{{"total", total}, {"last", total}};
+    result["turns"] = Array{Object{{"id", previous}, {"status", "completed"}, {"items", Array{}}},
+        Object{{"id", turnId}, {"status", active ? "inProgress" : "completed"}, {"items", Array{}}}};
+    return result;
+  }
+  void desktopUsage(const Object &raw) {
+    agent->desktopThreads.insert("thread-test");
+    auto &watch = agent->desktop->watched["thread-test"];
+    watch.raw = raw;
+    watch.compatible = true;
+    emit agent->desktop->threadChanged("thread-test");
+  }
 private slots:
   void init() {
     QVERIFY(temp.isValid());
@@ -307,6 +335,7 @@ private slots:
                           {"relayUrl", "http://127.0.0.1:1"}};
     agent->network = new QNetworkAccessManager(agent.get());
     agent->desktop = new Desktop(agent.get());
+    agent->attachDesktop();
     agent->view = {{"logs", Array{}}};
     agent->paused = false;
     agent->initialized = true;
@@ -1085,6 +1114,219 @@ private slots:
     QVERIFY(!agent->updateState["downloaded"].toBool());
   }
 
+  void desktopUsageCollectedBeforeDisplayBatching() {
+    const auto initial = usageState("old", false, counts(1000, 100, 500));
+    DesktopFixture fixture(initial);
+    qputenv("CODEX_REMOTE_DESKTOP_ENDPOINT", fixture.endpoint.toUtf8());
+    agent->settings["runtime"] = "auto";
+    agent->desktop->open(agent->settings);
+    QVERIFY(agent->desktop->follow("thread-test"));
+    QVERIFY(waitFor([&] { return agent->desktop->watched["thread-test"].compatible; }, 1000));
+    agent->watch("thread-test"); // Initial snapshot arrived before watch membership.
+    const auto seq = agent->snapshot["lastSeq"].toInteger();
+    auto change = [](Array path, QJsonValue value) {
+      return Object{{"op", "replace"}, {"path", path}, {"value", value}};
+    };
+    fixture.patch({change({"threadRuntimeStatus", "type"}, "active"),
+        change({"turns"}, usageState("new", true, {})["turns"])}, 0, 1);
+    fixture.patch({change({"latestTokenUsageInfo"}, Object{{"total", counts(1500, 130, 900)},
+        {"last", counts(500, 30, 400)}})}, 1, 2);
+    fixture.patch({change({"latestTokenUsageInfo"}, Object{{"total", counts(1900, 150, 1200)},
+        {"last", counts(400, 20, 300)}})}, 2, 3);
+    fixture.patch({change({"threadRuntimeStatus", "type"}, "idle"),
+        change({"turns"}, usageState("new", false, {})["turns"])}, 3, 4);
+    QVERIFY(waitFor([&] { return agent->desktop->watched["thread-test"].revision == 4; }, 1000));
+    // No display update/timer has run; every raw IPC patch was observed.
+    QCOMPARE(agent->snapshot["lastSeq"].toInteger(), seq);
+    const auto saved = agent->usageRecord("thread-test", "new");
+    QCOMPARE(saved["inputTokens"], QJsonValue(900));
+    QCOMPARE(saved["outputTokens"], QJsonValue(50));
+    QCOMPARE(saved["cachedInputTokens"], QJsonValue(700));
+    QCOMPARE(saved["state"], QJsonValue("complete"));
+    QCOMPARE(saved["model"], QJsonValue("model-a"));
+    QVERIFY(agent->usageRecord("thread-test", "old").isEmpty());
+    agent->updateThread("thread-test");
+    const auto live = agent->snapshot["threads"].toObject()["thread-test"].toObject();
+    QCOMPARE(live["turns"].toArray().last().toObject()["tokenUsage"], QJsonValue(saved));
+    setFixture({{"turns", Array{Object{{"id", "new"}, {"status", "completed"}, {"items", Array{}}}}}});
+    QCOMPARE(agent->history("thread-test", QJsonValue::Null)["turns"].toArray()[0].toObject()["tokenUsage"], QJsonValue(saved));
+    fixture.snapshot();
+    QVERIFY(waitFor([&] { return agent->desktop->watched["thread-test"].revision == 0; }, 1000));
+    QCOMPARE(agent->usageRecord("thread-test", "new"), saved);
+  }
+  void desktopUsageTemporaryIdentityAndCanonicalHistory() {
+    desktopUsage(usageState("old", false, counts(1000, 100, 500)));
+    auto temporary = usageState("", true, counts(1000, 100, 500));
+    desktopUsage(temporary);
+    desktopUsage(usageState("new", true, counts(1000, 100, 500)));
+    auto canonical = usageState("new", false, counts(1500, 130, 900));
+    const auto turns = canonical.take("turns").toArray();
+    canonical["turnHistory"] = Object{{"kind", "canonical"}, {"history", Object{
+        {"entitiesByKey", Object{{"a", turns[0]}, {"b", turns[1]}}},
+        {"islands", Array{Object{{"entries", Array{Object{{"value", "a"}}, Object{{"value", "b"}}}}}}}}}};
+    desktopUsage(canonical);
+    const auto saved = agent->usageRecord("thread-test", "new");
+    QCOMPARE(saved["inputTokens"], QJsonValue(500));
+    QCOMPARE(saved["state"], QJsonValue("complete"));
+    QVERIFY(agent->usageRecord("thread-test", "unknown").isEmpty());
+  }
+  void desktopUsageMidTurnAndConnectionGap() {
+    desktopUsage(usageState("new", true, counts(1500, 130, 900)));
+    QVERIFY(agent->usageRecord("thread-test", "new").isEmpty());
+    desktopUsage(usageState("new", true, counts(1900, 150, 1200)));
+    agent->desktop->watched["thread-test"].compatible = false;
+    emit agent->desktop->threadChanged("thread-test");
+    QVERIFY(!agent->usageObservations.contains("thread-test"));
+    desktopUsage(usageState("new", true, counts(2500, 180, 1600)));
+    desktopUsage(usageState("new", false, counts(2700, 190, 1700)));
+    const auto saved = agent->usageRecord("thread-test", "new");
+    QCOMPARE(saved["inputTokens"], QJsonValue(600));
+    QCOMPARE(saved["outputTokens"], QJsonValue(30));
+    QCOMPARE(saved["state"], QJsonValue("partial"));
+  }
+  void desktopUsageSkippedTurnsAndCounterReset() {
+    desktopUsage(usageState("old", false, counts(1000, 100, 500)));
+    desktopUsage(usageState("new", true, counts(1900, 150, 1200), "skipped"));
+    QVERIFY(agent->usageRecord("thread-test", "new").isEmpty());
+    desktopUsage(usageState("new", true, counts(2000, 160, 1250), "skipped"));
+    desktopUsage(usageState("new", true, counts(100, 10, 50), "skipped"));
+    desktopUsage(usageState("new", false, counts(200, 20, 100), "skipped"));
+    const auto saved = agent->usageRecord("thread-test", "new");
+    QCOMPARE(saved["inputTokens"], QJsonValue(200));
+    QCOMPARE(saved["outputTokens"], QJsonValue(20));
+    QCOMPARE(saved["cachedInputTokens"], QJsonValue(100));
+    QCOMPARE(saved["state"], QJsonValue("partial"));
+  }
+  void notificationUsageTurnIdentityAndDuplicates() {
+    agent->ensureRpc();
+    auto notify = [&](QString method, Object params) {
+      params["threadId"] = "thread-test";
+      emit agent->rpc->notification(method, params);
+    };
+    agent->rawThreads["thread-test"] = usageState("new", true, {});
+    notify("turn/started", {{"turn", Object{{"id", "new"}}}});
+    const Object first{{"total", counts(1500, 130, 900)}, {"last", counts(500, 30, 400)}};
+    notify("thread/tokenUsage/updated", {{"turnId", "new"}, {"tokenUsage", first}});
+    notify("turn/started", {{"turn", Object{{"id", "new"}}}}); // Duplicate start.
+    notify("thread/tokenUsage/updated", {{"turnId", "new"}, {"tokenUsage", first}});
+    notify("thread/tokenUsage/updated", {{"turnId", "other"}, {"tokenUsage", Object{{"total", counts(1600, 140, 950)}}}});
+    notify("thread/tokenUsage/updated", {{"turnId", "new"}, {"tokenUsage", Object{{"total", counts(1900, 150, 1200)}}}});
+    notify("turn/completed", {{"turn", Object{{"id", "other"}}}});
+    QCOMPARE(agent->usageRecord("thread-test", "new")["state"], QJsonValue("running"));
+    notify("turn/completed", {{"turn", Object{{"id", "new"}}}});
+    const auto saved = agent->usageRecord("thread-test", "new");
+    QCOMPARE(saved["inputTokens"], QJsonValue(900));
+    QCOMPARE(saved["outputTokens"], QJsonValue(50));
+    QCOMPARE(saved["state"], QJsonValue("complete"));
+    notify("thread/tokenUsage/updated", {{"turnId", "new"}, {"tokenUsage", Object{{"total", counts(1900, 150, 1200)}}}});
+    QCOMPARE(agent->usageRecord("thread-test", "new"), saved);
+    QVERIFY(agent->usageRecord("thread-test", "other").isEmpty());
+  }
+  void usageInvalidCounters_data() {
+    QTest::addColumn<QJsonValue>("invalid");
+    QTest::newRow("negative") << QJsonValue(-1);
+    QTest::newRow("fraction") << QJsonValue(1.5);
+    QTest::newRow("unsafe") << QJsonValue(9007199254740992.0);
+    QTest::newRow("string") << QJsonValue("100");
+    QTest::newRow("missing") << QJsonValue(QJsonValue::Undefined);
+  }
+  void usageInvalidCounters() {
+    QFETCH(QJsonValue, invalid);
+    agent->startUsage("thread-test", "new");
+    auto total = counts(100, 10, 50);
+    if (invalid.isUndefined()) total.remove("inputTokens");
+    else total["inputTokens"] = invalid;
+    agent->observeUsage("thread-test", "new", {{"total", total}, {"last", total}}, true);
+    QVERIFY(agent->usageRecord("thread-test", "new").isEmpty());
+    total = counts(100, 10, 101); // Cached input must be a subset.
+    agent->observeUsage("thread-test", "new", {{"total", total}, {"last", total}}, true);
+    QVERIFY(agent->usageRecord("thread-test", "new").isEmpty());
+  }
+  void usageInconsistentDeltasArePartial() {
+    desktopUsage(usageState("old", false, counts(1000, 100, 500)));
+    desktopUsage(usageState("new", true, counts(1000, 100, 600)));
+    desktopUsage(usageState("new", false, counts(1500, 130, 900)));
+    const auto saved = agent->usageRecord("thread-test", "new");
+    QCOMPARE(saved["inputTokens"], QJsonValue(500));
+    QCOMPARE(saved["cachedInputTokens"], QJsonValue(300));
+    QCOMPARE(saved["state"], QJsonValue("partial"));
+  }
+  void usagePersistenceAndLegacyRecords() {
+    agent->startUsage("thread-test", "done");
+    agent->observeUsage("thread-test", "done", {{"total", counts(100, 10, 50)}, {"last", counts(100, 10, 50)}}, true);
+    agent->finishUsage("thread-test", "done");
+    agent->startUsage("thread-test", "running");
+    agent->observeUsage("thread-test", "running", {{"total", counts(300, 30, 100)}}, true);
+    const auto done = agent->usageRecord("thread-test", "done");
+    agent->closeAgent();
+    agent->openJournal();
+    QCOMPARE(agent->usageRecord("thread-test", "done"), done);
+    QCOMPARE(agent->usageRecord("thread-test", "running")["state"], QJsonValue("partial"));
+    desktopUsage(usageState("done", false, counts(100, 10, 50)));
+    desktopUsage(usageState("done", false, counts(100, 10, 50)));
+    QCOMPARE(agent->usageRecord("thread-test", "done"), done);
+    sql(agent->usage, "INSERT INTO turn_usage VALUES(?,?,?)", {"thread-test", "bad", "{bad-json"});
+    Object turn{{"id", "bad"}};
+    agent->enrichUsage("thread-test", turn);
+    QVERIFY(!turn.contains("tokenUsage"));
+  }
+  void usageStorageFailureKeepsEventProcessingAlive() {
+    desktopUsage(usageState("old", false, counts(1000, 100, 500)));
+    desktopUsage(usageState("new", true, counts(1000, 100, 500)));
+    sql(agent->usage, "DROP TABLE turn_usage");
+    desktopUsage(usageState("new", true, counts(1500, 130, 900)));
+    QVERIFY(agent->dirtyThreads.contains("thread-test"));
+    QVERIFY(!agent->usageObservations.contains("thread-test"));
+    agent->ensureRpc();
+    agent->startUsage("rpc-thread", "turn");
+    emit agent->rpc->notification("turn/completed", {{"threadId", "rpc-thread"},
+        {"turn", Object{{"id", "turn"}}}});
+    QVERIFY(agent->dirtyThreads.contains("rpc-thread"));
+    QCOMPARE(agent->view["logs"].toArray().last().toObject()["code"], QJsonValue("token-usage-observation-failed"));
+  }
+  void usageEnrichmentRespectsLiveAndHistoryBudgets() {
+    agent->startUsage("thread-test", "new", "model-a");
+    agent->observeUsage("thread-test", "new", {{"total", counts(100, 10, 50)}, {"last", counts(100, 10, 50)}}, true);
+    agent->finishUsage("thread-test", "new");
+    auto source = usageState("new", false, counts(100, 10, 50));
+    auto turn = source["turns"].toArray().last().toObject();
+    Array items;
+    for (int i = 0; i < 20; ++i)
+      items.append(Object{{"id", QString::number(i)}, {"type", "commandExecution"},
+                          {"text", QString(4096, 'x')}, {"aggregatedOutput", QString(8192, 'x')}});
+    turn["items"] = items;
+    source["turns"] = Array{turn};
+    auto normalized = normalizeThread(source, 0);
+    auto turns = normalized["turns"].toArray();
+    auto padded = turns[0].toObject();
+    padded["diff"] = QString(256 * 1024 - json(normalized).size(), 'x');
+    turns[0] = padded;
+    normalized["turns"] = turns;
+    QCOMPARE(json(normalized).size(), 256 * 1024);
+    source["_normalized"] = normalized;
+    agent->rawThreads["thread-test"] = source;
+    agent->updateThread("thread-test");
+    const auto live = agent->snapshot["threads"].toObject()["thread-test"].toObject();
+    QVERIFY(json(live).size() <= 256 * 1024);
+    const auto liveTurn = live["turns"].toArray()[0].toObject();
+    QCOMPARE(liveTurn["tokenUsage"].toObject()["state"], QJsonValue("complete"));
+    QVERIFY(liveTurn["items"].toArray().size() < 20);
+    Array historyTurns;
+    for (int t = 0; t < 3; ++t) {
+      Array largeItems;
+      for (int i = 0; i < 40; ++i)
+        largeItems.append(Object{{"id", QString::number(i)}, {"type", "agentMessage"},
+            {"text", QString(32000, 'x')}, {"aggregatedOutput", QString(32000, 'x')}});
+      historyTurns.append(Object{{"id", t == 0 ? "new" : QString::number(t)},
+          {"status", "completed"}, {"items", largeItems}});
+    }
+    setFixture({{"turns", historyTurns}});
+    const auto page = agent->history("thread-test", QJsonValue::Null);
+    QVERIFY(json(page).size() <= 6 * 1024 * 1024);
+    const auto historyTurn = page["turns"].toArray()[0].toObject();
+    QCOMPARE(historyTurn["tokenUsage"].toObject()["state"], QJsonValue("complete"));
+    QVERIFY(historyTurn["items"].toArray().size() < 40);
+  }
   void desktopFramingAndStart() {
     DesktopFixture fixture(raw());
     qputenv("CODEX_REMOTE_DESKTOP_ENDPOINT", fixture.endpoint.toUtf8());

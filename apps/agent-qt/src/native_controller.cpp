@@ -24,10 +24,7 @@ void Service::start() {
   maintenance = new QTimer(this);
   maintenance->setInterval(250);
   connect(maintenance, &QTimer::timeout, this, [this] { tick(); });
-  connect(desktop, &Desktop::threadChanged, this, [this](const QString &id) {
-    if (desktopThreads.contains(id))
-      dirtyThreads.insert(id);
-  });
+  attachDesktop();
   try {
     initialize();
   } catch (...) {

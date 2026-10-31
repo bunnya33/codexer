@@ -25,9 +25,7 @@ void Service::attachRpc(Rpc *value) {
     if (method == "turn/started") {
       auto tid = p["turn"].toObject()["id"].toString();
       busyTurns.insert(tid);
-      auto prior = usageObservations[id];
-      usageObservations[id] = {
-          {"turnId", tid}, {"baseline", prior["baseline"]}, {"coverage", true}};
+      startUsage(id, tid, normalizeSettings(rawThreads.value(id))["model"].toString());
     }
     if (method == "turn/completed") {
       awaitingQueue.remove(id);
@@ -39,23 +37,11 @@ void Service::attachRpc(Rpc *value) {
         if (params["turnId"] == tid && params["isBlocking"] != false)
           pendingRequests.remove(key);
       }
-      if (usage.isOpen())
-        try {
-          auto row = sql(
-              usage,
-              "SELECT value FROM turn_usage WHERE thread_id=? AND turn_id=?",
-              {id, tid});
-          if (row.next()) {
-            auto u = parse(row.value(0).toByteArray()).toObject();
-            u["state"] = usageObservations[id]["coverage"].toBool() ? "complete"
-                                                                    : "partial";
-            sql(usage,
-                "UPDATE turn_usage SET value=? WHERE thread_id=? AND turn_id=?",
-                {json(u), id, tid});
-          }
-        } catch (...) {
-        }
-      usageObservations[id]["idle"] = true;
+      try {
+        finishUsage(id, tid);
+      } catch (...) {
+        log("token-usage-observation-failed");
+      }
     }
     if (method == "serverRequest/resolved")
       pendingRequests.remove(p["requestId"].toVariant().toString());
@@ -78,6 +64,9 @@ void Service::attachRpc(Rpc *value) {
   connect(value, &Rpc::disconnected, this, [this, value] {
     if (rpc != value || refreshing)
       return;
+    for (const auto &id : usageObservations.keys())
+      if (!desktopThreads.contains(id))
+        gapUsage(id);
     owned.clear();
     acquired.clear();
     busyTurns.clear();
@@ -501,6 +490,7 @@ bool Service::trimThreadPreviews(int target) {
     commit({{"type", "thread.removed"}, {"threadId", removable}});
     rawThreads.remove(removable);
     dirtyThreads.remove(removable);
+    gapUsage(removable);
     desktop->unfollow(removable);
     desktopThreads.remove(removable);
   }
@@ -513,6 +503,7 @@ void Service::watch(const QString &id, bool forceHeadless) {
   if (!forceHeadless && settings["runtime"] != "headless" &&
       desktop->connected && !owned.contains(id) && desktop->follow(id)) {
     desktopThreads.insert(id);
+    observeDesktopUsage(id);
     if (desktop->watched[id].compatible) {
       rawThreads[id] = desktop->watched[id].raw;
       updateThread(id);
@@ -569,7 +560,8 @@ void Service::watch(const QString &id, bool forceHeadless) {
   source["requests"] = requests;
   source["latestThreadSettings"] = effectiveSettings[id];
   source["latestTokenUsageInfo"] = tokenUsage.value(id);
-  desktopThreads.remove(id);
+  if (desktopThreads.remove(id))
+    gapUsage(id);
   rawThreads[id] = source;
   updateThread(id);
 }
@@ -619,6 +611,7 @@ void Service::updateThread(const QString &id) {
                         {"status", q["status"]}});
   }
   thread["queuedMessages"] = queue;
+  thread = boundTurns(thread);
   auto comparable = old;
   comparable["revision"] = thread["revision"];
   if (thread != comparable)
@@ -870,6 +863,7 @@ Object Service::history(const QString &id, QJsonValue cursor) {
                 {"turns", turns},
                 {"nextCursor", page["nextCursor"]},
                 {"generatedAt", double(now())}};
+  result = boundTurns(result, 6 * 1024 * 1024);
   if (json(result).size() > 6 * 1024 * 1024)
     throw Error("history-too-large");
   return result;
@@ -922,6 +916,9 @@ QString Service::refresh(bool force) {
   rpc = replacement;
   attachRpc(rpc);
   disconnect(old, nullptr, this, nullptr);
+  for (const auto &id : usageObservations.keys())
+    if (!desktopThreads.contains(id))
+      gapUsage(id);
   delete old;
   owned.clear();
   acquired.clear();

@@ -535,6 +535,7 @@ Object Service::manage(const Object &command) {
   } else {
     newThreads.remove(id);
     desktopThreads.remove(id);
+    gapUsage(id);
     desktop->unfollow(id);
     rawThreads.remove(id);
     owned.remove(id);

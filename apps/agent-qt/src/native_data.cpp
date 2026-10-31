@@ -678,6 +678,25 @@ Object normalizeTurn(
   }
   return result;
 }
+Object usageMetadata(const Object &raw) {
+  const auto turns = rawTurns(raw);
+  Array ids;
+  QJsonValue activeId(QJsonValue::Null), lastId(QJsonValue::Null);
+  for (const auto &value : turns) {
+    const auto turn = value.toObject();
+    lastId = turnIdentity(turn);
+    if (lastId.isString())
+      ids.append(lastId);
+    if (turn["status"] == "inProgress")
+      activeId = lastId;
+  }
+  const auto status = raw["threadRuntimeStatus"].toObject()["type"];
+  return {{"active", status == "active"},
+          {"turnId", status == "active" ? activeId : lastId},
+          {"turnIds", ids},
+          {"usage", raw["latestTokenUsageInfo"]},
+          {"model", normalizeSettings(raw)["model"]}};
+}
 Object normalizeThread(
     const Object &raw, qint64 revision,
     const std::function<Array(const QString &, const Object &)> &images) {
@@ -867,7 +886,10 @@ Object normalizeThread(
                              json(raw["latestTokenUsageInfo"]).size() <= 4096
                          ? raw["latestTokenUsageInfo"]
                          : QJsonValue(QJsonValue::Null)}};
-  while (json(result).size() > 256 * 1024) {
+  return boundTurns(result);
+}
+Object boundTurns(Object result, qint64 limit) {
+  while (json(result).size() > limit) {
     auto ts = result["turns"].toArray();
     bool removed = false;
     for (int i = 0; i < ts.size(); ++i) {
@@ -892,15 +914,18 @@ Object normalizeThread(
       }
       if (!t["diff"].toString().isEmpty() ||
           !t["fileChanges"].toArray().isEmpty()) {
-        t["diff"] = "";
+        if (t.contains("diff"))
+          t["diff"] = "";
         t.remove("fileChanges");
+        t["truncated"] = true;
         ts[i] = t;
         removed = true;
         break;
       }
     }
     result["turns"] = ts;
-    result["truncated"] = true;
+    if (result.contains("requests"))
+      result["truncated"] = true;
     if (!removed) {
       auto rs = result["requests"].toArray();
       if (rs.isEmpty())

@@ -51,6 +51,8 @@ Object normalizeThread(
 Object normalizeTurn(
     const Object &raw, bool history, const QString &threadId,
     const std::function<Array(const QString &, const Object &)> &images = {});
+Object usageMetadata(const Object &raw);
+Object boundTurns(Object result, qint64 limit = 256 * 1024);
 Object normalizeCatalog(const QString &device, const Array &projects,
                         const Array &threads, const Array &models);
 Object applyPatch(Object source, const Array &patches);
@@ -179,6 +181,7 @@ class Service : public QObject {
   void tick();
   void ensureRpc();
   void attachRpc(Rpc *value);
+  void attachDesktop();
   Array pages(const QString &method, Object params = {});
   void refreshCatalog();
   void watch(const QString &id, bool forceHeadless = false);
@@ -209,6 +212,14 @@ class Service : public QObject {
   void observeFiles(const QString &threadId, const Object &turn);
   void observeUsage(const QString &threadId, const QString &turnId,
                     const Object &value, bool notification);
+  void observeDesktopUsage(const QString &threadId);
+  void startUsage(const QString &threadId, const QString &turnId,
+                  const QString &model = {});
+  void finishUsage(const QString &threadId, const QString &turnId);
+  void gapUsage(const QString &threadId);
+  Object usageRecord(const QString &threadId, const QString &turnId);
+  bool saveUsage(const QString &threadId, const QString &turnId,
+                 const Object &value);
   void enrichUsage(const QString &threadId, Object &turn);
   void processCommand(const Object &command);
   Object dispatch(const QString &method, Object value);
