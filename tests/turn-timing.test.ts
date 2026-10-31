@@ -20,6 +20,7 @@ it('never substitutes a message timestamp for a missing task timestamp', () => {
 it('hides a stale end while running and reveals it after completion', () => {
   const value = turn({ startedAtMs: 1000, completedAtMs: 2000 });
   expect(recordedTurnTiming(value, true).end).toBeUndefined();
+  expect(recordedTurnTiming({ ...value, status: 'inProgress' }, false).end).toBeUndefined();
   expect(recordedTurnTiming(value, false).end?.getTime()).toBe(2000);
 });
 

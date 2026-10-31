@@ -79,6 +79,7 @@ const useBaseStyles = themedStyles(c => StyleSheet.create({
   diffLine: { minHeight: 20, paddingHorizontal: 10 }, diffText: { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', color: c.text, fontSize: 12, lineHeight: 20 },
   diffAddedLine: { backgroundColor: c.diffAddedBg }, diffDeletedLine: { backgroundColor: c.diffDeletedBg }, diffHunkLine: { backgroundColor: c.diffHunkBg },
   diffAddedText: { color: c.diffAddedText }, diffDeletedText: { color: c.diffDeletedText }, diffMetaText: { color: c.muted },
+  turnFooter: { gap: 4 },
   usage: { color: c.muted, fontSize: 11 }, earlier: { padding: 12, alignItems: 'center' }, earlierText: { color: c.accent, fontSize: 13 },
   request: { backgroundColor: c.warningBg, borderWidth: 1, borderColor: c.warningBorder, borderRadius: 6, padding: 13, gap: 9, marginTop: 15 },
   requestTitle: { color: c.text, fontSize: 14, fontWeight: '700' }, requestText: { color: c.text, fontSize: 13 },

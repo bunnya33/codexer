@@ -16,7 +16,8 @@ import { ShimmerLabel } from './shimmer';
 import { DrawerSwipeBlock } from './drawer-swipe-block';
 import { FileDiff } from './file-diff';
 import { localAudioPath, stripInlineImageReferences } from '../../../packages/client-shared/src/audio';
-import { TurnTiming } from './turn-timing';
+import { TurnEndTime, TurnTiming } from './turn-timing';
+import { recordedTurnTiming } from '../../../packages/client-shared/src/turn-timing';
 
 type ImageSource = { uri: string; headers?: Record<string, string> };
 type ImageViewer = (source: ImageSource, name: string) => void;
@@ -126,10 +127,14 @@ export function FileChangesPanel({ changes, compact = true }: { changes: NonNull
 
 export const TurnView = memo(function TurnView({ turn, active, deviceId, threadId, onImage, questionRequestIds }: { turn: HistoryTurn; active: boolean; deviceId: string; threadId: string; onImage: ImageViewer; questionRequestIds: string[] }) {
   const { s } = useTheme();
+  const { end } = recordedTurnTiming(turn, active);
   return <View style={s.turn}>
     {buildActivityBlocks(turn, active).map(block => block.kind === 'message' ? <Message key={block.item.id} item={block.item} deviceId={deviceId} threadId={threadId} onImage={onImage} /> : <Activity key={block.id} block={block} turn={turn} deviceId={deviceId} threadId={threadId} onImage={onImage} questionRequestIds={questionRequestIds} />)}
     {!active && !!turn.fileChanges?.length && <FileChangesPanel changes={turn.fileChanges} compact={false} />}
-    {turn.tokenUsage && <Text style={s.usage}>输入 {turn.tokenUsage.inputTokens.toLocaleString()} · 输出 {turn.tokenUsage.outputTokens.toLocaleString()} · 缓存命中 {turn.tokenUsage.cachedInputTokens.toLocaleString()}{turn.tokenUsage.state === 'partial' ? ' · 部分统计' : turn.tokenUsage.state === 'running' ? ' · 统计中' : ''}</Text>}
+    {(turn.tokenUsage || end) && <View style={s.turnFooter}>
+      {turn.tokenUsage && <Text style={s.usage}>输入 {turn.tokenUsage.inputTokens.toLocaleString()} · 输出 {turn.tokenUsage.outputTokens.toLocaleString()} · 缓存命中 {turn.tokenUsage.cachedInputTokens.toLocaleString()}{turn.tokenUsage.state === 'partial' ? ' · 部分统计' : turn.tokenUsage.state === 'running' ? ' · 统计中' : ''}</Text>}
+      <TurnEndTime turn={turn} running={active} />
+    </View>}
   </View>;
 });
 

@@ -9,7 +9,7 @@ function recordedDate(value: number | undefined) {
 export function recordedTurnTiming(turn: HistoryTurn, running: boolean) {
   // Message, sync and render timestamps describe different events.
   const start = recordedDate(turn.startedAtMs);
-  const end = running ? undefined : recordedDate(turn.completedAtMs);
+  const end = running || turn.status === 'inProgress' ? undefined : recordedDate(turn.completedAtMs);
   return { start, end: end && (!start || end >= start) ? end : undefined };
 }
 
