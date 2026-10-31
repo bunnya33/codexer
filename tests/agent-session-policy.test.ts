@@ -46,7 +46,7 @@ it('extends two active PC logins from their login times, leaves browser logins a
       const principal = (await store.sessionPrincipal(session.session, devices[index]))!;
       expect(principal.expiresAt).toBe(session.expiresAt + 83 * day);
       const response = await app.inject({ url: `/v1/agent/${devices[index]}/session`, headers: { authorization: `Bearer ${session.session}` } });
-      expect(response.json()).toEqual({ active: true, expiresAt: principal.expiresAt });
+      expect(response.json()).toEqual({ active: true, expiresAt: principal.expiresAt, threadLimit: 20 });
     }
     expect(await store.sessionPrincipal(expired!.session, devices[2])).toBeNull();
     expect((await store.sessionPrincipal(user.session))!.expiresAt).toBe(browserExpiry);

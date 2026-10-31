@@ -14,23 +14,25 @@ const messageLimit = 8 * 1024 * 1024
 
 // A bounded writer prevents a slow consumer from retaining an unbounded event history.
 type Peer struct {
-	s               *Server
-	ws              *websocket.Conn
-	mu              sync.Mutex
-	principal       *Principal
-	devices         map[string]bool
-	files, previews bool
-	lastPong        atomic.Int64
-	queue           chan []byte
-	done            chan struct{}
-	once            sync.Once
-	buffered        atomic.Int64
-	inbound         atomic.Int64
-	connectionID    string
-	connectedAt     int64
-	source          string
-	diagnosticMu    sync.Mutex
-	lastMessage     logContext
+	s                *Server
+	ws               *websocket.Conn
+	mu               sync.Mutex
+	principal        *Principal
+	devices          map[string]bool
+	files, previews  bool
+	extendedThreads  bool
+	projectedDevices map[string]bool
+	lastPong         atomic.Int64
+	queue            chan []byte
+	done             chan struct{}
+	once             sync.Once
+	buffered         atomic.Int64
+	inbound          atomic.Int64
+	connectionID     string
+	connectedAt      int64
+	source           string
+	diagnosticMu     sync.Mutex
+	lastMessage      logContext
 }
 
 func (p *Peer) Principal() *Principal { p.mu.Lock(); defer p.mu.Unlock(); return p.principal }
@@ -121,6 +123,8 @@ func (s *Server) peer(w http.ResponseWriter, r *http.Request, p *Principal) *Pee
 		source = "device"
 	}
 	peer := &Peer{s: s, ws: ws, principal: p, devices: map[string]bool{}, queue: make(chan []byte, 128), done: make(chan struct{}), connectionID: uuid(), connectedAt: now(), source: source}
+	peer.extendedThreads = r.URL.Query().Get("syncThreads") == "30"
+	peer.projectedDevices = map[string]bool{}
 	peer.lastPong.Store(now())
 	ws.SetReadLimit(messageLimit)
 	ws.SetPongHandler(func(string) error { peer.lastPong.Store(now()); return nil })
@@ -162,8 +166,45 @@ func (s *Server) Broadcast(device string, m any) {
 	}
 	s.mu.Unlock()
 	b := []byte(js(m))
+	var legacy []byte
+	projecting := false
+	if message, ok := m.(M); ok {
+		hasLegacy := false
+		wasProjected := false
+		s.mu.Lock()
+		for _, p := range targets {
+			hasLegacy = hasLegacy || !p.extendedThreads
+			wasProjected = wasProjected || p.projectedDevices[device]
+		}
+		s.mu.Unlock()
+		var snapshot M
+		preferred := ""
+		if hasLegacy && message["type"] == "device.snapshot" {
+			snapshot = obj(message["snapshot"])
+		} else if hasLegacy && message["type"] == "device.event" {
+			count := num(s.Store.One("SELECT COUNT(*) AS total FROM snapshot_threads WHERE device_id=$1", device)["total"])
+			if count > defaultSyncThreads || wasProjected {
+				snapshot = s.Store.Snapshot(device)
+				preferred = str(obj(obj(obj(message["event"])["change"])["thread"])["id"])
+			}
+		}
+		if snapshot != nil && (len(obj(snapshot["threads"])) > defaultSyncThreads || wasProjected) {
+			projecting = len(obj(snapshot["threads"])) > defaultSyncThreads
+			legacy = []byte(js(M{"type": "device.snapshot", "snapshot": legacySnapshot(snapshot, preferred)}))
+		}
+	}
 	for _, p := range targets {
-		if p.sendBytes(b) {
+		out := b
+		if legacy != nil && !p.extendedThreads {
+			out = legacy
+			s.mu.Lock()
+			if p.projectedDevices == nil {
+				p.projectedDevices = map[string]bool{}
+			}
+			p.projectedDevices[device] = projecting
+			s.mu.Unlock()
+		}
+		if p.sendBytes(out) {
 			s.metrics.Inc("recipients", 1)
 		}
 	}
@@ -349,7 +390,7 @@ func (s *Server) deviceSocket(w http.ResponseWriter, r *http.Request) {
 			}
 			s.Store.Q("UPDATE devices SET last_seen_at=$2 WHERE id=$1", id, now())
 			s.Store.Q("DELETE FROM removed_devices WHERE device_id=$1", id)
-			p.Send(M{"type": "device.welcome", "deviceId": id, "protocolVersion": 1, "features": []string{"catalog", "history", "images", "files", "previews", "attachments"}})
+			p.Send(M{"type": "device.welcome", "deviceId": id, "protocolVersion": 1, "threadLimit": s.Store.AgentSettings()["threadLimit"], "features": []string{"catalog", "history", "images", "files", "previews", "attachments"}})
 			s.Broadcast(id, M{"type": "device.presence", "deviceId": id, "online": true})
 		})
 		announceSnapshot, announceCatalog := true, true
@@ -627,6 +668,14 @@ func (s *Server) clientSocket(w http.ResponseWriter, r *http.Request) {
 					replay := false
 					if m["epoch"] != nil && m["lastSeq"] != nil {
 						events, replay = s.Store.Replay(id, str(m["epoch"]), num(m["lastSeq"]))
+					}
+					if !p.extendedThreads {
+						replay = replay && legacyReplaySafe(snapshot, events)
+						s.mu.Lock()
+						replay = replay && !p.projectedDevices[id]
+						p.projectedDevices[id] = len(obj(snapshot["threads"])) > defaultSyncThreads
+						s.mu.Unlock()
+						snapshot = legacySnapshot(snapshot, "")
 					}
 					mode := "snapshot"
 					if replay {

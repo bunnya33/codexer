@@ -2,6 +2,7 @@ import { z } from "zod";
 import { attachmentIdSchema, MAX_ATTACHMENTS } from "./uploads.js";
 import { fileResponseSchema } from "./files.js";
 import { previewResponseSchema } from './previews.js';
+import { MAX_SYNC_THREADS } from '../../shared/src/agent-settings.js';
 
 export const PROTOCOL_VERSION = 1;
 export const MAX_MESSAGE_BYTES = 8 * 1024 * 1024;
@@ -199,7 +200,7 @@ export const snapshotSchema = z.object({
     experimental: z.literal(true),
     capabilities: z.object({ observe: z.boolean(), startTurn: z.boolean(), interrupt: z.boolean(), approvals: z.boolean(), userInput: z.boolean(), modelUpdate: z.boolean().optional(), effortUpdate: z.boolean().optional(), collaborationModeUpdate: z.boolean().optional(), permissionsUpdate: z.boolean().optional(), mcpApprovals: z.boolean().optional(), images: z.boolean().optional(), attachments: z.boolean().optional(), subAgents: z.boolean().optional(), runtimeRefresh: z.boolean().optional() }),
   }),
-  threads: z.record(idSchema, threadSchema).refine(threads => Object.keys(threads).length <= MAX_THREADS && Object.entries(threads).every(([id, thread]) => id === thread.id)),
+  threads: z.record(idSchema, threadSchema).refine(threads => Object.keys(threads).length <= MAX_SYNC_THREADS && Object.entries(threads).every(([id, thread]) => id === thread.id)),
 });
 export type DeviceSnapshot = z.infer<typeof snapshotSchema>;
 
@@ -284,7 +285,7 @@ export function reduceEvent(snapshot: DeviceSnapshot, event: RemoteEvent): Devic
   const threads = new Map(Object.entries(snapshot.threads));
   if (event.change.type === "thread.updated") threads.set(event.change.thread.id, event.change.thread);
   if (event.change.type === "thread.removed") threads.delete(event.change.threadId);
-  if (threads.size > MAX_THREADS) throw new Error("thread-limit");
+  if (threads.size > MAX_SYNC_THREADS) throw new Error("thread-limit");
   return {
     ...snapshot,
     generatedAt: event.timestamp,

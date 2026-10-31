@@ -22,6 +22,8 @@ ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_active_at BIGINT;
 UPDATE sessions SET last_active_at=GREATEST(0,expires_at-604800000) WHERE last_active_at IS NULL;
 ALTER TABLE sessions ALTER COLUMN last_active_at SET NOT NULL;
 CREATE TABLE IF NOT EXISTS auth_settings (id INTEGER PRIMARY KEY CHECK(id=1), idle_timeout_minutes INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS agent_settings(id INTEGER PRIMARY KEY CHECK(id=1),thread_limit INTEGER NOT NULL DEFAULT 20);
+INSERT INTO agent_settings(id,thread_limit) VALUES(1,20) ON CONFLICT(id) DO NOTHING;
 ALTER TABLE auth_settings ADD COLUMN IF NOT EXISTS agent_session_days INTEGER NOT NULL DEFAULT 7;
 ALTER TABLE tickets ADD COLUMN IF NOT EXISTS session_hash TEXT;
 CREATE TABLE IF NOT EXISTS snapshot_threads (device_id TEXT NOT NULL REFERENCES snapshots(device_id) ON DELETE CASCADE, thread_id TEXT NOT NULL, payload JSONB NOT NULL, PRIMARY KEY(device_id,thread_id));

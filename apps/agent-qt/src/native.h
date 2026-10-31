@@ -11,6 +11,8 @@
 namespace Native {
 using Object = QJsonObject;
 using Array = QJsonArray;
+inline constexpr int DefaultSyncedThreads = 20;
+inline constexpr int MaxSyncedThreads = 30;
 struct Error : std::exception {
   QString code;
   bool uncertain;
@@ -138,6 +140,7 @@ class Service : public QObject {
   QHash<int, Object> platformResponses;
   QList<Object> uiQueue, commandQueue;
   int nativeSerial = 0, depth = 0, remoteGeneration = 0, reconnectAttempt = 0;
+  int threadLimit = DefaultSyncedThreads;
   bool initialized = false, paused = true, allowed = true, stopping = false,
        refreshing = false, refreshRequested = false;
   qint64 lastScan = 0, lastCatalog = 0, lastRetry = 0, lastPong = 0,
@@ -169,6 +172,9 @@ class Service : public QObject {
   void relayMessage(const Object &message);
   void preview(const Object &message);
   void send(const Object &message);
+  void ensureThreadSlot(const QString &id = {});
+  bool trimThreadPreviews(int target);
+  void applyThreadLimit(const QJsonValue &value);
   void commit(const Object &change);
   void tick();
   void ensureRpc();

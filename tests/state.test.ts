@@ -3,6 +3,7 @@ import { FrameDecoder, encodeFrame } from "../packages/codex-adapter/src/framing
 import { desktopTurns, normalizeThread, record } from "../packages/codex-adapter/src/normalize.js";
 import { jsonBytes, MAX_THREAD_BYTES, reduceEvent, snapshotSchema, threadSchema } from "../packages/protocol/src/index.js";
 import { event, rawThread, snapshot } from "./helpers.js";
+import { MAX_SYNC_THREADS } from '../packages/shared/src/agent-settings';
 
 describe("IPC framing", () => {
   it("reassembles fragmented headers and UTF-8 and decodes combined frames", () => {
@@ -79,7 +80,7 @@ describe("remote reconciliation", () => {
     const state = snapshot();
     const next = reduceEvent(state, { ...event(state), change: { type: "thread.removed", threadId: "thread-test" } });
     expect(next.threads).toEqual({});
-    for (let index = 0; index < 19; index++) state.threads[String(index)] = { ...state.threads["thread-test"]!, id: String(index) };
+    for (let index = 0; index < MAX_SYNC_THREADS - 1; index++) state.threads[String(index)] = { ...state.threads["thread-test"]!, id: String(index) };
     expect(() => reduceEvent(state, { ...event(state), change: { type: "thread.updated", thread: { ...state.threads["thread-test"]!, id: "extra" } } })).toThrow("thread-limit");
     expect(snapshotSchema.safeParse(state).success).toBe(true);
   });

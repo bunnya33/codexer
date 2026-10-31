@@ -354,7 +354,7 @@ func TestThreadLimitAndRemovalRemainAtomic(t *testing.T) {
 	m := state(t, device)
 	template := obj(obj(m["threads"])["thread-test"])
 	threads := M{}
-	for i := 0; i < 20; i++ {
+	for i := 0; i < maxSyncThreads; i++ {
 		thread := clone(template)
 		thread["id"] = fmt.Sprint(i)
 		threads[fmt.Sprint(i)] = thread
@@ -373,7 +373,7 @@ func TestThreadLimitAndRemovalRemainAtomic(t *testing.T) {
 	event["seq"] = 2
 	event["change"] = M{"type": "thread.updated", "thread": extra}
 	store.SaveEvent(event)
-	if len(obj(store.Snapshot(device)["threads"])) != 20 {
+	if len(obj(store.Snapshot(device)["threads"])) != maxSyncThreads {
 		t.Fatal("thread slot not freed")
 	}
 }

@@ -1,4 +1,5 @@
 import type { AuthSettings } from '../../../packages/shared/src/session-policy';
+import { agentSettingsSchema, type AgentSettings } from '../../../packages/shared/src/agent-settings';
 import {agentReleaseSchema} from '../../../packages/shared/src/agent-release';
 import type {AgentRelease} from '../../../packages/shared/src/agent-release';
 import {clientReleaseSchema} from '../../../packages/shared/src/client-release';
@@ -55,6 +56,8 @@ export const createAccount = (username: string, password: string, role: Role = '
 export const resetPassword = (id: string, password: string, role: Role = 'user') => request(`${accountsPath(role)}/${encodeURIComponent(id)}/password`, 'PUT', { password });
 export const disableAccount = (id: string, role: Role = 'user') => request(`${accountsPath(role)}/${encodeURIComponent(id)}`, 'DELETE');
 export const authSettings = () => request<AuthSettings>('/v1/admin/auth-settings');
+export const agentSettings = async (signal?:AbortSignal) => agentSettingsSchema.parse(await request('/v1/admin/agent-settings','GET',undefined,signal));
+export const saveAgentSettings = async (value:AgentSettings,signal?:AbortSignal) => agentSettingsSchema.parse(await request('/v1/admin/agent-settings','PUT',value,signal));
 export const saveAuthSettings = (settings: Partial<AuthSettings>) => request<AuthSettings>('/v1/admin/auth-settings', 'PUT', settings);
 export const touchLogin = () => request('/v1/auth/active', 'POST');
 export const agentRelease = async () => {const value=await request<{release:AgentRelease|null}>('/v1/admin/pc-agent/release');return value.release===null?null:agentReleaseSchema.parse(value.release);};

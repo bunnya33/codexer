@@ -91,6 +91,15 @@ static int fixtureServer() {
       else
         result = state["resume"].toObject();
     }
+    if (method == "thread/start") {
+      const int count = state["startCount"].toInt() + 1;
+      state["startCount"] = count;
+      result = state["resume"].toObject();
+      auto thread = state["thread"].toObject();
+      thread["id"] = "created-thread-" + QString::number(count);
+      result["thread"] = thread;
+      save(fixtureRoot + "/fixture.json", json(state));
+    }
     if (method == "turn/start") {
       if (state["disconnectOnStart"].toBool())
         return 0;
@@ -262,6 +271,23 @@ class NativeTests : public QObject {
                 {"sandbox", Object{{"type", "workspaceWrite"},
                                    {"writableRoots", Array{temp.path()}}}}}}};
     save(temp.path() + "/fixture.json", json(merged(state, changes)));
+  }
+  void fillPreviews(int count = DefaultSyncedThreads) {
+    Object threads;
+    auto entries = agent->catalog["threads"].toArray();
+    for (int i = 0; i < count; ++i) {
+      const auto id = QString("preview-%1").arg(i, 2, 10, QChar('0'));
+      auto source = raw();
+      source["id"] = id;
+      source["title"] = QString::fromUtf8("中文会话 😀");
+      source["updatedAt"] = i + 1;
+      threads[id] = normalizeThread(source, 0);
+      agent->rawThreads[id] = source;
+      agent->dirtyThreads.insert(id);
+      entries.append(Object{{"id",id},{"projectId","project-test"},{"archived",false}});
+    }
+    agent->snapshot["threads"] = threads;
+    agent->catalog["threads"] = entries;
   }
 private slots:
   void init() {
@@ -619,6 +645,120 @@ private slots:
                 .toBool());
     agent->pause();
     QVERIFY(agent->paused);
+  }
+
+  void createAtCapacityKeepsOrderedBoundedWireState() {
+    agent->refreshCatalog();
+    fillPreviews();
+    QWebSocketServer server("Synthetic", QWebSocketServer::NonSecureMode);
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+    QList<Object> received;
+    connect(&server,&QWebSocketServer::newConnection,&server,[&] {
+      auto peer=server.nextPendingConnection();
+      connect(peer,&QWebSocket::textMessageReceived,&server,[&](QString text) {
+        received.append(parse(text.toUtf8()).toObject());
+      });
+    });
+    agent->credentials["relayUrl"]="http://127.0.0.1:"+QString::number(server.serverPort());
+    agent->connectRelay();
+    QVERIFY(waitFor([&]{return !received.isEmpty();},3000));
+    auto cmd=command("thread.create");
+    cmd["payload"]=Object{{"type","thread.create"},{"projectId","project-test"}};
+    agent->processCommand(cmd);
+    QVERIFY(waitFor([&]{return received.last()["type"]=="command.result";},3000));
+    QCOMPARE(received.last()["result"].toObject()["status"],QJsonValue("succeeded"));
+    auto state=received.first()["snapshot"].toObject();
+    auto threads=state["threads"].toObject();
+    qint64 sequence=state["lastSeq"].toInteger();
+    QStringList changes;
+    for (const auto &message:received) {
+      if(message["type"]!="device.event") continue;
+      auto event=message["event"].toObject(),change=event["change"].toObject();
+      QCOMPARE(event["seq"].toInteger(),++sequence);
+      const auto type=change["type"].toString(); changes.append(type);
+      if(type=="thread.removed") threads.remove(change["threadId"].toString());
+      if(type=="thread.updated") {auto t=change["thread"].toObject();threads[t["id"].toString()]=t;}
+      QVERIFY(threads.size()<=DefaultSyncedThreads);
+    }
+    QCOMPARE(changes,QStringList({"thread.removed","thread.updated"}));
+    QVERIFY(!threads.contains("preview-00"));
+    QVERIFY(threads.contains("created-thread-1"));
+    QVERIFY(!agent->rawThreads.contains("preview-00"));
+    QVERIFY(!agent->dirtyThreads.contains("preview-00"));
+    bool inCatalog=false;
+    for(const auto &t:agent->catalog["threads"].toArray()) inCatalog|=t.toObject()["id"]=="preview-00";
+    QVERIFY(inCatalog);
+    QVERIFY(!agent->paused);
+    QCOMPARE(agent->relay->state(),QAbstractSocket::ConnectedState);
+    const auto requests=read(temp.path()+"/requests.jsonl");
+    agent->processCommand(cmd);
+    QCOMPARE(read(temp.path()+"/requests.jsonl"),requests);
+    QVERIFY(!requests.contains("thread/delete"));
+    agent->pause();
+  }
+  void protectedPreviewsAreNotEvicted_data() {
+    QTest::addColumn<QString>("protection");
+    for(const auto &value:QStringList{"active","active-id","request","pending-request","subagent","queue","stored-queue","owned","new","awaiting"})
+      QTest::newRow(qPrintable(value))<<value;
+  }
+  void protectedPreviewsAreNotEvicted() {
+    QFETCH(QString,protection);
+    fillPreviews();
+    auto threads=agent->snapshot["threads"].toObject(), t=threads["preview-00"].toObject();
+    if(protection=="active") t["status"]="active";
+    if(protection=="active-id") t["activeTurnId"]="turn";
+    if(protection=="request") t["requests"]=Array{Object{{"id","approval"}}};
+    if(protection=="pending-request") agent->pendingRequests["request"]={{"params",Object{{"threadId","preview-00"}}}};
+    if(protection=="subagent") t["subAgents"]=Array{Object{{"status","running"}}};
+    if(protection=="queue") t["queuedMessages"]=Array{Object{{"id","queued"}}};
+    if(protection=="stored-queue") sql(agent->journal,"INSERT INTO queued_messages(id,thread_id,text,images,created_at,status) VALUES('pending','preview-00','prompt','[]',1,'queued')");
+    if(protection=="owned") agent->owned.insert("preview-00");
+    if(protection=="new") agent->newThreads.insert("preview-00");
+    if(protection=="awaiting") agent->awaitingQueue.insert("preview-00");
+    threads["preview-00"]=t;agent->snapshot["threads"]=threads;
+    auto source=raw();source["id"]="extra";
+    agent->commit({{"type","thread.updated"},{"thread",normalizeThread(source,0)}});
+    threads=agent->snapshot["threads"].toObject();
+    QVERIFY(threads.contains("preview-00"));
+    QVERIFY(!threads.contains("preview-01"));
+    QVERIFY(threads.contains("extra"));
+    QCOMPARE(threads.size(),DefaultSyncedThreads);
+  }
+  void allProtectedRefusesBeforeCreatingAndKeepsExistingUpdates() {
+    agent->refreshCatalog();fillPreviews();
+    for(const auto &id:agent->snapshot["threads"].toObject().keys()) agent->owned.insert(id);
+    const auto before=agent->snapshot;
+    auto cmd=command("thread.create");cmd["payload"]=Object{{"type","thread.create"},{"projectId","project-test"}};
+    agent->processCommand(cmd);
+    QCOMPARE(agent->snapshot,before);
+    QVERIFY(!read(temp.path()+"/requests.jsonl").contains("thread/start"));
+    auto q=sql(agent->journal,"SELECT result FROM native_commands");QVERIFY(q.next());
+    auto result=parse(q.value(0).toByteArray()).toObject();
+    QCOMPARE(result["status"],QJsonValue("failed"));QCOMPARE(result["code"],QJsonValue("thread-limit"));
+    auto source=raw();source["id"]="extra";
+    QVERIFY_EXCEPTION_THROWN(agent->commit({{"type","thread.updated"},{"thread",normalizeThread(source,0)}}),Error);
+    QCOMPARE(agent->snapshot,before);
+    auto existing=before["threads"].toObject()["preview-00"].toObject();existing["title"]="changed";
+    agent->commit({{"type","thread.updated"},{"thread",existing}});
+    QCOMPARE(agent->snapshot["lastSeq"].toInteger(),before["lastSeq"].toInteger()+1);
+    QVERIFY(!agent->paused);
+  }
+  void liveThreadLimitChangesKeepProtectedTasks() {
+    fillPreviews();
+    agent->relayMessage({{"type","device.settings"},{"threadLimit",30}});
+    QCOMPARE(agent->threadLimit,30);
+    for(int i=0;i<10;++i) {auto source=raw();source["id"]="extra-"+QString::number(i);agent->commit({{"type","thread.updated"},{"thread",normalizeThread(source,0)}});}
+    QCOMPARE(agent->snapshot["threads"].toObject().size(),30);
+    agent->owned.insert("preview-00");agent->owned.insert("preview-01");
+    agent->relayMessage({{"type","device.settings"},{"threadLimit",1}});
+    QCOMPARE(agent->snapshot["threads"].toObject().size(),2);
+    QVERIFY_EXCEPTION_THROWN(agent->ensureThreadSlot(),Error);
+    agent->owned.remove("preview-01");
+    QVERIFY(agent->trimThreadPreviews(agent->threadLimit));
+    QCOMPARE(agent->snapshot["threads"].toObject().size(),1);
+    QVERIFY(agent->snapshot["threads"].toObject().contains("preview-00"));
+    for(const auto &bad:Array{0,31,1.5,"30",QJsonValue::Null}) QVERIFY_EXCEPTION_THROWN(agent->applyThreadLimit(bad),Error);
+    QCOMPARE(agent->threadLimit,1);
   }
 
   void settingsRejectionDoesNotChangeLocalPolicy() {

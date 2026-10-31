@@ -94,8 +94,8 @@ func deviceTransferIssue(m M) *logIssue {
 func deviceConstraintIssue(m M) *logIssue {
 	if m["type"] == "device.snapshot" {
 		threads := obj(obj(m["snapshot"])["threads"])
-		if len(threads) > 20 {
-			return &logIssue{"/snapshot/threads", "maxProperties:20"}
+		if len(threads) > maxSyncThreads {
+			return &logIssue{"/snapshot/threads", "maxProperties:30"}
 		}
 		for id, t := range threads {
 			if str(obj(t)["id"]) != id {

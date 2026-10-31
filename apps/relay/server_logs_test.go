@@ -196,7 +196,7 @@ func TestServerLogsProtocolConstraintsAndMalformedTypes(t *testing.T) {
 	}
 	snapshot := state(t, device)
 	threads := obj(snapshot["threads"])
-	for i := range 21 {
+	for i := range maxSyncThreads {
 		thread := clone(obj(threads["thread-test"]))
 		thread["id"] = fmt.Sprint(i)
 		threads[fmt.Sprint(i)] = thread
@@ -204,7 +204,7 @@ func TestServerLogsProtocolConstraintsAndMalformedTypes(t *testing.T) {
 	m := M{"type": "device.snapshot", "snapshot": snapshot}
 	expectFault(t, "invalid-message", func() { s.Validate("device", m) })
 	issues := s.protocolIssues(m)
-	if len(issues) != 1 || issues[0].Path != "/snapshot/threads" || issues[0].Rule != "maxProperties:20" {
+	if len(issues) != 1 || issues[0].Path != "/snapshot/threads" || issues[0].Rule != "maxProperties:30" {
 		t.Fatal(issues)
 	}
 	m = M{"type": "device.event", "event": M{"change": M{"type": "thread.updated", "thread": M{"id": "private", "turns": []any{}, "tokenUsage": M{"inputTokens": 1, "cachedInputTokens": 2, "outputTokens": 1, "reasoningOutputTokens": 0}}}}}

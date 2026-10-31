@@ -462,6 +462,9 @@ Object Service::manage(const Object &command) {
     auto roots = project["roots"].toArray();
     if (roots.isEmpty())
       throw Error("project-root-unavailable");
+    // Refuse before thread/start if every preview slot is protected. Never
+    // create an unreported thread that a user might accidentally create again.
+    ensureThreadSlot();
     auto response =
         rpc->call("thread/start", {{"projectId", p["projectId"]},
                                    {"cwd", roots[0]},

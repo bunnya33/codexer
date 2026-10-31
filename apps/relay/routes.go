@@ -14,6 +14,7 @@ func (s *Server) routes() {
 	s.uploadRoutes()
 	s.agentReleaseRoutes()
 	s.clientReleaseRoutes()
+	s.agentSettingsRoutes()
 	s.removeDeviceRoutes()
 	s.logRoutes()
 	s.route("GET /health", "", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
@@ -188,7 +189,7 @@ func (s *Server) routes() {
 		if p == nil {
 			fail(401, "unauthorized")
 		}
-		return M{"active": true, "expiresAt": p.Expires}
+		return M{"active": true, "expiresAt": p.Expires, "threadLimit": s.Store.AgentSettings()["threadLimit"]}
 	})
 	for _, name := range []string{"snapshot", "catalog"} {
 		name := name
@@ -210,6 +211,9 @@ func (s *Server) routes() {
 			}
 			if name == "catalog" {
 				return M{"catalog": result}
+			}
+			if r.URL.Query().Get("syncThreads") != "30" {
+				result = legacySnapshot(result, "")
 			}
 			return M{"snapshot": result, "online": s.agent(r.PathValue("deviceId")) != nil}
 		})

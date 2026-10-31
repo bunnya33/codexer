@@ -329,7 +329,7 @@ export class RelayClient {
     const version = this.deviceVersions.get(deviceId);
     const presenceVersion = this.presenceVersions.get(deviceId);
     try {
-      const response = await this.api<{ snapshot: unknown; online: boolean }>(`/v1/devices/${encodeURIComponent(deviceId)}/snapshot`);
+      const response = await this.api<{ snapshot: unknown; online: boolean }>(`/v1/devices/${encodeURIComponent(deviceId)}/snapshot?syncThreads=30`);
       if (generation !== this.generation || version !== this.deviceVersions.get(deviceId) || this.removedDevices.has(deviceId)) return;
       const snapshot = snapshotSchema.parse(response.snapshot);
       if (snapshot.deviceId !== deviceId) return;
@@ -374,7 +374,7 @@ export class RelayClient {
     try {
       const { ticket } = await this.api<{ ticket: string }>('/v1/ws/tickets', undefined, 'POST');
       if (!currentAttempt()) return;
-      const ws = new WebSocket(`${this.view.url.replace(/^http/, 'ws')}/v1/ws/client`);
+      const ws = new WebSocket(`${this.view.url.replace(/^http/, 'ws')}/v1/ws/client?syncThreads=30`);
       this.socket = ws;
       if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
       const currentSocket = () => currentAttempt() && this.socket === ws;

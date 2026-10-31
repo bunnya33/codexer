@@ -202,7 +202,7 @@ it('accepts only a relay root URL', () => {
 it('authenticates with a one-use ticket, subscribes, and awaits a confirmed command', async () => {
   await client.connect('http://192.0.2.10:8899', 'test', 'test-password-12345');
   const socket = FakeSocket.last;
-  expect(socket.url).toBe('ws://192.0.2.10:8899/v1/ws/client');
+  expect(socket.url).toBe('ws://192.0.2.10:8899/v1/ws/client?syncThreads=30');
   socket.open();
   expect(socket.sent[0]).toEqual({ type: 'client.authenticate', ticket: 'one-use-test-ticket-xxxxxxxx' });
   socket.message({ type: 'client.authenticated' });

@@ -76,7 +76,7 @@ HTTP 错误体是 `{ "error": "code" }`。常见状态：`400 invalid-request`�
 | PUT | `/v1/users/:userId/password` | `{password}`，管理员 | `{reset:true}`；旧会话失效 |
 | DELETE | `/v1/users/:userId` | 管理员 | `{revoked:true}`；禁止禁用管理员 |
 | GET | `/v1/devices` | 普通账号 | `{devices:[{id,name,platform,created_at,last_seen_at,online}]}` |
-| GET | `/v1/agent/:deviceId/session` | 该 PC 的 Agent 会话 | `{active:true,expiresAt}` |
+| GET | `/v1/agent/:deviceId/session` | 该 PC 的 Agent 会话 | `{active:true,expiresAt,threadLimit}` |
 | DELETE | `/v1/devices/:deviceId` | 同账号 | `{revoked:true}`；撤销设备凭据，不清理同步数据 |
 | DELETE | `/v1/devices/:deviceId/data` | 普通账号、同账号离线设备 | `{removed:true}`；清理服务器同步数据并从设备列表移除，保留重连身份 |
 | GET | `/v1/devices/:deviceId/snapshot` | 无 | `{online,snapshot}` |
@@ -117,7 +117,7 @@ HTTP 错误体是 `{ "error": "code" }`。常见状态：`400 invalid-request`�
 
 ## 项目目录和历史
 
-Agent 每分钟经官方 app-server 的 `project/list` 与分页 `thread/list` 扫描本机全部已保存项目和交互会话（所有模型提供商，包括已归档会话）；扫描使用独立的短期 app-server，只读取目录和历史，不调用 `thread/resume`、不占用会话 writer。Relay 缓存完整目录，目录与最多 20 个实时会话预览分开。
+Agent 每分钟经官方 app-server 的 `project/list` 与分页 `thread/list` 扫描本机全部已保存项目和交互会话（所有模型提供商，包括已归档会话）；扫描使用独立的短期 app-server，只读取目录和历史，不调用 `thread/resume`、不占用会话 writer。Relay 缓存完整目录，目录与实时会话预览分开；预览默认 20 个，Qt Agent 0.2.20 起可由管理员设置为 1–30 个。
 
 `projects` 包含 `{id,name,roots,position,updatedAt}`，空项目也保留。`threads` 包含 `{id,title,cwd,projectId,updatedAt,archived,settings?}`。官方列表可能包含同一会话的重复记录；Agent 按会话 ID 去重并保留最新元数据，协议要求项目和会话 ID 各自唯一。项目归属先使用官方 `projectId`；旧会话没有该字段时，按 cwd 与项目最长匹配根目录归属；无法匹配时 `projectId:null`，Web 放在“未归类会话”。默认 app-server 列表包含交互会话，不包含内部子代理会话。
 
@@ -293,6 +293,10 @@ Agent 在自身 SQLite `usage.sqlite` 中按 `threadId + turnId` 保存逐轮统
 `durationMinutes` 默认为 30，必须是 1–525600 的整数（1 分钟至 365 天）。界面提供 30 分钟、1 天、自定义分钟/小时/天。每次显式 POST 从成功保存时开始计时，返回 Unix 毫秒 `expiresAt` 和所选 `durationMinutes`；GET、复制链接和访客访问不延长有效期。`enabled` 为当前可用状态，到期为 false；到期外部请求返回 410，HTTP/SSE/WebSocket 进行中转发也会被撤销。延长有效期保留现有访客连接，收短会按新期限撤销。
 
 公开 key 和到期时间保存在数据库，不随创建者退出登录、关闭预览或 Relay 重启改变。升级前无期限的链接按原创建时间加 30 分钟补齐截止时间，已超时的链接需显式重新开启。每位访客使用独立临时预览和 Cookie 容器；临时预览最多 24 小时，在分享有效期内，临时预览过期后重新打开固定链接即可。重新开启沿用旧 key；`rotate:true` 换 key 并立即撤销旧访问。设备及账号必须仍有效，源会话仍在设备目录中，PC 在线且 Agent 保留该来源的读取权限；端口停止或 PC 离线时不可用，有效期内恢复后可重新加载原链接。每账号最多 100 个分享记录、100 个活跃访客预览，全服务器最多 1000 个预览。
+
+## 实时同步会话上限
+
+管理员 `GET/PUT /v1/admin/agent-settings` 读取/保存 `{threadLimit}`，须为 1–30 的整数，默认 20。新连接的 `device.welcome` 与设备会话校验响应包含 `threadLimit`，在线更改通过 `device.settings` 下发。目标降低时允许既有受保护任务暂时高于目标，硬协议上限为 30，消息和每会话字节限制保持。控制端 WebSocket 与快照 REST 使用 `?syncThreads=30` 协商扩展预览；未协商的旧端最多接收 20 个兼容预览，不改变完整目录与历史。
 
 ## 静态页面
 

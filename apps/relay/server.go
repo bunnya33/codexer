@@ -246,7 +246,7 @@ func (s *Server) route(pattern string, role string, fn func(http.ResponseWriter,
 		if role != "" {
 			p = s.principal(r, requestRole)
 		}
-		global := r.Method != "GET" && r.Method != "OPTIONS" && (strings.HasPrefix(r.URL.Path, "/v1/users") || strings.HasPrefix(r.URL.Path, "/v1/admin/accounts") || r.URL.Path == "/v1/admin/auth-settings" || r.URL.Path == "/v1/agents/login" || r.URL.Path == "/v1/auth/login" || r.URL.Path == "/v1/admin/auth/login" || r.URL.Path == "/v1/auth/logout")
+		global := r.Method != "GET" && r.Method != "OPTIONS" && (strings.HasPrefix(r.URL.Path, "/v1/users") || strings.HasPrefix(r.URL.Path, "/v1/admin/accounts") || r.URL.Path == "/v1/admin/auth-settings" || r.URL.Path == "/v1/admin/agent-settings" || r.URL.Path == "/v1/agents/login" || r.URL.Path == "/v1/auth/login" || r.URL.Path == "/v1/admin/auth/login" || r.URL.Path == "/v1/auth/logout")
 		if global {
 			waitStart := time.Now()
 			s.exclusiveWaiting.Add(1)

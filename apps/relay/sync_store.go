@@ -89,7 +89,7 @@ func (s *Store) SaveEvent(e M) {
 			previous := t.One("SELECT payload FROM snapshot_threads WHERE device_id=$1 AND thread_id=$2", id, tid)
 			if previous != nil {
 				obj(before["threads"])[tid] = previous["payload"]
-			} else if num(t.One("SELECT COUNT(*) AS total FROM snapshot_threads WHERE device_id=$1", id)["total"]) >= 20 {
+			} else if num(t.One("SELECT COUNT(*) AS total FROM snapshot_threads WHERE device_id=$1", id)["total"]) >= maxSyncThreads {
 				fail(400, "thread-limit")
 			}
 			t.WriteThread(id, tid, thread)

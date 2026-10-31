@@ -1,4 +1,5 @@
 const messages: Record<string, string> = {
+  'thread-limit': '实时同步会话已满，现有会话仍有任务或待处理内容，请等待空闲后重试；连接与历史记录保持不变',
   'thread-writer-busy': '该会话仍由其他 Codex 应用持有，请等待那边任务结束并释放会话后重试；刷新运行时不能抢占其他应用的会话',
   'thread-release-unconfirmed': '未确认会话占用已释放，请稍后重试；会话历史与文件未被重置',
   'headless-settings-unreadable': '无法读取电脑上的会话设置，请先检查该电脑的 PC Agent 版本、Codex 数据目录和诊断日志',

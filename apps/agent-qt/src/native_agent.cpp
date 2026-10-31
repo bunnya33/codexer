@@ -64,6 +64,7 @@ void Service::connectAgent() {
             .toObject();
     if (session["active"] != true)
       throw Error("session-invalid");
+    applyThreadLimit(session["threadLimit"]);
     if (session["expiresAt"].isDouble()) {
       credentials["expiresAt"] = session["expiresAt"];
       storeCredentials(credentials);
@@ -175,6 +176,7 @@ void Service::closeAgent() {
     QSqlDatabase::removeDatabase(name);
   }
   snapshot = {};
+  threadLimit = DefaultSyncedThreads;
   catalog = {};
   rawThreads.clear();
   effectiveSettings.clear();
@@ -234,6 +236,7 @@ void Service::status() {
                 {"runtimeConnected", runtime["connected"].toBool()},
                 {"activeTasks", count},
                 {"threads", threads.size()},
+                {"threadLimit", threadLimit},
                 {"updatedAt", double(now())}};
   view["status"] = status;
   view["phase"] = credentials.isEmpty() ? "signed-out"
@@ -346,6 +349,10 @@ void Service::send(const Object &message) {
 void Service::commit(const Object &change) {
   if (snapshot.isEmpty())
     return;
+  // Every producer, including thread creation, must obey the wire-state bound.
+  // Reserve before incrementing the sequence so a refused update is atomic.
+  if (change["type"] == "thread.updated")
+    ensureThreadSlot(change["thread"].toObject()["id"].toString());
   double seq = snapshot["lastSeq"].toDouble() + 1;
   snapshot["lastSeq"] = seq;
   snapshot["generatedAt"] = double(now());
@@ -379,6 +386,7 @@ void Service::commit(const Object &change) {
 void Service::relayMessage(const Object &message) {
   auto type = message["type"].toString();
   if (type == "device.welcome") {
+    applyThreadLimit(message.contains("threadLimit") ? message["threadLimit"] : QJsonValue(DefaultSyncedThreads));
     auto features = message["features"].toArray();
     Array supported;
     if (features.contains("files"))
@@ -398,6 +406,10 @@ void Service::relayMessage(const Object &message) {
     if (features.contains("catalog") && !catalog.isEmpty())
       send({{"type", "device.catalog"}, {"catalog", catalog}});
     log("relay-connected");
+    return;
+  }
+  if (type == "device.settings") {
+    applyThreadLimit(message["threadLimit"]);
     return;
   }
   if (type == "device.resync") {
@@ -557,6 +569,7 @@ void Service::tick() {
       }
     }
     if (!snapshot.isEmpty()) {
+      trimThreadPreviews(threadLimit);
       if (!paused && allowed && !relay && now() >= lastRetry)
         connectRelay();
       if (relay && relay->state() == QAbstractSocket::ConnectedState &&

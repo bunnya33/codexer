@@ -1,4 +1,5 @@
 #include "native.h"
+#include <limits>
 #include <zstd.h>
 namespace Native {
 void Service::attachRpc(Rpc *value) {
@@ -201,7 +202,7 @@ void Service::refreshCatalog() {
     if (t["archived"].toBool())
       continue;
     auto id = t["id"].toString();
-    if (count++ < 20)
+    if (count++ < threadLimit)
       dirtyThreads.insert(id);
   }
 }
@@ -444,26 +445,69 @@ Object Service::resume(const QString &id) {
   effectiveSettings[id] = merged(expected, latest);
   return saved;
 }
-void Service::watch(const QString &id, bool forceHeadless) {
-  if (id.isEmpty())
+void Service::ensureThreadSlot(const QString &id) {
+  if (!id.isEmpty() && snapshot["threads"].toObject().contains(id))
     return;
-  if (!snapshot["threads"].toObject().contains(id) &&
-      snapshot["threads"].toObject().size() >= 20) {
+  if (!trimThreadPreviews(threadLimit - 1))
+    throw Error("thread-limit");
+}
+void Service::applyThreadLimit(const QJsonValue &value) {
+  if (value.isUndefined())
+    return;
+  const auto next = value.toInt(-1);
+  if (!value.isDouble() || value.toDouble() != next || next < 1 || next > MaxSyncedThreads)
+    throw Error("invalid-agent-settings");
+  threadLimit = next;
+  trimThreadPreviews(threadLimit);
+  status();
+}
+bool Service::trimThreadPreviews(int target) {
+  if (snapshot["threads"].toObject().size() <= target)
+    return true;
+  auto protectedIds = owned | newThreads | awaitingQueue;
+  for (const auto &request : pendingRequests)
+    protectedIds.insert(request["params"].toObject()["threadId"].toString());
+  if (journal.isOpen()) {
+    auto rows = sql(journal, "SELECT DISTINCT thread_id FROM queued_messages");
+    while (rows.next())
+      protectedIds.insert(rows.value(0).toString());
+  }
+  while (snapshot["threads"].toObject().size() > target) {
     auto threads = snapshot["threads"].toObject();
     QString removable;
-    for (auto it = threads.begin(); it != threads.end(); ++it)
-      if (it.value().toObject()["status"] != "active" &&
-          !owned.contains(it.key()) && !newThreads.contains(it.key())) {
+    qint64 oldest = std::numeric_limits<qint64>::max();
+    for (auto it = threads.begin(); it != threads.end(); ++it) {
+      auto t = it.value().toObject();
+      if (!QStringList{"idle", "unavailable"}.contains(t["status"].toString()) ||
+          t["activeTurnId"].isString() || !t["requests"].toArray().isEmpty() ||
+          !t["queuedMessages"].toArray().isEmpty() || protectedIds.contains(it.key()))
+        continue;
+      bool protectedThread = false;
+      for (const auto &a : t["subAgents"].toArray())
+        protectedThread |= QStringList{"running", "pendingInit"}.contains(
+            a.toObject()["status"].toString());
+      if (protectedThread)
+        continue;
+      const auto updated = t["updatedAt"].toInteger();
+      if (removable.isEmpty() || updated < oldest) {
         removable = it.key();
-        break;
+        oldest = updated;
       }
+    }
     if (removable.isEmpty())
-      throw Error("thread-limit");
+      return false;
     commit({{"type", "thread.removed"}, {"threadId", removable}});
     rawThreads.remove(removable);
+    dirtyThreads.remove(removable);
     desktop->unfollow(removable);
     desktopThreads.remove(removable);
   }
+  return true;
+}
+void Service::watch(const QString &id, bool forceHeadless) {
+  if (id.isEmpty())
+    return;
+  ensureThreadSlot(id);
   if (!forceHeadless && settings["runtime"] != "headless" &&
       desktop->connected && !owned.contains(id) && desktop->follow(id)) {
     desktopThreads.insert(id);
