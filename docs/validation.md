@@ -8,6 +8,10 @@
 
 包含 0.3.34 的断连与 HTTP 诊断复制修复；Qt Agent 安装包仍为 0.2.19，本次版本编辑只需更新服务器。正式发布、生产服务版本和部署状态另行验收。
 
+稳定版 [v0.3.35](https://github.com/bunnya33/codexer/releases/tag/v0.3.35) 对应 `b169f24`，[发布流程](https://github.com/bunnya33/codexer/actions/runs/41163916140)全部成功，包含 PostgreSQL、Go race 和四目标打包，8 个附件齐全。生产健康接口返回 `0.3.33`；当前 SSH 登录被拒绝，本次没有直接部署。后台更新到 `0.3.35` 后才能启用版本编辑及兼容修复，已暂停 Agent 需重新连接。
+
+四份校验文件与 GitHub 归档摘要一致。Linux amd64 正式包 8,009,776 字节，SHA-256 `65e5cc311124c4559b8a06d4d0dab3cad51b33a729e48eccc8ffadb19e05d740`；实际下载核对通过，VERSION/清单均为 0.3.35，Go 程序为 ELF x86-64、0755，内嵌 PATCH 路由和冲突码。归档、验证 JSON 与页面截图位于 `release/server-0.3.35`。Qt 安装版/便携版最终 SHA-256 与校验文件一致，安装版产品名/文件版本为 Codexer Agent / 0.2.19。
+
 ## 2026-10-31 服务器 0.3.34 / Qt Agent 0.2.19 空轮次 ID 修复
 
 生产诊断中同一连接/序号的 `invalid-message` 和 `1008` 是同一次断连：`activeTurnId` 被发为空字符串，未通过非空 ID 校验。Qt 的字符串默认值把缺失的轮次标识变成空串，现改为有效 ID 或 `null`，同时处理空 ID、无效类型/长度、可用备用 ID 及较新未知轮次覆盖旧轮次的情况。保留活动状态，不猜测未知轮次已经完成。共享 TypeScript 转换器同步处理边界。服务器只将设备事件/快照的可空 `activeTurnId` 的 `""` 转为 `null`，兼容旧 Agent；其他 ID、类型、长度和消息约束继续校验。

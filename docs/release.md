@@ -6,6 +6,10 @@
 
 包含 0.3.34 的 Qt Agent 空活动轮次 ID 兼容与 HTTP 诊断复制修复。Windows Qt Agent 安装包仍为 0.2.19，无需因管理后台功能再次升级 Agent。此操作修正发布记录，不修改安装包内的版本。
 
+稳定版 [v0.3.35](https://github.com/bunnya33/codexer/releases/tag/v0.3.35) 已发布，标签对应 `b169f24`；[正式发布流程](https://github.com/bunnya33/codexer/actions/runs/41163916140)通过，包含完整回归、PostgreSQL、Go race、类型/文档、生产构建、独立程序及 Linux/macOS 双架构打包，8 个附件齐全。生产健康接口仍为 `0.3.33`，需在管理后台准备 `0.3.35` 并确认重启。本次没有直接安装或重启生产服务器，也未覆盖正在工作的正式 Agent/Codex。
+
+四份校验文件与发布摘要一致，Linux amd64 正式包已下载至 `release/server-0.3.35` 并核对 SHA-256、VERSION、清单、ELF x86-64、0755 权限与内嵌版本修改接口。附有校验记录和模拟页面截图。
+
 ## 服务器 0.3.34 / Windows Agent 0.2.19：活动轮次空 ID 与诊断复制
 
 修复 Qt 后台在官方观测状态包含临时无 ID 的进行中轮次时，把 `activeTurnId` 写为空字符串，触发服务器 `invalid-message`/`1008` 断连。原生和共享转换器保留活动状态，使用有效轮次 ID，未知时发送 `null`；不沿用前一轮 ID。服务器兼容旧 Agent 的同一字段空字符串，仅转换该可空字段，不放宽其他 ID 或类型校验。更新服务器即可保护 Agent 0.2.18 的此类消息，Agent 0.2.19 同时修复发送源。
