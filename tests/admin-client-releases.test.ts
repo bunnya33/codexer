@@ -43,11 +43,12 @@ const wait = (fn: () => void) => vi.waitFor(fn, { timeout: 3000, interval: 10 })
 async function fixture(initial: ClientRelease[] = [second, first, android]) {
   let packages = [...initial],
     failDelete = false,
+    editFailure = "",
     failList = false;
   const current = Object.fromEntries(
     initial.filter((v) => v.id !== first.id).map((v) => [v.target, v]),
   );
-  const requests: { path: string; method?: string }[] = [],
+  const requests: { path: string; method?: string; body?: unknown }[] = [],
     errors: unknown[] = [];
   const dom = new JSDOM('<div id="root"></div>', {
     url: "http://admin.test/admin/",
@@ -60,7 +61,11 @@ async function fixture(initial: ClientRelease[] = [second, first, android]) {
         AbortController,
         AbortSignal,
         fetch: async (path: string, init: RequestInit) => {
-          requests.push({ path, method: init.method });
+          requests.push({
+            path,
+            method: init.method,
+            body: init.body ? JSON.parse(String(init.body)) : undefined,
+          });
           if (path === "/v1/admin/client-releases" && init.method === "GET")
             return new Response(
               JSON.stringify(failList ? { error: "unavailable" } : { releases: current, packages }),
@@ -76,6 +81,19 @@ async function fixture(initial: ClientRelease[] = [second, first, android]) {
             packages = packages.filter((v) => v.id !== id);
             if (current[found.target]?.id === id) delete current[found.target];
             return new Response(JSON.stringify({ ok: true }));
+          }
+          if (path.startsWith("/v1/admin/client-releases/") && init.method === "PATCH") {
+            if (editFailure)
+              return new Response(JSON.stringify({ error: editFailure }), {
+                status: editFailure === "client-release-changed" ? 409 : 500,
+              });
+            const id = path.split("/").at(-1)!;
+            const found = packages.find((v) => v.id === id)!;
+            const { version, buildNumber } = JSON.parse(String(init.body));
+            const updated = { ...found, version, buildNumber };
+            packages = packages.map((v) => (v.id === id ? updated : v));
+            if (current[found.target]?.id === id) current[found.target] = updated;
+            return new Response(JSON.stringify({ release: updated }));
           }
           throw Error(`unexpected-request:${path}`);
         },
@@ -105,6 +123,15 @@ async function fixture(initial: ClientRelease[] = [second, first, android]) {
     doc,
     click,
     select,
+    async edit(label: string, value: string) {
+      const input = doc.querySelector<HTMLInputElement>(`[aria-label="${label}"]`)!;
+      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(
+        input,
+        value,
+      );
+      input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      await wait(() => expect(input.value).toBe(value));
+    },
     requests,
     errors,
     setDeleteFailure(value: boolean) {
@@ -112,6 +139,9 @@ async function fixture(initial: ClientRelease[] = [second, first, android]) {
     },
     setListFailure(value: boolean) {
       failList = value;
+    },
+    setEditFailure(value: string) {
+      editFailure = value;
     },
     close() {
       (dom.window as any).stopPanel();
@@ -201,6 +231,106 @@ it("renders empty state and allows retry after a list error", async () => {
     f.setListFailure(false);
     f.click("刷新列表");
     await wait(() => expect(f.doc.querySelector('[role="status"]')).toBeNull());
+    expect(f.errors).toEqual([]);
+  } finally {
+    f.close();
+  }
+});
+
+it("corrects Android version and build metadata without uploading the package again", async () => {
+  const f = await fixture();
+  try {
+    await f.select("客户端发布目标", "control-android");
+    f.click("修改版本信息 Control.apk 0.1.3");
+    await wait(() => expect(f.doc.querySelector('[role="dialog"]')).not.toBeNull());
+    await f.edit("修改客户端版本", "0.1.4");
+    await f.edit("修改 Android versionCode", "5");
+    f.click("保存版本信息");
+    await wait(() => expect(f.doc.querySelector('[role="dialog"]')).toBeNull());
+    await wait(() => expect(f.doc.body.textContent).toContain("已发布 0.1.4（构建 5）"));
+    expect(f.doc.querySelector("tbody")!.textContent).toContain("构建 5");
+    expect(f.requests.filter((r) => r.method === "PATCH")).toEqual([
+      {
+        path: `/v1/admin/client-releases/control-android/${android.id}`,
+        method: "PATCH",
+        body: {
+          version: "0.1.4",
+          buildNumber: 5,
+          expectedVersion: "0.1.3",
+          expectedBuildNumber: 4,
+        },
+      },
+    ]);
+    expect(f.requests.some((r) => r.method === "PUT")).toBe(false);
+    expect(f.doc.querySelectorAll("tbody tr")).toHaveLength(3);
+    expect(f.errors).toEqual([]);
+  } finally {
+    f.close();
+  }
+});
+
+it("validates edits, retains a failed draft for retry, and supports cancellation", async () => {
+  const f = await fixture();
+  try {
+    f.click("修改版本信息 Control.apk 0.1.3");
+    await wait(() => expect(f.doc.querySelector('[role="dialog"]')).not.toBeNull());
+    await f.edit("修改客户端版本", "oops");
+    f.click("保存版本信息");
+    await wait(() =>
+      expect(f.doc.querySelector('[role="alert"]')?.textContent).toContain("版本格式"),
+    );
+    await f.edit("修改客户端版本", "0.1.4");
+    for (const build of ["0", "1.5", "2147483648"]) {
+      await f.edit("修改 Android versionCode", build);
+      f.click("保存版本信息");
+      await wait(() =>
+        expect(f.doc.querySelector('[role="alert"]')?.textContent).toContain("versionCode"),
+      );
+    }
+    expect(f.requests.filter((r) => r.method === "PATCH")).toHaveLength(0);
+    await f.edit("修改 Android versionCode", "5");
+    f.setEditFailure("client-release-storage-error");
+    f.click("保存版本信息");
+    await wait(() =>
+      expect(f.doc.querySelector('[role="alert"]')?.textContent).toContain("服务器保存失败"),
+    );
+    expect(
+      f.doc.querySelector<HTMLInputElement>('[aria-label="修改 Android versionCode"]')!.value,
+    ).toBe("5");
+    f.setEditFailure("");
+    f.click("保存版本信息");
+    await wait(() => expect(f.doc.querySelector('[role="dialog"]')).toBeNull());
+    f.click("修改版本信息 Control.apk 0.1.4");
+    await wait(() => expect(f.doc.querySelector('[role="dialog"]')).not.toBeNull());
+    await f.edit("修改客户端版本", "0.1.5");
+    f.click("取消");
+    await wait(() => expect(f.doc.querySelector('[role="dialog"]')).toBeNull());
+    expect(f.requests.filter((r) => r.method === "PATCH")).toHaveLength(2);
+    expect(f.errors).toEqual([]);
+  } finally {
+    f.close();
+  }
+});
+
+it("keeps history unpublished after edits and reports stale edits", async () => {
+  const f = await fixture();
+  try {
+    f.click("修改版本信息 Agent.exe 0.2.12");
+    await wait(() => expect(f.doc.querySelector('[role="dialog"]')).not.toBeNull());
+    expect(f.doc.querySelector('[aria-label="修改 Android versionCode"]')).toBeNull();
+    await f.edit("修改客户端版本", "9.0.0");
+    f.setEditFailure("client-release-changed");
+    f.click("保存版本信息");
+    await wait(() =>
+      expect(f.doc.querySelector('[role="alert"]')?.textContent).toContain("版本信息已变化"),
+    );
+    f.setEditFailure("");
+    f.click("保存版本信息");
+    await wait(() => expect(f.doc.querySelector('[role="dialog"]')).toBeNull());
+    expect(f.doc.body.textContent).toContain("已发布 0.2.13");
+    await f.select("筛选安装包状态", "history");
+    await wait(() => expect(f.doc.querySelector("tbody")!.textContent).toContain("9.0.0"));
+    expect(f.doc.querySelectorAll("tbody tr")).toHaveLength(1);
     expect(f.errors).toEqual([]);
   } finally {
     f.close();

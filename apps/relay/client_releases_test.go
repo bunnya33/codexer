@@ -299,3 +299,185 @@ func TestClientReleaseHistoryDeletionAndLegacyMigration(t *testing.T) {
 		t.Fatal("failed upload left orphan catalog", err)
 	}
 }
+
+func TestClientReleaseMetadataCorrection(t *testing.T) {
+	directory := t.TempDir()
+	store, err := Open("", directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server, err := New(store, Options{DataDir: directory})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { server.Close() }()
+	admin := store.CreateUser("publisher", "test-password-12345", "admin")
+	user := store.CreateUser("reader", "test-password-12345", "user")
+	adminToken := str(store.CreateSession(str(admin["id"]), "")["session"])
+	userToken := str(store.CreateSession(str(user["id"]), "")["session"])
+	deviceID := store.Register(str(user["id"]), uuid(), "PC", "win32")
+	deviceToken := str(store.CreateSession(str(user["id"]), deviceID)["session"])
+	call := func(method, path, token string, data []byte) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, bytes.NewReader(data))
+		if token != "" {
+			r.Header.Set("Authorization", "Bearer "+token)
+		}
+		if token == deviceToken {
+			r.Header.Set("x-device-id", deviceID)
+		}
+		w := httptest.NewRecorder()
+		server.Handler().ServeHTTP(w, r)
+		return w
+	}
+	var apk bytes.Buffer
+	archive := zip.NewWriter(&apk)
+	entry, _ := archive.Create("AndroidManifest.xml")
+	io.WriteString(entry, strings.Repeat("manifest", 30))
+	archive.Close()
+	upload := func(version string) clientRelease {
+		w := call("PUT", "/v1/admin/client-releases/control-android?name=Control.apk&version="+version+"&buildNumber=4&notes=release", adminToken, apk.Bytes())
+		var result struct {
+			Release clientRelease `json:"release"`
+		}
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &result) != nil {
+			t.Fatal(w.Code, w.Body.String())
+		}
+		return result.Release
+	}
+	endpoint := func(v clientRelease) string { return "/v1/admin/client-releases/" + v.Target + "/" + v.ID }
+	change := func(v clientRelease, version string, build int64) []byte {
+		data, _ := json.Marshal(M{"version": version, "buildNumber": build, "expectedVersion": v.Version, "expectedBuildNumber": v.BuildNumber})
+		return data
+	}
+	first, current := upload("0.1.3"), upload("0.1.4")
+	for _, test := range []struct {
+		token  string
+		status int
+	}{{"", 401}, {userToken, 403}, {deviceToken, 401}} {
+		if w := call("PATCH", endpoint(current), test.token, change(current, "0.1.4", 5)); w.Code != test.status {
+			t.Fatal(w.Code, w.Body.String())
+		}
+	}
+	for _, field := range []M{
+		{"version": "bad", "buildNumber": 5}, {"version": "0.1.4", "buildNumber": 0},
+		{"version": "0.1.4", "buildNumber": -1}, {"version": "0.1.4", "buildNumber": 1.5},
+		{"version": "0.1.4", "buildNumber": "5"}, {"version": "0.1.4", "buildNumber": 2147483648},
+		{"version": "0.1.4"}, {"buildNumber": 5}, {"version": 14, "buildNumber": 5},
+	} {
+		field["expectedVersion"], field["expectedBuildNumber"] = current.Version, current.BuildNumber
+		data, _ := json.Marshal(field)
+		if w := call("PATCH", endpoint(current), adminToken, data); w.Code != 400 {
+			t.Fatal(field, w.Code, w.Body.String())
+		}
+	}
+	if w := call("PATCH", strings.Replace(endpoint(current), current.Target, "agent-windows-x64-setup", 1), adminToken, change(current, "0.1.4", 5)); w.Code != 404 {
+		t.Fatal(w.Code)
+	}
+	server.clientReleases.upload.Lock()
+	w := call("PATCH", endpoint(current), adminToken, change(current, "0.1.4", 5))
+	server.clientReleases.upload.Unlock()
+	if w.Code != 409 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+
+	// Correct metadata while a download is active; neither bytes nor immutable identity change.
+	blocked := &clientReleaseBlockedDownload{httptest.NewRecorder(), make(chan struct{}), make(chan struct{})}
+	r := httptest.NewRequest("GET", "/v1/client-releases/"+current.Target+"/"+current.ID+"/download", nil)
+	r.Header.Set("Authorization", "Bearer "+userToken)
+	done := make(chan struct{})
+	go func() { defer close(done); server.Handler().ServeHTTP(blocked, r) }()
+	<-blocked.started
+	w = call("PATCH", endpoint(current), adminToken, change(current, "0.1.5", 5))
+	close(blocked.resume)
+	<-done
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if blocked.Code != 200 || !bytes.Equal(blocked.Body.Bytes(), apk.Bytes()) {
+		t.Fatal("metadata edit changed active download")
+	}
+	expected := current
+	expected.Version, expected.BuildNumber = "0.1.5", 5
+	if got := server.clientReleases.current(current.Target); got == nil || *got != expected {
+		t.Fatal("metadata changed unrelated fields", got)
+	}
+	if w := call("GET", "/v1/client-releases/"+current.Target, userToken, nil); !strings.Contains(w.Body.String(), `"buildNumber":5`) {
+		t.Fatal(w.Body.String())
+	}
+	if w := call("PATCH", endpoint(current), adminToken, change(current, "0.1.6", 6)); w.Code != 409 || !strings.Contains(w.Body.String(), "client-release-changed") {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if w := call("PATCH", endpoint(first), adminToken, change(first, "9.0.0", 2147483647)); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if got := server.clientReleases.current(current.Target); *got != expected {
+		t.Fatal("editing history republished it")
+	}
+	server.Close()
+	server, err = New(store, Options{DataDir: directory})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := server.clientReleases.current(current.Target); *got != expected {
+		t.Fatal("current edit lost after restart")
+	}
+	if got := server.clientReleases.releases[first.ID]; got.Version != "9.0.0" || got.BuildNumber != 2147483647 {
+		t.Fatal("history edit lost after restart")
+	}
+	for _, v := range []clientRelease{first, current} {
+		if data, err := os.ReadFile(filepath.Join(directory, "client-releases", v.ID)); err != nil || !bytes.Equal(data, apk.Bytes()) {
+			t.Fatal("payload changed", err)
+		}
+	}
+
+	// The current catalog and per-package index must roll back together on I/O failure.
+	latestPath := filepath.Join(directory, "client-releases", "latest.json")
+	latest, err := os.ReadFile(latestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(latestPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(latestPath, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(latestPath, "block"), []byte("fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if w := call("PATCH", endpoint(expected), adminToken, change(expected, "0.1.6", 6)); w.Code != 500 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if got := server.clientReleases.current(current.Target); *got != expected {
+		t.Fatal("failed save changed current metadata")
+	}
+	var persisted clientRelease
+	data, err := os.ReadFile(filepath.Join(directory, "client-releases", current.ID+".json"))
+	if err != nil || json.Unmarshal(data, &persisted) != nil || persisted != expected {
+		t.Fatal("failed save changed package index", err)
+	}
+	if err := os.Remove(filepath.Join(latestPath, "block")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(latestPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(latestPath, latest, 0600); err != nil {
+		t.Fatal(err)
+	}
+	server.Close()
+	server, err = New(store, Options{DataDir: directory})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := server.clientReleases.current(current.Target); *got != expected {
+		t.Fatal("failed save survived restart")
+	}
+	if w := call("DELETE", endpoint(expected), adminToken, nil); w.Code != 200 {
+		t.Fatal(w.Code)
+	}
+	if w := call("PATCH", endpoint(expected), adminToken, change(expected, "0.1.6", 6)); w.Code != 404 {
+		t.Fatal(w.Code)
+	}
+}

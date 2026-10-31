@@ -1,6 +1,6 @@
 {
   "name": "@codexer/admin",
-  "version": "0.3.34",
+  "version": "0.3.35",
   "private": true,
   "type": "module",
   "scripts": {

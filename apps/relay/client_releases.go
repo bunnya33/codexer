@@ -195,6 +195,62 @@ func (s *Server) clientReleaseRoutes() {
 		})
 		return M{"releases": result, "packages": packages}
 	})
+	s.route("PATCH /v1/admin/client-releases/{target}/{releaseId}", "admin", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
+		m := body(r)
+		version, versionOK := m["version"].(string)
+		build, buildOK := m["buildNumber"].(float64)
+		expectedVersion, expectedVersionOK := m["expectedVersion"].(string)
+		expectedBuild, expectedBuildOK := m["expectedBuildNumber"].(float64)
+		if !versionOK || !buildOK || build < 0 || build > 2147483647 || build != float64(int64(build)) || !expectedVersionOK || !expectedBuildOK {
+			fail(400, "invalid-client-release")
+		}
+		u := s.clientReleases
+		if !u.upload.TryLock() {
+			fail(409, "client-upload-in-progress")
+		}
+		defer u.upload.Unlock()
+		s.exclusive.RLock()
+		defer s.exclusive.RUnlock()
+		s.principal(r, "admin")
+		u.mu.Lock()
+		defer u.mu.Unlock()
+		old := u.releases[r.PathValue("releaseId")]
+		if old == nil || old.Target != r.PathValue("target") {
+			fail(404, "client-release-unavailable")
+		}
+		if old.Version != expectedVersion || float64(old.BuildNumber) != expectedBuild {
+			fail(409, "client-release-changed")
+		}
+		next := *old
+		next.Version, next.BuildNumber = version, int64(build)
+		if !validClientRelease(&next) {
+			fail(400, "invalid-client-release")
+		}
+		if r.Context().Err() != nil || s.ctx.Err() != nil {
+			fail(400, "invalid-request")
+		}
+		metadata := filepath.Join(u.directory, old.ID+".json")
+		if AtomicJSON(metadata, &next, 0600) != nil {
+			fail(500, "client-release-storage-error")
+		}
+		current := u.latest[old.Target]
+		if current != nil && current.ID == old.ID {
+			latest := make(map[string]*clientRelease, len(u.latest))
+			for target, value := range u.latest {
+				latest[target] = value
+			}
+			latest[old.Target] = &next
+			if AtomicJSON(filepath.Join(u.directory, "latest.json"), latest, 0600) != nil {
+				// latest.json remains authoritative on restart if this rollback also fails.
+				_ = AtomicJSON(metadata, old, 0600)
+				fail(500, "client-release-storage-error")
+			}
+			u.latest = latest
+		}
+		// Replace the object so active downloads keep an immutable metadata snapshot.
+		u.releases[old.ID] = &next
+		return M{"release": &next}
+	})
 	s.route("DELETE /v1/admin/client-releases/{target}/{releaseId}", "admin", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
 		u := s.clientReleases
 		if !u.upload.TryLock() {

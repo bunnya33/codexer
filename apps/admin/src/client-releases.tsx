@@ -6,7 +6,7 @@ import {
 import type { ClientRelease, ClientTarget } from "../../../packages/shared/src/client-release";
 import * as api from "./api";
 import { Modal } from "./modal";
-import { RefreshCw, Trash2 } from "lucide-react";
+import { Pencil, RefreshCw, Trash2 } from "lucide-react";
 
 const formatSize = (bytes: number) =>
   `${(bytes / 1024 / 1024).toLocaleString("zh-CN", { maximumFractionDigits: 1 })} MiB`;
@@ -18,12 +18,17 @@ export function ClientReleases() {
     [status, setStatus] = useState("all"),
     [deleting, setDeleting] = useState<ClientRelease | null>(null),
     [deleteError, setDeleteError] = useState(""),
+    [editing, setEditing] = useState<ClientRelease | null>(null),
+    [editVersion, setEditVersion] = useState(""),
+    [editBuild, setEditBuild] = useState(""),
+    [editError, setEditError] = useState(""),
     [target, setTarget] = useState<ClientTarget>("agent-windows-x64-setup");
   const [version, setVersion] = useState(""),
     [build, setBuild] = useState(""),
     [notes, setNotes] = useState(""),
     [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false),
+    [uploading, setUploading] = useState(false),
     [loading, setLoading] = useState(true),
     [progress, setProgress] = useState(0),
     [message, setMessage] = useState("");
@@ -89,13 +94,52 @@ export function ClientReleases() {
       if (live.current) setBusy(false);
     }
   };
+  const saveVersion = async () => {
+    if (!editing || task.current) return;
+    if (!/^\d+\.\d+\.\d+$/.test(editVersion) || editVersion.length > 80) {
+      setEditError("版本格式须为 0.2.12");
+      return;
+    }
+    if (
+      editing.target === "control-android" &&
+      (!/^\d+$/.test(editBuild) || Number(editBuild) < 1 || Number(editBuild) > 2147483647)
+    ) {
+      setEditError("请填写 APK 实际的 versionCode（1–2147483647 的整数）");
+      return;
+    }
+    const abort = new AbortController();
+    task.current = abort;
+    setBusy(true);
+    setEditError("");
+    try {
+      const value = await api.updateClientRelease(
+        editing,
+        editVersion,
+        editing.target === "control-android" ? Number(editBuild) : editing.buildNumber,
+        abort.signal,
+      );
+      if (!live.current) return;
+      setPackages((current) => current.map((item) => (item.id === value.id ? value : item)));
+      setReleases((current) =>
+        current[value.target]?.id === value.id ? { ...current, [value.target]: value } : current,
+      );
+      setEditing(null);
+      setMessage("版本信息已保存。当前发布的修改将在客户端下次检查更新时生效。");
+      await refresh();
+    } catch (error) {
+      if (live.current) setEditError(error instanceof Error ? error.message : "保存失败，请重试");
+    } finally {
+      task.current = null;
+      if (live.current) setBusy(false);
+    }
+  };
   return (
     <>
       <section className="card client-package-library" aria-label="客户端安装包管理">
         <div className="page-head">
           <div>
             <h2>安装包管理</h2>
-            <p className="muted">查看当前发布与历史版本，删除不再需要的安装包以释放服务器空间。</p>
+            <p className="muted">查看当前发布与历史版本，修正版本信息或删除不再需要的安装包。</p>
           </div>
           <button
             disabled={busy || loading}
@@ -188,6 +232,19 @@ export function ClientReleases() {
                   </td>
                   <td>
                     <div className="row-actions">
+                      <button
+                        aria-label={`修改版本信息 ${value.name} ${value.version}`}
+                        disabled={busy || loading}
+                        onClick={() => {
+                          setEditing(value);
+                          setEditVersion(value.version);
+                          setEditBuild(String(value.buildNumber));
+                          setEditError("");
+                        }}
+                      >
+                        <Pencil size={14} />
+                        修改版本
+                      </button>
                       <button
                         className="danger"
                         aria-label={`删除 ${value.name} ${value.version}`}
@@ -283,6 +340,7 @@ export function ClientReleases() {
             const abort = new AbortController();
             task.current = abort;
             setBusy(true);
+            setUploading(true);
             setMessage("");
             setProgress(0);
             void api
@@ -312,7 +370,10 @@ export function ClientReleases() {
               })
               .finally(() => {
                 task.current = null;
-                if (live.current) setBusy(false);
+                if (live.current) {
+                  setBusy(false);
+                  setUploading(false);
+                }
               });
           }}
         >
@@ -368,24 +429,81 @@ export function ClientReleases() {
           </label>
           <div className="actions">
             <button className="primary" disabled={busy || loading || !file}>
-              {busy ? `上传中 ${Math.floor(progress * 100)}%` : "上传并发布客户端"}
+              {uploading ? `上传中 ${Math.floor(progress * 100)}%` : "上传并发布客户端"}
             </button>
-            {busy ? (
+            {uploading ? (
               <button type="button" onClick={() => task.current?.abort()}>
                 取消上传
               </button>
             ) : (
-              <button type="button" onClick={() => void refresh()}>
+              <button type="button" disabled={busy || loading} onClick={() => void refresh()}>
                 刷新
               </button>
             )}
           </div>
-          {busy && <progress max={1} value={progress} />}
+          {uploading && <progress max={1} value={progress} />}
         </form>
         <p className="footnote">
           填写安装包实际版本；Android 沿用原应用 ID 和签名，并填写实际 versionCode。
         </p>
       </section>
+      {editing && (
+        <Modal
+          title="修改版本信息"
+          close={() => {
+            if (!busy) setEditing(null);
+          }}
+        >
+          <p className="package-delete-name">
+            {CLIENT_TARGETS[editing.target]} · {editing.name}
+          </p>
+          <p className="muted">
+            请填写安装包内的实际版本。保存后无需重新上传；安装包内容、签名及当前发布状态保持不变。
+          </p>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveVersion();
+            }}
+          >
+            <label>
+              客户端版本
+              <input
+                aria-label="修改客户端版本"
+                value={editVersion}
+                maxLength={80}
+                disabled={busy}
+                onChange={(event) => setEditVersion(event.target.value)}
+              />
+            </label>
+            {editing.target === "control-android" && (
+              <label>
+                Android versionCode
+                <input
+                  aria-label="修改 Android versionCode"
+                  inputMode="numeric"
+                  value={editBuild}
+                  disabled={busy}
+                  onChange={(event) => setEditBuild(event.target.value)}
+                />
+              </label>
+            )}
+            {editError && (
+              <p role="alert" className="error">
+                {editError}
+              </p>
+            )}
+            <div className="actions">
+              <button type="button" disabled={busy} onClick={() => setEditing(null)}>
+                取消
+              </button>
+              <button className="primary" disabled={busy}>
+                {busy ? "正在保存…" : "保存版本信息"}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
       {deleting && (
         <Modal
           title={isCurrent(deleting) ? "删除当前发布版本？" : "删除历史安装包？"}
