@@ -54,7 +54,7 @@ export class FileRegistry {
     offset?: number,
     expectedVersion?: string,
   ): Promise<FilePayload> {
-    const normalized = localFilePath(reference);
+    const normalized = localFilePath(reference, false);
     const path = normalized && this.sources.get(JSON.stringify([threadId, normalized]));
     if (!path) throw new Error("file-not-in-thread");
     const resolved = await realpath(path);

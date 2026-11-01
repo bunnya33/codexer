@@ -1,24 +1,28 @@
-/** 把消息中的本地链接转换为 PC 路径；不会交给浏览器或系统直接打开。 */
-export function localFilePath(value: string): string | null {
-  let path = value.trim();
+/** 链接解码一次；encoded=false 用于已解码的传输请求和原生路径。 */
+export function localFilePath(value: string, encoded = true): string | null {
+  let path = encoded ? value.trim() : value;
   if (path.length > 4096) return null;
+  let fileUrl = false;
   if (/^file:/i.test(path)) {
     try {
       const url = new URL(path);
       if (url.hostname && url.hostname !== "localhost") return null;
       path = url.pathname;
+      fileUrl = true;
       if (/^\/[A-Za-z]:\//.test(path)) path = path.slice(1);
     } catch {
       return null;
     }
   }
-  try {
-    path = decodeURIComponent(path);
-  } catch {
-    return null;
+  if (encoded || fileUrl) {
+    try {
+      path = decodeURIComponent(path);
+    } catch {
+      return null;
+    }
   }
-  path = path
-    .replaceAll("\\", "/")
+  path = path.replaceAll("\\", "/");
+  if (encoded) path = path
     .replace(/#(?:L?\d+(?:-L?\d+)?)$/, "")
     .replace(/:\d+(?::\d+)?$/, "");
   // Codex 的 Windows 文档链接也会使用 /D:/...，转换为真实盘符路径。

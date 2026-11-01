@@ -7,6 +7,11 @@ import { fileAudioMime, fileImageMime, fileReaderKind, localFilePath, readableFi
 import { renderMarkdown } from '../packages/client-shared/src/markdown.js';
 import { FILE_CHUNK_BYTES, MAX_FILE_BYTES, fileRequestSchema } from '../packages/protocol/src/files.js';
 import { previewFile } from '../apps/mobile/src/file-transfer.js';
+import pathFixtures from './fixtures/local-file-paths.json';
+
+it.each(pathFixtures)('normalizes cross-platform file references: $value (encoded=$encoded)', fixture => {
+  expect(localFilePath(fixture.value, fixture.encoded ?? true)).toBe(fixture.expected);
+});
 
 it('renders the exact Windows document citation as a client link and preserves spaces and Chinese names', () => {
   const path = 'D:/UserFiles/Documents/ChatGPT/New project/docs/截图贴图录屏工具-功能文档-v0.1.md';
@@ -123,4 +128,16 @@ it('reads only files cited by a message in that thread, in versioned chunks, wit
     if (!resolve(directory).startsWith(resolve(tmpdir()) + (process.platform === 'win32' ? '\\' : '/'))) throw new Error('unexpected-test-directory');
     await rm(directory,{recursive:true,force:true});
   }
+});
+
+it('keeps percent sequences literal after a citation has already been decoded', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'codexer-percent-files-'));
+  try {
+    const path = join(directory, 'literal%20%23L12.txt').replaceAll('\\', '/');
+    await writeFile(path, 'literal percent');
+    const files = new FileRegistry();
+    files.observeTurn('a', {items:[{id:'final',type:'agentMessage',text:`[File](${encodeURI(path)})`,truncated:false}]});
+    expect(await files.read('a', path)).toMatchObject({name:'literal%20%23L12.txt',size:15});
+    await expect(files.read('other', path)).rejects.toThrow('file-not-in-thread');
+  } finally { await rm(directory, {recursive:true,force:true}); }
 });

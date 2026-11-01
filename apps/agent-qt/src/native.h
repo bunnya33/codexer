@@ -28,6 +28,7 @@ QByteArray read(const QString &path, qint64 limit = 64 * 1024 * 1024);
 void save(const QString &path, const QByteArray &bytes);
 QString hash(const QByteArray &bytes);
 QString canonical(const QString &path);
+QString localFilePath(QString value, bool encoded = true);
 bool within(const QString &root, const QString &path);
 bool waitFor(const std::function<bool()> &done, int timeout);
 Object merged(Object left, const Object &right);

@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { open } from "node:fs/promises";
 import { basename, isAbsolute } from "node:path";
-import { fileURLToPath } from "node:url";
 import MarkdownIt from "markdown-it";
 import { MAX_IMAGE_BYTES } from "../../protocol/src/index.js";
 import type { ImagePayload, ImageRef } from "../../protocol/src/index.js";
@@ -41,11 +40,11 @@ export class ImageRegistry {
       const data = /^data:image\/(png|jpeg|webp|gif);base64,/.test(path);
       // Markdown encodes spaces/non-ASCII characters; native item paths are literal.
       // Keep the original source below so the client can match the Markdown image.
-      if (!data && inline.has(value)) {
-        const local = localFilePath(value);
+      if (!data) {
+        const local = localFilePath(value, inline.has(value));
         if (!local) return [];
         path = local;
-      } else if (path.startsWith("file://")) { try { path = fileURLToPath(path); } catch { return []; } }
+      }
       if (!data && !isAbsolute(path)) return [];
       if (data && path.length > Math.ceil(MAX_IMAGE_BYTES / 3) * 4 + 40) return [];
       const id = createHash("sha256").update(threadId).update("\0").update(path).digest("hex");

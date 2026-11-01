@@ -14,12 +14,44 @@ static QString imageMime(const QByteArray &bytes) {
     return "image/gif";
   return {};
 }
-static QString localPath(QString path, bool encoded) {
-  if (path.startsWith("file://"))
-    return QUrl(path).toLocalFile();
+// Keep this wire-path contract aligned with client-shared/file-links.ts.
+// A Markdown destination is encoded; a file request/native item is already a
+// literal path. Decoding that second kind again changes names such as %20.txt.
+QString localFilePath(QString path, bool encoded) {
   if (encoded)
-    path = QUrl::fromPercentEncoding(path.toUtf8());
-  return QFileInfo(path).isAbsolute() ? path : QString{};
+    path = path.trimmed();
+  if (path.size() > 4096)
+    return {};
+  bool fileUrl = path.startsWith("file:", Qt::CaseInsensitive);
+  if (fileUrl) {
+    QUrl url(path, QUrl::StrictMode);
+    if (!url.isValid() || !url.userInfo().isEmpty() || url.port() != -1 ||
+        (!url.host().isEmpty() && url.host() != "localhost"))
+      return {};
+    path = url.adjusted(QUrl::NormalizePathSegments).path(QUrl::FullyEncoded);
+  }
+  if (encoded || fileUrl) {
+    if (QRegularExpression("%(?![0-9a-fA-F]{2})").match(path).hasMatch())
+      return {};
+    auto bytes = QByteArray::fromPercentEncoding(path.toUtf8());
+    QStringDecoder decoder(QStringDecoder::Utf8);
+    path = decoder.decode(bytes);
+    if (decoder.hasError())
+      return {};
+  }
+  path.replace('\\', '/');
+  if (encoded) {
+    path.remove(QRegularExpression("#(?:L?[0-9]+(?:-L?[0-9]+)?)$"));
+    path.remove(QRegularExpression(":[0-9]+(?::[0-9]+)?$"));
+  }
+  if (QRegularExpression("^/[a-zA-Z]:/").match(path).hasMatch())
+    path.remove(0, 1);
+  if (path.startsWith("//") ||
+      QRegularExpression("[\\x00-\\x1f\\x7f]").match(path).hasMatch())
+    return {};
+  return path.startsWith('/') ||
+                 QRegularExpression("^[a-zA-Z]:/").match(path).hasMatch()
+             ? path : QString{};
 }
 // Parse local inline destinations, including angle brackets, escapes and
 // balanced parentheses. URL authorization is applied separately; this never
@@ -77,8 +109,11 @@ static QStringList markdownDestinations(const QString &text, bool imagesOnly) {
       }
       path += ch;
     }
-    if (complete && !path.isEmpty() && path.size() <= 4096)
+    // Markdown-it encodes literal percent signs before link normalization.
+    if (complete && !path.isEmpty() && path.size() <= 4096) {
+      path.replace(QRegularExpression("%(?![0-9a-fA-F]{2})"), "%25");
       result << path;
+    }
   }
   return result;
 }
@@ -135,8 +170,9 @@ Array Service::registerImages(const QString &threadId, const Object &item) {
     bool data = QRegularExpression("^data:image/(png|jpeg|webp|gif);base64,")
                     .match(original)
                     .hasMatch();
-    auto path = data ? original : localPath(original, candidate.second);
-    if (path.isEmpty() || seen.contains(path) || result.size() >= 8 ||
+    auto path = data ? original : localFilePath(original, candidate.second);
+    if (path.isEmpty() || (!data && !QFileInfo(path).isAbsolute()) ||
+        seen.contains(path) || result.size() >= 8 ||
         (data && path.size() > 5592450))
       continue;
     seen.insert(path);
@@ -288,8 +324,8 @@ void Service::observeFiles(const QString &threadId, const Object &turn) {
       continue;
     for (const auto &destination :
          markdownDestinations(item["text"].toString(), false)) {
-      auto path = localPath(destination, true);
-      if (!path.isEmpty() && path.size() <= 4096) {
+      auto path = localFilePath(destination);
+      if (!path.isEmpty() && QFileInfo(path).isAbsolute()) {
         if (fileSources[threadId].size() >= 10000)
           fileSources[threadId].erase(fileSources[threadId].begin());
         fileSources[threadId].insert(path);
@@ -300,8 +336,9 @@ void Service::observeFiles(const QString &threadId, const Object &turn) {
 Object Service::readFile(const Object &request) {
   auto id = request["threadId"].toString(),
        reference = request["path"].toString(),
-       path = localPath(reference, false);
-  if (path.isEmpty() || !fileSources[id].contains(path))
+       path = localFilePath(reference, false);
+  if (path.isEmpty() || !QFileInfo(path).isAbsolute() ||
+      !fileSources[id].contains(path))
     throw Error("file-not-in-thread");
   QFileInfo before(path);
   if (!before.isFile())

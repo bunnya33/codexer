@@ -6,10 +6,16 @@ import assert from 'node:assert/strict';
 import {commandSchema, threadSchema, historyPageSchema} from '../packages/protocol/src/index.js';
 import {normalizeThread, normalizeHistoryTurn} from '../packages/codex-adapter/src/normalize.js';
 import {mcpApproval} from '../packages/codex-adapter/src/mcp-approvals.js';
+import {localFilePath} from '../packages/client-shared/src/file-links.js';
 const root=resolve(import.meta.dirname,'..');
 const dir=join(root,'.local/native-protocol'); await mkdir(dir,{recursive:true});
 const jobs: {kind:string; value:any}[]=[];
 const add=(kind:string,value:any)=>jobs.push({kind,value});
+const pathFixtures=JSON.parse(await readFile(join(root,'tests/fixtures/local-file-paths.json'),'utf8'));
+for(const fixture of pathFixtures) {
+ assert.equal(localFilePath(fixture.value,fixture.encoded ?? true),fixture.expected);
+ add('localFilePath',fixture);
+}
 const envelope={commandId:'command',deviceId:'device',expectedEpoch:'epoch',expiresAt:Date.now()+60000};
 const payloads: Record<string,any>[]=[
  {type:'runtime.refresh'}, {type:'project.create',parentId:'parent',name:'Sample',relativePath:'sample',mode:'new'},
@@ -71,6 +77,7 @@ assert.equal(results.length,jobs.length);
 for(let i=0;i<jobs.length;i++) {
  const {kind,value}=jobs[i]!, actual=results[i];
  if(kind==='command') assert.equal(actual,commandSchema.safeParse(value).success,JSON.stringify(value));
+ if(kind==='localFilePath') assert.equal(actual,value.expected,JSON.stringify(value));
  if(kind==='thread') {
    threadSchema.parse(actual);
    const expected=normalizeThread(value,0);

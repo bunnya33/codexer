@@ -11,6 +11,9 @@ on:
       - 'packages/**'
       - 'scripts/build-qt-agent.mjs'
       - 'scripts/accept-qt-agent.mjs'
+      - 'scripts/check-native-protocol.ts'
+      - 'tests/fixtures/local-file-paths.json'
+      - 'tests/files.test.ts'
       - '.github/workflows/qt-agent.yml'
 permissions:
   contents: read
@@ -33,7 +36,7 @@ jobs:
           archives: qtbase qtwebsockets
           cache: true
       - run: npm ci
-      - run: npx vitest run tests/session-release.test.ts tests/writer-handoff.test.ts tests/runtime-refresh.test.ts tests/desktop-controller.test.ts
+      - run: npx vitest run tests/session-release.test.ts tests/writer-handoff.test.ts tests/runtime-refresh.test.ts tests/desktop-controller.test.ts tests/files.test.ts tests/images.test.ts tests/inline-audio.test.ts tests/previews.test.ts
       - name: Build and package native Qt Agent
         shell: pwsh
         run: |

@@ -634,6 +634,83 @@ private slots:
     save(path, "changed contents");
     QVERIFY_EXCEPTION_THROWN(agent->readFile(request), Error);
   }
+  void localCitationAliases_data() {
+    QTest::addColumn<QString>("format");
+    for (const auto &format : {"native", "drive-prefix", "backslashes",
+                               "encoded", "file-url", "localhost-url",
+                               "line-anchor", "line-column"})
+      QTest::newRow(format) << QString(format);
+  }
+  void localCitationAliases() {
+    QFETCH(QString, format);
+    auto citation = [&](QString path) {
+      if (format == "drive-prefix") {
+#ifdef Q_OS_WIN
+        path.prepend('/');
+#endif
+      } else if (format == "backslashes") {
+        path.replace('/', '\\');
+      } else if (format == "encoded") {
+        path = QString::fromLatin1(QUrl::toPercentEncoding(path, "/:()"));
+      } else if (format == "file-url" || format == "localhost-url") {
+        auto url = QUrl::fromLocalFile(path);
+        if (format == "localhost-url")
+          url.setHost("localhost");
+        path = url.toString(QUrl::FullyEncoded);
+      } else if (format == "line-anchor") {
+        path += "#L12-L15";
+      } else if (format == "line-column") {
+        path += ":12:3";
+      }
+      return path;
+    };
+    auto path = temp.path() + QString::fromUtf8("/中文 file (1).txt");
+    save(path, "citation contents");
+    agent->observeFiles(
+        "thread-test",
+        {{"items", Array{Object{{"type", "agentMessage"},
+                                {"text", "[File](<" + citation(path) + ">)"}}}}});
+    Object request{{"threadId", "thread-test"}, {"path", path}};
+    auto info = agent->readFile(request);
+    QCOMPARE(info["size"].toInt(), 17);
+    request["version"] = info["version"];
+    request["offset"] = 0;
+    QCOMPARE(QByteArray::fromBase64(
+                 agent->readFile(request)["base64"].toString().toLatin1()),
+             QByteArray("citation contents"));
+    request["threadId"] = "other-thread";
+    QVERIFY_EXCEPTION_THROWN(agent->readFile(request), Error);
+
+    auto imagePath = temp.path() + QString::fromUtf8("/中文 image (1).png");
+    save(imagePath, QByteArray::fromHex(
+                        "89504e470d0a1a0a00000000000000000000000000000000"));
+    auto refs = agent->registerImages(
+        "thread-test", {{"type", "agentMessage"},
+                        {"text", "![Image](<" + citation(imagePath) + ">)"}});
+    QCOMPARE(refs.size(), 1);
+    QCOMPARE(agent->readImage("thread-test", refs[0].toObject()["id"].toString())
+                 ["mimeType"], QJsonValue("image/png"));
+  }
+  void literalPercentFileNames() {
+    auto path = temp.path() + "/literal%20%23L12.txt";
+    save(path, "literal percent");
+    auto citation = QString::fromLatin1(QUrl::toPercentEncoding(path, "/:"));
+    agent->observeFiles(
+        "thread-test",
+        {{"items", Array{Object{{"type", "agentMessage"},
+                                {"text", "[File](" + citation + ")"}}}}});
+    QCOMPARE(agent->readFile({{"threadId", "thread-test"}, {"path", path}})
+                 ["name"], QJsonValue("literal%20%23L12.txt"));
+    auto imagePath = temp.path() + "/image 100%.png";
+    save(imagePath, QByteArray::fromHex(
+                        "89504e470d0a1a0a00000000000000000000000000000000"));
+    auto refs = agent->registerImages(
+        "thread-test", {{"type", "agentMessage"},
+                        {"text", "![Image](<" + imagePath + ">)"}});
+    QCOMPARE(refs.size(), 1);
+    QVERIFY(!agent->readImage("thread-test", refs[0].toObject()["id"].toString())
+                 .isEmpty());
+  }
   void imagesScopedToThread() {
     QByteArray bytes =
         QByteArray::fromHex("89504e470d0a1a0a00000000000000000000000000000000");
@@ -1543,6 +1620,13 @@ int main(int argc, char **argv) {
                                              "thread-test"));
       else if (job["kind"] == "approval")
         results.append(Native::approval(job["value"].toObject()));
+      else if (job["kind"] == "localFilePath") {
+        auto value = job["value"].toObject();
+        auto path = Native::localFilePath(value["value"].toString(),
+                                          value["encoded"].toBool(true));
+        results.append(path.isEmpty() ? QJsonValue(QJsonValue::Null)
+                                       : QJsonValue(path));
+      }
     }
     Native::save(app.arguments()[3], Native::json(results));
     return 0;
