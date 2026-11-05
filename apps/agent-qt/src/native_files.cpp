@@ -53,6 +53,37 @@ QString localFilePath(QString path, bool encoded) {
                  QRegularExpression("^[a-zA-Z]:/").match(path).hasMatch()
              ? path : QString{};
 }
+// Match the HTML references displayed by client-shared/previews.ts, including
+// Codex's visualize marker. Code examples and incomplete markers grant no file
+// access. The cross-language fixtures keep these token boundaries in sync.
+QStringList htmlPreviewPaths(const QString &source) {
+  static const QRegularExpression pattern(QString::fromUtf8(
+      R"preview((`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:\n\1[^\n]*(?:\n|$)|$)|`[^`\n]*`|visualize([^\n]+)|\[([^\]\n]+)\]\((?:<([^>\n]+)>|([^\s)]+))\)|https?://(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?![\w.:-])(?:[/?#][^\s<>\])，。]*)?)preview"));
+  QStringList result;
+  auto matches = pattern.globalMatch(source);
+  while (matches.hasNext() && result.size() < 10000) {
+    const auto match = matches.next();
+    QString path;
+    if (!match.captured(2).isEmpty()) {
+      QJsonParseError error;
+      const auto marker = QJsonDocument::fromJson(match.captured(2).toUtf8(), &error);
+      if (error.error == QJsonParseError::NoError && marker.isObject() &&
+          marker.object()["path"].isString())
+        path = localFilePath(marker.object()["path"].toString());
+    } else if (!match.captured(0).startsWith('`') &&
+               !match.captured(0).startsWith('~')) {
+      auto destination = !match.captured(4).isEmpty() ? match.captured(4)
+                          : !match.captured(5).isEmpty() ? match.captured(5)
+                                                        : match.captured(0);
+      path = localFilePath(destination);
+    }
+    if (!path.isEmpty() &&
+        QRegularExpression("\\.html?$", QRegularExpression::CaseInsensitiveOption)
+            .match(path).hasMatch())
+      result.append(path);
+  }
+  return result;
+}
 // Parse local inline destinations, including angle brackets, escapes and
 // balanced parentheses. URL authorization is applied separately; this never
 // fetches Markdown resources.
@@ -322,15 +353,18 @@ void Service::observeFiles(const QString &threadId, const Object &turn) {
     if (!QStringList{"agentMessage", "userMessage", "steeringUserMessage"}
              .contains(item["type"].toString()))
       continue;
+    auto remember = [&](const QString &path) {
+      if (path.isEmpty() || !QFileInfo(path).isAbsolute())
+        return;
+      if (fileSources[threadId].size() >= 10000)
+        fileSources[threadId].erase(fileSources[threadId].begin());
+      fileSources[threadId].insert(path);
+    };
+    for (const auto &path : htmlPreviewPaths(item["text"].toString()))
+      remember(path);
     for (const auto &destination :
-         markdownDestinations(item["text"].toString(), false)) {
-      auto path = localFilePath(destination);
-      if (!path.isEmpty() && QFileInfo(path).isAbsolute()) {
-        if (fileSources[threadId].size() >= 10000)
-          fileSources[threadId].erase(fileSources[threadId].begin());
-        fileSources[threadId].insert(path);
-      }
-    }
+         markdownDestinations(item["text"].toString(), false))
+      remember(localFilePath(destination));
   }
 }
 Object Service::readFile(const Object &request) {

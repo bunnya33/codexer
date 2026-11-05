@@ -13,6 +13,8 @@ on:
       - 'scripts/accept-qt-agent.mjs'
       - 'scripts/check-native-protocol.ts'
       - 'tests/fixtures/local-file-paths.json'
+      - 'tests/fixtures/html-preview-paths.json'
+      - 'tests/previews.test.ts'
       - 'tests/files.test.ts'
       - '.github/workflows/qt-agent.yml'
 permissions:

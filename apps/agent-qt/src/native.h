@@ -29,6 +29,7 @@ void save(const QString &path, const QByteArray &bytes);
 QString hash(const QByteArray &bytes);
 QString canonical(const QString &path);
 QString localFilePath(QString value, bool encoded = true);
+QStringList htmlPreviewPaths(const QString &source);
 bool within(const QString &root, const QString &path);
 bool waitFor(const std::function<bool()> &done, int timeout);
 Object merged(Object left, const Object &right);

@@ -7,6 +7,11 @@ import { PreviewRegistry } from '../packages/codex-adapter/src/previews.js';
 import { localPreviewUrl, previewControls, previewFeedback, previewReferences, restoredControlValue, splitPreviewContent, widgetState } from '../packages/client-shared/src/previews.js';
 import { buildPreviewDocument, nativePreviewShell } from '../packages/client-shared/src/preview-runtime.js';
 import { rewritePreviewContent } from './go-preview.js';
+import htmlPreviewFixtures from './fixtures/html-preview-paths.json';
+
+it.each(htmlPreviewFixtures)('matches native HTML preview authorization: $source', fixture => {
+  expect(previewReferences(fixture.source).filter(ref => ref.kind === 'html').map(ref => ref.source)).toEqual(fixture.expected);
+});
 
 it('recognizes inline visualizations, HTML citations and loopback URLs while preserving code and malformed markers', () => {
   const marker = 'visualize{"path":"/tmp/dashboard.html","title":"概览","mode":"wide"}';

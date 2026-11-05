@@ -711,6 +711,74 @@ private slots:
     QVERIFY(!agent->readImage("thread-test", refs[0].toObject()["id"].toString())
                  .isEmpty());
   }
+  void visualizationPreviewFile() {
+    auto path = temp.path() + QString::fromUtf8("/中文 dashboard (1).html");
+    const QByteArray html("<button>Preview fixture</button>");
+    save(path, html);
+    const auto marker = QString::fromUtf8("visualize") +
+                        QString::fromUtf8(json(Object{{"path", path},
+                                                       {"mode", "wide"}})) +
+                        QString::fromUtf8("");
+    Object turn{{"items", Array{Object{{"type", "agentMessage"},
+                                       {"text", marker}}}}};
+    agent->observeFiles("thread-test", turn);
+    Object request{{"threadId", "thread-test"}, {"path", path}};
+    Object info;
+    try { info = agent->readFile(request); }
+    catch (const Error &e) { QFAIL(qPrintable(e.code)); }
+    QCOMPARE(info["size"].toInt(), html.size());
+    request["version"] = info["version"];
+    request["offset"] = 0;
+    QCOMPARE(QByteArray::fromBase64(
+                 agent->readFile(request)["base64"].toString().toLatin1()), html);
+    request["threadId"] = "other-thread";
+    QVERIFY_EXCEPTION_THROWN(agent->readFile(request), Error);
+
+    auto codeOnly = turn;
+    codeOnly["items"] = Array{Object{{"type", "agentMessage"},
+                                    {"text", "```text\n" + marker + "\n```"}}};
+    agent->observeFiles("code-only", codeOnly);
+    QVERIFY(!agent->fileSources["code-only"].contains(path));
+
+    // Both live desktop updates and paginated history use observeFiles after
+    // normalization. Exercise each entry point with fresh authorization state.
+    auto source = raw();
+    Object sourceTurn{{"id", "preview-turn"}, {"turnId", "preview-turn"},
+                       {"status", "completed"}};
+    sourceTurn["items"] = Array{Object{{"id", "preview-message"},
+                                       {"type", "agentMessage"},
+                                       {"text", marker}}};
+    source["turns"] = Array{sourceTurn};
+    agent->fileSources.clear();
+    agent->rawThreads["thread-test"] = source;
+    agent->updateThread("thread-test");
+    QVERIFY(agent->fileSources["thread-test"].contains(path));
+    agent->fileSources.clear();
+    setFixture({{"turns", Array{sourceTurn}}});
+    auto history = agent->history("thread-test", QJsonValue::Null);
+    QCOMPARE(history["turns"].toArray().size(), 1);
+    QVERIFY(agent->fileSources["thread-test"].contains(path));
+  }
+  void realVisualizationPreviewReadProbe() {
+    const auto fixture = qEnvironmentVariable("CODEXER_PREVIEW_READ_PROBE");
+    if (fixture.isEmpty())
+      QSKIP("Read-only real preview probe requires explicit fixture path");
+    const auto value = parse(read(fixture)).toObject();
+    const auto path = value["path"].toString();
+    const auto id = value["threadId"].toString();
+    QVERIFY(!path.isEmpty() && !id.isEmpty());
+    agent->observeFiles(id, {{"items", Array{Object{{"type", "agentMessage"},
+                                                   {"text", value["text"]}}}}});
+    Object request{{"threadId", id}, {"path", path}};
+    auto info = agent->readFile(request);
+    request["version"] = info["version"];
+    request["offset"] = 0;
+    auto file = agent->readFile(request);
+    const auto bytes = QByteArray::fromBase64(file["base64"].toString().toLatin1());
+    QCOMPARE(bytes, read(path, 256 * 1024));
+    save(fixture + ".result.json", json(Object{{"threadId", id}, {"path", path},
+         {"bytes", bytes.size()}, {"sha256", hash(bytes)}, {"readOnly", true}}));
+  }
   void imagesScopedToThread() {
     QByteArray bytes =
         QByteArray::fromHex("89504e470d0a1a0a00000000000000000000000000000000");
@@ -1626,6 +1694,13 @@ int main(int argc, char **argv) {
                                           value["encoded"].toBool(true));
         results.append(path.isEmpty() ? QJsonValue(QJsonValue::Null)
                                        : QJsonValue(path));
+      }
+      else if (job["kind"] == "htmlPreviewPaths") {
+        Native::Array paths;
+        for (const auto &path : Native::htmlPreviewPaths(
+                 job["value"].toObject()["source"].toString()))
+          paths.append(path);
+        results.append(paths);
       }
     }
     Native::save(app.arguments()[3], Native::json(results));
