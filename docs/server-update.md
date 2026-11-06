@@ -2,6 +2,18 @@
 
 管理后台支持 **Release 包更新** 和 **Git tag · 服务器构建**，统一更新 Relay、Web 和 Admin。两种方式都先准备新版本，只有管理员点击“立即重启”并确认后才切换程序。下载、拉取或构建期间旧服务继续运行；不更新 PC 连接器或手机 App。
 
+## 手动上传服务器包（0.3.39）
+
+服务器访问 GitHub 不稳定时，可在能下载文件的电脑上取得 Release 中与服务器平台匹配的 `codexer-server-X.Y.Z-linux-amd64.tar.gz`（或 `linux-arm64`）及同名 `.tar.gz.sha256` 文件。在“系统设置 → 服务器更新 → 手动上传服务器更新包”选择或一次拖入这两个文件，版本与平台自动识别，无需手填。
+
+点击“上传并准备更新”后，后台显示上传进度，允许取消并重试。服务器流式保存、核对 SHA-256、包内版本／平台／Go 运行时和完整压缩包结构，只允许高于当前版本且适合本机的包，最大 256 MiB。失败或中断不会发布残缺包。上传者须为有效管理员，完成时再次检查登录；与其它上传、在线更新、更新方式切换互斥。
+
+约 30 秒内 root 更新器复制到受保护的暂存目录，再核对大小、SHA-256、版本及平台，然后解包准备。上传任务使用独立的 `upload` 请求与暂存记录，准备、状态轮询和确认重启不需要 GitHub；不改变原有 Release/Git 设置。准备完成后仍须点击“立即重启 → 确认重启”，沿用启动检查和程序回退；等待重启时切换更新方式不会把上传包变成 Git 构建任务。普通在线版本检查仍可手动发起。
+
+**首次启用需要升级 root 更新器**：仅通过旧更新器替换 Relay 程序，不会升级 root helper。将 `0.3.39` 或更新的正式服务器包及校验文件传到服务器，核对并解压后，在包内运行一次 `sudo bash install.sh`，保留既有配置、账号与数据。此安装过程会重启服务，无需从 GitHub 下载 Go 程序或安装 Node；之后即可使用后台上传。旧更新器显示明确提示并禁用上传，Docker／源码部署继续在外部更新。
+
+接口：`PUT /v1/admin/system/update-package?name=包名&sha256=64位小写摘要`，管理员认证，原始二进制正文。响应为 `source: upload`、`method: upload` 的排队任务；重启沿用 `POST /v1/admin/system/update`，提供 `tag`、`action: restart` 和原 `jobId`。版本信息新增 `uploadSupported`、`uploading` 和 `platform`，旧更新器不会被误报为支持上传。
+
 ## 使用
 
 1. 已有 systemd 部署先用新版源码或发布包运行一次 `sudo bash install.sh`，安装原生更新器和更新服务。若需要 Git 构建，预先准备构建工具并设置 `CODEXER_GIT_UPDATES=1`，安装器会创建专用构建账号。安装器本身会重启服务，建议在维护时间运行；此后后台更新使用分步流程。仅替换网页不能更新 root helper，旧 helper 会禁用后台安装按钮，避免旧程序自动重启。
@@ -39,8 +51,8 @@ curl -fsSL https://raw.githubusercontent.com/bunnya33/codexer/main/bootstrap.sh 
 | Relay | 仍以 codexer 用户运行，保持 systemd 文件系统限制 |
 | root 更新器 | `/usr/local/lib/codexer-updater/`，root 所有；不从 Relay 可写目录执行代码 |
 | 构建账号 | `codexer-builder`，无登录 shell；使用 systemd 临时构建服务，禁止提权并隐藏配置、数据库和更新状态 |
-| 请求/自动设置 | `/var/lib/codexer-updater/inbox/`，codexer 可写，只接收版本 tag、步骤、任务 ID 和更新方式 |
-| 状态/暂存记录 | `status.json`、`git-stage.json`、`release-stage.json`、`rollback.json`，root 所有；后台仅可读状态 |
+| 请求/自动设置 | `/var/lib/codexer-updater/inbox/`，codexer 可写；上传包只按任务 UUID 命名，不接受自定义文件路径或命令 |
+| 状态/暂存记录 | `status.json`、`git-stage.json`、`release-stage.json`、`upload-stage.json`、`rollback.json`，root 所有；后台仅可读状态 |
 | 定时器 | `codexer-updater.timer`，约每 30 秒处理一次请求 |
 | 更新互斥 | 与安装器共用 `/run/codexer-install.lock`；不依赖删除锁文件解锁 |
 | 程序/数据 | `/opt/codexer/releases`、`current`；保留 `/etc/codexer/relay.env` 与数据库目录 |

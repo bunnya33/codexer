@@ -27,6 +27,7 @@ type Updates struct {
 	Release              M
 	Tags                 []M
 	Client               *http.Client
+	uploading            bool
 }
 
 func NewUpdates(version, dir, status string) *Updates {
@@ -183,6 +184,17 @@ func nextAction(job M, method, tag string) string {
 	return "update"
 }
 func (u *Updates) Info(force bool) M { u.mu.Lock(); defer u.mu.Unlock(); return u.info(force) }
+func (u *Updates) localJob() M {
+	job := obj(ReadJSON(u.Status)["job"])
+	if len(job) == 0 {
+		job = nil
+	}
+	pending := ReadJSON(filepath.Join(u.Dir, "request.json"))
+	if pending != nil && (pending["id"] != job["id"] || pending["action"] != job["action"] || num(pending["updatedAt"]) > num(job["updatedAt"])) {
+		job = pending
+	}
+	return job
+}
 func (u *Updates) info(force bool) M {
 	if u.Dir == "" {
 		fail(503, "updates-unavailable")
@@ -192,7 +204,9 @@ func (u *Updates) info(force bool) M {
 	if settings["method"] == "git" {
 		method = "git"
 	}
-	if force || u.Method != method || u.Checked == 0 || now()-u.Checked > 20*60000 {
+	localJob := u.localJob()
+	manual := localJob["source"] == "upload" && (updateRunning(localJob) || nextAction(localJob, "release", str(localJob["tag"])) == "restart")
+	if !u.uploading && (force || !manual && (u.Method != method || u.Checked == 0 || now()-u.Checked > 20*60000)) {
 		func() {
 			defer func() {
 				if e := recover(); e != nil {
@@ -240,14 +254,7 @@ func (u *Updates) info(force bool) M {
 		}()
 	}
 	status := ReadJSON(u.Status)
-	job := obj(status["job"])
-	if len(job) == 0 {
-		job = nil
-	}
-	pending := ReadJSON(filepath.Join(u.Dir, "request.json"))
-	if pending != nil && (pending["id"] != job["id"] || pending["action"] != job["action"] || num(pending["updatedAt"]) > num(job["updatedAt"])) {
-		job = pending
-	}
+	job := u.localJob()
 	var latest, release any
 	tags := []M{}
 	auto := false
@@ -264,11 +271,14 @@ func (u *Updates) info(force bool) M {
 		auto = boolean(settings["autoInstall"])
 	}
 	has := latest != nil && Newer(str(latest), u.Version)
-	return M{"currentVersion": u.Version, "latestVersion": latest, "hasUpdate": has, "checkedAt": u.Checked, "warning": u.Warning, "release": release, "supported": boolean(status["enabled"]) && num(status["protocol"]) == 2, "gitSupported": num(status["protocol"]) == 2 && boolean(status["gitSupported"]), "method": method, "tags": tags, "autoInstall": auto, "job": job}
+	return M{"currentVersion": u.Version, "latestVersion": latest, "hasUpdate": has, "checkedAt": u.Checked, "warning": u.Warning, "release": release, "supported": boolean(status["enabled"]) && num(status["protocol"]) == 2, "gitSupported": num(status["protocol"]) == 2 && boolean(status["gitSupported"]), "uploadSupported": boolean(status["enabled"]) && num(status["protocol"]) == 2 && boolean(status["uploadSupported"]), "uploading": u.uploading, "platform": runtime.GOOS + "-" + runtime.GOARCH, "method": method, "tags": tags, "autoInstall": auto, "job": job}
 }
 func (u *Updates) Settings(change M) M {
 	u.mu.Lock()
 	defer u.mu.Unlock()
+	if u.uploading {
+		fail(409, "update-in-progress")
+	}
 	info := u.info(false)
 	if !boolean(info["supported"]) {
 		fail(409, "updater-not-installed")
@@ -299,6 +309,18 @@ func (u *Updates) Settings(change M) M {
 func (u *Updates) Request(tag, action, id string) M {
 	u.mu.Lock()
 	defer u.mu.Unlock()
+	if u.uploading {
+		fail(409, "update-in-progress")
+	}
+	if job := u.localJob(); job["source"] == "upload" && action == "restart" {
+		status := ReadJSON(u.Status)
+		if !boolean(status["enabled"]) || num(status["protocol"]) != 2 || !boolean(status["uploadSupported"]) || job["id"] != id || job["tag"] != tag || nextAction(job, "release", tag) != "restart" {
+			fail(409, "update-step-not-ready")
+		}
+		v := M{"id": id, "tag": tag, "method": "upload", "source": "upload", "action": "restart", "phase": "queued", "updatedAt": now(), "sha256": job["sha256"], "size": job["size"]}
+		writeUpdateRequest(u.Dir, v)
+		return v
+	}
 	info := u.info(action == "update")
 	if !boolean(info["supported"]) {
 		fail(409, "updater-not-installed")
@@ -360,11 +382,12 @@ func (u *Updates) AutoPrepare() {
 	}
 	info := u.Info(true)
 	job := obj(info["job"])
-	if info["method"] == "release" && boolean(info["autoInstall"]) && boolean(info["supported"]) && boolean(info["hasUpdate"]) && info["warning"] == nil && (len(job) == 0 || job["phase"] == "succeeded") {
+	if info["method"] == "release" && !boolean(info["uploading"]) && boolean(info["autoInstall"]) && boolean(info["supported"]) && boolean(info["hasUpdate"]) && info["warning"] == nil && (len(job) == 0 || job["phase"] == "succeeded") {
 		u.Request(str(obj(info["release"])["tag"]), "update", "")
 	}
 }
 func (s *Server) updateRoutes() {
+	s.serverUpdateUploadRoute()
 	s.route("GET /v1/admin/system/version", "admin", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
 		return s.updates.Info(r.URL.Query().Get("force") == "true")
 	})

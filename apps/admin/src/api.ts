@@ -119,3 +119,19 @@ export const serverLogs = (filter:ServerLogFilter, before:number|null, signal?:A
 export const versionInfo = (force = false) => request<VersionInfo>('/v1/admin/system/version' + (force ? '?force=true' : ''));
 export const updateServer = (tag: string, action: UpdateAction = 'update', jobId?: string) => request<UpdateJob>('/v1/admin/system/update','POST',{tag,action,...(jobId ? {jobId} : {})});
 export const updateSettings = (settings: boolean | Partial<UpdateSettings>) => request<UpdateSettings>('/v1/admin/system/update-settings','PUT',typeof settings === 'boolean' ? {autoInstall:settings} : settings);
+
+export function uploadServerUpdate(file:File,sha256:string,signal:AbortSignal,progress:(value:number)=>void):Promise<UpdateJob>{
+ return new Promise((resolve,reject)=>{
+  const xhr=new XMLHttpRequest(),cancel=()=>xhr.abort(),cleanup=()=>signal.removeEventListener('abort',cancel);
+  xhr.open('PUT','/v1/admin/system/update-package?'+new URLSearchParams({name:file.name,sha256}));xhr.timeout=10*60*1000;
+  xhr.setRequestHeader('Authorization','Bearer '+session);xhr.setRequestHeader('Content-Type','application/octet-stream');
+  xhr.upload.onprogress=e=>{if(e.lengthComputable)progress(e.loaded/e.total);};
+  xhr.onload=()=>{
+   cleanup();
+   const messages:Record<string,string>={'upload-updater-not-installed':'更新器尚不支持手动上传，请用新版安装包升级更新器','update-in-progress':'已有更新或上传正在进行','update-not-newer':'只能安装高于当前版本的服务器包','invalid-server-update-name':'更新包文件名或平台与服务器不匹配','invalid-server-update-checksum':'校验文件内容无效','checksum-mismatch':'SHA-256 校验失败，请重新下载更新包和校验文件','invalid-server-bundle':'更新包损坏，或包内版本、平台与文件名不一致','server-update-too-large':'服务器包超过 256 MiB','server-update-upload-incomplete':'上传未完成，请重试','server-update-storage-error':'服务器保存失败，请检查磁盘空间'};
+   try{const value=JSON.parse(xhr.responseText);if(xhr.status===200&&value.source==='upload'&&value.phase==='queued'&&typeof value.id==='string'&&typeof value.tag==='string'){resolve(value);return;}if(xhr.status===401){clearSession();reject(new Error('登录已失效，请重新登录'));return;}reject(new Error(messages[value.error]||'上传失败，请重试'));}catch{reject(new Error('服务器返回的更新信息无效'));}
+  };
+  xhr.onerror=()=>{cleanup();reject(new Error('网络错误，请重试'));};xhr.ontimeout=()=>{cleanup();reject(new Error('上传超时，请重试'));};xhr.onabort=()=>{cleanup();reject(new Error('上传已取消'));};
+  signal.addEventListener('abort',cancel,{once:true});if(signal.aborted){cleanup();reject(new Error('上传已取消'));return;}xhr.send(file);
+ });
+}

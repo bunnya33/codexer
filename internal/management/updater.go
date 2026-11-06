@@ -29,21 +29,31 @@ const currentPath = "/opt/codexer/current"
 var stable = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
 var updateID = regexp.MustCompile(`^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$`)
 var sha = regexp.MustCompile(`^[a-f0-9]{40}$`)
+var uploadDigest = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 func ValidUpdate(m relay.M) bool {
 	if !stable.MatchString(stringValue(m["tag"])) || !updateID.MatchString(stringValue(m["id"])) || m["phase"] != "queued" {
 		return false
 	}
-	if m["method"] != "git" && m["method"] != "release" {
+	if m["method"] != "git" && m["method"] != "release" && m["method"] != "upload" {
 		return false
 	}
 	if m["action"] != "update" && m["action"] != "build" && m["action"] != "restart" {
 		return false
 	}
-	if m["method"] == "release" && m["action"] == "build" {
+	if m["method"] != "git" && m["action"] == "build" {
 		return false
 	}
+	if m["source"] != nil || m["method"] == "upload" {
+		if !validUploadPayload(m) {
+			return false
+		}
+	}
 	return true
+}
+func validUploadPayload(m relay.M) bool {
+	size, ok := m["size"].(float64)
+	return m["source"] == "upload" && m["method"] == "upload" && uploadDigest.MatchString(stringValue(m["sha256"])) && ok && size >= 128 && size <= float64(relay.MaxServerUpdateBytes) && size == float64(int64(size))
 }
 func stringValue(v any) string {
 	if v == nil {
@@ -320,7 +330,7 @@ func ExecuteUpdate() (err error) {
 	var previousJob any = status["job"]
 	git := builderSupported()
 	publishStatus := func(job any) error {
-		return relay.AtomicJSON(statusPath, relay.M{"enabled": true, "protocol": 2, "gitSupported": git, "job": job}, 0644)
+		return relay.AtomicJSON(statusPath, relay.M{"enabled": true, "protocol": 2, "gitSupported": git, "uploadSupported": true, "job": job}, 0644)
 	}
 	journal := filepath.Join(updateRoot, "rollback.json")
 	if recovery, e := secureJSON(journal); e == nil {
@@ -387,11 +397,17 @@ func ExecuteUpdate() (err error) {
 		}
 	}()
 	tag, id, method, action := stringValue(job["tag"]), stringValue(job["id"]), stringValue(job["method"]), stringValue(job["action"])
+	if job["source"] == "upload" && action == "update" {
+		defer os.Remove(filepath.Join(updateRoot, "inbox", id+".tar.gz"))
+	}
 	installed := bundleVersion(currentPath)
 	if !relay.Newer(tag[1:], installed) {
 		return errors.New("update-not-current")
 	}
 	stagePath := filepath.Join(updateRoot, "release-stage.json")
+	if method == "upload" {
+		stagePath = filepath.Join(updateRoot, "upload-stage.json")
+	}
 	if method == "git" {
 		if !git {
 			return errors.New("git-updater-not-installed")
@@ -531,6 +547,23 @@ func ExecuteUpdate() (err error) {
 	if stage["id"] == id && stage["tag"] == tag && stage["phase"] == "built" {
 		return publish("built", "")
 	}
+	if job["source"] == "upload" {
+		publish("verifying", "")
+		archive, e := prepareUploadedBundle(filepath.Join(updateRoot, "inbox"), releaseRoot, job)
+		if e != nil {
+			return e
+		}
+		defer os.Remove(archive)
+		publish("installing", "")
+		if e = installArchive(archive, next, tag[1:]); e != nil {
+			return e
+		}
+		stage = relay.M{"id": id, "tag": tag, "phase": "built", "releasePath": next}
+		if e = relay.AtomicJSON(stagePath, stage, 0600); e != nil {
+			return e
+		}
+		return publish("built", "")
+	}
 	publish("downloading", "")
 	updates := relay.NewUpdates(installed, filepath.Join(updateRoot, "inbox"), statusPath)
 	info := updates.Info(true)
@@ -580,8 +613,44 @@ func ExecuteUpdate() (err error) {
 	}
 	return publish("built", "")
 }
+
+// Open only the fixed job-ID path, then hash and inspect a root-owned snapshot.
+// No network, caller-supplied paths, shell commands or uploaded executables run here.
+func prepareUploadedBundle(inbox, directory string, job relay.M) (string, error) {
+	if !validUploadPayload(job) || !stable.MatchString(stringValue(job["tag"])) || !updateID.MatchString(stringValue(job["id"])) || job["action"] != "update" {
+		return "", errors.New("invalid-upload-request")
+	}
+	trusted, e := snapshotArtifact(filepath.Join(inbox, stringValue(job["id"])+".tar.gz"), directory)
+	if e != nil {
+		return "", e
+	}
+	ok := false
+	defer func() {
+		if !ok {
+			os.Remove(trusted)
+		}
+	}()
+	f, e := os.Open(trusted)
+	if e != nil {
+		return "", e
+	}
+	hash := sha256.New()
+	size, e := io.Copy(hash, f)
+	f.Close()
+	if e != nil || float64(size) != job["size"] || hex.EncodeToString(hash.Sum(nil)) != job["sha256"] {
+		return "", errors.New("checksum-mismatch")
+	}
+	if e = relay.InspectServerUpdateArchive(trusted, stringValue(job["tag"])[1:], runtime.GOOS, runtime.GOARCH); e != nil {
+		return "", e
+	}
+	ok = true
+	return trusted, nil
+}
 func installArchive(archive, next, version string) error {
-	temp, e := os.MkdirTemp(releaseRoot, ".update-")
+	return installArchiveIn(archive, next, version, releaseRoot)
+}
+func installArchiveIn(archive, next, version, root string) error {
+	temp, e := os.MkdirTemp(root, ".update-")
 	if e != nil {
 		return e
 	}
