@@ -6,22 +6,13 @@ import type { RelayView } from './relay';
 import { directoryThreadHeight, useTheme } from './styles';
 import { DevicePicker } from './device-picker';
 import { DrawerSwipeBlock } from './drawer-swipe-block';
+import { TaskStatusDot } from './task-status-dot';
 type Props = { updateAvailable?:boolean; view: RelayView; deviceId: string; threadId: string; rows: DirectoryRow[]; search: string; wide: boolean; managing: boolean; paddingTop: number; paddingBottom: number; setSearch: (value: string) => void; selectDevice: (id: string) => void; selectThread: (id: string) => void; toggleProject: (id: string) => void; createProject: () => void; projectActions: (project: { id: string; name: string }) => void; threadActions: (thread: { id: string; title: string }) => void; close: () => void; settings: () => void; refresh: () => void };
-
-function RunningIndicator({label}: {label: string}) {
-  const { s } = useTheme();
-  const rotation = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    const animation = Animated.loop(Animated.timing(rotation, {toValue: 1, duration: 900, easing: Easing.linear, useNativeDriver: Platform.OS !== 'web'}));
-    animation.start(); return () => animation.stop();
-  }, [rotation]);
-  return <View accessibilityRole="progressbar" accessibilityLabel={label} style={s.runningIndicator}><Animated.View style={[s.runningRing, {transform: [{rotate: rotation.interpolate({inputRange: [0, 1], outputRange: ['0deg', '360deg']})}]}]} /></View>;
-}
 
 function ThreadRow({item, props, showActivity = true}: {item: DirectoryThread; props: Props; showActivity?: boolean}) {
   const { c, s } = useTheme();
   return <View style={[s.threadRow, item.nested && s.threadNested, props.threadId === item.id && s.threadRowSelected]}>
-    <Pressable accessibilityRole="button" onPress={() => props.selectThread(item.id)} onLongPress={() => props.threadActions(item)} delayLongPress={450} style={s.threadSelect}><Text numberOfLines={1} style={s.threadName}>{item.title}</Text>{item.active && showActivity && <RunningIndicator label={`正在运行：${item.title}`} />}</Pressable>
+    <Pressable accessibilityRole="button" onPress={() => props.selectThread(item.id)} onLongPress={() => props.threadActions(item)} delayLongPress={450} style={s.threadSelect}><Text numberOfLines={1} style={s.threadName}>{item.title}</Text>{item.active && showActivity && <TaskStatusDot running label={`正在运行：${item.title}`} />}</Pressable>
     {['web', 'windows', 'macos'].includes(Platform.OS) && <Pressable accessibilityRole="button" accessibilityLabel={`管理会话 ${item.title}`} onPress={() => props.threadActions(item)} style={s.projectAction}><MoreHorizontal size={16} color={c.muted} /></Pressable>}
   </View>;
 }
@@ -41,7 +32,7 @@ function ProjectRow({project, props}: {project: DirectoryProject; props: Props})
   return <View testID={`directory-project-${project.id}`}>
     <View style={s.project}>
       <Pressable accessibilityRole="button" aria-expanded={project.expanded} accessibilityLabel={`${project.expanded ? '收起' : '展开'}项目 ${project.name}`} onPress={() => props.toggleProject(project.id)} style={({pressed}) => [s.projectToggle, pressed && s.pressed]}>
-        <FolderIcon size={16} strokeWidth={1.6} color={c.muted} /><Text style={s.projectName} numberOfLines={1}>{project.name}</Text>{project.active && !project.expanded && <RunningIndicator label={`项目 ${project.name} 有会话正在运行`} />}
+        <FolderIcon size={16} strokeWidth={1.6} color={c.muted} /><Text style={s.projectName} numberOfLines={1}>{project.name}</Text>{project.active && !project.expanded && <TaskStatusDot running label={`项目 ${project.name} 有会话正在运行`} />}
       </Pressable>
       {project.id !== 'unassigned' && <Pressable accessibilityRole="button" accessibilityLabel={`管理项目 ${project.name}`} disabled={props.managing} onPress={() => props.projectActions(project)} style={({pressed}) => [s.projectAction, pressed && s.pressed, props.managing && s.disabled]}><MoreHorizontal size={16} strokeWidth={1.6} color={c.muted} /></Pressable>}
     </View>
@@ -58,7 +49,7 @@ export function Directory(props: Props) {
     <View style={s.drawerHeader}><Text style={s.brand}>Codexer</Text>{!wide && <Pressable accessibilityRole="button" accessibilityLabel="关闭会话列表" onPress={props.close} style={s.iconButton}><X size={20} color={c.text} /></Pressable>}</View>
     <DrawerSwipeBlock style={s.search}><Search size={17} color={c.muted} /><TextInput accessibilityLabel="搜索会话" style={s.searchInput} value={props.search} onChangeText={props.setSearch} placeholder="搜索会话" placeholderTextColor={c.muted} /></DrawerSwipeBlock>
     <Text style={s.section}>同账号的 PC Agent</Text>
-    <DrawerSwipeBlock><DevicePicker devices={view.devices} deviceId={deviceId} selectDevice={props.selectDevice} /></DrawerSwipeBlock>
+    <DrawerSwipeBlock><DevicePicker devices={view.devices} snapshots={view.snapshots} deviceId={deviceId} selectDevice={props.selectDevice} /></DrawerSwipeBlock>
     <FlatList data={rows} keyExtractor={row => `${row.type}:${row.id}`} style={s.list} contentContainerStyle={s.listContent} renderItem={({item}) => item.type === 'section' ? <View style={s.directorySectionRow}><Text style={s.directorySectionTitle}>{item.title}</Text>{item.id === 'projects' && <Pressable accessibilityRole="button" accessibilityLabel="新建项目" disabled={props.managing || !deviceId} onPress={props.createProject} style={[s.iconButton, (props.managing || !deviceId) && s.disabled]}><FolderPlus size={18} color={c.muted}/></Pressable>}</View> : item.type === 'project' ? <ProjectRow project={item} props={props} /> : <ThreadRow item={item} props={props} />} ListEmptyComponent={<Text style={s.empty}>{view.catalogs[deviceId] ? '没有匹配的会话' : '正在读取项目与会话'}</Text>} />
     <View style={s.drawerFooter}><Text style={s.drawerStatus}>{view.phase === 'connected' ? `${view.devices.length} 台 PC Agent` : '正在重新连接'}</Text><Pressable accessibilityRole="button" accessibilityLabel="刷新设备" onPress={props.refresh} style={s.iconButton}><RefreshCw size={19} color={c.text} /></Pressable><Pressable accessibilityRole="button" accessibilityLabel="连接设置" onPress={props.settings} style={s.iconButton}><Settings2 size={19} color={c.text} />{props.updateAvailable&&<View accessibilityLabel="控制端有新版本" style={{position:'absolute',right:7,top:6,width:8,height:8,borderRadius:4,backgroundColor:'#eb373a'}}/>}</Pressable></View>
   </View>;

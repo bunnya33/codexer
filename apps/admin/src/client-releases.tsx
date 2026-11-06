@@ -7,6 +7,7 @@ import type { ClientRelease, ClientTarget } from "../../../packages/shared/src/c
 import * as api from "./api";
 import { Modal } from "./modal";
 import { Pencil, RefreshCw, Trash2 } from "lucide-react";
+import { installerVersionFromFilename } from "./installer-version";
 
 const formatSize = (bytes: number) =>
   `${(bytes / 1024 / 1024).toLocaleString("zh-CN", { maximumFractionDigits: 1 })} MiB`;
@@ -69,6 +70,12 @@ export function ClientReleases() {
       (filter === "all" || value.target === filter) &&
       (status === "all" || isCurrent(value) === (status === "current")),
   );
+  const selectFile = (next: File | null) => {
+    setFile(next);
+    const detected = next && installerVersionFromFilename(next.name);
+    setVersion(detected ?? "");
+    setMessage(detected ? `已从文件名识别版本 ${detected}，可手动修改。` : next ? "文件名中没有明确的唯一版本号，请填写安装包实际版本。" : "");
+  };
   const remove = async () => {
     if (!deleting || task.current) return;
     const value = deleting;
@@ -404,17 +411,31 @@ export function ClientReleases() {
                 />
               </label>
             )}
-            <label>
+            <label
+              className="installer-dropzone"
+              onDragOver={(event) => { event.preventDefault(); }}
+              onDrop={(event) => {
+                event.preventDefault();
+                if (busy) return;
+                if (event.dataTransfer.files.length !== 1) {
+                  setMessage("请一次拖入一个安装包。");
+                  return;
+                }
+                if (input.current) input.current.value = "";
+                selectFile(event.dataTransfer.files[0] ?? null);
+              }}
+            >
               安装包
               <input
                 aria-label="客户端安装包"
                 ref={input}
                 type="file"
                 accept={extension}
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                onChange={(e) => selectFile(e.target.files?.[0] ?? null)}
                 disabled={busy}
-                required
               />
+              <span className="footnote">可拖入安装包；文件名含明确版本号时自动填入，可手动修改。</span>
+              {file && <span className="package-filename">已选择：{file.name}</span>}
             </label>
           </div>
           <label>
@@ -444,7 +465,7 @@ export function ClientReleases() {
           {uploading && <progress max={1} value={progress} />}
         </form>
         <p className="footnote">
-          填写安装包实际版本；Android 沿用原应用 ID 和签名，并填写实际 versionCode。
+          文件名版本仅用于自动填写，请核对安装包实际版本；Android 沿用原应用 ID 和签名，并填写实际 versionCode。
         </p>
       </section>
       {editing && (

@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Easing, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { Bot, Check, ChevronDown, ChevronRight, ChevronUp, Clock3, Copy, Folder, HelpCircle, Pencil, Sparkles, Terminal } from 'lucide-react-native';
+import { Bot, Check, ChevronDown, ChevronRight, ChevronUp, Copy, Folder, HelpCircle, Pencil, Sparkles, Terminal } from 'lucide-react-native';
 import { inputQuestions } from '../../../packages/client-shared/src/questions';
 import { activityLabel, activitySections, buildActivityBlocks, executionItemSummary, executionSectionSummary, formatDuration, itemDuration, messageRole } from '../../../packages/client-shared/src/activity';
 import type { ExecutionSection } from '../../../packages/client-shared/src/activity';
@@ -18,6 +18,7 @@ import { FileDiff } from './file-diff';
 import { localAudioPath, stripInlineImageReferences } from '../../../packages/client-shared/src/audio';
 import { TurnEndTime, TurnTiming } from './turn-timing';
 import { recordedTurnTiming } from '../../../packages/client-shared/src/turn-timing';
+import { TaskStatusDot } from './task-status-dot';
 
 type ImageSource = { uri: string; headers?: Record<string, string> };
 type ImageViewer = (source: ImageSource, name: string) => void;
@@ -87,13 +88,13 @@ function ExecutionGroup({ section, deviceId, threadId, onImage }: { section: Exe
 
 type ActivityBlock = Extract<ReturnType<typeof buildActivityBlocks>[number], { kind: 'activity' }>;
 function Activity({ block, turn, deviceId, threadId, onImage, questionRequestIds }: { block: ActivityBlock; turn: HistoryTurn; deviceId: string; threadId: string; onImage: ImageViewer; questionRequestIds: string[] }) {
-  const { c, s } = useTheme();
+  const { s } = useTheme();
   const [now, setNow] = useState(Date.now());
   useEffect(() => { if (block.state !== 'running') return; const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, [block.state]);
   return <View style={s.activity}>
     <View>
       <TurnTiming turn={turn} running={block.state === 'running'} />
-      <View style={s.activityHead}>{block.state === 'running' ? <ActivityIndicator size="small" color={c.accent} /> : <Clock3 size={14} color={c.muted} />}<Text style={s.activityText}>{activityLabel(block, now)}</Text></View>
+      <View style={s.activityHead}><TaskStatusDot running={block.state === 'running'} label={block.state === 'running' ? '任务进行中' : '任务已结束'} /><Text style={s.activityText}>{activityLabel(block, now)}</Text></View>
     </View>
     <View style={s.line} />
     {activitySections(block).map(section => {

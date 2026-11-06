@@ -336,3 +336,57 @@ it("keeps history unpublished after edits and reports stale edits", async () => 
     f.close();
   }
 });
+
+it("detects a selected installer's version, allows corrections and clears stale versions", async () => {
+  const f = await fixture();
+  try {
+    const input = f.doc.querySelector<HTMLInputElement>('[aria-label="客户端安装包"]')!;
+    const version = f.doc.querySelector<HTMLInputElement>('[aria-label="客户端版本"]')!;
+    const choose = (name: string) => {
+      Object.defineProperty(input, "files", { configurable: true, value: [new f.dom.window.File(["package"], name)] });
+      input.dispatchEvent(new f.dom.window.Event("change", { bubbles: true }));
+    };
+    choose("Codexer-Agent-Setup-0.2.24.exe");
+    await wait(() => expect(version.value).toBe("0.2.24"));
+    await f.edit("客户端版本", "0.2.25");
+    expect(version.value).toBe("0.2.25");
+    choose("Codexer-Agent-Setup-0.2.26.exe");
+    await wait(() => expect(version.value).toBe("0.2.26"));
+    choose("setup.exe");
+    await wait(() => expect(version.value).toBe(""));
+    expect(f.doc.body.textContent).toContain("请填写安装包实际版本");
+    choose("Codexer-Agent-Setup-0.2.24.exe");
+    await wait(() => expect(version.value).toBe("0.2.24"));
+    await f.select("客户端发布目标", "control-android");
+    await wait(() => expect(version.value).toBe(""));
+    expect(f.doc.body.textContent).not.toContain("已选择：Codexer-Agent");
+    expect(f.errors).toEqual([]);
+  } finally { f.close(); }
+});
+
+it("accepts a dropped installer without uploading it, rejects multiple files and does not guess Android build numbers", async () => {
+  const f = await fixture();
+  try {
+    await f.select("客户端发布目标", "control-android");
+    const drop = (...names: string[]) => {
+      const event = new f.dom.window.Event("drop", { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "dataTransfer", { value: { files: names.map(name => new f.dom.window.File(["package"], name)) } });
+      f.doc.querySelector(".installer-dropzone")!.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+    };
+    const version = f.doc.querySelector<HTMLInputElement>('[aria-label="客户端版本"]')!;
+    drop("Codexer-Control-0.1.9.apk");
+    await wait(() => expect(version.value).toBe("0.1.9"));
+    expect(f.doc.body.textContent).toContain("已选择：Codexer-Control-0.1.9.apk");
+    expect(f.doc.querySelector<HTMLInputElement>('[aria-label="Android versionCode"]')!.value).toBe("");
+    expect(f.doc.querySelector<HTMLInputElement>('[aria-label="客户端安装包"]')!.required).toBe(false);
+    drop("other-0.1.10.apk", "another-0.1.11.apk");
+    await wait(() => expect(f.doc.body.textContent).toContain("请一次拖入一个安装包"));
+    expect(version.value).toBe("0.1.9");
+    expect(f.doc.body.textContent).toContain("已选择：Codexer-Control-0.1.9.apk");
+    drop("Codexer-0.1.8-to-0.1.9.apk");
+    await wait(() => expect(version.value).toBe(""));
+    expect(f.requests.some(r => r.method === "PUT")).toBe(false);
+    expect(f.errors).toEqual([]);
+  } finally { f.close(); }
+});

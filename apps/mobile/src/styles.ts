@@ -37,7 +37,6 @@ const useBaseStyles = themedStyles(c => StyleSheet.create({
   projectName: { flex: 1, color: c.text, fontWeight: '500', fontSize: 14 }, projectAction: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center', borderRadius: 5 },
   projectBody: { overflow: 'hidden' }, projectThreads: { flexGrow: 0, flexShrink: 0 },
   projectEmpty: { height: directoryThreadHeight, justifyContent: 'center', paddingLeft: 42 }, projectEmptyText: { color: c.faint, fontSize: 13 },
-  runningIndicator: { width: 14, height: 14, alignItems: 'center', justifyContent: 'center' }, runningRing: { width: 12, height: 12, borderRadius: 6, borderWidth: 1.5, borderColor: c.ring, borderTopColor: c.muted },
   threadRow: { height: directoryThreadHeight, marginHorizontal: 10, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 7 },
   threadNested: { paddingLeft: 32 }, threadRowSelected: { backgroundColor: c.soft },
   threadName: { flex: 1, color: c.text, fontSize: 14 },
