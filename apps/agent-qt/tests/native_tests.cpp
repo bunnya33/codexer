@@ -127,7 +127,11 @@ public:
   Object raw;
   QList<Object> requests;
   int ownerLookups = 0;
-  bool hideFirstOwner = false, disconnectStart = false;
+  int acceptedStarts = 0;
+  bool hideFirstOwner = false, disconnectStart = false, hideOwner = false,
+       rejectStarts = false;
+  QString owner = "synthetic-owner";
+  std::function<void()> onOwnerLookup;
   QString endpoint = "codexer-native-test-" + uuid();
   explicit DesktopFixture(Object state) : raw(state) {
     if (!server.listen(endpoint))
@@ -145,7 +149,8 @@ public:
           bytes->remove(0, length + 4);
           auto method = message["method"].toString();
           if (message["type"] == "broadcast") {
-            if (message["params"].toObject()["following"].toBool())
+            if (message["params"].toObject()["following"].toBool() &&
+                message["targetClientIds"].toArray().contains(owner))
               snapshot();
             continue;
           }
@@ -155,20 +160,27 @@ public:
           Object response{{"type", "response"},
                           {"requestId", message["requestId"]},
                           {"resultType", "success"},
-                          {"handledByClientId", "synthetic-owner"}};
+                          {"handledByClientId", owner}};
           if (method == "initialize")
             response["result"] = Object{{"clientId", "synthetic-follower"}};
           else if (method == "thread-owner-discovery") {
             ++ownerLookups;
-            if (hideFirstOwner && ownerLookups == 1) {
+            if (onOwnerLookup)
+              onOwnerLookup();
+            if (hideOwner || (hideFirstOwner && ownerLookups == 1)) {
               response["resultType"] = "error";
               response["error"] = "no-client-found";
             }
+          } else if (message["targetClientId"] != owner ||
+                     (rejectStarts && method == "thread-follower-start-turn")) {
+            response["resultType"] = "error";
+            response["error"] = "no-client-found";
           } else if (method == "thread-follower-start-turn") {
             if (disconnectStart) {
               peer->abort();
               return;
             }
+            ++acceptedStarts;
             response["result"] = Object{
                 {"result", Object{{"turn", Object{{"id", "desktop-turn"}}}}}};
           } else if (method == "thread-follower-steer-turn")
@@ -200,7 +212,7 @@ public:
   void snapshot() {
     send({{"type", "broadcast"},
           {"method", "thread-stream-state-changed"},
-          {"sourceClientId", "synthetic-owner"},
+          {"sourceClientId", owner},
           {"version", 11},
           {"params", Object{{"conversationId", "thread-test"},
                             {"hostId", "local"},
@@ -210,7 +222,7 @@ public:
   }
   void patch(const Array &patches, qint64 base, qint64 revision) {
     send({{"type", "broadcast"}, {"method", "thread-stream-state-changed"},
-          {"sourceClientId", "synthetic-owner"}, {"version", 11},
+          {"sourceClientId", owner}, {"version", 11},
           {"params", Object{{"conversationId", "thread-test"}, {"hostId", "local"},
               {"change", Object{{"type", "patches"}, {"baseRevision", double(base)},
                                 {"revision", double(revision)}, {"patches", patches}}}}}});
@@ -1508,6 +1520,68 @@ private slots:
     QCOMPARE(fixture.ownerLookups, 2);
     QVERIFY(!read(temp.path() + "/requests.jsonl").contains("turn/start"));
   }
+  void desktopOwnerRediscovery_data() {
+    QTest::addColumn<QString>("scenario");
+    for (const auto &scenario : {"owner-changed", "owner-disappeared",
+                                 "rejected-again", "expired", "revoked",
+                                 "new-owner-busy"})
+      QTest::newRow(scenario) << QString(scenario);
+  }
+  void desktopOwnerRediscovery() {
+    QFETCH(QString, scenario);
+    DesktopFixture fixture(raw());
+    qputenv("CODEX_REMOTE_DESKTOP_ENDPOINT", fixture.endpoint.toUtf8());
+    agent->settings["runtime"] = "auto";
+    agent->desktop->open(agent->settings);
+    QVERIFY(agent->desktop->follow("thread-test"));
+    QVERIFY(waitFor(
+        [&] { return agent->desktop->watched["thread-test"].compatible; },
+        1000));
+    agent->refreshCatalog();
+    auto cmd = command();
+    fixture.owner = "replacement-owner";
+    fixture.rejectStarts = scenario == "rejected-again";
+    fixture.onOwnerLookup = [&] {
+      if (scenario == "owner-disappeared")
+        fixture.hideOwner = true;
+      if (scenario == "revoked")
+        agent->remoteGeneration++;
+      if (scenario == "new-owner-busy")
+        fixture.raw["threadRuntimeStatus"] = Object{{"type", "active"}};
+    };
+    // Expire the original command while waiting for the new owner's snapshot.
+    if (scenario == "expired") {
+      cmd["expiresAt"] = double(now() + 100);
+      fixture.onOwnerLookup = [] { QTest::qWait(120); };
+    }
+    QString error;
+    try {
+      auto result = agent->execute(cmd);
+      QVERIFY(result["acknowledgedByDesktop"].toBool());
+      QCOMPARE(scenario, QString("owner-changed"));
+    } catch (const Error &e) {
+      error = e.code;
+      QVERIFY(!e.uncertain);
+    }
+    const auto expected = scenario == "owner-changed" ? QString{}
+        : scenario == "expired" ? QString("command-expired")
+        : scenario == "revoked" ? QString("remote-disconnected")
+        : scenario == "new-owner-busy" ? QString("thread-not-idle")
+        : QString("desktop-owner-unavailable");
+    QCOMPARE(error, expected);
+    QCOMPARE(fixture.ownerLookups, 2);
+    QCOMPARE(fixture.acceptedStarts, scenario == "owner-changed" ? 1 : 0);
+    int starts = 0;
+    for (const auto &request : fixture.requests)
+      starts += request["method"] == "thread-follower-start-turn";
+    QCOMPARE(starts, scenario == "owner-changed" || scenario == "rejected-again" ? 2 : 1);
+    QVERIFY(!read(temp.path() + "/requests.jsonl").contains("turn/start"));
+    if (scenario == "owner-disappeared") {
+      const auto state = agent->snapshot["threads"].toObject()["thread-test"].toObject();
+      QCOMPARE(state["status"], QJsonValue("unavailable"));
+      QVERIFY(!state["ownerAvailable"].toBool());
+    }
+  }
   void unknownDesktopStartIsNotRetried() {
     DesktopFixture fixture(raw());
     fixture.disconnectStart = true;
@@ -1530,6 +1604,44 @@ private slots:
     for (auto req : fixture.requests)
       starts += req["method"] == "thread-follower-start-turn";
     QCOMPARE(starts, 1);
+  }
+  void undeliveredApprovalCanMoveToNewOwner() {
+    auto state = raw();
+    state["threadRuntimeStatus"] = Object{{"type", "active"}};
+    state["turns"] = Array{Object{{"id", "turn"}, {"status", "inProgress"},
+                                   {"items", Array{}}}};
+    state["requests"] = Array{Object{
+        {"id", "approval"}, {"method", "item/commandExecution/requestApproval"},
+        {"params", Object{{"threadId", "thread-test"}, {"turnId", "turn"},
+                            {"command", "synthetic-command"}}}}};
+    DesktopFixture fixture(state);
+    qputenv("CODEX_REMOTE_DESKTOP_ENDPOINT", fixture.endpoint.toUtf8());
+    agent->settings["runtime"] = "auto";
+    agent->desktop->open(agent->settings);
+    QVERIFY(agent->desktop->follow("thread-test"));
+    QVERIFY(waitFor(
+        [&] { return agent->desktop->watched["thread-test"].compatible; },
+        1000));
+    agent->refreshCatalog();
+    fixture.owner = "replacement-owner";
+    auto cmd = command("approval.respond");
+    cmd["payload"] = Object{{"type", "approval.respond"},
+                            {"threadId", "thread-test"}, {"turnId", "turn"},
+                            {"requestId", "approval"}, {"decision", "accept"}};
+    QVERIFY(agent->execute(cmd)["acknowledgedByDesktop"].toBool());
+    QCOMPARE(fixture.ownerLookups, 2);
+    int delivered = 0;
+    for (const auto &request : fixture.requests)
+      if (request["method"] == "thread-follower-command-approval-decision" &&
+          request["targetClientId"] == fixture.owner)
+        ++delivered;
+    QCOMPARE(delivered, 1);
+    QVERIFY_EXCEPTION_THROWN(agent->execute(cmd), Error);
+    int after = 0;
+    for (const auto &request : fixture.requests)
+      after += request["method"] == "thread-follower-command-approval-decision" &&
+               request["targetClientId"] == fixture.owner;
+    QCOMPARE(after, 1);
   }
   void imageAndFileNamesWithSpacesAndParentheses() {
     auto path = temp.path() + QString::fromUtf8("/中文 image (1).png");

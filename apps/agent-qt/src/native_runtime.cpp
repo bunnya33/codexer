@@ -567,8 +567,8 @@ void Service::watch(const QString &id, bool forceHeadless) {
 }
 void Service::updateThread(const QString &id) {
   auto raw = rawThreads[id];
-  if (desktopThreads.contains(id))
-    raw = desktop->watched[id].raw;
+  if (desktopThreads.contains(id) && !desktop->watched.value(id).raw.isEmpty())
+    raw = desktop->watched.value(id).raw;
   if (raw.isEmpty())
     return;
   auto old = snapshot["threads"].toObject()[id].toObject();
@@ -586,7 +586,7 @@ void Service::updateThread(const QString &id) {
                                return registerImages(t, item);
                              });
   }
-  if (desktopThreads.contains(id) && !desktop->watched[id].compatible) {
+  if (desktopThreads.contains(id) && !desktop->watched.value(id).compatible) {
     thread["ownerAvailable"] = false;
     thread["status"] = "unavailable";
     thread["activeTurnId"] = QJsonValue::Null;

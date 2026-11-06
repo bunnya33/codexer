@@ -1,4 +1,6 @@
 const messages: Record<string, string> = {
+  'desktop-owner-unavailable': '无法连接此会话的 Codex 桌面宿主，请在电脑上的 Codex 打开该会话后重试',
+  'thread-owner-unavailable': '此会话暂时无法接入，请在电脑上的 Codex 检查会话状态后重试',
   'thread-limit': '实时同步会话已满，现有会话仍有任务或待处理内容，请等待空闲后重试；连接与历史记录保持不变',
   'thread-writer-busy': '该会话仍由其他 Codex 应用持有，请等待那边任务结束并释放会话后重试；刷新运行时不能抢占其他应用的会话',
   'thread-release-unconfirmed': '未确认会话占用已释放，请稍后重试；会话历史与文件未被重置',

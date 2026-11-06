@@ -412,10 +412,19 @@ Object Desktop::call(const QString &method, Object params, const QString &owner,
                 method.startsWith("thread-follower-") &&
                     !method.contains("history"));
   auto result = responses.take(id);
-  if (result["resultType"] != "success")
-    throw Error(result["error"] == "no-client-found"
-                    ? "desktop-owner-unavailable"
-                    : "desktop-rejected");
+  if (result["resultType"] != "success") {
+    if (result["error"] == "no-client-found") {
+      // The router explicitly rejected delivery. Cached state from this owner
+      // must no longer advertise a usable conversation.
+      for (const auto &threadId : watched.keys())
+        if (!owner.isEmpty() && watched[threadId].owner == owner) {
+          watched[threadId].compatible = false;
+          emit threadChanged(threadId);
+        }
+      throw Error("desktop-owner-unavailable");
+    }
+    throw Error("desktop-rejected");
+  }
   return result;
 }
 void Desktop::following(const QString &id, bool enabled) {

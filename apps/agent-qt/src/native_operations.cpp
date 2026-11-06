@@ -59,9 +59,13 @@ Object Service::execute(Object command) {
   try {
     return executeTurn(command, prepared, desktopThreads.contains(id));
   } catch (const Error &error) {
-    if (error.code != "thread-writer-busy" || error.uncertain ||
-        settings["runtime"] == "headless" || !desktop->connected ||
-        desktopThreads.contains(id))
+    const bool desktopLost = desktopThreads.contains(id) &&
+        (error.code == "desktop-owner-unavailable" ||
+         error.code == "thread-owner-unavailable");
+    const bool writerRejected = error.code == "thread-writer-busy" &&
+                                !desktopThreads.contains(id);
+    if ((!desktopLost && !writerRejected) || error.uncertain ||
+        settings["runtime"] == "headless" || !desktop->connected)
       throw;
     if (!desktop->follow(id, true) ||
         !waitFor(
@@ -69,14 +73,21 @@ Object Service::execute(Object command) {
               return desktop->watched.contains(id) &&
                      desktop->watched[id].compatible;
             },
-            2000))
+            2000)) {
+      if (desktopLost) {
+        updateThread(id);
+        log("desktop-owner-rediscovery-failed");
+      }
       throw;
-    if (generation != remoteGeneration || paused || !allowed ||
-        now() >= command["expiresAt"].toDouble())
-      throw Error("remote-disconnected");
+    }
+    checkCommand(command, generation);
     desktopThreads.insert(id);
     rawThreads[id] = desktop->watched[id].raw;
     updateThread(id);
+    if (desktopLost)
+      log("desktop-owner-rediscovered");
+    // A single retry, after fresh state and all original command checks.
+    // Timeouts and unknown delivery outcomes never reach this path.
     return executeTurn(command, prepared, true);
   }
 }
@@ -380,8 +391,17 @@ Object Service::executeTurn(Object command, const Array &prepared,
   const auto answerKey = id + ':' + p["requestId"].toString();
   if (answering)
     answeredRequests.insert(answerKey);
-  auto response = onDesktop ? desktop->call(method, params, owner)
-                            : rpc->call(method, params);
+  Object response;
+  try {
+    response = onDesktop ? desktop->call(method, params, owner)
+                         : rpc->call(method, params);
+  } catch (const Error &error) {
+    // Only an explicit router rejection proves this answer was not delivered.
+    if (answering && onDesktop && !error.uncertain &&
+        error.code == "desktop-owner-unavailable")
+      answeredRequests.remove(answerKey);
+    throw;
+  }
   if (onDesktop) {
     if (response["handledByClientId"] != owner)
       throw Error("desktop-owner-mismatch", true);

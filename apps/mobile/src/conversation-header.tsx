@@ -20,6 +20,8 @@ import {
 import { ThreadNotificationToggle, useThreadNotification } from "./thread-notification";
 import { useTheme } from "./styles";
 import { ConversationId } from './conversation-id';
+import { TaskStatusDot } from './task-status-dot';
+import { MarqueeTitle } from './marquee-title';
 
 function AgentCard({ agent }: { agent: RemoteSubAgent }) {
   const { c, s } = useTheme();
@@ -84,6 +86,7 @@ function AgentCard({ agent }: { agent: RemoteSubAgent }) {
 export function ConversationHeader({
   title,
   subtitle,
+  running = false,
   deviceId,
   threadId,
   agents,
@@ -97,6 +100,7 @@ export function ConversationHeader({
 }: {
   title: string;
   subtitle: string;
+  running?: boolean;
   deviceId: string;
   threadId: string;
   agents: RemoteSubAgent[];
@@ -156,9 +160,10 @@ export function ConversationHeader({
           </Pressable>
         )}
         <View style={s.threadHeading}>
-          <Text testID="conversation-title" style={s.threadTitle} numberOfLines={1}>
-            {title}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, minWidth: 0 }}>
+            {running && <TaskStatusDot running label="当前会话正在运行" />}
+            <MarqueeTitle key={`${deviceId}:${threadId}`} text={title} />
+          </View>
           <Text style={s.sub} numberOfLines={1}>
             {subtitle}
           </Text>
