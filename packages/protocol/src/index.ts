@@ -198,7 +198,7 @@ export const snapshotSchema = z.object({
     kind: z.enum(["official-desktop-ipc", "official-app-server"]),
     connected: z.boolean(),
     experimental: z.literal(true),
-    capabilities: z.object({ observe: z.boolean(), startTurn: z.boolean(), interrupt: z.boolean(), approvals: z.boolean(), userInput: z.boolean(), modelUpdate: z.boolean().optional(), effortUpdate: z.boolean().optional(), collaborationModeUpdate: z.boolean().optional(), permissionsUpdate: z.boolean().optional(), mcpApprovals: z.boolean().optional(), images: z.boolean().optional(), attachments: z.boolean().optional(), subAgents: z.boolean().optional(), runtimeRefresh: z.boolean().optional() }),
+    capabilities: z.object({ observe: z.boolean(), startTurn: z.boolean(), interrupt: z.boolean(), continueTurn: z.boolean().optional(), activeSettingsUpdate: z.boolean().optional(), approvals: z.boolean(), userInput: z.boolean(), modelUpdate: z.boolean().optional(), effortUpdate: z.boolean().optional(), collaborationModeUpdate: z.boolean().optional(), permissionsUpdate: z.boolean().optional(), mcpApprovals: z.boolean().optional(), images: z.boolean().optional(), attachments: z.boolean().optional(), subAgents: z.boolean().optional(), runtimeRefresh: z.boolean().optional() }),
   }),
   threads: z.record(idSchema, threadSchema).refine(threads => Object.keys(threads).length <= MAX_SYNC_THREADS && Object.entries(threads).every(([id, thread]) => id === thread.id)),
 });
@@ -235,6 +235,7 @@ export const commandSchema = z.object({
     z.object({ type: z.literal("thread.watch"), threadId: idSchema }),
     z.object({ type: z.literal("turn.start"), threadId: idSchema, text: z.string().max(32000), images: z.array(imageIdSchema).max(MAX_IMAGES).optional(), attachments: z.array(attachmentIdSchema).max(MAX_ATTACHMENTS).optional() }).refine(value => value.text.trim().length > 0 || Boolean(value.images?.length) || Boolean(value.attachments?.length), "empty-input"),
     z.object({ type: z.literal("turn.queue"), threadId: idSchema, text: z.string().max(32000), images: z.array(imageIdSchema).max(MAX_IMAGES).optional(), attachments: z.array(attachmentIdSchema).max(MAX_ATTACHMENTS).optional() }).refine(value => value.text.trim().length > 0 || Boolean(value.images?.length) || Boolean(value.attachments?.length), "empty-input"),
+    z.object({ type: z.literal("turn.continue"), threadId: idSchema, turnId: idSchema }).strict(),
     z.object({ type: z.literal("turn.queue.steer"), threadId: idSchema, turnId: idSchema, queueId: idSchema }),
     z.object({ type: z.literal("turn.queue.remove"), threadId: idSchema, queueId: idSchema }),
     z.object({ type: z.literal("turn.queue.read"), threadId: idSchema, queueId: idSchema }),

@@ -2,6 +2,7 @@ import { beforeAll, expect, it, vi } from 'vitest';
 import { build } from 'esbuild';
 import { JSDOM } from 'jsdom';
 import { resolve } from 'node:path';
+import { controlTheme } from '../packages/client-shared/src/themes';
 
 let javascript = '', css = '';
 beforeAll(async () => {
@@ -12,18 +13,19 @@ beforeAll(async () => {
   css = result.outputFiles!.find(file => file.path.endsWith('.css'))?.text ?? '';
 });
 
-async function fixture() {
+async function fixture(theme = 'default') {
   const errors: unknown[] = [];
   const dom = new JSDOM(`<style>${css}</style><div id="root"></div>`, { url: 'http://fixture.test', runScripts: 'dangerously', pretendToBeVisual: true, beforeParse(window) {
     window.addEventListener('error', event => errors.push(event.error));
     Object.assign(window, { ResizeObserver: class { observe() {} unobserve() {} disconnect() {} } });
     window.matchMedia = (() => ({ matches: true, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+    window.localStorage.setItem('codexer.control.theme.v1', theme);
   } });
   dom.window.eval(javascript);
   const doc = dom.window.document;
   await vi.waitFor(() => expect(doc.querySelector('[data-testid="turn-token-usage"]')).not.toBeNull());
   const click = (label: string) => (doc.querySelector(`[aria-label="${label}"]`) as HTMLElement).click();
-  return { doc, click, errors, close() { (dom.window as unknown as { taskStatusFixture: { close(): void } }).taskStatusFixture.close(); dom.window.close(); } };
+  return { doc, click, errors, style: (element: Element) => dom.window.getComputedStyle(element), close() { (dom.window as unknown as { taskStatusFixture: { close(): void } }).taskStatusFixture.close(); dom.window.close(); } };
 }
 
 it('places running markers before the title and tokens, with a spinner only at processing duration', async () => {
@@ -43,30 +45,50 @@ it('places running markers before the title and tokens, with a spinner only at p
   } finally { f.close(); }
 });
 
-it('removes all orange markers on completion while retaining tokens and the solid green ended marker', async () => {
+it('removes running markers and backgrounds on completion while retaining tokens and a green check', async () => {
   const f = await fixture();
   try {
     f.click('切换任务状态');
     await vi.waitFor(() => expect(f.doc.querySelectorAll('.codexer-task-dot-running').length).toBe(0));
     expect(f.doc.querySelector('[data-testid="processing-spinner"]')).toBeNull();
     expect(f.doc.querySelector('[data-testid="turn-token-usage"]')?.textContent).toContain('输入 1,000');
-    expect(f.doc.querySelector('[aria-label="任务已结束"] .codexer-task-dot-ring')).toBeNull();
-    expect(f.doc.querySelector('[aria-label="任务已结束"] .codexer-task-dot-core')).not.toBeNull();
+    expect(f.doc.querySelector('[data-testid="activity-ended-check"] svg')).not.toBeNull();
+    expect(f.doc.querySelector('[data-testid="activity-ended-check"] [data-testid="task-status-dot"]')).toBeNull();
+    expect(f.style(f.doc.querySelector('[data-testid="directory-project-heading-project"]')!).backgroundColor).toBe('rgba(0, 0, 0, 0)');
+    expect(f.style(f.doc.querySelector('[data-testid="directory-thread-fixture"]')!).backgroundColor).toBe('rgb(238, 244, 247)');
     expect(f.doc.querySelector('[data-testid="turn-end-time"]')?.textContent).toContain('已完成');
   } finally { f.close(); }
 });
 
-it('places project and chat markers before their text and preserves project activity when collapsed', async () => {
+it('shows only the chat marker when expanded and transfers activity to the project marker when collapsed', async () => {
   const f = await fixture();
   try {
-    for (const label of ['项目 示例项目 有会话正在运行', '正在运行：示例会话']) {
-      const dot = f.doc.querySelector(`[aria-label="${label}"]`)!;
-      expect(dot).not.toBeNull();
-      expect(dot.nextElementSibling?.textContent).toBe(label.startsWith('项目') ? '示例项目' : '示例会话');
-    }
+    expect(f.doc.querySelector('[aria-label="项目 示例项目 有会话正在运行"]')).toBeNull();
+    const chatDot = f.doc.querySelector('[aria-label="正在运行：示例会话"]')!;
+    expect(chatDot.nextElementSibling?.textContent).toBe('示例会话');
     f.click('收起项目 示例项目');
     await vi.waitFor(() => expect(f.doc.querySelector('[aria-label="展开项目 示例项目"]')).not.toBeNull());
-    expect(f.doc.querySelector('[aria-label="项目 示例项目 有会话正在运行"]')).not.toBeNull();
+    expect(f.doc.querySelector('[aria-label="项目 示例项目 有会话正在运行"]')?.nextElementSibling?.textContent).toBe('示例项目');
+    expect(f.doc.querySelector('[aria-label="正在运行：示例会话"]')).toBeNull();
+    f.click('展开项目 示例项目');
+    await vi.waitFor(() => expect(f.doc.querySelector('[aria-label="正在运行：示例会话"]')).not.toBeNull());
+    expect(f.doc.querySelector('[aria-label="项目 示例项目 有会话正在运行"]')).toBeNull();
+  } finally { f.close(); }
+});
+
+it.each(['default', 'paper', 'warm-dark'])('highlights running projects and chats separately in the %s theme, retaining selection', async theme => {
+  const f = await fixture(theme);
+  try {
+    const rgb = (hex: string) => `rgb(${[1, 3, 5].map(offset => parseInt(hex.slice(offset, offset + 2), 16)).join(', ')})`;
+    const colors = controlTheme(theme).colors;
+    const project = f.doc.querySelector('[data-testid="directory-project-heading-project"]')!;
+    const chat = f.doc.querySelector('[data-testid="directory-thread-fixture"]')!;
+    expect(f.style(project).backgroundColor).toBe(rgb(colors.taskProjectBg));
+    expect(f.style(chat).backgroundColor).toBe(rgb(colors.taskThreadBg));
+    expect(f.style(chat).borderTopColor).toBe(rgb(colors.accent));
+    f.click('收起项目 示例项目');
+    await vi.waitFor(() => expect(f.doc.querySelector('[aria-label="项目 示例项目 有会话正在运行"]')).not.toBeNull());
+    expect(f.style(project).backgroundColor).toBe(rgb(colors.taskProjectBg));
   } finally { f.close(); }
 });
 

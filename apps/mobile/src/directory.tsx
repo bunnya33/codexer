@@ -11,7 +11,8 @@ type Props = { updateAvailable?:boolean; view: RelayView; deviceId: string; thre
 
 function ThreadRow({item, props, showActivity = true}: {item: DirectoryThread; props: Props; showActivity?: boolean}) {
   const { c, s } = useTheme();
-  return <View style={[s.threadRow, item.nested && s.threadNested, props.threadId === item.id && s.threadRowSelected]}>
+  const selected = props.threadId === item.id;
+  return <View testID={`directory-thread-${item.id}`} style={[s.threadRow, item.nested && s.threadNested, selected && s.threadRowSelected, item.active && s.threadRowRunning, item.active && selected && s.threadRowRunningSelected]}>
     <Pressable accessibilityRole="button" onPress={() => props.selectThread(item.id)} onLongPress={() => props.threadActions(item)} delayLongPress={450} style={s.threadSelect}>{item.active && showActivity && <TaskStatusDot running label={`正在运行：${item.title}`} />}<Text numberOfLines={1} style={s.threadName}>{item.title}</Text></Pressable>
     {['web', 'windows', 'macos'].includes(Platform.OS) && <Pressable accessibilityRole="button" accessibilityLabel={`管理会话 ${item.title}`} onPress={() => props.threadActions(item)} style={s.projectAction}><MoreHorizontal size={16} color={c.muted} /></Pressable>}
   </View>;
@@ -30,9 +31,9 @@ function ProjectRow({project, props}: {project: DirectoryProject; props: Props})
   }, [project.expanded, bodyHeight, height]);
   const FolderIcon = project.expanded ? FolderOpen : FolderClosed;
   return <View testID={`directory-project-${project.id}`}>
-    <View style={s.project}>
+    <View testID={`directory-project-heading-${project.id}`} style={[s.project, project.active && s.projectRunning]}>
       <Pressable accessibilityRole="button" aria-expanded={project.expanded} accessibilityLabel={`${project.expanded ? '收起' : '展开'}项目 ${project.name}`} onPress={() => props.toggleProject(project.id)} style={({pressed}) => [s.projectToggle, pressed && s.pressed]}>
-        <FolderIcon size={16} strokeWidth={1.6} color={c.muted} />{project.active && <TaskStatusDot running label={`项目 ${project.name} 有会话正在运行`} />}<Text style={s.projectName} numberOfLines={1}>{project.name}</Text>
+        <FolderIcon size={16} strokeWidth={1.6} color={c.muted} />{project.active && !project.expanded && <TaskStatusDot running label={`项目 ${project.name} 有会话正在运行`} />}<Text style={s.projectName} numberOfLines={1}>{project.name}</Text>
       </Pressable>
       {project.id !== 'unassigned' && <Pressable accessibilityRole="button" accessibilityLabel={`管理项目 ${project.name}`} disabled={props.managing} onPress={() => props.projectActions(project)} style={({pressed}) => [s.projectAction, pressed && s.pressed, props.managing && s.disabled]}><MoreHorizontal size={16} strokeWidth={1.6} color={c.muted} /></Pressable>}
     </View>

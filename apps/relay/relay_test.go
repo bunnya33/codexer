@@ -350,3 +350,23 @@ func TestImageAndPreviewRewriting(t *testing.T) {
 }
 
 var _ = http.StatusOK
+
+func TestContinueCommandRequiresAnExactInterruptedTurnReference(t *testing.T) {
+	_, s, _, device := fixture(t)
+	command := M{"commandId": uuid(), "deviceId": device, "expectedEpoch": "e", "expiresAt": now() + 60000,
+		"payload": M{"type": "turn.continue", "threadId": "thread-test", "turnId": "stopped"}}
+	s.Validate("command", command)
+	originalHash := commandHash(command)
+	obj(command["payload"])["turnId"] = "other-turn"
+	if commandHash(command) == originalHash {
+		t.Fatal("continuation hash did not include the interrupted turn")
+	}
+	for _, payload := range []M{
+		{"type": "turn.continue", "threadId": "thread-test"},
+		{"type": "turn.continue", "threadId": "thread-test", "turnId": ""},
+		{"type": "turn.continue", "threadId": "thread-test", "turnId": "stopped", "text": "unexpected"},
+	} {
+		command["payload"] = payload
+		expectAnyFault(t, func() { s.Validate("command", command) })
+	}
+}

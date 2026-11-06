@@ -13,7 +13,7 @@ function contrast(foreground: string, background: string) {
 
 it.each(controlThemes)('$name keeps reading, controls and diff foregrounds readable', theme => {
   const c = theme.colors;
-  for (const [fg, bg] of [[c.text, c.bg], [c.text, c.bubble], [c.muted, c.bg], [c.onAccent, c.accent], [c.onSolid, c.solid], [c.diffAddedText, c.diffAddedBg], [c.diffDeletedText, c.diffDeletedBg], [c.diffHunkText, c.diffHunkBg], [c.syntaxKeyword, c.code], [c.syntaxString, c.code], [c.syntaxNumber, c.code], [c.syntaxTitle, c.code]]) {
+  for (const [fg, bg] of [[c.text, c.bg], [c.text, c.bubble], [c.text, c.taskProjectBg], [c.text, c.taskThreadBg], [c.muted, c.bg], [c.onAccent, c.accent], [c.onSolid, c.solid], [c.diffAddedText, c.diffAddedBg], [c.diffDeletedText, c.diffDeletedBg], [c.diffHunkText, c.diffHunkBg], [c.syntaxKeyword, c.code], [c.syntaxString, c.code], [c.syntaxNumber, c.code], [c.syntaxTitle, c.code]]) {
     expect(contrast(fg!, bg!), `${theme.id}: ${fg} on ${bg}`).toBeGreaterThanOrEqual(4.5);
   }
 });

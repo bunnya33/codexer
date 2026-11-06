@@ -94,7 +94,7 @@ function Activity({ block, turn, deviceId, threadId, onImage, questionRequestIds
   return <View style={s.activity}>
     <View>
       <TurnTiming turn={turn} running={block.state === 'running'} />
-      <View style={s.activityHead}>{block.state === 'running' ? <ActivityIndicator testID="processing-spinner" size="small" color={c.muted} accessibilityLabel="正在处理" /> : <TaskStatusDot label="任务已结束" />}<Text style={s.activityText}>{activityLabel(block, now)}</Text></View>
+      <View style={s.activityHead}>{block.state === 'running' ? <ActivityIndicator testID="processing-spinner" size="small" color={c.muted} accessibilityLabel="正在处理" /> : <View testID="activity-ended-check" accessible accessibilityLabel="任务已结束" style={{ width: 16, height: 16, alignItems: 'center', justifyContent: 'center' }}><Check size={16} strokeWidth={2.5} color={c.success} /></View>}<Text style={s.activityText}>{activityLabel(block, now)}</Text></View>
     </View>
     <View style={s.line} />
     {activitySections(block).map(section => {

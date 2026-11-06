@@ -26,7 +26,7 @@ export function PermissionPicker({settings, enabled, onChange}: {settings: Permi
     {settings.mode === 'custom' && <Text style={s.sub}>访问范围：{settings.sandbox} · 审批：{settings.approval} · 审核：{settings.reviewer}</Text>}
     {choices.map(({mode, description}) => <Pressable key={mode} accessibilityRole="button" accessibilityLabel={`权限：${permissionLabels[mode]}`} disabled={!enabled || pending || settings.mode === mode} style={[s.menuOption, (!enabled || pending) && s.disabled]} onPress={() => void change(mode)}><View style={{flex: 1}}><Text style={s.menuText}>{permissionLabels[mode]}</Text><Text style={s.sub}>{description}</Text></View>{settings.mode === mode && <Check size={18} color={c.accent} />}</Pressable>)}
     {confirmFull && <View style={s.request}><Text style={s.requestText}>后续任务将能够访问这台电脑上的文件和网络。Browser 和 Computer Use 仍保留各自的授权。</Text><Pressable accessibilityRole="button" accessibilityLabel="确认使用完全访问" disabled={!enabled || pending} style={s.primary} onPress={() => void change('full-access')}><Text style={s.primaryText}>确认使用完全访问</Text></Pressable><Pressable accessibilityRole="button" disabled={pending} onPress={() => setConfirmFull(false)}><Text style={s.menuText}>取消</Text></Pressable></View>}
-    {!enabled && <Text style={s.sub}>会话空闲且电脑连接后可以更改权限</Text>}
+    {!enabled && <Text style={s.sub}>电脑连接且会话可控制时可以更改权限</Text>}
     {pending && <ActivityIndicator color={c.accent} />}
   </View>;
 }

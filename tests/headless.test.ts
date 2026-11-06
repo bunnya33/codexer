@@ -224,14 +224,14 @@ describe("headless thread settings", () => {
     expect(open).toHaveBeenCalledTimes(3);
   });
 
-  it("resumes a compressed thread with its saved permissions before sending a turn", async () => {
+  it.each([false, true])("resumes a compressed thread with saved permissions before start/continue (%s)", async continuing => {
     const home = await mkdtemp(join(tmpdir(), "codex-remote-compressed-resume-")); directories.push(home);
     const sessions = join(home, "sessions"); await mkdir(sessions);
     const path = join(sessions, "rollout-thread.jsonl");
     await writeFile(path + ".zst", zstdCompressSync(sessionMeta("test-thread") + JSON.stringify({ type: "turn_context", payload: { model: "gpt-test", effort: "high", approval_policy: "on-request", approvals_reviewer: "user", sandbox_policy: { type: "read-only" }, cwd: home, workspace_roots: [home] } }) + "\n"));
     const adapter = new HeadlessAdapter();
     const metadata = { id: "test-thread", path, model: "gpt-test", modelProvider: "provider" };
-    adapter.watched.set("test-thread", normalizeThread({ ...metadata, threadRuntimeStatus: { type: "idle" }, turns: [] }, 0));
+    adapter.watched.set("test-thread", normalizeThread({ ...metadata, threadRuntimeStatus: { type: "idle" }, turns: [{id: "stopped", status: "interrupted", items: []}] }, 0));
     const request = vi.fn(async (method: string) => {
       if (method === "thread/read") return { thread: metadata };
       if (method === "thread/resume") return { sandbox: { type: "readOnly" }, approvalPolicy: "on-request", approvalsReviewer: "user", model: "gpt-test", modelProvider: "provider", cwd: home, runtimeWorkspaceRoots: [home] };
@@ -242,9 +242,9 @@ describe("headless thread settings", () => {
     vi.spyOn(adapter, "follow").mockResolvedValue(true);
     vi.stubEnv("CODEX_HOME", home);
     try {
-      await expect(adapter.execute(command({ type: "turn.start", threadId: "test-thread", text: "Test" }))).resolves.toMatchObject({ turnId: "new-turn" });
+      await expect(adapter.execute(command(continuing ? {type: "turn.continue", threadId: "test-thread", turnId: "stopped"} : { type: "turn.start", threadId: "test-thread", text: "Test" }))).resolves.toMatchObject({ turnId: "new-turn" });
       expect(request).toHaveBeenCalledWith("thread/resume", expect.objectContaining({ sandbox: "read-only", approvalPolicy: "on-request", approvalsReviewer: "user", cwd: home, runtimeWorkspaceRoots: [home] }), 30000);
-      expect(request).toHaveBeenCalledWith("turn/start", expect.objectContaining({ effort: "high", input: [{ type: "text", text: "Test", text_elements: [] }] }), 30000);
+      expect(request).toHaveBeenCalledWith("turn/start", expect.objectContaining({ effort: "high", input: continuing ? [] : [{ type: "text", text: "Test", text_elements: [] }] }), 30000);
     } finally { await adapter.stop(); vi.unstubAllEnvs(); }
   });
 
@@ -371,4 +371,25 @@ describe("headless thread settings", () => {
       expect(calls.find(value => value.method === "turn/start")?.params.input).toEqual([{ type: "text", text: "Test", text_elements: [] }, { type: "localImage", path: join(home, "image.png") }]);
     } finally { await adapter.stop(); vi.unstubAllEnvs(); }
   });
+});
+
+it.each(['thread.model.update', 'thread.effort.update', 'thread.permissions.update'] as const)('updates %s while running without resuming or interrupting its writer', async type => {
+  const adapter = new HeadlessAdapter();
+  const initial = {model: 'old', effort: 'high', ...permissionPreset('read-only', ['/fixture']), runtimeWorkspaceRoots: ['/fixture']};
+  const normalized = normalizeThread({id: 'test-thread', cwd: '/fixture', latestModel: 'old', latestReasoningEffort: 'high', latestThreadSettings: initial, threadRuntimeStatus: {type: 'active'}, turns: [{id: 'active-turn', status: 'inProgress', items: []}]}, 0);
+  adapter.watched.set('test-thread', normalized);
+  const request = vi.fn(async (_method: string, params: Record<string, unknown>) => ({threadSettings: params}));
+  Object.assign(adapter, {connected: true, rpc: {request, stop: async () => {}}, settings: new Map([['test-thread', initial]]), ownedWriters: new Map([['test-thread', Date.now()]])});
+  adapter.models = [{model: 'old', displayName: 'Old', defaultReasoningEffort: 'high', supportedReasoningEfforts: ['low', 'high']}];
+  vi.spyOn(adapter, 'follow').mockResolvedValue(true);
+  const payload = type === 'thread.model.update' ? {type, threadId: 'test-thread', model: 'new', expectedModel: 'old'}
+    : type === 'thread.effort.update' ? {type, threadId: 'test-thread', effort: 'low' as const, expectedModel: 'old', expectedEffort: 'high'}
+    : {type, threadId: 'test-thread', mode: 'ask' as const, expectedPermissions: permissionSettings(initial)!.fingerprint};
+  try {
+    await expect(adapter.execute(command(payload))).resolves.toMatchObject({acknowledgedByAppServer: true});
+    expect(request.mock.calls.map(([method]) => method)).toEqual(['thread/settings/update']);
+    Object.assign(adapter, {ownedWriters: new Map()});
+    await expect(adapter.execute(command(payload))).rejects.toMatchObject({code: 'thread-writer-busy'});
+    expect(request).toHaveBeenCalledTimes(1);
+  } finally {await adapter.stop();}
 });

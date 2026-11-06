@@ -5,7 +5,7 @@ import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { Archive, ArrowDown, ArrowUp, Check, ListChecks, Paperclip, Pencil, Square, Terminal, Trash2, X } from 'lucide-react-native';
+import { Archive, ArrowDown, ArrowUp, Check, ListChecks, Paperclip, Pencil, Play, Square, Terminal, Trash2, X } from 'lucide-react-native';
 import { mergeTurnHistory } from '../../packages/client-shared/src/activity';
 import { conversationImages } from '../../packages/client-shared/src/images';
 import type { ImageDirection, ImageGallery, ImagePreview } from '../../packages/client-shared/src/images';
@@ -335,15 +335,25 @@ function AppContent() {
     setFiles(current => current.filter(item => item.key !== file.key));
     if (file.id) void relay.removeAttachment(deviceId, threadId, file.id).catch(() => {});
   };
+  const activeSettingsEnabled = thread?.status === 'idle' || (thread?.status === 'active' && snapshot?.runtime.capabilities.activeSettingsUpdate === true);
+  const interruptedTurn = thread?.status === 'idle' && thread.turns.at(-1)?.status === 'interrupted' ? thread.turns.at(-1) : undefined;
+  const canContinue = !!interruptedTurn && snapshot?.runtime.capabilities.continueTurn === true;
   const submit = () => {
     if (!thread || busy || !ready || images.some(image => image.loading || image.error) || files.some(file => file.loading || file.error || !file.id)) return;
     const text = draft.trim(), ids = images.map(image => image.id).filter((id): id is string => !!id);
     const attachments = files.flatMap(file => file.id ? [file.id] : []);
-    if (!text && !ids.length && !attachments.length) { if (thread.status === 'active' && thread.activeTurnId) void send({ type: 'turn.interrupt', threadId, turnId: thread.activeTurnId }); return; }
-    void send({ type: thread.status === 'active' ? 'turn.queue' : 'turn.start', threadId, text, ...(ids.length ? { images: ids } : {}), ...(attachments.length ? { attachments } : {}) }, true);
+    if (!text && !ids.length && !attachments.length) {
+      if (thread.status === 'active' && thread.activeTurnId) void send({ type: 'turn.interrupt', threadId, turnId: thread.activeTurnId });
+      else if (canContinue && interruptedTurn) void send({ type: 'turn.continue', threadId, turnId: interruptedTurn.id });
+      return;
+    }
+    const input = { threadId, text, ...(ids.length ? { images: ids } : {}), ...(attachments.length ? { attachments } : {}) };
+    if (thread.status === 'active') {
+      if (thread.activeTurnId) void send({ type: 'turn.steer', turnId: thread.activeTurnId, ...input }, true);
+    } else void send({ type: 'turn.start', ...input }, true);
   };
-  const changeModel = async (model: string) => { if (thread?.settings?.model && thread.status === 'idle' && model !== thread.settings.model) await send({ type: 'thread.model.update', threadId, model, expectedModel: thread.settings.model }); };
-  const changeEffort = async (effort: string) => { if (thread?.settings?.model && thread.status === 'idle' && effort !== thread.settings.reasoningEffort) return send({ type: 'thread.effort.update', threadId, effort: effort as Extract<RemoteCommand['payload'], { type: 'thread.effort.update' }>['effort'], expectedModel: thread.settings.model, expectedEffort: thread.settings.reasoningEffort }); return false; };
+  const changeModel = async (model: string) => { if (thread?.settings?.model && activeSettingsEnabled && model !== thread.settings.model) await send({ type: 'thread.model.update', threadId, model, expectedModel: thread.settings.model }); };
+  const changeEffort = async (effort: string) => { if (thread?.settings?.model && activeSettingsEnabled && effort !== thread.settings.reasoningEffort) return send({ type: 'thread.effort.update', threadId, effort: effort as Extract<RemoteCommand['payload'], { type: 'thread.effort.update' }>['effort'], expectedModel: thread.settings.model, expectedEffort: thread.settings.reasoningEffort }); return false; };
   const changeMode = (mode: 'default' | 'plan') => {
     closeMenu();
     if (thread?.settings?.model && thread.status === 'idle' && snapshot?.runtime.capabilities.collaborationModeUpdate && mode !== thread.settings.collaborationMode) void send({ type: 'thread.mode.update', threadId, mode, expectedMode: thread.settings.collaborationMode ?? null, expectedModel: thread.settings.model, expectedEffort: thread.settings.reasoningEffort });
@@ -376,7 +386,10 @@ function AppContent() {
 
   if (restoring) return <SafeAreaView style={[s.safe, s.center]}><ActivityIndicator color={c.accent} /></SafeAreaView>;
   if (view.phase === 'locked') return <Login connect={connect} busy={loginBusy} error={view.notice} />;
-  const stopMode = thread?.status === 'active' && !draft.trim() && !images.length && !files.length;
+  const emptyComposer = !draft.trim() && !images.length && !files.length;
+  const stopMode = thread?.status === 'active' && emptyComposer;
+  const continueMode = canContinue && emptyComposer;
+  const submitDisabled = !ready || busy || (emptyComposer && !continueMode && !stopMode) || (thread?.status === 'active' && !thread.activeTurnId) || images.some(image => image.loading || !!image.error) || files.some(file => file.loading || !!file.error || !file.id);
   const settings = thread?.settings ?? summary?.settings;
   return <View style={s.safe}><StatusBar style={theme.dark ? "light" : "dark"} />
     <FileViewerProvider deviceId={deviceId} threadId={threadId}><PreviewContext.Provider value={{deviceId, threadId}}><ConversationDrawer wide={wide} open={drawerOpen} onOpenChange={setDrawerOpen} directory={directory}>
@@ -439,8 +452,8 @@ function AppContent() {
         <ComposerInput accessibilityLabel="给 Codex 发送消息" style={s.composerInput} value={draft} onChangeText={setDraft} multiline maxLength={32000} editable={!!ready && !busy} placeholder="给 Codex 发送消息" placeholderTextColor={c.muted} textAlignVertical="top" onImages={addImages} imagesEnabled={ready && !busy && !!snapshot?.runtime.capabilities.images && images.length < MAX_IMAGES} onImageError={message => relay.showNotice(message)} onSubmitEditing={Platform.OS === 'windows' ? () => submit() : undefined} onKeyPress={event => { const key = event.nativeEvent as { key: string; shiftKey?: boolean; isComposing?: boolean; keyCode?: number }; if (Platform.OS === 'web' && key.key === 'Enter' && !key.shiftKey && !key.isComposing && key.keyCode !== 229) { event.preventDefault(); submit(); } }} />
         <View style={s.toolbar}><AttachmentMenu key={`attachments:${deviceId}:${threadId}`} enabled={ready && !busy} imagesEnabled={ready && !busy && !!snapshot?.runtime.capabilities.images && images.length < MAX_IMAGES} filesSupported={!!snapshot?.runtime.capabilities.attachments} filesEnabled={ready && !busy && !!snapshot?.runtime.capabilities.attachments && files.length < MAX_ATTACHMENTS} onImages={() => void pickImages()} onCamera={() => void pickCamera()} onFiles={() => void pickFiles()} />{!!snapshot?.runtime.capabilities.collaborationModeUpdate && <Pressable accessibilityRole="button" accessibilityLabel={`工作模式：${settings?.collaborationMode === 'plan' ? 'Plan' : '默认'}`} style={[s.pill, s.modePill, settings?.collaborationMode === 'plan' && s.modeActive]} disabled={!ready || busy || thread?.status !== 'idle'} onPress={() => openMenu('mode')}><ListChecks size={15} color={settings?.collaborationMode === 'plan' ? c.accent : c.muted} /><Text style={s.pillText}>{settings?.collaborationMode === 'plan' ? 'Plan' : '默认'}</Text></Pressable>}
           {!!snapshot?.runtime.capabilities.permissionsUpdate && !!settings?.permissions && <Pressable accessibilityRole="button" accessibilityLabel={`会话权限：${permissionLabels[settings.permissions.mode]}`} style={s.pill} disabled={!ready || busy} onPress={() => openMenu('permissions')}><Text style={s.pillText}>{permissionLabels[settings.permissions.mode]}</Text></Pressable>}
-          <View style={s.spacer} /><ModelEffortPicker key={`model:${deviceId}:${threadId}`} model={settings?.model} effort={settings?.reasoningEffort} options={catalog?.models ?? []} enabled={ready && thread?.status === 'idle'} busy={busy} onModelChange={changeModel} onEffortChange={changeEffort} />
-          <Pressable accessibilityRole="button" accessibilityLabel={stopMode ? '停止当前任务' : thread?.status === 'active' ? '添加到待发送' : '发送消息'} disabled={!ready || busy || images.some(image => image.loading || !!image.error) || files.some(file => file.loading || !!file.error || !file.id)} onPress={submit} style={[s.send, stopMode && s.stop, (!ready || busy) && s.disabled]}>{busy ? <ActivityIndicator color={c.onSolid} size="small" /> : stopMode ? <Square size={18} color={c.onSolid} fill={c.onSolid} /> : <ArrowUp size={20} color={c.onSolid} />}</Pressable></View>
+          <View style={s.spacer} /><ModelEffortPicker key={`model:${deviceId}:${threadId}`} model={settings?.model} effort={settings?.reasoningEffort} options={catalog?.models ?? []} enabled={ready && activeSettingsEnabled} busy={busy} onModelChange={changeModel} onEffortChange={changeEffort} />
+          <Pressable accessibilityRole="button" accessibilityLabel={stopMode ? '停止当前任务' : continueMode ? '继续任务' : thread?.status === 'active' ? '发送引导消息' : '发送消息'} disabled={submitDisabled} onPress={submit} style={[s.send, stopMode && s.stop, submitDisabled && s.disabled]}>{busy ? <ActivityIndicator color={c.onSolid} size="small" /> : stopMode ? <Square size={18} color={c.onSolid} fill={c.onSolid} /> : continueMode ? <Play size={18} color={c.onSolid} fill={c.onSolid} /> : <ArrowUp size={20} color={c.onSolid} />}</Pressable></View>
       </View>
       </View>
       </View>
@@ -475,7 +488,7 @@ function AppContent() {
     <SettingsShell open={menuOpen&&menu==='settings'} onClose={closeMenu} onWeixin={()=>setMenu('weixin')} updateAvailable={clientUpdates.available}>{section=><ControlSettings section={section} url={view.url} device={device&&{id:device.id,name:device.name,online:device.online,agentVersion:snapshot?.agentVersion,runtimeRefresh:snapshot?.runtime.capabilities.runtimeRefresh===true}} onWeixin={()=>setMenu('weixin')} onLogout={()=>{closeMenu();void relay.logout().catch(()=>{});}}/>}</SettingsShell>
     <Dialog open={menuOpen&&menu!=='settings'} title={menu === 'weixin' ? '微信设置' : menu === 'permissions' ? '会话权限' : '工作模式'} onClose={closeMenu}>
         {menu === 'weixin' ? menuOpen && <WeixinSettings />
-          : menu === 'permissions' ? menuOpen && !!settings?.permissions && <PermissionPicker key={`${deviceId}:${threadId}`} settings={settings.permissions} enabled={ready && !busy && thread?.status === 'idle'} onChange={async mode => {
+          : menu === 'permissions' ? menuOpen && !!settings?.permissions && <PermissionPicker key={`${deviceId}:${threadId}`} settings={settings.permissions} enabled={ready && !busy && activeSettingsEnabled} onChange={async mode => {
             if (!thread?.settings?.permissions) return false;
             const ok = await send({type: 'thread.permissions.update', threadId, mode, expectedPermissions: thread.settings.permissions.fingerprint});
             if (ok) closeMenu();

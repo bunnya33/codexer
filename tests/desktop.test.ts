@@ -41,12 +41,28 @@ describe("official desktop compatibility boundary", () => {
     expect(record(record(request.params).turnStart).request).toEqual({ threadId: "thread-test", input: [{ type: "text", text: "Test", text_elements: [] }], clientUserMessageId: input.commandId });
     expect(record(record(request.params).turnStart).context).toMatchObject({ attachments: [], commentAttachments: [], inheritThreadSettings: true });
   });
+  it.each(['interrupted', 'completed'])('continues only the latest interrupted turn (%s)', async status => {
+    desktop.state = rawThread('idle');
+    desktopTurns(desktop.state)[0]!.status = status;
+    desktop.publishSnapshot();
+    await waitFor(() => adapter.getThread('thread-test')?.status === 'idle');
+    const input = command({type: 'turn.continue', threadId: 'thread-test', turnId: 'turn-A'});
+    if (status === 'completed') {
+      await expect(adapter.execute(input)).rejects.toMatchObject({code: 'stale-continuation'});
+      expect(desktop.received.some(m => m.method === 'thread-follower-start-turn')).toBe(false);
+      return;
+    }
+    await expect(adapter.execute(input)).resolves.toMatchObject({turnId: 'turn-new'});
+    const sent = desktop.received.find(m => m.method === 'thread-follower-start-turn')!;
+    expect(record(record(sent.params).turnStart).request).toEqual({threadId: 'thread-test', input: [], clientUserMessageId: input.commandId});
+    await expect(adapter.execute(command({...input.payload, turnId: 'obsolete'} as typeof input.payload))).rejects.toMatchObject({code: 'stale-continuation'});
+  });
   it("rejects a start observed during an active turn", async () => {
     await expect(adapter.execute(command({ type: "turn.start", threadId: "thread-test", text: "Test" }))).rejects.toMatchObject({ code: "thread-not-idle" });
     expect(desktop.received.some(value => value.method === "thread-follower-start-turn")).toBe(false);
   });
-  it("updates only the model through the official owner with a settings condition", async () => {
-    desktop.state = { ...rawThread("idle"), latestModel: "model-a", latestReasoningEffort: "high", latestThreadSettings: { model: "model-a", modelProvider: "private-provider", effort: "high", approvalPolicy: "on-request" } };
+  it.each(["idle", "active"])("updates the model through the official owner with a settings condition (%s)", async status => {
+    desktop.state = { ...rawThread(status), latestModel: "model-a", latestReasoningEffort: "high", latestThreadSettings: { model: "model-a", modelProvider: "private-provider", effort: "high", approvalPolicy: "on-request" } };
     desktop.response = () => ({ applied: true });
     desktop.publishSnapshot();
     await waitFor(() => adapter.getThread("thread-test")?.settings?.model === "model-a");
@@ -58,16 +74,16 @@ describe("official desktop compatibility boundary", () => {
     desktop.response = () => ({ applied: false });
     await expect(adapter.execute(command({ type: "thread.model.update", threadId: "thread-test", expectedModel: "model-a", model: "model-b" }))).rejects.toMatchObject({ code: "stale-model" });
   });
-  it("rejects model changes on active threads and stale current models", async () => {
+  it("rejects stale current models on active and idle threads", async () => {
     const payload = { type: "thread.model.update" as const, threadId: "thread-test", expectedModel: "old", model: "new" };
-    await expect(adapter.execute(command(payload))).rejects.toMatchObject({ code: "thread-not-idle" });
+    await expect(adapter.execute(command(payload))).rejects.toMatchObject({ code: "stale-model" });
     desktop.state = { ...rawThread("idle"), latestModel: "other" }; desktop.publishSnapshot();
     await waitFor(() => adapter.getThread("thread-test")?.status === "idle");
     await expect(adapter.execute(command(payload))).rejects.toMatchObject({ code: "stale-model" });
     expect(desktop.received.some(value => value.method === "thread-follower-update-thread-settings")).toBe(false);
   });
-  it("updates reasoning effort only and rejects unsupported or stale settings", async () => {
-    desktop.state = { ...rawThread("idle"), latestModel: "model-a", latestReasoningEffort: "low" };
+  it.each(["idle", "active"])("updates reasoning effort and rejects unsupported or stale settings (%s)", async status => {
+    desktop.state = { ...rawThread(status), latestModel: "model-a", latestReasoningEffort: "low" };
     desktop.response = () => ({ applied: true });
     adapter.models = [{ model: "model-a", displayName: "A", supportedReasoningEfforts: ["low", "high"], defaultReasoningEffort: "low" }];
     desktop.publishSnapshot(); await waitFor(() => adapter.getThread("thread-test")?.settings?.model === "model-a");

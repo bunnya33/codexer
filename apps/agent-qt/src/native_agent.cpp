@@ -82,6 +82,8 @@ void Service::connectAgent() {
     Object caps{{"observe", true},
                 {"startTurn", true},
                 {"interrupt", true},
+                {"continueTurn", true},
+                {"activeSettingsUpdate", true},
                 {"approvals", true},
                 {"userInput", true},
                 {"modelUpdate", true},

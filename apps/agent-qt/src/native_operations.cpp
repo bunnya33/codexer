@@ -121,18 +121,24 @@ Object Service::executeTurn(Object command, const Array &prepared,
     command["payload"] = p;
     return executeTurn(command, {}, onDesktop);
   }
-  if (type == "turn.start" && thread["status"] != "idle")
+  if ((type == "turn.start" || type == "turn.continue") && thread["status"] != "idle")
     throw Error("thread-not-idle");
   if (QStringList{"turn.steer", "turn.interrupt", "approval.respond"}.contains(
           type) &&
       thread["activeTurnId"] != p["turnId"])
     throw Error("stale-turn");
+  if (type == "turn.continue") {
+    const auto turns = thread["turns"].toArray();
+    const auto last = turns.isEmpty() ? Object{} : turns.last().toObject();
+    if (last["id"] != turnId || last["status"] != "interrupted")
+      throw Error("stale-continuation");
+  }
   QString method;
   Object params, expected, settingsChange;
   auto owner = onDesktop ? desktop->watched[id].owner : QString{};
-  if (type == "turn.start") {
+  if (type == "turn.start" || type == "turn.continue") {
     Object request{{"threadId", id},
-                   {"input", appendText(prepared, p["text"].toString())},
+                   {"input", type == "turn.continue" ? Array{} : appendText(prepared, p["text"].toString())},
                    {"clientUserMessageId", command["commandId"]}};
     if (onDesktop) {
       method = "thread-follower-start-turn";
@@ -199,8 +205,11 @@ Object Service::executeTurn(Object command, const Array &prepared,
                                 {"expectedTurnId", turnId}}
                        : Object{{"threadId", id}, {"turnId", turnId}};
   } else if (type.startsWith("thread.") && type.endsWith(".update")) {
-    if (thread["status"] != "idle")
+    const bool active = thread["status"] == "active";
+    if (thread["status"] != "idle" && (!active || type == "thread.mode.update"))
       throw Error("thread-not-idle");
+    if (active && !onDesktop && !owned.contains(id))
+      throw Error("thread-writer-busy");
     Object change;
     if (type == "thread.permissions.update") {
       if (s["permissions"].toObject()["fingerprint"] !=
@@ -220,7 +229,7 @@ Object Service::executeTurn(Object command, const Array &prepared,
       if (roots.isEmpty() &&
           QStringList{"ask", "auto-review"}.contains(p["mode"].toString()))
         throw Error("workspace-roots-unavailable");
-      if (!onDesktop) {
+      if (!onDesktop && !active) {
         resume(id);
         roots = effectiveSettings[id]["runtimeWorkspaceRoots"].toArray();
       }
@@ -236,7 +245,7 @@ Object Service::executeTurn(Object command, const Array &prepared,
           s["collaborationMode"] != p["expectedMode"])
         throw Error("stale-settings");
       if (!onDesktop) {
-        const auto saved = resume(id);
+        const auto saved = active ? effectiveSettings[id] : resume(id);
         if (saved["model"] != p["expectedModel"])
           throw Error("stale-model");
         if (type != "thread.model.update" &&
@@ -409,7 +418,7 @@ Object Service::executeTurn(Object command, const Array &prepared,
   }
   Object result{
       {onDesktop ? "acknowledgedByDesktop" : "acknowledgedByAppServer", true}};
-  if (type == "turn.start") {
+  if (type == "turn.start" || type == "turn.continue") {
     auto turn = (onDesktop ? response["result"].toObject() : response)["turn"]
                     .toObject();
     auto tid = turn["id"].toString();

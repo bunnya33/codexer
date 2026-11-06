@@ -4,12 +4,14 @@ import { Pressable, Text, View } from 'react-native';
 import { ConversationHeader } from '../../apps/mobile/src/conversation-header';
 import { TurnView } from '../../apps/mobile/src/conversation';
 import { Directory } from '../../apps/mobile/src/directory';
+import { ThemeProvider, useControlTheme } from '../../apps/mobile/src/theme';
 import type { RelayView } from '../../apps/mobile/src/relay';
 import type { HistoryTurn } from '../../packages/protocol/src/index';
 
-const longTitle = '检查会话宿主恢复与任务状态显示，并验证长标题滚动后回到开头暂停一秒';
+const longTitle = '检查任务高亮和标题渐变，末尾多移一个字停一秒，回到开头暂停两秒';
 const noop = () => {};
 function Fixture() {
+  const { theme, selectTheme } = useControlTheme();
   const [running, setRunning] = useState(true);
   const [expanded, setExpanded] = useState(true);
   const [usage, setUsage] = useState(true);
@@ -21,7 +23,7 @@ function Fixture() {
     ...(usage ? { tokenUsage: { totalTokens: 1200, inputTokens: 1000, cachedInputTokens: 500, outputTokens: 200, state: running ? 'running' : 'complete' } as const } : {}),
   };
   const view = { phase: 'connected', devices: [], snapshots: {}, catalogs: {} } as unknown as RelayView;
-  return <View style={{ width: '100%', maxWidth: 520, alignSelf: 'center', gap: 16 }}>
+  return <View style={{ width: '100%', maxWidth: 520, alignSelf: 'center', gap: 16, backgroundColor: theme.colors.bg }}>
     <ConversationHeader title={title} subtitle={`示例项目 · ${running ? '进行中' : '空闲'}`} running={running} deviceId="fixture" threadId="fixture"
       agents={[]} supported synchronized truncated={false} hasTruncatedContent={false} onDrawer={noop} onRefresh={noop} onInfo={noop} />
     <View style={{ paddingHorizontal: 20 }}><TurnView turn={turn} active={running} deviceId="fixture" threadId="fixture" onImage={noop} questionRequestIds={[]} /></View>
@@ -32,9 +34,10 @@ function Fixture() {
       <Pressable accessibilityRole="button" accessibilityLabel="切换任务状态" onPress={() => setRunning(value => !value)}><Text>切换任务状态</Text></Pressable>
       <Pressable accessibilityRole="button" accessibilityLabel="切换 Token 数据" onPress={() => setUsage(value => !value)}><Text>切换 Token 数据</Text></Pressable>
       <Pressable accessibilityRole="button" accessibilityLabel="切换标题长度" onPress={() => setTitle(value => value === longTitle ? '短标题' : longTitle)}><Text>切换标题长度</Text></Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel="切换主题" onPress={() => selectTheme(theme.id === 'default' ? 'paper' : theme.id === 'paper' ? 'warm-dark' : 'default')}><Text>切换主题</Text></Pressable>
     </View>
   </View>;
 }
 const root = createRoot(document.getElementById('root')!);
-root.render(<Fixture />);
+root.render(<ThemeProvider><Fixture /></ThemeProvider>);
 Object.assign(window, { taskStatusFixture: { close: () => root.unmount() } });

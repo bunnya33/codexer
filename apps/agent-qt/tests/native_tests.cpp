@@ -1039,6 +1039,61 @@ private slots:
     QCOMPARE(agent->effectiveSettings["thread-test"]["effort"],
              before["effort"]);
   }
+  void activeSettingsDoNotResumeOrInterruptTheWriter() {
+    agent->refreshCatalog();
+    agent->watch("thread-test");
+    agent->resume("thread-test");
+    auto threads = agent->snapshot["threads"].toObject();
+    auto thread = threads["thread-test"].toObject();
+    thread["status"] = "active";
+    thread["activeTurnId"] = "turn";
+    threads["thread-test"] = thread;
+    agent->snapshot["threads"] = threads;
+    const auto before = read(temp.path() + "/requests.jsonl");
+    auto cmd = command("thread.effort.update");
+    cmd["payload"] = Object{{"type", "thread.effort.update"},
+                            {"threadId", "thread-test"},
+                            {"expectedModel", "synthetic-model"},
+                            {"expectedEffort", "medium"}, {"effort", "high"}};
+    QVERIFY(agent->executeTurn(cmd, {}, false)["acknowledgedByAppServer"].toBool());
+    auto p = Object{{"type", "thread.permissions.update"},
+                    {"threadId", "thread-test"}, {"mode", "read-only"},
+                    {"expectedPermissions", permissionSettings(agent->effectiveSettings["thread-test"])["fingerprint"]}};
+    cmd["payload"] = p;
+    QVERIFY(agent->executeTurn(cmd, {}, false)["acknowledgedByAppServer"].toBool());
+    const auto added = read(temp.path() + "/requests.jsonl").mid(before.size());
+    QVERIFY(added.contains("thread/settings/update"));
+    QVERIFY(!added.contains("thread/resume"));
+    QVERIFY(!added.contains("turn/interrupt"));
+    agent->owned.remove("thread-test");
+    QVERIFY_EXCEPTION_THROWN(agent->executeTurn(cmd, {}, false), Error);
+    QCOMPARE(read(temp.path() + "/requests.jsonl").mid(before.size()), added);
+  }
+  void continueInterruptedTurnWithNoUserText() {
+    setFixture({{"turns", Array{Object{{"id", "stopped"},
+                                      {"status", "interrupted"}, {"items", Array{}}}}}});
+    agent->refreshCatalog();
+    agent->watch("thread-test");
+    auto cmd = command("turn.continue");
+    cmd["payload"] = Object{{"type", "turn.continue"},
+                            {"threadId", "thread-test"}, {"turnId", "stopped"}};
+    QCOMPARE(agent->execute(cmd)["turnId"], QJsonValue("turn-new"));
+    int starts = 0;
+    for (const auto &line : read(temp.path() + "/requests.jsonl").split('\n')) {
+      if (line.isEmpty()) continue;
+      const auto req = parse(line).toObject();
+      if (req["method"] != "turn/start") continue;
+      ++starts;
+      QCOMPARE(req["params"].toObject()["input"].toArray(), Array{});
+    }
+    QCOMPARE(starts, 1);
+    auto payload = cmd["payload"].toObject();
+    payload["turnId"] = "different-turn";
+    cmd["payload"] = payload;
+    const auto before = read(temp.path() + "/requests.jsonl");
+    QVERIFY_EXCEPTION_THROWN(agent->executeTurn(cmd, {}, false), Error);
+    QCOMPARE(read(temp.path() + "/requests.jsonl"), before);
+  }
   void permissionsRequireActualConfirmation() {
     agent->refreshCatalog();
     agent->watch("thread-test");
@@ -1483,6 +1538,75 @@ private slots:
     const auto historyTurn = page["turns"].toArray()[0].toObject();
     QCOMPARE(historyTurn["tokenUsage"].toObject()["state"], QJsonValue("complete"));
     QVERIFY(historyTurn["items"].toArray().size() < 40);
+  }
+  void desktopContinueRequiresLatestInterruptedTurn_data() {
+    QTest::addColumn<QString>("status");
+    QTest::addColumn<QString>("expectedId");
+    QTest::newRow("interrupted") << QString("interrupted") << QString("stopped");
+    QTest::newRow("completed") << QString("completed") << QString("stopped");
+    QTest::newRow("stale") << QString("interrupted") << QString("other");
+  }
+  void desktopContinueRequiresLatestInterruptedTurn() {
+    QFETCH(QString, status);
+    QFETCH(QString, expectedId);
+    try {
+      auto state = raw();
+      state["turns"] = Array{Object{{"turnId", "stopped"}, {"status", status},
+                                    {"items", Array{}}}};
+      DesktopFixture fixture(state);
+      qputenv("CODEX_REMOTE_DESKTOP_ENDPOINT", fixture.endpoint.toUtf8());
+      agent->settings["runtime"] = "auto";
+      agent->desktop->open(agent->settings);
+      QVERIFY(agent->desktop->follow("thread-test"));
+      QVERIFY(waitFor([&] { return agent->desktop->watched["thread-test"].compatible; }, 1000));
+      agent->refreshCatalog();
+      auto cmd = command("turn.continue");
+      cmd["payload"] = Object{{"type", "turn.continue"},
+                              {"threadId", "thread-test"}, {"turnId", expectedId}};
+      const bool valid = status == "interrupted" && expectedId == "stopped";
+      if (valid)
+        QCOMPARE(agent->execute(cmd)["turnId"], QJsonValue("desktop-turn"));
+      else
+        QVERIFY_EXCEPTION_THROWN(agent->execute(cmd), Error);
+      int starts = 0;
+      for (const auto &req : fixture.requests) {
+        if (req["method"] != "thread-follower-start-turn") continue;
+        ++starts;
+        const auto input = req["params"].toObject()["turnStart"].toObject()["request"].toObject()["input"];
+        QCOMPARE(input, QJsonValue(Array{}));
+      }
+      QCOMPARE(starts, valid ? 1 : 0);
+    } catch (const Error &error) {
+      QFAIL(qPrintable(error.code));
+    }
+  }
+  void desktopSettingsRemainAvailableDuringExecution() {
+    auto state = raw();
+    state["threadRuntimeStatus"] = Object{{"type", "active"}};
+    state["turns"] = Array{Object{{"turnId", "turn"}, {"status", "inProgress"}, {"items", Array{}}}};
+    state["latestModel"] = "synthetic-model";
+    state["latestReasoningEffort"] = "medium";
+    state["latestThreadSettings"] = Object{{"model", "synthetic-model"}, {"effort", "medium"},
+        {"approvalPolicy", "on-request"}, {"approvalsReviewer", "user"},
+        {"sandboxPolicy", Object{{"type", "readOnly"}}}};
+    DesktopFixture fixture(state);
+    qputenv("CODEX_REMOTE_DESKTOP_ENDPOINT", fixture.endpoint.toUtf8());
+    agent->settings["runtime"] = "auto";
+    agent->desktop->open(agent->settings);
+    QVERIFY(agent->desktop->follow("thread-test"));
+    QVERIFY(waitFor([&] { return agent->desktop->watched["thread-test"].compatible; }, 1000));
+    agent->refreshCatalog();
+    auto cmd = command("thread.effort.update");
+    cmd["payload"] = Object{{"type", "thread.effort.update"},
+        {"threadId", "thread-test"}, {"expectedModel", "synthetic-model"},
+        {"expectedEffort", "medium"}, {"effort", "high"}};
+    QVERIFY(agent->execute(cmd)["acknowledgedByDesktop"].toBool());
+    QCOMPARE(agent->snapshot["threads"].toObject()["thread-test"].toObject()["status"], QJsonValue("active"));
+    for (const auto &req : fixture.requests) {
+      QVERIFY(req["method"] != "thread-follower-interrupt-turn");
+      QVERIFY(req["method"] != "thread-follower-start-turn");
+    }
+    QVERIFY(!read(temp.path() + "/requests.jsonl").contains("thread/resume"));
   }
   void desktopFramingAndStart() {
     DesktopFixture fixture(raw());

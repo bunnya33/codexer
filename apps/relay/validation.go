@@ -135,6 +135,9 @@ func (s *Server) refine(name string, m M) {
 		if p["type"] == "runtime.refresh" && len(p) != 1 {
 			fail(400, "invalid-request")
 		}
+		if p["type"] == "turn.continue" && len(p) != 3 {
+			fail(400, "invalid-request")
+		}
 		if p["type"] == "thread.model.update" {
 			model := strings.TrimSpace(str(p["model"]))
 			if regexp.MustCompile(`[\s\x00-\x1f]`).MatchString(model) || model == "" {
@@ -186,7 +189,7 @@ func commandHash(m M, raw ...[]byte) string {
 		"turn.queue.read": {"type", "threadId", "queueId"}, "turn.queue.update": {"type", "threadId", "queueId", "text", "expectedText"},
 		"project.create":         {"type", "parentId", "name", "relativePath", "mode"},
 		"project.delete.prepare": {"type", "projectId"}, "project.delete": {"type", "projectId", "token", "deleteDirectory"},
-		"thread.create": {"type", "projectId"}, "thread.rename": {"type", "threadId", "name"}, "thread.archive": {"type", "threadId"}, "thread.delete": {"type", "threadId"}, "thread.watch": {"type", "threadId"}, "turn.start": {"type", "threadId", "text", "images", "attachments"}, "turn.queue": {"type", "threadId", "text", "images", "attachments"}, "turn.queue.steer": {"type", "threadId", "turnId", "queueId"}, "turn.queue.remove": {"type", "threadId", "queueId"}, "turn.steer": {"type", "threadId", "turnId", "text", "images", "attachments"}, "thread.model.update": {"type", "threadId", "model", "expectedModel"}, "thread.effort.update": {"type", "threadId", "effort", "expectedModel", "expectedEffort"}, "thread.mode.update": {"type", "threadId", "mode", "expectedMode", "expectedModel", "expectedEffort"}, "turn.interrupt": {"type", "threadId", "turnId"}, "approval.respond": {"type", "threadId", "turnId", "requestId", "decision"}, "input.respond": {"type", "threadId", "turnId", "requestId", "answers"}}
+		"thread.create": {"type", "projectId"}, "thread.rename": {"type", "threadId", "name"}, "thread.archive": {"type", "threadId"}, "thread.delete": {"type", "threadId"}, "thread.watch": {"type", "threadId"}, "turn.start": {"type", "threadId", "text", "images", "attachments"}, "turn.queue": {"type", "threadId", "text", "images", "attachments"}, "turn.continue": {"type", "threadId", "turnId"}, "turn.queue.steer": {"type", "threadId", "turnId", "queueId"}, "turn.queue.remove": {"type", "threadId", "queueId"}, "turn.steer": {"type", "threadId", "turnId", "text", "images", "attachments"}, "thread.model.update": {"type", "threadId", "model", "expectedModel"}, "thread.effort.update": {"type", "threadId", "effort", "expectedModel", "expectedEffort"}, "thread.mode.update": {"type", "threadId", "mode", "expectedMode", "expectedModel", "expectedEffort"}, "turn.interrupt": {"type", "threadId", "turnId"}, "approval.respond": {"type", "threadId", "turnId", "requestId", "decision"}, "input.respond": {"type", "threadId", "turnId", "requestId", "answers"}}
 	prefix := fields(m, []string{"commandId", "deviceId", "expectedEpoch", "expiresAt"})
 	return hash(strings.TrimSuffix(prefix, "}") + ",\"payload\":" + fields(p, keys[str(p["type"])]) + "}")
 }

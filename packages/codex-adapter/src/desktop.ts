@@ -265,10 +265,11 @@ export class DesktopAdapter extends EventEmitter {
       if (!text) throw new AdapterError('invalid-answer-set');
       return this.execute({ ...command, payload: { type: 'turn.steer', threadId: payload.threadId, turnId: payload.turnId, text } });
     }
-    if (payload.type === "turn.start") {
+    if (payload.type === "turn.start" || payload.type === "turn.continue") {
       if (normalized.status !== "idle") throw new AdapterError("thread-not-idle");
-      if ((payload.images?.length ?? 0) !== imageInputs.filter(input => input.type === "localImage").length) throw new AdapterError("images-not-ready");
-      const turnParams: TurnStartParams = { threadId: payload.threadId, input: [...(payload.text.trim() ? [{ type: "text" as const, text: payload.text, text_elements: [] }] : []), ...imageInputs], clientUserMessageId: command.commandId };
+      if (payload.type === "turn.continue" && (normalized.turns.at(-1)?.id !== payload.turnId || normalized.turns.at(-1)?.status !== "interrupted")) throw new AdapterError("stale-continuation");
+      if (payload.type === "turn.start" && (payload.images?.length ?? 0) !== imageInputs.filter(input => input.type === "localImage").length) throw new AdapterError("images-not-ready");
+      const turnParams: TurnStartParams = { threadId: payload.threadId, input: payload.type === "turn.continue" ? [] : [...(payload.text.trim() ? [{ type: "text" as const, text: payload.text, text_elements: [] }] : []), ...imageInputs], clientUserMessageId: command.commandId };
       method = "thread-follower-start-turn";
       params = {
         conversationId: payload.threadId,
@@ -288,7 +289,7 @@ export class DesktopAdapter extends EventEmitter {
         restoreMessage: { id: command.commandId, text: prompt, context: { prompt, messageThreadId: payload.threadId, turnTrigger: replies ? 'send_user_message_async_question' : 'user', addedFiles: [], fileAttachments: [], ideContext: null, imageAttachments: [], workspaceRoots: normalized.cwd ? [normalized.cwd] : [] }, cwd: normalized.cwd, createdAt: Date.now() },
         attachments: [], serviceTier: null, additionalContext: null, toolOutput: null };
     } else if (payload.type === 'thread.permissions.update') {
-      if (normalized.status !== 'idle') throw new AdapterError('thread-not-idle');
+      if (normalized.status !== 'idle' && normalized.status !== 'active') throw new AdapterError('thread-not-idle');
       if (normalized.settings?.permissions?.fingerprint !== payload.expectedPermissions) throw new AdapterError('stale-permissions');
       const raw = record(watched.raw.latestThreadSettings);
       const roots = Array.isArray(raw.runtimeWorkspaceRoots) && raw.runtimeWorkspaceRoots.every(r => typeof r === 'string') ? raw.runtimeWorkspaceRoots as string[] : normalized.cwd ? [normalized.cwd] : [];
@@ -312,7 +313,7 @@ export class DesktopAdapter extends EventEmitter {
         throw error;
       }
     } else if (payload.type === "thread.model.update" || payload.type === "thread.effort.update" || payload.type === "thread.mode.update") {
-      if (normalized.status !== "idle") throw new AdapterError("thread-not-idle");
+      if (normalized.status !== "idle" && (normalized.status !== "active" || payload.type === "thread.mode.update")) throw new AdapterError("thread-not-idle");
       if (normalized.settings?.model !== payload.expectedModel) throw new AdapterError("stale-model");
       if (payload.type === "thread.effort.update" && normalized.settings.reasoningEffort !== payload.expectedEffort) throw new AdapterError("stale-effort");
       if (payload.type === "thread.effort.update" && !supportsEffort(payload.expectedModel, payload.effort, this.models)) throw new AdapterError("unsupported-effort");
@@ -371,10 +372,10 @@ export class DesktopAdapter extends EventEmitter {
       if (typeof steered.turnId !== "string" || steered.turnId !== payload.turnId) throw new AdapterError("incompatible-desktop-response", true);
       return { turnId: steered.turnId, acknowledgedByDesktop: true };
     }
-    if (payload.type !== "turn.start" && response.result.ok !== true) throw new AdapterError("incompatible-desktop-response", true);
+    if (payload.type !== "turn.start" && payload.type !== "turn.continue" && response.result.ok !== true) throw new AdapterError("incompatible-desktop-response", true);
     if (payload.type === "turn.interrupt" && response.result.interruptedTurnId !== payload.turnId) throw new AdapterError("stale-turn");
     const result = record(response.result.result);
-    if (payload.type === "turn.start" && typeof record(result.turn).id !== "string") throw new AdapterError("incompatible-desktop-response", true);
+    if ((payload.type === "turn.start" || payload.type === "turn.continue") && typeof record(result.turn).id !== "string") throw new AdapterError("incompatible-desktop-response", true);
     return { ...(payload.type === "turn.interrupt" ? { interruptedTurnId: response.result.interruptedTurnId, ...(typeof response.result.goalPauseError === "string" ? { goalPauseFailed: true } : {}) } : {}), ...(record(result.turn).id ? { turnId: record(result.turn).id } : {}), acknowledgedByDesktop: true };
   }
   async checkControl(threadId: string): Promise<RecordValue> {

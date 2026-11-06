@@ -675,9 +675,10 @@ export class HeadlessAdapter extends EventEmitter {
     const thread = this.watched.get(payload.threadId);
     if (!thread?.ownerAvailable) throw new AdapterError("headless-thread-unavailable");
     if (payload.type === 'thread.permissions.update') {
-      if (thread.status !== 'idle') throw new AdapterError('thread-not-idle');
+      if (thread.status !== 'idle' && thread.status !== 'active') throw new AdapterError('thread-not-idle');
+      if (thread.status === 'active' && !this.ownedWriters.has(payload.threadId)) throw new AdapterError('thread-writer-busy');
       if (thread.settings?.permissions?.fingerprint !== payload.expectedPermissions) throw new AdapterError('stale-permissions');
-      await this.resumeWithSettings(payload.threadId);
+      if (thread.status !== "active") await this.resumeWithSettings(payload.threadId);
       const previous = this.settings.get(payload.threadId) ?? {};
       const roots = Array.isArray(previous.runtimeWorkspaceRoots) ? previous.runtimeWorkspaceRoots.filter((v): v is string => typeof v === 'string') : thread.cwd ? [thread.cwd] : [];
       if (!roots.length && ['ask', 'auto-review'].includes(payload.mode)) throw new AdapterError('workspace-roots-unavailable');
@@ -704,15 +705,16 @@ export class HeadlessAdapter extends EventEmitter {
       return {acknowledgedByAppServer: true};
     }
     if (payload.type === "thread.model.update" || payload.type === "thread.effort.update" || payload.type === "thread.mode.update") {
-      if (thread.status !== "idle") throw new AdapterError("thread-not-idle");
+      if (thread.status !== "idle" && (thread.status !== "active" || payload.type === "thread.mode.update")) throw new AdapterError("thread-not-idle");
+      if (thread.status === "active" && !this.ownedWriters.has(payload.threadId)) throw new AdapterError("thread-writer-busy");
       if (thread.settings?.model !== payload.expectedModel) throw new AdapterError("stale-model");
-      const settings = await this.resumeWithSettings(payload.threadId);
+      const settings = thread.status === "active" ? this.settings.get(payload.threadId) ?? {} : await this.resumeWithSettings(payload.threadId);
       if (settings.model !== payload.expectedModel) throw new AdapterError("stale-model");
       if (payload.type === "thread.effort.update" && (thread.settings.reasoningEffort !== payload.expectedEffort || (settings.effort ?? null) !== payload.expectedEffort)) throw new AdapterError("stale-effort");
       if (payload.type === "thread.effort.update" && !supportsEffort(payload.expectedModel, payload.effort, this.models)) throw new AdapterError("unsupported-effort");
       if (payload.type === "thread.mode.update" && ((thread.settings.collaborationMode ?? null) !== payload.expectedMode || thread.settings.reasoningEffort !== payload.expectedEffort || (settings.effort ?? null) !== payload.expectedEffort)) throw new AdapterError("stale-settings");
       const model = payload.type === "thread.model.update" ? payload.model : settings.model;
-      const override = payload.type === "thread.model.update" ? modelOverride(model, settings.effort, this.models) : payload.type === "thread.effort.update" ? { effort: payload.effort } : {};
+      const override = payload.type === "thread.model.update" ? modelOverride(model, typeof settings.effort === "string" ? settings.effort : null, this.models) : payload.type === "thread.effort.update" ? { effort: payload.effort } : {};
       const mode = record(settings.collaborationMode);
       const collaborationMode = payload.type === "thread.mode.update" ? collaborationOverride(payload.mode, model, payload.expectedEffort) : settings.collaborationMode ? { ...mode, settings: { ...record(mode.settings), model, ...(override.effort ? { reasoning_effort: override.effort } : {}) } } : undefined;
       await rpc.request("thread/settings/update", { threadId: payload.threadId, ...override, ...(collaborationMode ? { collaborationMode } : {}) });
@@ -728,13 +730,14 @@ export class HeadlessAdapter extends EventEmitter {
       if (!text) throw new AdapterError('invalid-answer-set');
       return this.execute({ ...command, payload: { type: 'turn.steer', threadId: payload.threadId, turnId: payload.turnId, text } });
     }
-    if (payload.type === "turn.start") {
+    if (payload.type === "turn.start" || payload.type === "turn.continue") {
       if (thread.status !== "idle") throw new AdapterError("thread-not-idle");
-      if ((payload.images?.length ?? 0) !== imageInputs.filter(input => input.type === "localImage").length) throw new AdapterError("images-not-ready");
+      if (payload.type === "turn.continue" && (thread.turns.at(-1)?.id !== payload.turnId || thread.turns.at(-1)?.status !== "interrupted")) throw new AdapterError("stale-continuation");
+      if (payload.type === "turn.start" && (payload.images?.length ?? 0) !== imageInputs.filter(input => input.type === "localImage").length) throw new AdapterError("images-not-ready");
       const settings = await this.resumeWithSettings(payload.threadId);
       this.pendingStarts++;
       let started: RecordValue;
-      try { started = await rpc.request("turn/start", { threadId: payload.threadId, input: [...(payload.text.trim() ? [{ type: "text", text: payload.text, text_elements: [] }] : []), ...imageInputs], clientUserMessageId: command.commandId,
+      try { started = await rpc.request("turn/start", { threadId: payload.threadId, input: payload.type === "turn.continue" ? [] : [...(payload.text.trim() ? [{ type: "text", text: payload.text, text_elements: [] }] : []), ...imageInputs], clientUserMessageId: command.commandId,
         ...(settings.effort ? { effort: settings.effort } : {}), ...(settings.summary ? { summary: settings.summary } : {}), ...(settings.collaborationMode ? { collaborationMode: settings.collaborationMode } : {}) }, 30000); }
       finally { this.pendingStarts = Math.max(0, this.pendingStarts - 1); }
       const turnId = record(started.turn).id;

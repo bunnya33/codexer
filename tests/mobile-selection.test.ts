@@ -35,14 +35,14 @@ function gate() {
   return { promise, release };
 }
 type FixtureOptions = {
-  permissions?: boolean; requests?: InteractiveRequest[];
+  permissions?: boolean; requests?: InteractiveRequest[]; legacyAgent?: boolean;
   storage?: Record<string, string>; userId?: string; devices?: typeof devices; catalogs?: Record<string, DeviceCatalog>;
   delayDevices?: boolean; delayCatalog?: string; blockedStorage?: boolean; blockedThemeStorage?: boolean;
   filePicker?: () => Promise<{ name: string; size: number; mimeType: string; readChunk: (offset: number, length: number) => Promise<string> }[]>;
   imagePicker?: () => Promise<{ canceled: boolean; assets: { uri: string; fileName: string; width: number; height: number; mimeType: string; base64: string }[] }>;
   imageUpload?: { wait?: Promise<void>; fail?: boolean };
   submission?: { wait?: Promise<void>; fail?: boolean };
-  controls?: { active: boolean; text: string; images: string[]; failEffort?: boolean };
+  controls?: { active: boolean; text: string; images: string[]; failEffort?: boolean; interrupted?: boolean; unknownTurn?: boolean };
   paging?: { delay?: boolean; fail?: boolean; exhausted?: boolean };
   removal?: { confirmed: boolean; fail?: boolean; calls: string[] };
   clipboard?: { values: string[]; fail?: boolean };
@@ -127,10 +127,12 @@ async function fixture(options: FixtureOptions = {}) {
           if (!controls && !options.permissions && !options.requests) return response({ commandId: 'fixture-command' });
           let result: Record<string, unknown> = {}, code = 'ok';
           const payload = command.payload;
-          if (payload.type === 'turn.start' || payload.type === 'turn.queue') {
+          if (payload.type === 'turn.start' || payload.type === 'turn.queue' || payload.type === 'turn.steer' || payload.type === 'turn.continue') {
             await options.submission?.wait;
             if (options.submission?.fail) code = 'turn-start-rejected';
           }
+          if (code === 'ok' && controls && payload.type === 'turn.interrupt') { controls.active = false; controls.interrupted = true; }
+          if (code === 'ok' && controls && payload.type === 'turn.continue') { controls.active = true; controls.interrupted = false; }
           if (payload.type === 'thread.effort.update') {
             if (controls?.failEffort) code = 'stale-settings';
             else settings.reasoningEffort = payload.effort;
@@ -154,9 +156,9 @@ async function fixture(options: FixtureOptions = {}) {
       function snapshot(deviceId: string) {
         return { protocolVersion: 1, deviceId, epoch: 'fixture', lastSeq: 0, generatedAt: 1, hostname: deviceId, platform: 'darwin',
           agentVersion: options.agentVersions?.[deviceId],
-          runtime: { kind: 'official-desktop-ipc', connected: true, experimental: true, capabilities: { observe: true, startTurn: true, interrupt: true, approvals: true, userInput: true, images: true, attachments: true, collaborationModeUpdate: true, permissionsUpdate: !!options.permissions, mcpApprovals: true } },
+          runtime: { kind: 'official-desktop-ipc', connected: true, experimental: true, capabilities: { observe: true, startTurn: true, interrupt: true, continueTurn: !options.legacyAgent, activeSettingsUpdate: !options.legacyAgent, approvals: true, userInput: true, images: true, attachments: true, collaborationModeUpdate: true, permissionsUpdate: !!options.permissions, mcpApprovals: true } },
           threads: Object.fromEntries((current.catalogs[deviceId]?.threads ?? []).map(thread => [thread.id, { ...normalizeThread({ ...thread, threadRuntimeStatus: { type: controls?.active ? 'active' : 'idle', activeFlags: [] }, turns: [], requests: [] }, 0), ownerAvailable: true,
-            ...(controls ? { settings, activeTurnId: controls.active ? 'active-turn' : null, queuedMessages: [{ id: 'queue-1', text: controls.text.slice(0, 1000), imageCount: controls.images.length, createdAt: 1, status: 'queued' }] } : {}),
+            ...(controls ? { settings, activeTurnId: controls.active && !controls.unknownTurn ? 'active-turn' : null, turns: controls.interrupted ? [{ id: 'active-turn', status: 'interrupted', items: [], plan: [], diff: '', truncated: false }] : [], queuedMessages: [{ id: 'queue-1', text: controls.text.slice(0, 1000), imageCount: controls.images.length, createdAt: 1, status: 'queued' }] } : {}),
             ...(options.permissions ? {settings} : {}), requests: pendingRequests,
           }])) };
       }
@@ -512,8 +514,8 @@ it.each(['corrupt', 'wrong-shape', 'blocked'])('keeps navigation usable with %s 
   } finally { test.close(); }
 });
 
-it('selects reasoning effort and model from the combined composer button', async () => {
-  const test = await fixture({ controls: { active: false, text: '排队消息', images: [] } });
+it.each([false, true])('selects reasoning effort and model from the combined composer button (active=%s)', async active => {
+  const test = await fixture({ controls: { active, text: '排队消息', images: [] } });
   try {
     const label = '模型与推理强度：6.1 Sol，极高';
     await vi.waitFor(() => { const button = test.dom.window.document.querySelector(`[aria-label="${label}"]`); expect(button).not.toBeNull(); expect(button?.getAttribute('aria-disabled')).not.toBe('true'); });
@@ -994,8 +996,8 @@ it('cancels pending file uploads on logout and never restores them into a later 
   } finally { chunk.release(); test.close(); }
 });
 
-it('changes real App permission controls only after explicit full-access confirmation', async () => {
-  const test = await fixture({permissions: true});
+it.each([false, true])('changes App permissions only after explicit confirmation (active=%s)', async active => {
+  const test = await fixture({permissions: true, controls: {active, text: '', images: []}});
   try {
     await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-a']).toBe(false));
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="会话权限：请求批准"]')).not.toBeNull());
@@ -1028,4 +1030,58 @@ it.each(['browser', 'computer'] as const)('answers %s access requests from the a
     await vi.waitFor(() => expect(find()).toBeUndefined());
     expect(test.errors).toEqual([]);
   } finally {test.close();}
+});
+
+it.each([false, true])('steers the active turn immediately, retaining drafts only on failure (%s)', async fail => {
+  const test = await fixture({ controls: { active: true, text: '', images: [] }, submission: { fail } });
+  try {
+    await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-a']).toBe(false));
+    writeDraft(test, '直接追加的指令');
+    await vi.waitFor(() => expect(composer(test).value).toBe('直接追加的指令'));
+    test.click('发送引导消息');
+    await vi.waitFor(() => expect(test.commands.filter(c => c.payload.type === 'turn.steer')).toHaveLength(1));
+    expect(test.commands.find(c => c.payload.type === 'turn.steer')!.payload).toEqual({type: 'turn.steer', threadId: 'recent-pc-a', turnId: 'active-turn', text: '直接追加的指令'});
+    expect(test.commands.some(c => c.payload.type === 'turn.queue' || c.payload.type === 'turn.start')).toBe(false);
+    await vi.waitFor(() => expect(composer(test).value).toBe(fail ? '直接追加的指令' : ''));
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it('interrupts, then continues with empty input only after an interrupted snapshot is received', async () => {
+  const test = await fixture({ controls: { active: true, text: '', images: [] } });
+  try {
+    await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-a']).toBe(false));
+    test.click('停止当前任务');
+    await vi.waitFor(() => { const button = test.dom.window.document.querySelector('[aria-label="继续任务"]'); expect(button).not.toBeNull(); expect(button?.getAttribute('aria-disabled')).not.toBe('true'); });
+    expect(test.commands.find(c => c.payload.type === 'turn.interrupt')!.payload).toMatchObject({turnId: 'active-turn'});
+    expect(composer(test).value).toBe('');
+    test.click('继续任务');
+    await vi.waitFor(() => expect(test.commands.filter(c => c.payload.type === 'turn.continue')).toHaveLength(1));
+    expect(test.commands.find(c => c.payload.type === 'turn.continue')!.payload).toEqual({type: 'turn.continue', threadId: 'recent-pc-a', turnId: 'active-turn'});
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="停止当前任务"]')).not.toBeNull());
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it.each([false, true])('does not submit empty idle messages or steer without a known active turn (%s)', async active => {
+  const controls = { active, text: '', images: [], unknownTurn: true };
+  const test = await fixture({ controls });
+  try {
+    await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-a']).toBe(false));
+    if (!active) expect(test.dom.window.document.querySelector('[aria-label="发送消息"]')?.getAttribute('aria-disabled')).toBe('true');
+    writeDraft(test, '保留这条指令');
+    if (active) await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="发送引导消息"]')?.getAttribute('aria-disabled')).toBe('true'));
+    expect(test.commands.filter(c => c.payload.type.startsWith('turn.'))).toHaveLength(0);
+  } finally { test.close(); }
+});
+
+it('keeps active settings and empty continuation unavailable on older connectors', async () => {
+  const test = await fixture({ controls: { active: true, text: '', images: [] }, legacyAgent: true });
+  try {
+    await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-a']).toBe(false));
+    expect(test.dom.window.document.querySelector('[aria-label^="模型与推理强度："]')?.getAttribute('aria-disabled')).toBe('true');
+    test.click('停止当前任务');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="发送消息"]')?.getAttribute('aria-disabled')).toBe('true'));
+    expect(test.dom.window.document.querySelector('[aria-label="继续任务"]')).toBeNull();
+  } finally { test.close(); }
 });
