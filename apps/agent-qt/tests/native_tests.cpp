@@ -1946,6 +1946,156 @@ private slots:
     agent->pause();
   }
 
+  void previewWebSocketUsesValidHandshake_data() {
+    QTest::addColumn<QString>("host");
+    QTest::newRow("ipv4") << "127.0.0.1";
+    QTest::newRow("localhost") << "localhost";
+    QTest::newRow("ipv6") << "[::1]";
+  }
+  void previewWebSocketUsesValidHandshake() {
+    QFETCH(QString, host);
+    QWebSocketServer relay("Synthetic", QWebSocketServer::NonSecureMode);
+    QVERIFY(relay.listen(QHostAddress::LocalHost, 0));
+    QList<Object> events;
+    connect(&relay, &QWebSocketServer::newConnection, &relay, [&] {
+      auto peer = relay.nextPendingConnection();
+      connect(peer, &QWebSocket::textMessageReceived, &relay, [&](QString text) {
+        events.append(parse(text.toUtf8()).toObject());
+      });
+    });
+    agent->credentials["relayUrl"] =
+        "http://127.0.0.1:" + QString::number(relay.serverPort());
+    agent->connectRelay();
+    QVERIFY(waitFor([&] { return !events.isEmpty(); }, 1000));
+
+    QTcpServer listener;
+    if (!listener.listen(host == "[::1]" ? QHostAddress::LocalHostIPv6
+                                         : QHostAddress::LocalHost, 0))
+      QSKIP("Loopback family unavailable");
+    QWebSocketServer upstream("Strict local service",
+                             QWebSocketServer::NonSecureMode);
+    upstream.setSupportedSubprotocols({"island.v1"});
+    QByteArray handshake;
+    connect(&listener, &QTcpServer::newConnection, &listener, [&] {
+      auto peer = listener.nextPendingConnection();
+      connect(peer, &QTcpSocket::readyRead, &listener, [&, peer] {
+        auto bytes = peer->peek(16384);
+        if (!bytes.contains("\r\n\r\n"))
+          return;
+        handshake = bytes;
+        peer->disconnect(&listener);
+        QList<QByteArray> hosts, origins;
+        for (auto line : bytes.split('\n')) {
+          if (line.toLower().startsWith("host:"))
+            hosts.append(line.mid(5).trimmed());
+          if (line.toLower().startsWith("origin:"))
+            origins.append(line.mid(7).trimmed());
+        }
+        // Go net/http rejects duplicate Host headers. The game's origin
+        // policy also requires the Origin authority to match Host.
+        if (hosts.size() != 1 || origins.size() != 1 ||
+            QUrl(QString::fromLatin1(origins[0])).authority().toLatin1() !=
+                hosts[0]) {
+          peer->readAll();
+          peer->write("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n");
+          peer->disconnectFromHost();
+          return;
+        }
+        upstream.handleConnection(peer);
+      });
+    });
+    QWebSocket *local = nullptr;
+    connect(&upstream, &QWebSocketServer::newConnection, &upstream, [&] {
+      local = upstream.nextPendingConnection();
+      connect(local, &QWebSocket::textMessageReceived, &upstream,
+              [&](QString text) { local->sendTextMessage(text); });
+      connect(local, &QWebSocket::binaryMessageReceived, &upstream,
+              [&](QByteArray bytes) { local->sendBinaryMessage(bytes); });
+    });
+    const auto origin = "http://" + host + ":" +
+                        QString::number(listener.serverPort());
+    agent->catalog["threads"] =
+        Array{Object{{"id", "thread-test"}, {"archived", false}}};
+    agent->observeFiles("thread-test",
+                        {{"items", Array{Object{{"type", "commandExecution"},
+                                                {"output", origin}}}}});
+    const auto id = uuid();
+    auto eventOf = [&](const QString &type) {
+      for (auto message : events)
+        if (message["requestId"] == id &&
+            message["event"].toObject()["type"] == type)
+          return message["event"].toObject();
+      return Object{};
+    };
+    agent->preview({{"type", "preview.ws.open"}, {"requestId", id},
+                    {"threadId", "thread-test"}, {"origin", origin},
+                    {"path", "/ws?game=island"},
+                    {"protocols", Array{"island.v1"}}});
+    QVERIFY(waitFor([&] { return !eventOf("ws.open").isEmpty() ||
+                                !eventOf("error").isEmpty(); }, 3000));
+    QVERIFY2(!eventOf("ws.open").isEmpty(), handshake.constData());
+    QCOMPARE(eventOf("ws.open")["protocol"], QJsonValue("island.v1"));
+    QVERIFY(handshake.startsWith("GET /ws?game=island HTTP/1.1\r\n"));
+    QVERIFY(local);
+    QVERIFY(local->peerAddress().isLoopback());
+    for (bool binary : {false, true}) {
+      events.clear();
+      const auto bytes = binary ? QByteArray::fromHex("00ff8010")
+                                : QString::fromUtf8("登录小岛").toUtf8();
+      agent->preview({{"type", "preview.ws.data"}, {"requestId", id},
+                      {"data", QString::fromLatin1(bytes.toBase64())},
+                      {"binary", binary}});
+      QVERIFY(waitFor([&] { return !eventOf("ws.data").isEmpty(); }, 1000));
+      QCOMPARE(eventOf("ws.data")["binary"], QJsonValue(binary));
+      QCOMPARE(QByteArray::fromBase64(eventOf("ws.data")["data"]
+                                         .toString().toLatin1()), bytes);
+    }
+    events.clear();
+    local->close();
+    QVERIFY(waitFor([&] { return !eventOf("ws.close").isEmpty(); }, 1000));
+    QVERIFY(waitFor([&] { return agent->previewOperations.isEmpty(); }, 1000));
+    agent->pause();
+  }
+
+  void previewWebSocketFailureReleasesOperation() {
+    QTcpServer upstream;
+    QVERIFY(upstream.listen(QHostAddress::LocalHost, 0));
+    int requests = 0;
+    connect(&upstream, &QTcpServer::newConnection, &upstream, [&] {
+      auto peer = upstream.nextPendingConnection();
+      connect(peer, &QTcpSocket::readyRead, peer, [&, peer] {
+        if (!peer->peek(16384).contains("\r\n\r\n"))
+          return;
+        peer->readAll();
+        ++requests;
+        peer->write("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n");
+        peer->disconnectFromHost();
+      });
+      connect(peer, &QTcpSocket::disconnected, peer, &QObject::deleteLater);
+    });
+    const auto origin = "http://localhost:" + QString::number(upstream.serverPort());
+    agent->catalog["threads"] =
+        Array{Object{{"id", "thread-test"}, {"archived", false}}};
+    Object request{{"type", "preview.ws.open"}, {"requestId", uuid()},
+                   {"threadId", "thread-test"}, {"origin", origin},
+                   {"path", "/ws"}};
+    agent->preview(request);
+    QVERIFY(agent->previewOperations.isEmpty());
+    QCOMPARE(requests, 0);
+    agent->observeFiles("thread-test",
+                        {{"items", Array{Object{{"type", "commandExecution"},
+                                                {"output", origin}}}}});
+    request["requestId"] = uuid();
+    agent->preview(request);
+    QVERIFY(waitFor([&] { return requests == 1 &&
+                                agent->previewOperations.isEmpty(); }, 3000));
+    request["requestId"] = uuid();
+    agent->preview(request);
+    agent->preview({{"type", "preview.cancel"},
+                    {"requestId", request["requestId"]}});
+    QVERIFY(agent->previewOperations.isEmpty());
+  }
+
   void realIsolatedWriterRelease() {
     if (!qEnvironmentVariableIsSet("CODEXER_NATIVE_REAL_WRITER"))
       QSKIP("Enable explicit isolated Codex probe");

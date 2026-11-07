@@ -476,12 +476,16 @@ void Service::preview(const Object &message) {
   }
   target.setHost(base.host() == "::1" ? "::1" : "127.0.0.1");
   if (type == "preview.ws.open") {
+    // QWebSocket generates Host and Origin itself; raw overrides produce
+    // duplicate headers (rejected by Go). Use the pinned loopback identity
+    // for both, so strict same-origin upstreams also accept localhost URLs.
+    const auto socketOrigin =
+        target.adjusted(QUrl::RemovePath | QUrl::RemoveQuery |
+                        QUrl::RemoveFragment).toString();
     target.setScheme(target.scheme() == "https" ? "wss" : "ws");
-    auto ws = new QWebSocket(origin, QWebSocketProtocol::VersionLatest, this);
+    auto ws = new QWebSocket(socketOrigin, QWebSocketProtocol::VersionLatest, this);
     ws->setMaxAllowedIncomingMessageSize(64 * 1024);
     QNetworkRequest request(target);
-    request.setRawHeader("Host", base.authority().toUtf8());
-    request.setRawHeader("Origin", origin.toUtf8());
     QWebSocketHandshakeOptions options;
     QStringList protocols;
     for (const auto &v : message["protocols"].toArray()) {
@@ -511,8 +515,10 @@ void Service::preview(const Object &message) {
       emitEvent({{"type", "ws.close"}});
       ws->deleteLater();
     });
-    connect(ws, &QWebSocket::errorOccurred, this, [emitEvent](auto) {
+    connect(ws, &QWebSocket::errorOccurred, this, [this, id, emitEvent, ws](auto) {
+      previewOperations.remove(id);
       emitEvent({{"type", "error"}, {"code", "preview-websocket-failed"}});
+      ws->deleteLater();
     });
     ws->open(request, options);
     return;

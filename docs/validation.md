@@ -1,5 +1,13 @@
 # 当前 Go 迁移验证
 
+## 2026-11-07 Agent 0.2.28 原生预览 WebSocket
+
+补查上次未覆盖的 Qt 原生后台，抓取到 QWebSocket 自动请求头与手动原始头重复；`localhost` 的自动 Host 为固定回环 IP，手动 Host／Origin 则保留 localhost。新增严格 HTTP 握手回归在旧代码下 IPv4／localhost／IPv6 三组全部失败，修复后通过；同时覆盖子协议、路径查询、中文文本与二进制双向传输、关闭清理、未授权拒绝、握手错误释放及取消。
+
+原生后台回归 101 项通过、2 项需显式环境的探针跳过；原生 UI 18 项通过、1 项截图探针跳过；共享协议对照 328 项通过。另将编译出的同一 `CodexerNativeCore` 链接到隔离 Qt 测试进程，经实际 Go Relay 分别连接独立 Go 小岛服务和 Vite WebSocket 代理，均收到 `welcome` 与 `snapshot`；浏览器在保留不含 `allow-same-origin` 的 iframe 中输入昵称并成功进入游戏，显示「已连接 · 进度自动保存」。测试使用独立存档与临时设备／凭据，不读取用户登录密钥，不修改真实游戏源码或世界。传输验收记录位于 `.local/qt-preview-probe/transport-acceptance.json`。未声明 Android WebView 或真实手机验收通过。
+
+Windows x64 Qt/C++ Release 实际编译成功，生成 `0.2.28` 的 NSIS 安装版、便携版及各自 SHA-256。最终版本原生回归与协议检查通过；直接运行打包后的便携程序，在独立配置下完成首次启动、原生凭据恢复、Electron v10 加密迁移及单实例检查，版本和设备身份匹配，退出正常。安装版已生成，尚未替换本机正在执行任务的 `0.2.27`。本轮未修改或重新打包服务器／Android／Control，也未验收 macOS 原生构建。
+
 ## 2026-11-07 服务器 0.3.42 预览提交与存储兼容
 
 使用真实 Go Relay、PC Agent 预览通道与「小岛」页面，在保持 `sandbox="allow-scripts allow-forms"` 的浏览器 iframe 内复现：初始化读 `localStorage` 抛出 `SecurityError`，后续提交监听未注册，点击昵称提交执行默认 GET 刷新。修复后用独立游戏进程和临时世界存档成功输入昵称并进入游戏；刷新同一个预览后昵称恢复，再次进入仍是家园 1 号，服务端存档只有一名测试玩家。原有游戏服务、源码及用户世界未改动。
