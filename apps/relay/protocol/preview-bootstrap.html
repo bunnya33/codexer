@@ -1,6 +1,45 @@
 <base href="@@BASE@@"><script>(()=>{
     const prefix=@@PREFIX@@,origin=@@ORIGIN@@,page=new URL(@@PATH@@,origin);
     window.__CODEXER_PREVIEW_BASE__=prefix;
+    // Opaque frames cannot access the host's Storage. Provide a bounded,
+    // preview-only substitute before application modules initialize.
+    const savedStorage=@@STORAGE@@,areas={local:new Map(Object.entries(savedStorage.local||{})),session:new Map(Object.entries(savedStorage.session||{}))};
+    const storageFetch=window.fetch;
+    let storageQueue=Promise.resolve();
+    const storageJSON=()=>JSON.stringify({local:Object.fromEntries(areas.local),session:Object.fromEntries(areas.session)});
+    const persistStorage=()=>{
+      const body=storageJSON();
+      storageQueue=storageQueue.then(()=>storageFetch.call(window,prefix+'__codexer_storage',{method:'POST',headers:{'content-type':'text/plain;charset=UTF-8'},body,credentials:'omit',keepalive:true})).catch(()=>{});
+    };
+    for(const [property,area] of [['localStorage','local'],['sessionStorage','session']]){
+      try{void window[property];continue}catch{}
+      const values=areas[area];
+      const storage=Object.create(Storage.prototype);
+      const mutate=operation=>{
+        const before=new Map(values);operation();
+        if(values.size>128||Array.from(values.keys()).some(key=>new TextEncoder().encode(key).length>1024)||new TextEncoder().encode(storageJSON()).length>65536){
+          values.clear();before.forEach((value,key)=>values.set(key,value));
+          throw new DOMException('Preview storage quota exceeded','QuotaExceededError');
+        }
+        persistStorage();
+      };
+      Object.defineProperties(storage,{
+        length:{configurable:true,get:()=>values.size},
+        key:{configurable:true,value:index=>Array.from(values.keys())[Number(index)>>>0]??null},
+        getItem:{configurable:true,value:key=>values.get(String(key))??null},
+        setItem:{configurable:true,value:(key,value)=>mutate(()=>values.set(String(key),String(value)))},
+        removeItem:{configurable:true,value:key=>mutate(()=>values.delete(String(key)))},
+        clear:{configurable:true,value:()=>mutate(()=>values.clear())}
+      });
+      const proxy=new Proxy(storage,{
+        get:(target,key)=>Reflect.has(target,key)?Reflect.get(target,key):typeof key==='string'?values.get(key):undefined,
+        set:(_target,key,value)=>{if(typeof key!=='string')return false;storage.setItem(key,value);return true},
+        deleteProperty:(_target,key)=>{if(typeof key!=='string')return false;storage.removeItem(key);return true},
+        ownKeys:()=>Array.from(values.keys()),
+        getOwnPropertyDescriptor:(target,key)=>Reflect.getOwnPropertyDescriptor(target,key)||(values.has(key)?{value:values.get(key),enumerable:true,writable:true,configurable:true}:undefined)
+      });
+      Object.defineProperty(window,property,{configurable:true,value:proxy});
+    }
     // Opaque frames throw even on optional cookie reads (for example Streamlit's
     // WebSocket startup). Match a browser with cookies disabled without exposing
     // the Relay domain's cookies or relaxing the frame sandbox.

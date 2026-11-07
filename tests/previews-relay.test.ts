@@ -52,6 +52,17 @@ it('previews a real local app through Agent/Relay with assets, API bytes, cookie
     expect(proxied.body.match(/<meta http-equiv="Content-Security-Policy" content="([^"]*)"/i)?.[1]).toContain('https://relay.example:8443'+path);
     expect(proxied.body).not.toContain('untrusted.example');
     expect(proxied.headers['content-security-policy']).not.toContain('allow-same-origin');
+    const storagePath=path+'__codexer_storage';
+    const storage={local:{name:'islander',token:'island-secret-storage-qa-8b9f',markup:'</script><script>unsafe()</script>'},session:{view:'map'}};
+    expect((await app.inject({method:'POST',url:storagePath,payload:storage})).statusCode).toBe(204);
+    const restored=await app.inject({url:path});
+    expect(restored.body).toContain('island-secret-storage-qa-8b9f');
+    expect(restored.body).not.toContain('</script><script>unsafe()');
+    expect((await app.inject({method:'POST',url:storagePath,payload:{local:{bad:1},session:{}}})).statusCode).toBe(400);
+    expect((await app.inject({method:'POST',url:storagePath,payload:{local:{large:'x'.repeat(65536)},session:{}}})).statusCode).toBe(413);
+    const isolated=(await create()).json().path as string;
+    expect((await app.inject({url:isolated})).body).not.toContain('island-secret-storage-qa-8b9f');
+    expect(JSON.stringify(await store.snapshot(registered.id))).not.toContain('island-secret-storage-qa-8b9f');
     const js=await app.inject({url:path+'src/main.js'});expect(js.body).toContain(path+'src/next.js');
     const api=await app.inject({method:'POST',url:path+'api',headers:{'content-type':'application/json',...account.headers},payload:'{ "n": 2 }'});
     expect(api.statusCode).toBe(200);expect(api.json()).toEqual({body:'{ "n": 2 }',cookie:'demo=local',authorization:''});
@@ -98,5 +109,6 @@ it('previews a real local app through Agent/Relay with assets, API bytes, cookie
     eventsAbort.abort();
     await readerEvents.cancel().catch(()=>{});
     expect((await app.inject({url:path})).statusCode).toBe(401);
+    expect((await app.inject({method:'POST',url:storagePath,payload:storage})).statusCode).toBe(401);
   }finally{eventsAbort.abort();ws?.terminate();await agent?.stop();await app.close();await desktop.close();wss.clients.forEach(socket=>socket.terminate());await new Promise<void>(resolve=>wss.close(()=>resolve()));await new Promise<void>(resolve=>upstream.close(()=>resolve()));await rm(directory,{recursive:true,force:true});}
 },20000);

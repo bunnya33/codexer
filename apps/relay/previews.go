@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"github.com/gorilla/websocket"
 	"html"
 	"io"
@@ -33,7 +34,7 @@ var inlineScript = regexp.MustCompile(`(?is)<script\b([^>]*)>(.*?)</script>`)
 var jsURLs = regexp.MustCompile(`(\b(?:from|import)\s*|\bimport\s*\(\s*|\b(?:fetch|Worker)\s*\(\s*|\bnew\s+URL\s*\(\s*)(['"])(/[^'"\n]*)(['"])`)
 var cssURLs = regexp.MustCompile(`url\(\s*(['"]?)(/[^)'"\s]+)(['"]?)\s*\)`)
 
-func rewritePreview(text, kind, prefix, origin, path string) string {
+func rewritePreview(text, kind, prefix, origin, path string, storage ...M) string {
 	mapURL := func(v string) string {
 		if strings.HasPrefix(v, prefix) {
 			return v
@@ -85,7 +86,11 @@ func rewritePreview(text, kind, prefix, origin, path string) string {
 		return "<script" + m[1] + ">" + rewriteJS(m[2]) + "</script>"
 	})
 	text = rewriteCSS(text)
-	bootstrap := strings.NewReplacer("@@BASE@@", html.EscapeString(prefix+strings.TrimPrefix(path, "/")), "@@PREFIX@@", scriptJSON(prefix), "@@ORIGIN@@", scriptJSON(origin), "@@PATH@@", scriptJSON(path)).Replace(previewBootstrap)
+	initialStorage := M{}
+	if len(storage) > 0 && storage[0] != nil {
+		initialStorage = storage[0]
+	}
+	bootstrap := strings.NewReplacer("@@BASE@@", html.EscapeString(prefix+strings.TrimPrefix(path, "/")), "@@PREFIX@@", scriptJSON(prefix), "@@ORIGIN@@", scriptJSON(origin), "@@PATH@@", scriptJSON(path), "@@STORAGE@@", scriptJSON(initialStorage)).Replace(previewBootstrap)
 	return injectHead(text, bootstrap)
 }
 func injectHead(text, head string) string {
@@ -131,6 +136,7 @@ type Preview struct {
 	State                           M
 	mu                              sync.Mutex
 	Cookies                         map[string]string
+	Storage                         M
 	FilePath                        string
 }
 
@@ -316,10 +322,53 @@ func (s *Server) previewRoutes() {
 		return M{"closed": true}
 	})
 	s.mux.HandleFunc("GET /v1/previews/{token}/__socket", s.previewSocket)
+	s.mux.HandleFunc("POST /v1/previews/{token}/__codexer_storage", s.previewStorage)
+	s.mux.HandleFunc("OPTIONS /v1/previews/{token}/__codexer_storage", s.previewStorage)
 	for _, method := range []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"} {
 		s.mux.HandleFunc(method+" /v1/previews/{token}/{path...}", s.previewHTTP)
 	}
 }
+
+// Storage stays inside this preview capability, like its upstream cookie jar.
+// It is never written to the Relay account, model-visible state, or disk.
+func (s *Server) previewStorage(w http.ResponseWriter, r *http.Request) {
+	p := s.previewFor(r.PathValue("token"))
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Cache-Control", "no-store")
+	if p.FilePath != "" {
+		fail(404, "preview-page-not-found")
+	}
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	b, err := io.ReadAll(io.LimitReader(r.Body, 65537))
+	if err != nil || len(b) > 65536 {
+		fail(413, "preview-storage-too-large")
+	}
+	var storage M
+	if json.Unmarshal(b, &storage) != nil || len(storage) != 2 {
+		fail(400, "invalid-preview-storage")
+	}
+	for _, area := range []string{"local", "session"} {
+		values, ok := storage[area].(map[string]any)
+		if !ok || len(values) > 128 {
+			fail(400, "invalid-preview-storage")
+		}
+		for key, value := range values {
+			if _, ok := value.(string); !ok || len(key) > 1024 {
+				fail(400, "invalid-preview-storage")
+			}
+		}
+	}
+	p.mu.Lock()
+	p.Storage = storage
+	p.mu.Unlock()
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) previewHTTP(w http.ResponseWriter, r *http.Request) {
 	p := s.previewFor(r.PathValue("token"))
 	defer s.sharedPreviewError(w, r, p)
@@ -479,7 +528,10 @@ func (s *Server) previewHTTP(w http.ResponseWriter, r *http.Request) {
 				if !stream {
 					kind := str(responseHeaders["content-type"])
 					if strings.Contains(kind, "text/html") || strings.Contains(kind, "javascript") || strings.Contains(kind, "ecmascript") || strings.Contains(kind, "text/css") {
-						text := rewritePreview(string(chunks), kind, prefix, p.Origin, path)
+						p.mu.Lock()
+						storage := p.Storage
+						p.mu.Unlock()
+						text := rewritePreview(string(chunks), kind, prefix, p.Origin, path, storage)
 						if strings.Contains(kind, "text/html") {
 							text = previewDocument(text, p.Channel, p.State, localAssets)
 						}
