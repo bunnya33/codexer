@@ -8,6 +8,8 @@
 
 完整 Go 回归、92 个 TypeScript 文件共 730 项测试、根／后台／桌面类型检查、文档及差异空白检查通过。Web/Admin/Go 生产构建和 Windows 独立程序健康／内嵌资源验收通过，Linux amd64 `0.3.42` 统一更新包及 SHA-256 已生成并核对版本、平台、摘要。此记录不表示已替换生产服务器；安装后重新打开预览生效。本轮没有重新构建 Agent 或 Android。
 
+正式 [v0.3.42 Release](https://github.com/bunnya33/codexer/releases/tag/v0.3.42) 对应源码 `be517f2`，[发布流程](https://github.com/bunnya33/codexer/actions/runs/42381094790)成功完成类型、完整测试、PostgreSQL、Go race、生产构建、独立程序与四平台打包。正式归档和配套校验文件共 8 个附件全部发布；发布后只读检查生产版本仍为 `0.3.41`，未操作后台准备或确认重启。发布元数据与工作流记录保存于 `release/server-0.3.42`。
+
 ## 2026-11-07 Android 0.1.13 原生安装包
 
 Android 版本为 `0.1.13`（versionCode `14`），包名、既有发布证书、ARM64/x86_64 和最低 Android 7.0 保持一致。主目录与既有短路径原生构建目录的 1122 个源码文件逐一哈希匹配，原生依赖和版本字段以外的 Expo 配置一致。Gradle Release 实际原生构建成功；移动端类型和预览运行时一致性检查通过。APK v2 签名连续性、非调试 Manifest、API/架构和 16 KiB ZIP 对齐检查通过；提取的 Hermes 与原生构建输出一致，source map 中 16 个关键界面及业务源码与主目录逐字匹配。
