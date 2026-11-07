@@ -41,6 +41,7 @@ it('places running markers before the title and tokens, with a spinner only at p
     expect(spinner).not.toBeNull();
     expect(spinner.parentElement?.querySelector('[data-testid="task-status-dot"]')).toBeNull();
     expect(f.doc.querySelector('[data-testid="turn-end-time"]')).toBeNull();
+    expect(f.doc.querySelector('[data-testid="turn-cost"]')).toBeNull();
     expect(f.errors).toEqual([]);
   } finally { f.close(); }
 });
@@ -57,6 +58,8 @@ it('removes running markers and backgrounds on completion while retaining tokens
     expect(f.style(f.doc.querySelector('[data-testid="directory-project-heading-project"]')!).backgroundColor).toBe('rgba(0, 0, 0, 0)');
     expect(f.style(f.doc.querySelector('[data-testid="directory-thread-fixture"]')!).backgroundColor).toBe('rgb(238, 244, 247)');
     expect(f.doc.querySelector('[data-testid="turn-end-time"]')?.textContent).toContain('已完成');
+    expect(f.doc.querySelector('[data-testid="turn-end-time"]')?.textContent).toMatch(/已完成 · 本次预估 \$0\.0038$/);
+    expect(f.doc.querySelector('[data-testid="turn-cost"]')?.textContent).toBe(' · 本次预估 $0.0038');
   } finally { f.close(); }
 });
 
@@ -100,6 +103,7 @@ it('shows running token status before the first usage report and removes it when
     expect(f.doc.querySelector('[data-testid="turn-token-usage"] [aria-label="任务进行中"]')).not.toBeNull();
     f.click('切换任务状态');
     await vi.waitFor(() => expect(f.doc.querySelector('[data-testid="turn-token-usage"]')).toBeNull());
+    expect(f.doc.querySelector('[data-testid="turn-cost"]')?.textContent).toBe(' · 本次费用待统计');
   } finally { f.close(); }
 });
 

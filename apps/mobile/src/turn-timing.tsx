@@ -1,6 +1,7 @@
 import { Text, View } from 'react-native';
 import type { HistoryTurn } from '../../../packages/protocol/src/index';
 import { localTaskTime, recordedTurnTiming } from '../../../packages/client-shared/src/turn-timing';
+import { turnCostLabel } from '../../../packages/client-shared/src/project-usage';
 import { useTheme } from './styles';
 
 export type TurnTimingProps = { turn: HistoryTurn; running: boolean };
@@ -22,5 +23,6 @@ export function TurnEndTime({ turn, running }: TurnTimingProps) {
   if (!end) return null;
   const value = localTaskTime(end);
   const suffix = turn.status === 'completed' ? ' · 已完成' : '';
-  return <Text testID="turn-end-time" selectable accessibilityLabel={`结束时间 ${value}${suffix}`} style={{ color: c.timestamp, fontSize: 12, lineHeight: 18, alignSelf: 'flex-start', textAlign: 'left' }}>{value}{suffix}</Text>;
+  const cost = turn.status === 'completed' ? turnCostLabel(turn.tokenUsage) : '';
+  return <Text testID="turn-end-time" selectable accessibilityLabel={`结束时间 ${value}${suffix}${cost ? ` · ${cost}` : ''}`} style={{ color: c.timestamp, fontSize: 12, lineHeight: 18, alignSelf: 'flex-start', textAlign: 'left' }}>{value}{suffix}{!!cost && <Text testID="turn-cost"> · {cost}</Text>}</Text>;
 }

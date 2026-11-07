@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { projectUsageSchema, type ProjectUsage } from '../packages/protocol/src/index';
-import { compactTokens, estimateProjectCost, projectUsageLabel, usdLabel } from '../packages/client-shared/src/project-usage';
+import { compactTokens, estimateProjectCost, projectUsageLabel, turnCostLabel, usdLabel } from '../packages/client-shared/src/project-usage';
 
 function usage(): ProjectUsage {
   return { totalTokens: 1_200_000, recordedTokens: 1_200_000, totalThreads: 3, knownThreads: 3, partial: false,
@@ -40,4 +40,20 @@ it('preserves small costs and rejects corrupt coverage or counters', () => {
   expect(compactTokens(1_000_000_000)).toBe('1B');
   expect(projectUsageSchema.safeParse({ ...usage(), knownThreads: 4 }).success).toBe(false);
   expect(projectUsageSchema.safeParse({ ...usage(), totalTokens: -1 }).success).toBe(false);
+});
+
+it('prices each reply from its own recorded model and counters with four-decimal precision', () => {
+  const value = { model: 'gpt-5.3-codex', totalTokens: 1200, inputTokens: 1000, cachedInputTokens: 500, outputTokens: 200, reasoningOutputTokens: 150, state: 'complete' as const };
+  expect(turnCostLabel(value)).toBe('本次预估 $0.0038');
+  expect(turnCostLabel({ ...value, state: 'partial' })).toBe('本次部分预估 $0.0038');
+  expect(turnCostLabel({ ...value, state: 'running' })).toBe('本次部分预估 $0.0038');
+  expect(turnCostLabel({ ...value, model: 'gpt-5.4-2026-03-05' })).toBe('本次预估 $0.0044');
+  expect(turnCostLabel({ ...value, inputTokens: 1, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 1 })).toBe('本次预估 <$0.0001');
+});
+
+it('does not invent reply fees from a missing model, usage, or unsupported cache writes', () => {
+  const value = { ...usage().models[0]!, model: 'gpt-5.3-codex', state: 'complete' as const };
+  expect(turnCostLabel()).toBe('本次费用待统计');
+  for (const model of [undefined, 'unknown', '__proto__', 'constructor']) expect(turnCostLabel({ ...value, model })).toBe('本次费用暂不可估');
+  expect(turnCostLabel({ ...value, cacheWriteInputTokens: 1 })).toBe('本次费用暂不可估');
 });

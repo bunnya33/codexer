@@ -1,4 +1,4 @@
-import type { ProjectUsage } from '../../protocol/src/index.js';
+import type { ProjectUsage, TokenBreakdown, TurnTokenUsage } from '../../protocol/src/index.js';
 
 export const pricingSource = 'https://developers.openai.com/api/docs/pricing';
 export const pricingDate = '2026-11-08';
@@ -18,17 +18,23 @@ const prices: Record<string, readonly [number, number | null, number]> = {
   'gpt-4o': [2.5, 1.25, 10], 'gpt-4o-mini': [0.15, 0.075, 0.6], 'o3': [2, 0.5, 8], 'o3-pro': [20, null, 80],
 };
 
+export function estimateTokenCost(group: TokenBreakdown & { model?: string | null }): number | null {
+  const model = group.model?.replace(/-\d{4}-\d{2}-\d{2}$/, '');
+  const rate = model && Object.prototype.hasOwnProperty.call(prices, model) ? prices[model] : undefined;
+  // Cache-write retention and per-request context/speed aren't in old
+  // records. Show a Standard equivalent; never count reasoning twice.
+  if (!rate || (group.cacheWriteInputTokens ?? 0) > 0 ||
+      rate[1] === null && group.cachedInputTokens > 0) return null;
+  return ((group.inputTokens - group.cachedInputTokens) * rate[0]
+    + group.cachedInputTokens * (rate[1] ?? 0) + group.outputTokens * rate[2]) / 1_000_000;
+}
+
 export function estimateProjectCost(usage: ProjectUsage) {
   let usd = 0, pricedTokens = 0;
   for (const group of usage.models) {
-    const model = group.model?.replace(/-\d{4}-\d{2}-\d{2}$/, '');
-    const rate = model ? prices[model] : undefined;
-    // Cache-write retention and per-request context/speed aren't in old
-    // records. Show a Standard equivalent; never count reasoning twice.
-    if (!rate || (group.cacheWriteInputTokens ?? 0) > 0 ||
-        rate[1] === null && group.cachedInputTokens > 0) continue;
-    usd += ((group.inputTokens - group.cachedInputTokens) * rate[0]
-      + group.cachedInputTokens * (rate[1] ?? 0) + group.outputTokens * rate[2]) / 1_000_000;
+    const cost = estimateTokenCost(group);
+    if (cost === null) continue;
+    usd += cost;
     pricedTokens += group.totalTokens;
   }
   return { usd, pricedTokens, partial: usage.partial || pricedTokens < usage.totalTokens,
@@ -39,7 +45,17 @@ export function compactTokens(value: number): string {
   const [unit, scale] = value >= 1e9 ? ['B', 1e9] : value >= 1e6 ? ['M', 1e6] : value >= 1e4 ? ['K', 1e3] : ['', 1];
   return unit ? `${(value / Number(scale)).toFixed(2).replace(/\.?0+$/, '')}${unit}` : value.toLocaleString();
 }
-export function usdLabel(value: number): string { return value > 0 && value < 0.01 ? '<$0.01' : `$${value.toFixed(2)}`; }
+export function usdLabel(value: number, decimals = 2): string {
+  const minimum = 10 ** -decimals;
+  return value > 0 && value < minimum ? `<$${minimum.toFixed(decimals)}` : `$${value.toFixed(decimals)}`;
+}
+
+export function turnCostLabel(usage?: TurnTokenUsage): string {
+  if (!usage) return '本次费用待统计';
+  const cost = estimateTokenCost(usage);
+  if (cost === null) return '本次费用暂不可估';
+  return `本次${usage.state === 'complete' ? '预估' : '部分预估'} ${usdLabel(cost, 4)}`;
+}
 
 export function projectUsageLabel(usage?: ProjectUsage): string {
   if (!usage) return '项目 Token 待同步';

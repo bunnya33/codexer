@@ -1,4 +1,5 @@
 import { localTaskTime, recordedTurnTiming } from '../../../packages/client-shared/src/turn-timing';
+import { turnCostLabel } from '../../../packages/client-shared/src/project-usage';
 import { useTheme } from './styles';
 import type { TurnTimingProps } from './turn-timing';
 
@@ -18,5 +19,6 @@ export function TurnEndTime({ turn, running }: TurnTimingProps) {
   if (!end) return null;
   const value = localTaskTime(end);
   const suffix = turn.status === 'completed' ? ' · 已完成' : '';
-  return <time data-testid="turn-end-time" aria-label={`结束时间 ${value}${suffix}`} dateTime={end.toISOString()} title={end.toLocaleString('zh-CN', { timeZoneName: 'short' })} style={{ color: c.timestamp, fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif', fontSize: 12, lineHeight: '18px', alignSelf: 'flex-start', textAlign: 'left' }}>{value}{suffix}</time>;
+  const cost = turn.status === 'completed' ? turnCostLabel(turn.tokenUsage) : '';
+  return <time data-testid="turn-end-time" aria-label={`结束时间 ${value}${suffix}${cost ? ` · ${cost}` : ''}`} dateTime={end.toISOString()} title={end.toLocaleString('zh-CN', { timeZoneName: 'short' })} style={{ color: c.timestamp, fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif', fontSize: 12, lineHeight: '18px', alignSelf: 'flex-start', textAlign: 'left' }}>{value}{suffix}{!!cost && <span data-testid="turn-cost"> · {cost}</span>}</time>;
 }

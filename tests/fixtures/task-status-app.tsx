@@ -21,7 +21,7 @@ function Fixture() {
     startedAtMs: 1793966400000, ...(running ? {} : { completedAtMs: 1793966460000 }),
     items: [{ id: 'user', type: 'userMessage', text: '请检查任务状态', truncated: false },
       { id: 'reasoning', type: 'reasoning', text: '正在检查状态与布局', truncated: false }],
-    ...(usage ? { tokenUsage: { totalTokens: 1200, inputTokens: 1000, cachedInputTokens: 500, outputTokens: 200, state: running ? 'running' : 'complete' } as const } : {}),
+    ...(usage ? { tokenUsage: { model: 'gpt-5.3-codex', totalTokens: 1200, inputTokens: 1000, cachedInputTokens: 500, outputTokens: 200, state: running ? 'running' : 'complete' } as const } : {}),
   };
   const count = running ? parallel ? 2 : 1 : 0;
   const view = { phase: 'connected', devices: [{ id: 'fixture', name: '工作电脑', online: true, platform: 'win32' }], snapshots: { fixture: {
