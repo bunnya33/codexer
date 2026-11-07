@@ -2,6 +2,7 @@
 #include <QtEndian>
 #include <QtTest>
 #include <QtWebSockets/QWebSocketServer>
+#include <algorithm>
 #include <cstdio>
 #include <iostream>
 namespace Native {
@@ -908,6 +909,93 @@ private slots:
                 .toBool());
     agent->pause();
     QVERIFY(agent->paused);
+  }
+
+  void continueCommandThroughRelay_data() {
+    QTest::addColumn<bool>("onDesktop");
+    QTest::newRow("app-server") << false;
+    QTest::newRow("desktop") << true;
+  }
+  void continueCommandThroughRelay() {
+    QFETCH(bool, onDesktop);
+    const auto stopped = Object{{"id", "stopped"}, {"status", "interrupted"},
+                                {"items", Array{}}};
+    std::unique_ptr<DesktopFixture> desktopFixture;
+    if (onDesktop) {
+      auto state = raw();
+      state["turns"] = Array{stopped};
+      desktopFixture = std::make_unique<DesktopFixture>(state);
+      qputenv("CODEX_REMOTE_DESKTOP_ENDPOINT", desktopFixture->endpoint.toUtf8());
+      agent->settings["runtime"] = "auto";
+      agent->desktop->open(agent->settings);
+      QVERIFY(agent->desktop->follow("thread-test"));
+      QVERIFY(waitFor([&] { return agent->desktop->watched["thread-test"].compatible; }, 1000));
+    } else {
+      setFixture({{"turns", Array{stopped}}});
+    }
+    agent->refreshCatalog();
+    agent->watch("thread-test");
+
+    QWebSocketServer server("Synthetic", QWebSocketServer::NonSecureMode);
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+    QList<Object> received;
+    QWebSocket *peer = nullptr;
+    connect(&server, &QWebSocketServer::newConnection, &server, [&] {
+      peer = server.nextPendingConnection();
+      connect(peer, &QWebSocket::textMessageReceived, &server, [&](QString text) {
+        received.append(parse(text.toUtf8()).toObject());
+      });
+    });
+    agent->credentials["relayUrl"] =
+        "http://127.0.0.1:" + QString::number(server.serverPort());
+    agent->connectRelay();
+    QVERIFY(waitFor([&] { return !received.isEmpty(); }, 3000));
+    auto cmd = command("turn.continue");
+    cmd["payload"] = Object{{"type", "turn.continue"},
+                            {"threadId", "thread-test"}, {"turnId", "stopped"}};
+    const auto wire = QString::fromUtf8(json(Object{{"type", "command"}, {"command", cmd}}));
+    for (int delivery = 1; delivery <= 2; ++delivery) {
+      peer->sendTextMessage(wire);
+      QVERIFY(waitFor([&] { return !agent->commandQueue.isEmpty() || agent->paused; }, 3000));
+      QVERIFY(!agent->paused);
+      QCOMPARE(agent->relay->state(), QAbstractSocket::ConnectedState);
+      QCOMPARE(agent->commandQueue.size(), 1);
+      agent->tick();
+      QVERIFY(waitFor([&] {
+        return std::count_if(received.begin(), received.end(), [&](const Object &message) {
+          return message["type"] == "command.result" &&
+                 message["result"].toObject()["commandId"] == cmd["commandId"];
+        }) == delivery;
+      }, 3000));
+      const auto result = std::find_if(received.crbegin(), received.crend(), [&](const Object &message) {
+        return message["type"] == "command.result" &&
+               message["result"].toObject()["commandId"] == cmd["commandId"];
+      })->value("result").toObject();
+      QCOMPARE(result["status"], QJsonValue("succeeded"));
+      QCOMPARE(result["result"].toObject()["turnId"],
+               QJsonValue(onDesktop ? "desktop-turn" : "turn-new"));
+      QVERIFY(!agent->paused);
+      QCOMPARE(agent->relay->state(), QAbstractSocket::ConnectedState);
+    }
+    QList<Object> requests;
+    if (onDesktop) {
+      requests = desktopFixture->requests;
+    } else {
+      for (const auto &line : read(temp.path() + "/requests.jsonl").split('\n'))
+        if (!line.isEmpty())
+          requests.append(parse(line).toObject());
+    }
+    int starts = 0;
+    for (const auto &request : requests) {
+      if (request["method"] != (onDesktop ? "thread-follower-start-turn" : "turn/start"))
+        continue;
+      ++starts;
+      const auto params = request["params"].toObject();
+      QCOMPARE(onDesktop ? params["turnStart"].toObject()["request"].toObject()["input"]
+                         : params["input"], QJsonValue(Array{}));
+    }
+    QCOMPARE(starts, 1);
+    agent->pause();
   }
 
   void createAtCapacityKeepsOrderedBoundedWireState() {

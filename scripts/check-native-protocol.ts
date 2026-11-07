@@ -32,6 +32,7 @@ const payloads: Record<string,any>[]=[
  ...['turn.queue.read','turn.queue.remove','turn.queue.steer'].map(type=>({type,threadId:'thread',turnId:'turn',queueId:'queue'})),
  {type:'turn.queue.update',threadId:'thread',queueId:'queue',text:'new',expectedText:'old'},
  {type:'turn.interrupt',threadId:'thread',turnId:'turn'},
+ {type:'turn.continue',threadId:'thread',turnId:'stopped'},
  {type:'thread.model.update',threadId:'thread',model:'model',expectedModel:'old'},
  {type:'thread.effort.update',threadId:'thread',effort:'high',expectedModel:'model',expectedEffort:null},
  {type:'thread.mode.update',threadId:'thread',mode:'plan',expectedMode:null,expectedModel:'model',expectedEffort:null},
@@ -40,6 +41,7 @@ const payloads: Record<string,any>[]=[
  {type:'elicitation.respond',threadId:'thread',turnId:null,requestId:'req',decision:'accept',scope:'session'},
  {type:'input.respond',threadId:'thread',turnId:'turn',requestId:'req',answers:{question:{answers:['answer']}}},
 ];
+assert.deepEqual([...new Set(payloads.map(payload=>payload.type))].sort(),commandSchema.shape.payload.options.map(schema=>schema.shape.type.value).sort(),'Each command type needs native protocol fixtures');
 for(const payload of payloads) {
  add('command',{...envelope,payload});
  for(const key of Object.keys(payload)) {
@@ -47,6 +49,8 @@ for(const payload of payloads) {
    add('command',{...envelope,payload:{...payload,[key]:123}});
  }
 }
+for(const turnId of ['',null,'x'.repeat(161)]) add('command',{...envelope,payload:{type:'turn.continue',threadId:'thread',turnId}});
+for(const extra of [{text:''},{input:[]},{images:[]},{unexpected:true}]) add('command',{...envelope,payload:{type:'turn.continue',threadId:'thread',turnId:'stopped',...extra}});
 for(const expiresAt of [null,1.2,'tomorrow',Number.MAX_VALUE]) add('command',{...envelope,expiresAt,payload:{type:'runtime.refresh'}});
 const items=[
  {id:'user',type:'userMessage',content:[{type:'text',text:'Please fix this'}]},

@@ -1098,6 +1098,8 @@ bool validCommand(const Object &command) {
   if (QStringList{"thread.watch", "thread.archive", "thread.delete"}.contains(
           type))
     return true;
+  if (type == "turn.continue")
+    return p.size() == 3 && id(p["turnId"]);
   auto model = [&](QJsonValue v) { return bounded(v, 1, 200); };
   auto effort = [&](QJsonValue v) { return v.isNull() || bounded(v, 0, 80); };
   if (type == "thread.model.update")
