@@ -6,6 +6,8 @@
 
 浏览器以共享组件和合成用量在 320／390 像素宽度、明暗主题验证，单轮显示「已完成 · 本次预估 $0.0038」，无横向溢出；截图位于 `.local/turn-cost-qa/completed.jpg`。Web/Admin/Go 生产构建通过。本次没有修改或重新构建 Qt Agent，Agent 0.2.29 交付包沿用；Android 与原生桌面 Control 仅共享源码更新，未重新打包或实机验收。生产服务器安装仍由用户在后台执行。
 
+正式 [v0.3.44](https://github.com/bunnya33/codexer/releases/tag/v0.3.44) 对应提交 `7b366c5`，[发布流程](https://github.com/bunnya33/codexer/actions/runs/42425786976)成功完成类型检查、完整 Go 回归及 93 个文件共 740 项 TypeScript 测试、PostgreSQL、Go race、生产构建与 Linux 独立程序验收。Linux/macOS 双架构归档和校验文件共 8 个附件全部发布，四个平台摘要与正式资产一致，Linux amd64 正式包下载后的 SHA-256、版本、平台与执行权限核对通过。发布记录位于 `release/server-0.3.44/publication.json`，未操作生产服务器安装或重启。
+
 ## 2026-11-08 服务器 0.3.43 / Agent 0.2.29 项目用量
 
 Qt 原生统计新增隔离 SQLite 回归，验证数字版本最新的 Codex 索引选择、只读源文件不变、项目隔离、归档及未加载会话、实时与索引取最大值、重复轮次 upsert 不重复累计、模型分组及缺少索引时的已知下限。统计不启动 RPC，也不获取会话写入权。完整 Qt 后台 103 项通过、2 个显式环境探针跳过；UI 18 项通过、1 个截图探针跳过；跨语言协议对照 328 项通过。
@@ -17,6 +19,8 @@ Go 回归通过，补充项目用量字段、旧目录兼容、非法覆盖数�
 Web/Admin/Go 生产构建和 Windows x64 Qt/C++ 原生 Release 编译通过，生成 Linux amd64 服务器更新包、Windows Agent NSIS 安装版及便携版，均附 SHA-256。Windows 独立 Go 程序的健康版本和内嵌新 UI 与构建资源摘要一致；Linux 包版本／平台／摘要核对通过，但未在 Linux 启动。便携程序在合成配置下通过首次启动、原生登录恢复、Electron v10 加密迁移和单实例检查；不会修改本机现有设备身份或真实凭据。
 
 交付目录为 `release/server-0.3.43` 与 `release/agent-0.2.29`。此轮未发布正式 Release、未部署生产服务器、未替换已安装 Agent。Android 与桌面 Control 仅更新共享源码，未生成原生包；额外尝试 Windows Control 类型检查因当前目录未安装 `react-native-windows` 而无法运行，不宣称该宿主构建通过。项目统计范围和费用限制见[项目用量](project-usage.md)。
+
+随后正式发布 [v0.3.43](https://github.com/bunnya33/codexer/releases/tag/v0.3.43)，对应提交 `5940e70`；[发布工作流](https://github.com/bunnya33/codexer/actions/runs/42425247754)成功，覆盖 PostgreSQL、Go race 和 Linux 独立程序。四个平台归档及校验文件完整，Linux amd64 正式包下载后 SHA-256、内含版本、平台和执行权限核对通过。正式发布记录位于 `release/server-0.3.43/publication.json`；本次仅发布更新渠道，生产安装和重启仍由用户在后台执行。
 
 ## 2026-11-07 Agent 0.2.28 原生预览 WebSocket
 
