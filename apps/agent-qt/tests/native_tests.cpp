@@ -1522,6 +1522,90 @@ private slots:
     QCOMPARE(agent->usageRecord("thread-test", "new"), saved);
     QVERIFY(agent->usageRecord("thread-test", "other").isEmpty());
   }
+  void projectUsageIncludesArchivedUnloadedAndIsReadOnly() {
+    QTemporaryDir index;
+    QVERIFY(index.isValid());
+    agent->settings["codexHome"] = index.path();
+    auto writeIndex = [&](const QString &name, double current) {
+      const auto connection = uuid();
+      {
+        auto db = QSqlDatabase::addDatabase("QSQLITE", connection);
+        db.setDatabaseName(index.filePath(name));
+        if (!db.open()) throw Error("fixture-index-open");
+        sql(db, "CREATE TABLE IF NOT EXISTS threads(id TEXT PRIMARY KEY,tokens_used INTEGER)");
+        for (const auto &row : Array{Array{"current", current}, Array{"archived", 4000},
+              Array{"other", 700}, Array{"unassigned", 50}, Array{"not-in-catalog", 9999}}) {
+          const auto values = row.toArray();
+          sql(db, "INSERT OR REPLACE INTO threads VALUES(?,?)",
+              {values[0].toVariant(), values[1].toVariant()});
+        }
+        db.close();
+      }
+      QSqlDatabase::removeDatabase(connection);
+    };
+    writeIndex("state_2.sqlite", 1);
+    writeIndex("state_10.sqlite", 1000);
+    const auto before = read(index.filePath("state_10.sqlite"));
+    agent->catalog = {{"projects", Array{Object{{"id", "p"}}, Object{{"id", "q"}}, Object{{"id", "empty"}}}},
+        {"threads", Array{Object{{"id", "current"}, {"projectId", "p"}},
+          Object{{"id", "archived"}, {"projectId", "p"}, {"archived", true}},
+          Object{{"id", "other"}, {"projectId", "q"}},
+          Object{{"id", "unassigned"}, {"projectId", QJsonValue::Null}}}}};
+    auto record = counts(500, 100, 400);
+    record["state"] = "complete";
+    record["model"] = "gpt-5.3-codex";
+    QVERIFY(agent->saveUsage("current", "a", record));
+    record = merged(record, counts(600, 200, 450));
+    QVERIFY(agent->saveUsage("current", "a", record)); // Upsert, never add twice.
+    record = merged(record, counts(100, 100, 50));
+    record["model"] = "gpt-5.4";
+    QVERIFY(agent->saveUsage("current", "b", record));
+    record = merged(record, counts(80, 20, 30));
+    record.remove("model");
+    QVERIFY(agent->saveUsage("archived", "c", record));
+    QVERIFY(agent->saveUsage("not-in-catalog", "d", record));
+    agent->snapshot["threads"] = Object{{"current", Object{{"tokenUsage", Object{{"total", counts(1500, 200, 1000)}}}}}};
+    agent->refreshProjectUsage(false);
+    auto value = agent->catalog["projects"].toArray()[0].toObject()["usage"].toObject();
+    QCOMPARE(value["totalTokens"], QJsonValue(5700));
+    QCOMPARE(value["totalThreads"], QJsonValue(2));
+    QCOMPARE(value["knownThreads"], QJsonValue(2));
+    QCOMPARE(value["recordedTokens"], QJsonValue(1100));
+    QCOMPARE(value["models"].toArray().size(), 3);
+    QCOMPARE(value["models"].toArray()[0].toObject()["model"], QJsonValue(QJsonValue::Null));
+    QCOMPARE(value["models"].toArray()[1].toObject()["inputTokens"], QJsonValue(600));
+    QCOMPARE(agent->catalog["projects"].toArray()[1].toObject()["usage"].toObject()["totalTokens"], QJsonValue(700));
+    QCOMPARE(agent->catalog["projects"].toArray()[2].toObject()["usage"].toObject()["totalTokens"], QJsonValue(0));
+    QCOMPARE(agent->catalog["unassignedUsage"].toObject()["totalTokens"], QJsonValue(50));
+    QCOMPARE(read(index.filePath("state_10.sqlite")), before);
+    const auto first = agent->catalog;
+    agent->refreshProjectUsage(false);
+    QCOMPARE(agent->catalog, first);
+    QVERIFY(!agent->rpc); // No model request or thread ownership acquisition.
+    writeIndex("state_10.sqlite", 2000);
+    agent->refreshProjectUsage(false);
+    QCOMPARE(agent->catalog["projects"].toArray()[0].toObject()["usage"].toObject()["totalTokens"], QJsonValue(6000));
+  }
+  void projectUsageFallsBackWithoutPretendingHistoryIsComplete() {
+    QTemporaryDir index;
+    agent->settings["codexHome"] = index.path();
+    agent->catalog = {{"projects", Array{Object{{"id", "p"}}}},
+        {"threads", Array{Object{{"id", "live"}, {"projectId", "p"}},
+          Object{{"id", "journal-only"}, {"projectId", "p"}},
+          Object{{"id", "missing"}, {"projectId", "p"}}}}};
+    agent->snapshot["threads"] = Object{{"live", Object{{"tokenUsage", Object{{"total", counts(1000, 100, 500)}}}}}};
+    auto record = counts(200, 50, 100);
+    record["state"] = "partial";
+    QVERIFY(agent->saveUsage("journal-only", "a", record));
+    agent->refreshProjectUsage(false);
+    const auto value = agent->catalog["projects"].toArray()[0].toObject()["usage"].toObject();
+    QCOMPARE(value["totalTokens"], QJsonValue(1350));
+    QCOMPARE(value["recordedTokens"], QJsonValue(250));
+    QCOMPARE(value["knownThreads"], QJsonValue(1));
+    QCOMPARE(value["totalThreads"], QJsonValue(3));
+    QCOMPARE(value["partial"], QJsonValue(true));
+    QVERIFY(!agent->rpc);
+  }
   void usageInvalidCounters_data() {
     QTest::addColumn<QJsonValue>("invalid");
     QTest::newRow("negative") << QJsonValue(-1);

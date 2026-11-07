@@ -574,6 +574,14 @@ void Service::tick() {
       }
     }
     if (!snapshot.isEmpty()) {
+      if (!catalog.isEmpty() && now() - lastProjectUsage >= 5000) {
+        lastProjectUsage = now();
+        try {
+          refreshProjectUsage();
+        } catch (...) {
+          log("project-usage-unavailable");
+        }
+      }
       trimThreadPreviews(threadLimit);
       if (!paused && allowed && !relay && now() >= lastRetry)
         connectRelay();

@@ -147,6 +147,7 @@ class Service : public QObject {
   int threadLimit = DefaultSyncedThreads;
   bool initialized = false, paused = true, allowed = true, stopping = false,
        refreshing = false, refreshRequested = false;
+  qint64 lastProjectUsage = 0;
   qint64 lastScan = 0, lastCatalog = 0, lastRetry = 0, lastPong = 0,
          lastPing = 0, lastRelease = 0, lastStatus = 0;
   QNetworkReply *download = nullptr;
@@ -223,6 +224,7 @@ class Service : public QObject {
   bool saveUsage(const QString &threadId, const QString &turnId,
                  const Object &value);
   void enrichUsage(const QString &threadId, Object &turn);
+  void refreshProjectUsage(bool notify = true);
   void processCommand(const Object &command);
   Object dispatch(const QString &method, Object value);
   void checkUpdate();

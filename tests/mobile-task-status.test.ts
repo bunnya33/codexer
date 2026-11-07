@@ -63,16 +63,16 @@ it('removes running markers and backgrounds on completion while retaining tokens
 it('shows only the chat marker when expanded and transfers activity to the project marker when collapsed', async () => {
   const f = await fixture();
   try {
-    expect(f.doc.querySelector('[aria-label="项目 示例项目 有会话正在运行"]')).toBeNull();
+    expect(f.doc.querySelector('[aria-label="项目 示例项目 有会话正在运行，1 个会话运行中"]')).toBeNull();
     const chatDot = f.doc.querySelector('[aria-label="正在运行：示例会话"]')!;
     expect(chatDot.nextElementSibling?.textContent).toBe('示例会话');
     f.click('收起项目 示例项目');
     await vi.waitFor(() => expect(f.doc.querySelector('[aria-label="展开项目 示例项目"]')).not.toBeNull());
-    expect(f.doc.querySelector('[aria-label="项目 示例项目 有会话正在运行"]')?.nextElementSibling?.textContent).toBe('示例项目');
+    expect(f.doc.querySelector('[aria-label="项目 示例项目 有会话正在运行，1 个会话运行中"]')?.nextElementSibling?.textContent).toBe('示例项目');
     expect(f.doc.querySelector('[aria-label="正在运行：示例会话"]')).toBeNull();
     f.click('展开项目 示例项目');
     await vi.waitFor(() => expect(f.doc.querySelector('[aria-label="正在运行：示例会话"]')).not.toBeNull());
-    expect(f.doc.querySelector('[aria-label="项目 示例项目 有会话正在运行"]')).toBeNull();
+    expect(f.doc.querySelector('[aria-label="项目 示例项目 有会话正在运行，1 个会话运行中"]')).toBeNull();
   } finally { f.close(); }
 });
 
@@ -87,7 +87,7 @@ it.each(['default', 'paper', 'warm-dark'])('highlights running projects and chat
     expect(f.style(chat).backgroundColor).toBe(rgb(colors.taskThreadBg));
     expect(f.style(chat).borderTopColor).toBe(rgb(colors.accent));
     f.click('收起项目 示例项目');
-    await vi.waitFor(() => expect(f.doc.querySelector('[aria-label="项目 示例项目 有会话正在运行"]')).not.toBeNull());
+    await vi.waitFor(() => expect(f.doc.querySelector('[aria-label="项目 示例项目 有会话正在运行，1 个会话运行中"]')).not.toBeNull());
     expect(f.style(project).backgroundColor).toBe(rgb(colors.taskProjectBg));
   } finally { f.close(); }
 });
@@ -100,5 +100,38 @@ it('shows running token status before the first usage report and removes it when
     expect(f.doc.querySelector('[data-testid="turn-token-usage"] [aria-label="任务进行中"]')).not.toBeNull();
     f.click('切换任务状态');
     await vi.waitFor(() => expect(f.doc.querySelector('[data-testid="turn-token-usage"]')).toBeNull());
+  } finally { f.close(); }
+});
+
+it('shows counts only for concurrent chats on the device and collapsed project, and updates on completion', async () => {
+  const f = await fixture();
+  try {
+    const device = () => f.doc.querySelector('[data-testid="device-task-badge"]')!;
+    expect(device().querySelector('[data-testid="task-status-dot"]')).not.toBeNull();
+    expect(f.doc.querySelector('[data-testid="running-task-number"]')).toBeNull();
+    f.click('切换并行会话');
+    await vi.waitFor(() => expect(device().querySelector('[data-testid="running-task-number"]')?.textContent).toBe('2'));
+    expect(f.doc.querySelectorAll('[data-testid="running-task-number"]').length).toBe(1);
+    f.click('收起项目 示例项目');
+    await vi.waitFor(() => expect(f.doc.querySelectorAll('[data-testid="running-task-number"]').length).toBe(2));
+    expect(f.doc.querySelector('[aria-label="项目 示例项目 有会话正在运行，2 个会话运行中"]')).not.toBeNull();
+    f.click('切换并行会话');
+    await vi.waitFor(() => expect(f.doc.querySelector('[data-testid="running-task-number"]')).toBeNull());
+    expect(device().querySelector('[data-testid="task-status-dot"]')).not.toBeNull();
+    f.click('切换任务状态');
+    await vi.waitFor(() => expect(f.doc.querySelector('[data-testid="device-task-badge"]')).toBeNull());
+  } finally { f.close(); }
+});
+
+it('opens the project-wide total and cached-input cost breakdown from the header', async () => {
+  const f = await fixture();
+  try {
+    expect(f.doc.querySelector('[data-testid="project-usage-summary"]')?.textContent).toBe('项目累计 9M Token · 部分预估 $3.29');
+    f.click('项目用量详情，项目累计 9M Token · 部分预估 $3.29');
+    await vi.waitFor(() => expect(f.doc.body.textContent).toContain('8/8 个会话有累计计数（含已归档会话）'));
+    expect(f.doc.body.textContent).toContain('缓存命中 800,000');
+    expect(f.doc.body.textContent).toContain('7,800,000 Token 缺少可计价明细');
+    expect(f.doc.body.textContent).toContain('不是订阅扣款或实际账单');
+    expect(f.errors).toEqual([]);
   } finally { f.close(); }
 });

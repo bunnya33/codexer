@@ -200,7 +200,7 @@ function AppContent() {
   };
   const changedTurn = thread?.status === 'active' ? turns.find(turn => turn.id === thread.activeTurnId && !!turn.fileChanges?.length) : undefined;
   const hasTruncatedContent = turns.some(turn => turn.truncated || turn.items.some(item => item.truncated));
-  const rows = useMemo(() => buildDirectoryRows({catalog, snapshot, deviceId, expandedProjects, search}), [catalog, deviceId, expandedProjects, search, snapshot]);
+  const rows = useMemo(() => buildDirectoryRows({catalog, snapshot: device?.online ? snapshot : undefined, deviceId, expandedProjects, search}), [catalog, device?.online, deviceId, expandedProjects, search, snapshot]);
 
   const connect = async (url: string, username: string, password: string) => { setLoginBusy(true); try { await relay.connect(url, username, password, true); } catch { /* Error appears in the login view. */ } finally { setLoginBusy(false); } };
   const selectThread = (id: string) => { setThreadId(id); setDrawerOpen(false); };
@@ -397,6 +397,7 @@ function AppContent() {
     <KeyboardAvoidingView style={s.page} behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}>
       <DrawerSwipeArea>
       <ConversationHeader title={summary?.title ?? thread?.title ?? 'Codexer'} subtitle={`${project?.name ?? device?.name ?? '选择设备'}${threadId ? ` · ${thread?.status === 'active' ? '进行中' : thread?.status === 'idle' ? '空闲' : '接入中'}` : ''}`}
+        projectUsage={project?.usage ?? (!summary?.projectId ? catalog?.unassignedUsage : undefined)}
         running={thread?.status === 'active'}
         deviceId={deviceId} threadId={threadId} agents={conversationSubAgents(thread, turns)} supported={!!snapshot?.runtime.capabilities.subAgents}
         synchronized={view.phase === 'connected' && !!device?.online && !!snapshot?.runtime.connected && !!thread?.ownerAvailable && !view.syncing[deviceId]}

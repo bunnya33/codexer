@@ -247,4 +247,150 @@ void Service::enrichUsage(const QString &threadId, Object &turn) {
   if (!saved.isEmpty())
     turn["tokenUsage"] = saved;
 }
+void Service::refreshProjectUsage(bool notify) {
+  // Read metadata only, through a short-lived read-only connection. Neither
+  // thread/resume nor model calls are needed to count archived/older chats.
+  QHash<QString, QString> membership;
+  for (const auto &v : catalog["threads"].toArray()) {
+    const auto thread = v.toObject();
+    membership[thread["id"].toString()] = thread["projectId"].toString();
+  }
+  QHash<QString, double> totals, recorded;
+  auto home = settings["codexHome"].toString();
+  if (home.isEmpty())
+    home = QDir::homePath() + "/.codex";
+  QString indexPath;
+  int latest = -1;
+  for (const auto &name : QDir(home).entryList({"state_*.sqlite"}, QDir::Files)) {
+    const auto match = QRegularExpression("^state_([0-9]+)\\.sqlite$").match(name);
+    bool ok = false;
+    const auto version = match.captured(1).toInt(&ok);
+    if (ok && version > latest) {
+      latest = version;
+      indexPath = QDir(home).filePath(name);
+    }
+  }
+  if (!indexPath.isEmpty()) {
+    const auto connection = "project-usage-" + uuid();
+    {
+      auto db = QSqlDatabase::addDatabase("QSQLITE", connection);
+      db.setDatabaseName(indexPath);
+      db.setConnectOptions("QSQLITE_OPEN_READONLY;QSQLITE_BUSY_TIMEOUT=100");
+      if (db.open()) {
+        QSqlQuery query(db);
+        query.setForwardOnly(true);
+        if (query.exec("SELECT id,tokens_used FROM threads"))
+          while (query.next()) {
+            const auto id = query.value(0).toString();
+            bool ok = false;
+            const auto count = query.value(1).toDouble(&ok);
+            if (membership.contains(id) && ok && !query.value(1).isNull() &&
+                std::isfinite(count) && count >= 0 &&
+                count <= 9007199254740991.0 && std::floor(count) == count)
+              totals[id] = count;
+          }
+        db.close();
+      }
+    }
+    QSqlDatabase::removeDatabase(connection);
+  }
+  QHash<QString, QHash<QString, Object>> groups;
+  QSet<QString> partial;
+  if (usage.isOpen()) {
+    QSqlQuery query(usage);
+    query.setForwardOnly(true);
+    if (!query.exec("SELECT thread_id,value FROM turn_usage"))
+      throw Error("project-usage-journal-unavailable");
+    while (query.next()) {
+      const auto id = query.value(0).toString();
+      if (!membership.contains(id))
+        continue;
+      Object value;
+      try {
+        value = validRecord(parse(query.value(1).toByteArray()).toObject());
+      } catch (...) {
+      }
+      const auto project = membership.value(id);
+      if (value.isEmpty()) {
+        partial.insert(project);
+        continue;
+      }
+      recorded[id] += value["totalTokens"].toDouble();
+      if (value["state"] == "partial")
+        partial.insert(project);
+      auto model = value["model"].toString();
+      if (groups[project].size() >= 199 && !groups[project].contains(model))
+        model.clear();
+      auto &group = groups[project][model];
+      group["model"] = model.isEmpty() ? QJsonValue(QJsonValue::Null)
+                                       : QJsonValue(model);
+      for (const auto &key : counters)
+        group[key] = group[key].toDouble() + value[key].toDouble();
+    }
+  }
+  QHash<QString, Object> summaries;
+  auto empty = [] {
+    return Object{{"totalTokens", 0}, {"totalThreads", 0},
+                  {"knownThreads", 0}, {"recordedTokens", 0},
+                  {"partial", false}, {"models", Array{}}};
+  };
+  for (auto it = membership.cbegin(); it != membership.cend(); ++it) {
+    auto &summary = summaries[it.value()];
+    if (summary.isEmpty())
+      summary = empty();
+    const auto live = breakdown(snapshot["threads"].toObject()[it.key()]
+                                    .toObject()["tokenUsage"].toObject()["total"]);
+    if (!live.isEmpty())
+      totals[it.key()] = qMax(totals.value(it.key()), live["totalTokens"].toDouble());
+    summary["totalThreads"] = summary["totalThreads"].toInt() + 1;
+    if (totals.contains(it.key()))
+      summary["knownThreads"] = summary["knownThreads"].toInt() + 1;
+    summary["totalTokens"] = summary["totalTokens"].toDouble() +
+        qMax(totals.value(it.key()), recorded.value(it.key()));
+    summary["recordedTokens"] = summary["recordedTokens"].toDouble() + recorded.value(it.key());
+  }
+  auto summaryFor = [&](const QString &id) {
+    auto summary = summaries.value(id, empty());
+    Array models;
+    const auto byModel = groups.value(id);
+    auto names = byModel.keys();
+    names.sort();
+    for (const auto &name : names) {
+      const auto group = byModel.value(name);
+      if (breakdown(group).isEmpty())
+        throw Error("project-usage-out-of-range");
+      models.append(group);
+    }
+    summary["models"] = models;
+    summary["partial"] = partial.contains(id) ||
+        summary["knownThreads"] != summary["totalThreads"];
+    for (const auto &key : {"totalTokens", "recordedTokens"})
+      if (summary[key].toDouble() > 9007199254740991.0)
+        throw Error("project-usage-out-of-range");
+    return summary;
+  };
+  auto projects = catalog["projects"].toArray();
+  bool changed = false;
+  for (int i = 0; i < projects.size(); ++i) {
+    auto project = projects[i].toObject();
+    const auto value = summaryFor(project["id"].toString());
+    changed |= project["usage"] != value;
+    project["usage"] = value;
+    projects[i] = project;
+  }
+  const auto unassigned = summaryFor({});
+  changed |= catalog["unassignedUsage"] != unassigned;
+  if (!changed)
+    return;
+  auto next = catalog;
+  next["projects"] = projects;
+  next["unassignedUsage"] = unassigned;
+  if (json(next).size() > 6 * 1024 * 1024)
+    throw Error("catalog-too-large");
+  catalog = next;
+  if (notify) {
+    catalog["generatedAt"] = double(now());
+    send({{"type", "device.catalog"}, {"catalog", catalog}});
+  }
+}
 } // namespace Native

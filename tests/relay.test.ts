@@ -195,9 +195,13 @@ describe("authenticated relay transport", () => {
   it("stores the complete catalog and routes paginated history only for listed threads", async () => {
     const peer = await agent();
     const catalog: DeviceCatalog = { protocolVersion: 1, deviceId, generatedAt: Date.now(), projects: [{ id: "project", name: "Saved project", roots: ["/workspace"], position: 0, updatedAt: 1 }], threads: Array.from({ length: 30 }, (_, index) => ({ id: `old-${index}`, title: `Old ${index}`, cwd: "/workspace", projectId: "project", updatedAt: index, archived: false })) };
+    catalog.projects[0]!.usage = { totalTokens: 9000, recordedTokens: 1200, totalThreads: 30, knownThreads: 30, partial: false,
+      models: [{ model: 'gpt-5.3-codex', inputTokens: 1000, cachedInputTokens: 800, outputTokens: 200, totalTokens: 1200 }] };
+    catalog.unassignedUsage = { totalTokens: 0, recordedTokens: 0, totalThreads: 0, knownThreads: 0, partial: false, models: [] };
     peer.send({ type: "device.catalog", catalog });
     await waitFor(async () => (await app.inject({ url: `/v1/devices/${deviceId}/catalog`, headers })).statusCode === 200);
     expect((await app.inject({ url: `/v1/devices/${deviceId}/catalog`, headers })).json().catalog.threads).toHaveLength(30);
+    expect((await app.inject({ url: `/v1/devices/${deviceId}/catalog`, headers })).json().catalog).toMatchObject({ projects: [{ usage: catalog.projects[0]!.usage }], unassignedUsage: catalog.unassignedUsage });
     expect((await app.inject({ url: `/v1/devices/${deviceId}/catalog` })).statusCode).toBe(401);
     expect((await app.inject({ url: `/v1/devices/${deviceId}/threads/missing/turns`, headers })).statusCode).toBe(404);
     const response = app.inject({ url: `/v1/devices/${deviceId}/threads/old-29/turns?cursor=next-page`, headers });

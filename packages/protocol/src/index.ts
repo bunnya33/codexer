@@ -159,15 +159,26 @@ export const threadSchema = z.object({
 }).refine(value => jsonBytes(value) <= MAX_THREAD_BYTES, "thread-too-large");
 export type RemoteThread = z.infer<typeof threadSchema>;
 
+export const projectUsageSchema = z.object({
+  totalTokens: seqSchema,
+  totalThreads: z.number().int().min(0).max(10000),
+  knownThreads: z.number().int().min(0).max(10000),
+  recordedTokens: seqSchema,
+  partial: z.boolean(),
+  models: z.array(tokenBreakdownSchema.safeExtend({ model: z.string().min(1).max(200).nullable() })).max(200),
+}).refine(value => value.knownThreads <= value.totalThreads, 'invalid-usage-coverage');
+export type ProjectUsage = z.infer<typeof projectUsageSchema>;
+
 export const catalogSchema = z.object({
   protocolVersion: z.literal(PROTOCOL_VERSION),
   deviceId: idSchema,
   generatedAt: z.number(),
-  projects: z.array(z.object({ id: idSchema, name: z.string().max(1000), roots: z.array(z.string().max(4096)).max(20), position: z.number().int(), updatedAt: z.number() })).max(1000),
+  projects: z.array(z.object({ id: idSchema, name: z.string().max(1000), roots: z.array(z.string().max(4096)).max(20), position: z.number().int(), updatedAt: z.number(), usage: projectUsageSchema.optional() })).max(1000),
   threads: z.array(z.object({ id: idSchema, title: z.string().max(1000), cwd: z.string().max(4096).nullable(), projectId: idSchema.nullable(), updatedAt: z.number(), archived: z.boolean(), settings: modelSettingsSchema.optional() })).max(10000),
   models: z.array(modelOptionSchema).max(200).optional(),
   projectCreation: z.object({ parents: z.array(z.object({ id: idSchema, path: z.string().min(1).max(4096) })).max(20) }).optional(),
   projectDeletion: z.literal(true).optional(),
+  unassignedUsage: projectUsageSchema.optional(),
 }).refine(value => jsonBytes(value) <= MAX_CATALOG_BYTES, "catalog-too-large")
   .refine(value => new Set(value.projects.map(project => project.id)).size === value.projects.length && new Set(value.threads.map(thread => thread.id)).size === value.threads.length, "duplicate-catalog-id");
 export type DeviceCatalog = z.infer<typeof catalogSchema>;

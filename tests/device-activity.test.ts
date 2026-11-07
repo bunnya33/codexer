@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { deviceHasRunningTasks } from '../packages/client-shared/src/device-activity.js';
+import { deviceHasRunningTasks, deviceRunningTaskCount } from '../packages/client-shared/src/device-activity.js';
 import { reduceEvent } from '../packages/protocol/src/index.js';
 import { event, snapshot } from './helpers.js';
 
@@ -9,10 +9,13 @@ it('keeps the device active until every running conversation has finished', () =
   let state = snapshot();
   const first = state.threads['thread-test']!;
   state.threads.second = { ...first, id: 'second' };
+  expect(deviceRunningTaskCount(device, state)).toBe(2);
   expect(deviceHasRunningTasks(device, state)).toBe(true);
   state = reduceEvent(state, { ...event(state), change: { type: 'thread.updated', thread: { ...first, status: 'idle', activeTurnId: null } } });
+  expect(deviceRunningTaskCount(device, state)).toBe(1);
   expect(deviceHasRunningTasks(device, state)).toBe(true);
   state = reduceEvent(state, { ...event(state), change: { type: 'thread.updated', thread: { ...state.threads.second!, status: 'idle', activeTurnId: null } } });
+  expect(deviceRunningTaskCount(device, state)).toBe(0);
   expect(deviceHasRunningTasks(device, state)).toBe(false);
 });
 

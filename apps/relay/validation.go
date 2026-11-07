@@ -74,6 +74,9 @@ func refinementIssue(v any, path string) *logIssue {
 		if x["cachedInputTokens"] != nil && (num(x["cachedInputTokens"]) > num(x["inputTokens"]) || num(x["reasoningOutputTokens"]) > num(x["outputTokens"])) {
 			return &logIssue{path, "tokenCountsWithinTotals"}
 		}
+		if (strings.HasSuffix(path, "/usage") || strings.HasSuffix(path, "/unassignedUsage")) && x["knownThreads"] != nil && num(x["knownThreads"]) > num(x["totalThreads"]) {
+			return &logIssue{path + "/knownThreads", "usageCoverageWithinTotal"}
+		}
 	}
 	return nil
 }

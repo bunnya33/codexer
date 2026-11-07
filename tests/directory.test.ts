@@ -8,7 +8,7 @@ const catalog: DeviceCatalog = {protocolVersion: 1, deviceId: 'device-test', gen
   threads: [{id: 'thread-test', title: 'Running chat', cwd: '/work', projectId: 'work', updatedAt: 2, archived: false}, {id: 'idle', title: 'Idle chat', cwd: '/work', projectId: 'work', updatedAt: 1, archived: false}]};
 const projects = (rows: ReturnType<typeof buildDirectoryRows>) => rows.filter((row): row is DirectoryProject => row.type === 'project');
 
-it('retains empty projects and collapsed child data, and aggregates running conversations without a count field', () => {
+it('retains empty projects and collapsed child data, and aggregates running conversations', () => {
   const rows = buildDirectoryRows({catalog, snapshot: snapshot(), deviceId: 'device-test', expandedProjects: [], search: ''});
   expect(projects(rows)).toMatchObject([{id: 'empty', expanded: false, active: false, threads: []}, {id: 'work', expanded: false, active: true, threads: [{id: 'thread-test', active: true}, {id: 'idle', active: false}]}]);
   expect(projects(rows).some(project => 'count' in project)).toBe(false);
@@ -24,4 +24,13 @@ it('ignores archived conversations when determining project activity and retains
   const rows = buildDirectoryRows({catalog: {...catalog, threads: catalog.threads.map(thread => thread.id === 'thread-test' ? {...thread, archived: true} : thread)}, snapshot: snapshot(), deviceId: 'device-test', expandedProjects: [], search: ''});
   expect(projects(rows)[1]).toMatchObject({active: false, threads: [{id: 'idle'}]});
   expect(rows.filter(row => row.type === 'thread')).toMatchObject([{id: 'idle', nested: false}]);
+});
+it('counts all active members before filtering and isolates other devices', () => {
+  const state = snapshot();
+  state.threads.idle = { ...state.threads['thread-test']!, id: 'idle' };
+  const options = { catalog, snapshot: state, deviceId: 'device-test', expandedProjects: [], search: 'Idle chat' };
+  expect(projects(buildDirectoryRows(options))[0]).toMatchObject({ runningCount: 2, threads: [{ id: 'idle' }] });
+  expect(projects(buildDirectoryRows({ ...options, deviceId: 'another-device' }))[0]?.runningCount).toBe(0);
+  const disconnected = buildDirectoryRows({ ...options, snapshot: { ...state, runtime: { ...state.runtime, connected: false } } });
+  expect(projects(disconnected)[0]).toMatchObject({ active: false, runningCount: 0, threads: [{ active: false }] });
 });

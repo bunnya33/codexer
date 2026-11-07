@@ -184,6 +184,11 @@ void Service::refreshCatalog() {
       listed.size() > 10000)
     throw Error("catalog-too-large");
   catalog = next;
+  try {
+    refreshProjectUsage(false);
+  } catch (...) {
+    log("project-usage-unavailable");
+  }
   send({{"type", "device.catalog"}, {"catalog", catalog}});
   int count = 0;
   for (const auto &v : listed) {

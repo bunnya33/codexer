@@ -3160,6 +3160,100 @@
                     },
                     "updatedAt": {
                       "type": "number"
+                    },
+                    "usage": {
+                      "type": "object",
+                      "properties": {
+                        "totalTokens": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "totalThreads": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 10000
+                        },
+                        "knownThreads": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 10000
+                        },
+                        "recordedTokens": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "partial": {
+                          "type": "boolean"
+                        },
+                        "models": {
+                          "maxItems": 200,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "totalTokens": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "inputTokens": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "cachedInputTokens": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "outputTokens": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "cacheWriteInputTokens": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "reasoningOutputTokens": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "model": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 200
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "totalTokens",
+                              "inputTokens",
+                              "cachedInputTokens",
+                              "outputTokens",
+                              "model"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "totalTokens",
+                        "totalThreads",
+                        "knownThreads",
+                        "recordedTokens",
+                        "partial",
+                        "models"
+                      ]
                     }
                   },
                   "required": [
@@ -3392,6 +3486,100 @@
               "projectDeletion": {
                 "type": "boolean",
                 "const": true
+              },
+              "unassignedUsage": {
+                "type": "object",
+                "properties": {
+                  "totalTokens": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "totalThreads": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10000
+                  },
+                  "knownThreads": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10000
+                  },
+                  "recordedTokens": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "partial": {
+                    "type": "boolean"
+                  },
+                  "models": {
+                    "maxItems": 200,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "totalTokens": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "inputTokens": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "cachedInputTokens": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "outputTokens": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "cacheWriteInputTokens": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "reasoningOutputTokens": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "model": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "totalTokens",
+                        "inputTokens",
+                        "cachedInputTokens",
+                        "outputTokens",
+                        "model"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "totalTokens",
+                  "totalThreads",
+                  "knownThreads",
+                  "recordedTokens",
+                  "partial",
+                  "models"
+                ]
               }
             },
             "required": [

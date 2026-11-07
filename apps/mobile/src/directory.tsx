@@ -7,6 +7,7 @@ import { directoryThreadHeight, useTheme } from './styles';
 import { DevicePicker } from './device-picker';
 import { DrawerSwipeBlock } from './drawer-swipe-block';
 import { TaskStatusDot } from './task-status-dot';
+import { RunningTaskCount } from './running-task-count';
 type Props = { updateAvailable?:boolean; view: RelayView; deviceId: string; threadId: string; rows: DirectoryRow[]; search: string; wide: boolean; managing: boolean; paddingTop: number; paddingBottom: number; setSearch: (value: string) => void; selectDevice: (id: string) => void; selectThread: (id: string) => void; toggleProject: (id: string) => void; createProject: () => void; projectActions: (project: { id: string; name: string }) => void; threadActions: (thread: { id: string; title: string }) => void; close: () => void; settings: () => void; refresh: () => void };
 
 function ThreadRow({item, props, showActivity = true}: {item: DirectoryThread; props: Props; showActivity?: boolean}) {
@@ -33,7 +34,7 @@ function ProjectRow({project, props}: {project: DirectoryProject; props: Props})
   return <View testID={`directory-project-${project.id}`}>
     <View testID={`directory-project-heading-${project.id}`} style={[s.project, project.active && s.projectRunning]}>
       <Pressable accessibilityRole="button" aria-expanded={project.expanded} accessibilityLabel={`${project.expanded ? '收起' : '展开'}项目 ${project.name}`} onPress={() => props.toggleProject(project.id)} style={({pressed}) => [s.projectToggle, pressed && s.pressed]}>
-        <FolderIcon size={16} strokeWidth={1.6} color={c.muted} />{project.active && !project.expanded && <TaskStatusDot running label={`项目 ${project.name} 有会话正在运行`} />}<Text style={s.projectName} numberOfLines={1}>{project.name}</Text>
+        <FolderIcon size={16} strokeWidth={1.6} color={c.muted} />{project.active && !project.expanded && <RunningTaskCount count={project.runningCount ?? 1} label={`项目 ${project.name} 有会话正在运行`} />}<Text style={s.projectName} numberOfLines={1}>{project.name}</Text>
       </Pressable>
       {project.id !== 'unassigned' && <Pressable accessibilityRole="button" accessibilityLabel={`管理项目 ${project.name}`} disabled={props.managing} onPress={() => props.projectActions(project)} style={({pressed}) => [s.projectAction, pressed && s.pressed, props.managing && s.disabled]}><MoreHorizontal size={16} strokeWidth={1.6} color={c.muted} /></Pressable>}
     </View>
