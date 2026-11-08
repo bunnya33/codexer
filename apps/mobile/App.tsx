@@ -45,7 +45,8 @@ import {useClientUpdates} from './src/client-updates';
 import { AttachmentMenu } from './src/attachment-menu';
 import { PermissionPicker, permissionLabels } from './src/permission-picker';
 import { pickAttachments } from './src/attachment-picker';
-import { MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES } from '../../packages/protocol/src/uploads';
+import type { AttachmentAsset } from './src/attachment-picker';
+import { MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES, attachmentByteLimit } from '../../packages/protocol/src/uploads';
 import { useConversationDraft } from './src/conversation-drafts';
 import type { DraftImage, DraftAttachment } from './src/conversation-drafts';
 
@@ -85,6 +86,7 @@ function AppContent() {
   const { draft: composerDraft, setText: setDraft, setImages, setFiles, getDraft, isCurrent: draftIsCurrent, clearSubmitted } = useConversationDraft(draftScope, deviceId, threadId);
   const { text: draft, images, files } = composerDraft;
   const fileUploads = useRef(new Map<number, AbortController>());
+  const imageUploads = useRef(Promise.resolve());
   const [busy, setBusy] = useState(false);
   const [menu, setMenu] = useState<'settings' | 'mode' | 'weixin' | 'permissions'>('settings');
   const [editingQueueId, setEditingQueueId] = useState<string | null>(null);
@@ -171,6 +173,8 @@ function AppContent() {
   const device = view.devices.find(item => item.id === deviceId);
   const catalog = view.catalogs[deviceId];
   const snapshot = view.snapshots[deviceId];
+  const imageLimit = Math.min(MAX_IMAGES, snapshot?.runtime.capabilities.maxImages ?? 4);
+  const videoLimit = snapshot?.runtime.capabilities.maxVideoBytes ?? MAX_ATTACHMENT_BYTES;
   const thread = snapshot?.threads[threadId];
   const questionRequestIds = useMemo(() => thread?.requests.filter(request => request.details.source === 'asyncMessage').map(request => request.id) ?? [], [thread?.requests]);
   const summary = catalog?.threads.find(item => item.id === threadId);
@@ -287,17 +291,21 @@ function AppContent() {
   };
   const addImages = (assets: ImagePicker.ImagePickerAsset[]) => {
     if (!draftIsCurrent()) return;
-    for (const asset of assets.slice(0, MAX_IMAGES - getDraft().images.length)) {
+    const slots = Math.max(0, imageLimit - getDraft().images.length);
+    if (assets.length > slots) relay.showNotice(`最多添加 ${imageLimit} 张图片`);
+    for (const asset of assets.slice(0, slots)) {
       const image: DraftImage = { key: ++nextImageKey.current, uri: asset.uri, name: (asset.fileName ?? 'image').slice(0, 255), asset, loading: true };
       setImages(current => [...current, image]);
-      void uploadDraft(image, deviceId, threadId);
+      imageUploads.current = imageUploads.current.catch(() => {}).then(async () => {
+        if (draftIsCurrent() && getDraft().images.some(item => item.key === image.key)) await uploadDraft(image, deviceId, threadId);
+      });
     }
   };
   const pickImages = async () => {
-    if (images.length >= MAX_IMAGES) return;
+    if (images.length >= imageLimit) return;
     const scope = currentStreamKey.current;
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsMultipleSelection: true, selectionLimit: MAX_IMAGES - images.length, base64: true, quality: 0.85 });
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsMultipleSelection: true, selectionLimit: imageLimit - images.length, base64: true, quality: 0.85 });
       if (!result.canceled && draftIsCurrent() && scope === currentStreamKey.current) addImages(result.assets);
     } catch (error) { if (draftIsCurrent()) relay.showNotice(error instanceof Error ? error.message : '无法读取图片'); }
   };
@@ -320,16 +328,23 @@ function AppContent() {
       if (!abort.signal.aborted) setFiles(current => current.map(item => item.key === file.key ? { ...item, loading: false, error: '上传失败，点击重试' } : item));
     } finally { if (fileUploads.current.get(file.key) === abort) fileUploads.current.delete(file.key); }
   };
-  const pickFiles = async () => {
+  const addFiles = (assets: AttachmentAsset[], targetDevice = deviceId, targetThread = threadId) => {
+    if (!draftIsCurrent()) return;
+    const slots = Math.max(0, MAX_ATTACHMENTS - getDraft().files.length);
+    if (assets.length > slots) relay.showNotice(`最多添加 ${MAX_ATTACHMENTS} 个文件或视频`);
+    for (const asset of assets.slice(0, slots)) {
+      const limit = Math.min(attachmentByteLimit(asset), videoLimit);
+      if (!Number.isSafeInteger(asset.size) || asset.size < 0 || asset.size > limit) { relay.showNotice(`${asset.name} 不能超过 ${limit / 1024 / 1024} MB${limit < attachmentByteLimit(asset) ? '，请更新电脑连接器以发送较大的视频' : ''}`); continue; }
+      const file: DraftAttachment = { key: ++nextImageKey.current, asset, loading: true };
+      setFiles(current => [...current, file]); void uploadFile(file, targetDevice, targetThread);
+    }
+  };
+  const pickFiles = async (kind?: 'video') => {
     const scope = currentStreamKey.current, targetDevice = deviceId, targetThread = threadId;
     try {
-      const assets = await pickAttachments();
+      const assets = await pickAttachments(kind);
       if (!draftIsCurrent() || scope !== currentStreamKey.current) return;
-      for (const asset of assets.slice(0, MAX_ATTACHMENTS - getDraft().files.length)) {
-        if (asset.size > MAX_ATTACHMENT_BYTES) { relay.showNotice(`${asset.name} 超过 20 MB`); continue; }
-        const file: DraftAttachment = { key: ++nextImageKey.current, asset, loading: true };
-        setFiles(current => [...current, file]); void uploadFile(file, targetDevice, targetThread);
-      }
+      addFiles(assets, targetDevice, targetThread);
     } catch (error) { if (draftIsCurrent()) relay.showNotice(error instanceof Error ? error.message : '无法读取文件'); }
   };
   const removeFile = (file: DraftAttachment) => {
@@ -452,8 +467,8 @@ function AppContent() {
           {file.loading ? <ActivityIndicator size="small" color={c.muted} /> : !file.error && <Check size={15} color={c.accent} />}
           <Pressable accessibilityRole="button" accessibilityLabel={`移除文件 ${file.asset.name}`} onPress={() => removeFile(file)} style={s.iconButton}><X size={17} color={c.muted} /></Pressable>
         </View>)}</ScrollView>}
-        <ComposerInput accessibilityLabel="给 Codex 发送消息" style={s.composerInput} value={draft} onChangeText={setDraft} multiline maxLength={32000} editable={!!ready && !busy} placeholder="给 Codex 发送消息" placeholderTextColor={c.muted} textAlignVertical="top" onImages={addImages} imagesEnabled={ready && !busy && !!snapshot?.runtime.capabilities.images && images.length < MAX_IMAGES} onImageError={message => relay.showNotice(message)} onSubmitEditing={Platform.OS === 'windows' ? () => submit() : undefined} onKeyPress={event => { const key = event.nativeEvent as { key: string; shiftKey?: boolean; isComposing?: boolean; keyCode?: number }; if (Platform.OS === 'web' && key.key === 'Enter' && !key.shiftKey && !key.isComposing && key.keyCode !== 229) { event.preventDefault(); submit(); } }} />
-        <View style={s.toolbar}><AttachmentMenu key={`attachments:${deviceId}:${threadId}`} enabled={ready && !busy} imagesEnabled={ready && !busy && !!snapshot?.runtime.capabilities.images && images.length < MAX_IMAGES} filesSupported={!!snapshot?.runtime.capabilities.attachments} filesEnabled={ready && !busy && !!snapshot?.runtime.capabilities.attachments && files.length < MAX_ATTACHMENTS} onImages={() => void pickImages()} onCamera={() => void pickCamera()} onFiles={() => void pickFiles()} />{!!snapshot?.runtime.capabilities.collaborationModeUpdate && <Pressable accessibilityRole="button" accessibilityLabel={`工作模式：${settings?.collaborationMode === 'plan' ? 'Plan' : '默认'}`} style={[s.pill, s.modePill, settings?.collaborationMode === 'plan' && s.modeActive]} disabled={!ready || busy || thread?.status !== 'idle'} onPress={() => openMenu('mode')}><ListChecks size={15} color={settings?.collaborationMode === 'plan' ? c.accent : c.muted} /><Text style={s.pillText}>{settings?.collaborationMode === 'plan' ? 'Plan' : '默认'}</Text></Pressable>}
+        <ComposerInput accessibilityLabel="给 Codex 发送消息" style={s.composerInput} value={draft} onChangeText={setDraft} multiline maxLength={32000} editable={!!ready && !busy} placeholder="给 Codex 发送消息" placeholderTextColor={c.muted} textAlignVertical="top" onImages={addImages} imageSlots={Math.max(0, imageLimit - images.length)} onFiles={addFiles} filesEnabled={ready && !busy && !!snapshot?.runtime.capabilities.attachments && files.length < MAX_ATTACHMENTS} imagesEnabled={ready && !busy && !!snapshot?.runtime.capabilities.images && images.length < imageLimit} onImageError={message => relay.showNotice(message)} onSubmitEditing={Platform.OS === 'windows' ? () => submit() : undefined} onKeyPress={event => { const key = event.nativeEvent as { key: string; shiftKey?: boolean; isComposing?: boolean; keyCode?: number }; if (Platform.OS === 'web' && key.key === 'Enter' && !key.shiftKey && !key.isComposing && key.keyCode !== 229) { event.preventDefault(); submit(); } }} />
+        <View style={s.toolbar}><AttachmentMenu key={`attachments:${deviceId}:${threadId}`} enabled={ready && !busy} imagesEnabled={ready && !busy && !!snapshot?.runtime.capabilities.images && images.length < imageLimit} filesSupported={!!snapshot?.runtime.capabilities.attachments} filesEnabled={ready && !busy && !!snapshot?.runtime.capabilities.attachments && files.length < MAX_ATTACHMENTS} onImages={() => void pickImages()} onCamera={() => void pickCamera()} onFiles={() => void pickFiles()} onVideos={() => void pickFiles('video')} imageLimit={imageLimit} videoLimitMB={videoLimit / 1024 / 1024} />{!!snapshot?.runtime.capabilities.collaborationModeUpdate && <Pressable accessibilityRole="button" accessibilityLabel={`工作模式：${settings?.collaborationMode === 'plan' ? 'Plan' : '默认'}`} style={[s.pill, s.modePill, settings?.collaborationMode === 'plan' && s.modeActive]} disabled={!ready || busy || thread?.status !== 'idle'} onPress={() => openMenu('mode')}><ListChecks size={15} color={settings?.collaborationMode === 'plan' ? c.accent : c.muted} /><Text style={s.pillText}>{settings?.collaborationMode === 'plan' ? 'Plan' : '默认'}</Text></Pressable>}
           {!!snapshot?.runtime.capabilities.permissionsUpdate && !!settings?.permissions && <Pressable accessibilityRole="button" accessibilityLabel={`会话权限：${permissionLabels[settings.permissions.mode]}`} style={s.pill} disabled={!ready || busy} onPress={() => openMenu('permissions')}><Text style={s.pillText}>{permissionLabels[settings.permissions.mode]}</Text></Pressable>}
           <View style={s.spacer} /><ModelEffortPicker key={`model:${deviceId}:${threadId}`} model={settings?.model} effort={settings?.reasoningEffort} options={catalog?.models ?? []} enabled={ready && activeSettingsEnabled} busy={busy} onModelChange={changeModel} onEffortChange={changeEffort} />
           <Pressable accessibilityRole="button" accessibilityLabel={stopMode ? '停止当前任务' : continueMode ? '继续任务' : thread?.status === 'active' ? '发送引导消息' : '发送消息'} disabled={submitDisabled} onPress={submit} style={[s.send, stopMode && s.stop, submitDisabled && s.disabled]}>{busy ? <ActivityIndicator color={c.onSolid} size="small" /> : stopMode ? <Square size={18} color={c.onSolid} fill={c.onSolid} /> : continueMode ? <Play size={18} color={c.onSolid} fill={c.onSolid} /> : <ArrowUp size={20} color={c.onSolid} />}</Pressable></View>

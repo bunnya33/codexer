@@ -18,7 +18,19 @@ import (
 )
 
 const maxAttachmentBytes = 20 * 1024 * 1024
+const maxVideoBytes = 512 * 1024 * 1024
 const uploadChunkBytes = 512 * 1024
+
+func attachmentByteLimit(name, mime string) int64 {
+	if strings.HasPrefix(strings.ToLower(mime), "video/") {
+		return maxVideoBytes
+	}
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".mpeg", ".mpg", ".3gp", ".3g2", ".m2ts", ".mts", ".ogv":
+		return maxVideoBytes
+	}
+	return maxAttachmentBytes
+}
 
 type upload struct {
 	ID, Owner, Device, Thread, Name, MIME, SHA256 string
@@ -144,7 +156,7 @@ func (s *Server) uploadRoutes() {
 	s.route("POST "+base, "user", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
 		m := body(r)
 		name, mime, size := str(m["name"]), str(m["mimeType"]), num(m["size"])
-		if name == "" || jsLength(name) > 255 || strings.ContainsAny(name, "/\\") || strings.IndexFunc(name, unicode.IsControl) >= 0 || name == "." || name == ".." || size < 0 || size > maxAttachmentBytes || m["size"] == nil || jsLength(mime) > 255 || strings.IndexFunc(mime, unicode.IsControl) >= 0 {
+		if name == "" || jsLength(name) > 255 || strings.ContainsAny(name, "/\\") || strings.IndexFunc(name, unicode.IsControl) >= 0 || name == "." || name == ".." || size < 0 || size > attachmentByteLimit(name, mime) || m["size"] == nil || jsLength(mime) > 255 || strings.IndexFunc(mime, unicode.IsControl) >= 0 {
 			fail(400, "invalid-attachment")
 		}
 		if f, ok := m["size"].(float64); !ok || f != float64(size) {
@@ -161,7 +173,7 @@ func (s *Server) uploadRoutes() {
 			s.uploads.mu.Lock()
 			defer s.uploads.mu.Unlock()
 			total, devices, count := s.uploads.cleanupLocked()
-			if total+size > 1024*1024*1024 || devices[device]+size > 256*1024*1024 || count >= 2000 {
+			if total+size > 4*1024*1024*1024 || devices[device]+size > 1024*1024*1024 || count >= 2000 {
 				fail(413, "attachment-storage-full")
 			}
 			random := make([]byte, 32)

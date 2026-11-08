@@ -7,10 +7,13 @@ import { PcAgent } from '../apps/pc-agent/src/agent.js';
 import { createRelay, RelayStore } from './go-relay.js';
 import { testAccount, testAgent } from './account-helpers.js';
 import { command, FakeDesktop, rawThread, waitFor, WsPeer } from './helpers.js';
-import { UPLOAD_CHUNK_BYTES } from '../packages/protocol/src/uploads.js';
+import { UPLOAD_CHUNK_BYTES, MAX_ATTACHMENT_BYTES, MAX_VIDEO_BYTES, attachmentSchema } from '../packages/protocol/src/uploads.js';
 import { record } from '../packages/codex-adapter/src/normalize.js';
 
-it('uploads chunks, scopes files to account/thread, and delivers verified local files through the real Agent, including its queue', async () => {
+it.each([
+  { name: '资料 with spaces.txt', mimeType: 'text/plain', size: UPLOAD_CHUNK_BYTES * 2 + 71 },
+  { name: '录屏 原始.MP4', mimeType: 'application/octet-stream', size: MAX_ATTACHMENT_BYTES + 71 },
+])('uploads $name in chunks, scopes it to account/thread, and delivers the verified original through the real Agent and its queue', async media => {
   const directory = await mkdtemp(join(tmpdir(), 'codexer-attachments-'));
   const desktop = new FakeDesktop(); desktop.state = rawThread('idle');
   const store = await RelayStore.open(), owner = await testAccount(store), other = await testAccount(store, 'Other');
@@ -25,9 +28,9 @@ it('uploads chunks, scopes files to account/thread, and delivers verified local 
     await agent.start();
     await waitFor(async () => !!(await store.snapshot(registered.id))?.runtime.capabilities.attachments && !!await store.catalog(registered.id));
     const path = `/v1/devices/${registered.id}/threads/thread-test/attachments`;
-    const content = Buffer.alloc(UPLOAD_CHUNK_BYTES * 2 + 71, 97);
+    const content = Buffer.alloc(media.size, 97);
     content.write('中文测试\n');
-    const start = await app.inject({ method: 'POST', url: path, headers: owner.headers, payload: { name: '资料 with spaces.txt', size: content.length, mimeType: 'text/plain' } });
+    const start = await app.inject({ method: 'POST', url: path, headers: owner.headers, payload: media });
     expect(start.statusCode).toBe(200);
     const id = start.json().id as string;
     const agentUrl = `/v1/agent/${registered.id}/threads/thread-test/attachments/${id}`;
@@ -38,12 +41,12 @@ it('uploads chunks, scopes files to account/thread, and delivers verified local 
     for (let offset = 0; offset < content.length; offset += UPLOAD_CHUNK_BYTES) {
       const response = await app.inject({ method: 'PUT', url: path + '/' + id, headers: owner.headers, payload: { offset, base64: content.subarray(offset, offset + UPLOAD_CHUNK_BYTES).toString('base64') } });
       expect(response.statusCode).toBe(200);
-      if (offset + UPLOAD_CHUNK_BYTES >= content.length) expect(response.json().attachment).toMatchObject({ id, name: '资料 with spaces.txt', sha256: createHash('sha256').update(content).digest('hex') });
+      if (offset + UPLOAD_CHUNK_BYTES >= content.length) expect(response.json().attachment).toMatchObject({ id, ...media, sha256: createHash('sha256').update(content).digest('hex') });
     }
     expect((await app.inject({ url: agentUrl })).statusCode).toBe(401);
     expect((await app.inject({ url: agentUrl, headers: owner.headers })).statusCode).toBe(401);
     const downloaded = await app.inject({ url: agentUrl, headers: { authorization: `Bearer ${registered.token}` } });
-    expect(downloaded.rawPayload).toEqual(content); expect(downloaded.headers['content-type']).toContain('application/octet-stream');
+    expect(downloaded.rawPayload.equals(content)).toBe(true); expect(downloaded.headers['content-type']).toContain('application/octet-stream');
     expect(downloaded.headers['content-disposition']).toContain('attachment');
     const empty = await app.inject({ method: 'POST', url: path, headers: owner.headers, payload: { name: 'empty.txt', size: 0, mimeType: 'text/plain' } });
     const emptyId = empty.json().id;
@@ -64,7 +67,7 @@ it('uploads chunks, scopes files to account/thread, and delivers verified local 
     const inputs = record(record(record(sent.params).turnStart).request).input as { type: string; text: string }[];
     const attachmentText = inputs.find(input => input.text?.includes('附加文件'))!.text;
     const local = attachmentText.match(/\]\(<(.+)>\)/)![1]!;
-    expect(await readFile(local)).toEqual(content);
+    expect((await readFile(local)).equals(content)).toBe(true);
     desktop.state = rawThread('active'); desktop.publishSnapshot();
     await waitFor(() => agent!.snapshot().threads['thread-test']?.status === 'active');
     expect(await send({ type: 'turn.queue', threadId: 'thread-test', text: '', attachments: ['b'.repeat(64)] })).toMatchObject({ status: 'failed', code: 'attachments-not-ready' });
@@ -80,5 +83,22 @@ it('uploads chunks, scopes files to account/thread, and delivers verified local 
     const bad = await app.inject({ method: 'POST', url: path, headers: owner.headers, payload: { name: '../escape.txt', size: 1, mimeType: 'text/plain' } });
     expect(bad.statusCode).toBe(400);
     expect((await app.inject({ method: 'POST', url: path, headers: owner.headers, payload: { name: 'large.bin', size: 21 * 1024 * 1024, mimeType: 'x' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: path, headers: owner.headers, payload: { name: '录屏.mp4', size: MAX_VIDEO_BYTES + 1, mimeType: 'video/mp4' } })).statusCode).toBe(400);
+    const maximumVideo = await app.inject({ method: 'POST', url: path, headers: owner.headers, payload: { name: '录屏.mp4', size: MAX_VIDEO_BYTES, mimeType: 'video/mp4' } });
+    expect(maximumVideo.statusCode).toBe(200);
+    const secondVideo = await app.inject({ method: 'POST', url: path, headers: owner.headers, payload: { name: 'second.mp4', size: MAX_VIDEO_BYTES, mimeType: 'video/mp4' } });
+    expect(secondVideo.statusCode).toBe(200);
+    expect((await app.inject({ method: 'POST', url: path, headers: owner.headers, payload: { name: 'third.mp4', size: 1, mimeType: 'video/mp4' } })).statusCode).toBe(413);
+    await app.inject({ method: 'DELETE', url: path + '/' + maximumVideo.json().id, headers: owner.headers });
+    await app.inject({ method: 'DELETE', url: path + '/' + secondVideo.json().id, headers: owner.headers });
   } finally { peer?.socket.terminate(); await agent?.stop(); await app.close(); await desktop.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+it('uses video-specific bounds in shared attachment validation without raising ordinary file limits', () => {
+  const ref = { id: 'a'.repeat(64), sha256: 'b'.repeat(64), name: 'file.bin', mimeType: 'application/octet-stream' };
+  expect(attachmentSchema.safeParse({ ...ref, size: MAX_ATTACHMENT_BYTES + 1 }).success).toBe(false);
+  for (const video of [{ name: '录屏.MP4' }, { mimeType: 'VIDEO/WEBM' }]) {
+    expect(attachmentSchema.safeParse({ ...ref, ...video, size: MAX_VIDEO_BYTES }).success).toBe(true);
+    expect(attachmentSchema.safeParse({ ...ref, ...video, size: MAX_VIDEO_BYTES + 1 }).success).toBe(false);
+  }
 });

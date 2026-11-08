@@ -7,7 +7,8 @@ import { WebSocket } from "ws";
 import { DesktopAdapter, AdapterError } from "../../../packages/codex-adapter/src/desktop.js";
 import { HeadlessAdapter, readOfficialCatalog, readOfficialHistory } from "../../../packages/codex-adapter/src/headless.js";
 import { readRecentCatalog } from "../../../packages/codex-adapter/src/catalog.js";
-import { commandSchema, historyRequestSchema, MAX_MESSAGE_BYTES, MAX_THREADS, PROTOCOL_VERSION, reduceEvent, threadSchema } from "../../../packages/protocol/src/index.js";
+import { commandSchema, historyRequestSchema, MAX_MESSAGE_BYTES, MAX_THREADS, MAX_IMAGES, PROTOCOL_VERSION, reduceEvent, threadSchema } from "../../../packages/protocol/src/index.js";
+import { MAX_VIDEO_BYTES } from "../../../packages/protocol/src/uploads.js";
 import type { DeviceCatalog, DeviceSnapshot, HistoryPage, ProjectDeletionPlan, RemoteCommand, RemoteEvent, RemoteThread } from "../../../packages/protocol/src/index.js";
 import { SerialQueue } from "../../../packages/shared/src/queue.js";
 import { CommandJournal } from "./journal.js";
@@ -89,7 +90,7 @@ export class PcAgent extends EventEmitter {
     this.journal = new CommandJournal(join(directory, "commands.sqlite"));
     this.usageJournal = new UsageJournal(join(directory, "usage.sqlite"));
     if (!["win32", "linux", "darwin"].includes(process.platform)) throw new Error("unsupported-platform");
-    this.state = { protocolVersion: PROTOCOL_VERSION, deviceId: credentials.deviceId, epoch: randomUUID(), lastSeq: 0, generatedAt: Date.now(), hostname: hostname(), platform: process.platform as DeviceSnapshot["platform"], agentVersion: process.env.CODEXER_AGENT_BUILD_VERSION || 'development', runtime: { kind: "official-desktop-ipc", connected: false, experimental: true, capabilities: { observe: true, startTurn: true, interrupt: true, continueTurn: true, activeSettingsUpdate: true, approvals: true, userInput: true, modelUpdate: true, effortUpdate: true, collaborationModeUpdate: true, permissionsUpdate: true, mcpApprovals: true, images: true, subAgents: true, runtimeRefresh: true } }, threads: {} };
+    this.state = { protocolVersion: PROTOCOL_VERSION, deviceId: credentials.deviceId, epoch: randomUUID(), lastSeq: 0, generatedAt: Date.now(), hostname: hostname(), platform: process.platform as DeviceSnapshot["platform"], agentVersion: process.env.CODEXER_AGENT_BUILD_VERSION || 'development', runtime: { kind: "official-desktop-ipc", connected: false, experimental: true, capabilities: { observe: true, startTurn: true, interrupt: true, continueTurn: true, activeSettingsUpdate: true, approvals: true, userInput: true, modelUpdate: true, effortUpdate: true, collaborationModeUpdate: true, permissionsUpdate: true, mcpApprovals: true, images: true, maxImages: MAX_IMAGES, maxVideoBytes: MAX_VIDEO_BYTES, subAgents: true, runtimeRefresh: true } }, threads: {} };
     const onThread = (source: DesktopAdapter | HeadlessAdapter, thread: RemoteThread | null) => {
       if (!thread) return;
       if (source !== this.adapterForThread(thread.id)) return;

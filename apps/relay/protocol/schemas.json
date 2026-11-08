@@ -235,7 +235,7 @@
                 "maxLength": 32000
               },
               "images": {
-                "maxItems": 4,
+                "maxItems": 20,
                 "type": "array",
                 "items": {
                   "type": "string",
@@ -274,7 +274,7 @@
                 "maxLength": 32000
               },
               "images": {
-                "maxItems": 4,
+                "maxItems": 20,
                 "type": "array",
                 "items": {
                   "type": "string",
@@ -455,7 +455,7 @@
                 "maxLength": 32000
               },
               "images": {
-                "maxItems": 4,
+                "maxItems": 20,
                 "type": "array",
                 "items": {
                   "type": "string",
@@ -1209,6 +1209,16 @@
                       "images": {
                         "type": "boolean"
                       },
+                      "maxImages": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 20
+                      },
+                      "maxVideoBytes": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 536870912
+                      },
                       "attachments": {
                         "type": "boolean"
                       },
@@ -1324,7 +1334,7 @@
                           "imageCount": {
                             "type": "integer",
                             "minimum": 0,
-                            "maximum": 4
+                            "maximum": 20
                           },
                           "fileCount": {
                             "type": "integer",
@@ -1897,7 +1907,7 @@
                                   }
                                 },
                                 "images": {
-                                  "maxItems": 8,
+                                  "maxItems": 20,
                                   "type": "array",
                                   "items": {
                                     "type": "object",
@@ -2341,7 +2351,7 @@
                                 "imageCount": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 4
+                                  "maximum": 20
                                 },
                                 "fileCount": {
                                   "type": "integer",
@@ -2914,7 +2924,7 @@
                                         }
                                       },
                                       "images": {
-                                        "maxItems": 8,
+                                        "maxItems": 20,
                                         "type": "array",
                                         "items": {
                                           "type": "object",
@@ -4163,7 +4173,7 @@
                                 }
                               },
                               "images": {
-                                "maxItems": 8,
+                                "maxItems": 20,
                                 "type": "array",
                                 "items": {
                                   "type": "object",
@@ -4671,7 +4681,7 @@
                         "maxLength": 32000
                       },
                       "images": {
-                        "maxItems": 4,
+                        "maxItems": 20,
                         "type": "array",
                         "items": {
                           "type": "string",
@@ -4710,7 +4720,7 @@
                         "maxLength": 32000
                       },
                       "images": {
-                        "maxItems": 4,
+                        "maxItems": 20,
                         "type": "array",
                         "items": {
                           "type": "string",
@@ -4891,7 +4901,7 @@
                         "maxLength": 32000
                       },
                       "images": {
-                        "maxItems": 4,
+                        "maxItems": 20,
                         "type": "array",
                         "items": {
                           "type": "string",

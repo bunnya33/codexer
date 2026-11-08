@@ -32,9 +32,11 @@ Base URL 是 Relay 的 HTTP 或 HTTPS 地址；本机开发默认为 `http://127
 | DELETE | `/v1/devices/:deviceId/threads/:threadId/attachments/:id` | 删除未发送/放弃的暂存文件，返回 `{ok:true}` |
 | GET | `/v1/agent/:deviceId/threads/:threadId/attachments/:id?info=1` | 仅目标设备 Agent 会话可读，返回已完成附件的元数据；去掉 `info=1` 流式下载 |
 
-单个文件最多 20 MiB，暂存 24 小时；预留每设备 256 MiB、全局 1 GiB，最多 2000 份。零字节文件提交空块完成流程。大小或文件名非法返回 400 `invalid-attachment`；块非法为 400 `invalid-attachment-chunk`，偏移不符为 409 `attachment-offset-mismatch`；配额不足为 413 `attachment-storage-full`，未完成/过期/跨会话为 404 `attachment-unavailable`。旧 Agent 返回 409 `agent-update-required`。
+普通文件最多 20 MiB，视频最多 512 MiB；视频按 `video/*` MIME 或 MP4、MOV、M4V、WebM、MKV、AVI、MPEG、MPG、3GP、3G2、M2TS、MTS、OGV 扩展名识别。暂存 24 小时；按声明大小预留每设备 1 GiB、全局 4 GiB，最多 2000 份。零字节文件提交空块完成流程。大小或文件名非法返回 400 `invalid-attachment`；块非法为 400 `invalid-attachment-chunk`，偏移不符为 409 `attachment-offset-mismatch`；配额不足为 413 `attachment-storage-full`，未完成/过期/跨会话为 404 `attachment-unavailable`。旧 Agent 返回 409 `agent-update-required`。
 
 支持附件的 Relay 在 `device.welcome.features` 广播 `attachments`，新 Agent 协商后在快照公布 `runtime.capabilities.attachments:true`。`turn.start`、`turn.queue`、`turn.steer` 可带 `attachments:string[]`（最多 4 个 ID）；文字、图片、文件至少有一项。队列摘要可带 `fileCount`，完整队列读取保留 `attachments`。Agent 下载时校验大小与 SHA-256，并用官方文本输入中的本地文件引用交给 Codex。排队时即持久化本机副本，编辑正文不改附件。
+
+Agent 0.2.31 广播 `runtime.capabilities.maxImages:20` 与 `maxVideoBytes:536870912`。控制端缺少这些字段时回退为 4 张图片和 20 MiB 视频，避免对旧 Agent 发出不支持的输入。附件命令等待上限为 300 秒，Agent 下载与缓存校验均流式处理，运行时刷新、暂停或退出会取消下载，校验成功前不落成正式文件。Web 可选择、粘贴和拖放视频，Android 使用系统文档选择器读取原文件；不做图片压缩，也不整段读取到 Agent 内存。视频作为原始本地文件引用交给 Codex 工具处理，当前生成的官方输入协议没有独立视频类型。
 
 ## 会话文件读取
 
@@ -173,11 +175,11 @@ turn 的可选 `fileChanges` 是最多 40 项的 `{path,additions,deletions,diff
 | GET | `/v1/devices/:deviceId/threads/:threadId/images/:imageId` | 返回图片二进制，`Cache-Control:no-store`，需要同账号会话认证 |
 | GET | `/v1/agent/:deviceId/threads/:threadId/images/:imageId` | 只接受该设备 Bearer 凭据，返回待发送图片 JSON，供 Agent 下载 |
 
-支持 PNG、JPEG、WebP、GIF，单张最多 4 MiB，每条命令最多 4 张。服务校验标准 Base64、文件头和声明的 MIME，一台设备 Relay 图片存储预算为 128 MiB，超出返回 `image-storage-full`。上传需要 thread 属于设备目录；ID 按设备、会话及内容生成，不接受路径或外部 URL。
+支持 PNG、JPEG、WebP、GIF，单张最多 4 MiB，每条命令最多 20 张。该数量按产品要求的兜底值设置，未将其表述为官方 Codex 的统一上限。服务校验标准 Base64、文件头和声明的 MIME，一台设备 Relay 图片存储预算为 128 MiB，超出返回 `image-storage-full`。上传需要 thread 属于设备目录；ID 按设备、会话及内容生成，不接受路径或外部 URL。
 
 `turn.start.images?:string[]` 和 `turn.queue.images?:string[]` 为上传返回的 64 字符 ID 数组。`text` 允许为空，但文本和图片不能同时为空。Relay 检查图片属于同一设备/会话。Agent 使用设备认证下载，将图片保存在自身数据目录 `images/`，向两种官方运行时提交 `localImage` 输入，不改变会话模型或权限。队列消息保存于 Agent 的 `commands.sqlite`，重启后继续显示；发送中断且无法确认结果时不会自动重试。
 
-规范化 item 的可选 `images` 为最多 8 项的 `{id,name,source?}`，不含图片字节。`source` 仅用于替换回复 Markdown 中已经观察到的本机图片引用，不能用来请求任意文件。Agent 只为官方消息的图片输入、`imageView`、`imageGeneration` 以及 assistant Markdown 图片建立不透明 ID；远程请求只提供 ID。不会在后台下载任意 HTTP URL。只接受有图片文件头、大小合规的本机文件。
+规范化 item 的可选 `images` 为最多 20 项的 `{id,name,source?}`，不含图片字节。`source` 仅用于替换回复 Markdown 中已经观察到的本机图片引用，不能用来请求任意文件。Agent 只为官方消息的图片输入、`imageView`、`imageGeneration` 以及 assistant Markdown 图片建立不透明 ID；远程请求只提供 ID。不会在后台下载任意 HTTP URL。只接受有图片文件头、大小合规的本机文件。
 
 缓存未命中时 Relay 通过 `image.request` 请求 Agent，并核对设备、thread、图片 ID 和 request ID 后接收 `device.image`。最多 12 个并发请求、一台设备最多 4 个，超时 15 秒；断线、撤销和连接替换会立即失败。图片字节不进入快照、目录、事件或命令结果；单次独立图片响应仍受 8 MiB 传输预算限制。
 

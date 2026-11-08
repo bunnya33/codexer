@@ -806,6 +806,83 @@ private slots:
              QJsonValue("image/png"));
     QVERIFY_EXCEPTION_THROWN(agent->readImage("other", id), Error);
   }
+  void mediaInputs_data() {
+    QTest::addColumn<QString>("scenario");
+    for (const auto &name : {"valid", "bad-hash", "truncated", "too-large", "runtime-refresh"})
+      QTest::newRow(name) << QString(name);
+  }
+  void mediaInputs() {
+    QFETCH(QString, scenario);
+    agent->dataDirectory = temp.path() + "/media-" + uuid();
+    QTcpServer http;
+    QVERIFY(http.listen(QHostAddress::LocalHost, 0));
+    agent->credentials["relayUrl"] = "http://127.0.0.1:" + QString::number(http.serverPort());
+    const QByteArray bytes(21 * 1024 * 1024, 'v');
+    const auto aid = QString(64, 'a');
+    Object ref{{"id", aid}, {"name", "录屏 原始.MP4"}, {"mimeType", "application/octet-stream"},
+               {"size", bytes.size()}, {"sha256", scenario == "bad-hash" ? QString(64, 'b') : hash(bytes)}};
+    if (scenario == "too-large") ref["size"] = double(MaxVideoBytes + 1);
+    int downloads = 0, imageReads = 0;
+    bool available = true;
+    connect(&http, &QTcpServer::newConnection, &http, [&] {
+      auto peer = http.nextPendingConnection();
+      auto handler = std::make_shared<QMetaObject::Connection>();
+      *handler = connect(peer, &QTcpSocket::readyRead, peer, [&, peer, handler] {
+        const auto request = peer->peek(peer->bytesAvailable());
+        if (!request.contains("\r\n\r\n")) return;
+        disconnect(*handler);
+        peer->readAll();
+        QByteArray body;
+        if (request.contains("/images/")) {
+          ++imageReads;
+          body = json(Object{{"name", "picture.png"}, {"mimeType", "image/png"},
+              {"base64", "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aS1sAAAAASUVORK5CYII="}});
+        } else if (request.contains("?info=1")) body = json(ref);
+        else { ++downloads; body = bytes; }
+        const auto length = body.size();
+        if (!available) body.clear();
+        peer->write("HTTP/1.1 " + QByteArray(available ? "200 OK" : "404 Not Found") +
+                    "\r\nContent-Length: " + QByteArray::number(length) + "\r\nConnection: close\r\n\r\n");
+        if (!request.contains("?info=1") && !request.contains("/images/")) {
+          if (scenario == "truncated") body.chop(1);
+          if (scenario == "runtime-refresh") {
+            peer->write(body.left(65536));
+            QTimer::singleShot(50, peer, [&] { ++agent->remoteGeneration; });
+            return;
+          }
+        }
+        peer->write(body);
+        peer->disconnectFromHost();
+        connect(peer, &QTcpSocket::disconnected, peer, &QObject::deleteLater);
+      });
+    });
+    if (scenario != "valid") {
+      QVERIFY_EXCEPTION_THROWN(agent->inputs("thread-test", {}, {aid}), Error);
+      QVERIFY(!QFileInfo::exists(agent->dataDirectory + "/attachments/" + hash(QByteArray("thread-test")) + '/' + aid + "/reference.json"));
+      if (scenario == "too-large") QCOMPARE(downloads, 0);
+      return;
+    }
+    Array images;
+    for (int i = 0; i < 20; ++i) images.append(QString::number(i, 16).rightJustified(64, '0'));
+    const auto inputs = agent->inputs("thread-test", images, {aid});
+    QCOMPARE(inputs.size(), 21);
+    QCOMPARE(imageReads, 20);
+    QCOMPARE(downloads, 1);
+    for (int i = 0; i < 20; ++i) {
+      const auto input = inputs[i].toObject();
+      QCOMPARE(input["type"], QJsonValue("localImage"));
+      QVERIFY(QFileInfo::exists(input["path"].toString()));
+    }
+    const auto local = QRegularExpression("\\]\\(<(.+)>\\)").match(inputs.last().toObject()["text"].toString()).captured(1);
+    QCOMPARE(read(local, bytes.size()), bytes);
+    available = false;
+    QCOMPARE(agent->inputs("thread-test", {}, {aid}).size(), 1);
+    QCOMPARE(downloads, 1); // Validated cached originals do not need the Relay again.
+    save(local, QByteArray(bytes.size(), 'x'));
+    QVERIFY_EXCEPTION_THROWN(agent->inputs("thread-test", {}, {aid}), Error);
+    images.append(QString(64, 'f'));
+    QVERIFY_EXCEPTION_THROWN(agent->inputs("thread-test", images, {}), Error);
+  }
   void firstConnectionAfterLoadingServerLimit_data() {
     QTest::addColumn<int>("limit");
     QTest::newRow("legacy-no-limit") << 0;

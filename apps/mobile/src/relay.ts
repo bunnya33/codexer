@@ -10,7 +10,7 @@ import { agentErrorMessage } from '../../../packages/client-shared/src/agent-err
 import { fileInfoSchema } from '../../../packages/protocol/src/files';
 import type { FileInfo } from '../../../packages/protocol/src/files';
 import type { WidgetState } from '../../../packages/client-shared/src/previews';
-import { attachmentSchema, MAX_ATTACHMENT_BYTES, UPLOAD_CHUNK_BYTES } from '../../../packages/protocol/src/uploads';
+import { attachmentSchema, attachmentByteLimit, UPLOAD_CHUNK_BYTES } from '../../../packages/protocol/src/uploads';
 import type { Attachment } from '../../../packages/protocol/src/uploads';
 import type { AttachmentAsset } from './attachment-picker';
 import {agentReleaseSchema} from '../../../packages/shared/src/agent-release';
@@ -519,9 +519,10 @@ export class RelayClient {
   async sendCommand(deviceId: string, payload: RemoteCommand['payload']): Promise<CommandResult> {
     const snapshot = this.view.snapshots[deviceId];
     if (this.view.phase !== 'connected' || this.socket?.readyState !== WebSocket.OPEN || !snapshot || !this.view.devices.find(device => device.id === deviceId)?.online || this.view.syncing[deviceId]) throw new Error('设备暂不可操作');
-    const command: RemoteCommand = { commandId: randomId(), deviceId, expectedEpoch: snapshot.epoch, expiresAt: Date.now() + 60000, payload };
+    const timeout = 'attachments' in payload && payload.attachments?.length ? 300000 : 60000;
+    const command: RemoteCommand = { commandId: randomId(), deviceId, expectedEpoch: snapshot.epoch, expiresAt: Date.now() + timeout, payload };
     const completed = new Promise<CommandResult>((resolve, reject) => {
-      const timer = setTimeout(() => { this.pending.delete(command.commandId); reject(new Error('操作结果未确认，请刷新会话核对')); }, 65000);
+      const timer = setTimeout(() => { this.pending.delete(command.commandId); reject(new Error('操作结果未确认，请刷新会话核对')); }, timeout + 5000);
       this.pending.set(command.commandId, { resolve, reject, timer, deviceId });
     });
     try {
@@ -547,7 +548,8 @@ export class RelayClient {
   }
 
   async uploadAttachment(deviceId: string, threadId: string, file: AttachmentAsset, signal: AbortSignal): Promise<Attachment> {
-    if (!Number.isSafeInteger(file.size) || file.size < 0 || file.size > MAX_ATTACHMENT_BYTES) throw new Error('文件不能超过 20 MB');
+    const limit = attachmentByteLimit(file);
+    if (!Number.isSafeInteger(file.size) || file.size < 0 || file.size > limit) throw new Error(`文件不能超过 ${limit / 1024 / 1024} MB`);
     const generation = this.generation, base = this.view.url, token = this.token;
     const path = `/v1/devices/${encodeURIComponent(deviceId)}/threads/${encodeURIComponent(threadId)}/attachments`;
     let id = '', completed = false;

@@ -22,7 +22,7 @@ beforeAll(async () => {
     plugins: [{ name: 'fixture-pickers', setup(build) {
       build.onResolve({ filter: /^\.\/src\/attachment-picker$/ }, () => ({ path: 'files', namespace: 'fixture' }));
       build.onResolve({ filter: /^expo-image-picker$/ }, () => ({ path: 'images', namespace: 'fixture' }));
-      build.onLoad({ filter: /.*/, namespace: 'fixture' }, ({ path }) => ({ contents: path === 'files' ? 'export async function pickAttachments() { return window.__pickAttachments(); }' : 'export async function launchImageLibraryAsync() { return window.__pickImages(); } export const launchCameraAsync = launchImageLibraryAsync; export async function requestCameraPermissionsAsync() { return {granted:true}; }', loader: 'js' }));
+      build.onLoad({ filter: /.*/, namespace: 'fixture' }, ({ path }) => ({ contents: path === 'files' ? 'export async function pickAttachments(kind) { return window.__pickAttachments(kind); }' : 'export async function launchImageLibraryAsync() { return window.__pickImages(); } export const launchCameraAsync = launchImageLibraryAsync; export async function requestCameraPermissionsAsync() { return {granted:true}; }', loader: 'js' }));
     } }],
     define: { 'process.env.NODE_ENV': '"production"', __DEV__: 'false', global: 'globalThis', 'process.env': '{}' } });
   javascript = result.outputFiles!.find(file => file.path.endsWith('.js'))!.text;
@@ -38,7 +38,7 @@ type FixtureOptions = {
   permissions?: boolean; requests?: InteractiveRequest[]; legacyAgent?: boolean;
   storage?: Record<string, string>; userId?: string; devices?: typeof devices; catalogs?: Record<string, DeviceCatalog>;
   delayDevices?: boolean; delayCatalog?: string; blockedStorage?: boolean; blockedThemeStorage?: boolean;
-  filePicker?: () => Promise<{ name: string; size: number; mimeType: string; readChunk: (offset: number, length: number) => Promise<string> }[]>;
+  filePicker?: (kind?: 'video') => Promise<{ name: string; size: number; mimeType: string; readChunk: (offset: number, length: number) => Promise<string> }[]>;
   imagePicker?: () => Promise<{ canceled: boolean; assets: { uri: string; fileName: string; width: number; height: number; mimeType: string; base64: string }[] }>;
   imageUpload?: { wait?: Promise<void>; fail?: boolean };
   submission?: { wait?: Promise<void>; fail?: boolean };
@@ -156,7 +156,7 @@ async function fixture(options: FixtureOptions = {}) {
       function snapshot(deviceId: string) {
         return { protocolVersion: 1, deviceId, epoch: 'fixture', lastSeq: 0, generatedAt: 1, hostname: deviceId, platform: 'darwin',
           agentVersion: options.agentVersions?.[deviceId],
-          runtime: { kind: 'official-desktop-ipc', connected: true, experimental: true, capabilities: { observe: true, startTurn: true, interrupt: true, continueTurn: !options.legacyAgent, activeSettingsUpdate: !options.legacyAgent, approvals: true, userInput: true, images: true, attachments: true, collaborationModeUpdate: true, permissionsUpdate: !!options.permissions, mcpApprovals: true } },
+          runtime: { kind: 'official-desktop-ipc', connected: true, experimental: true, capabilities: { observe: true, startTurn: true, interrupt: true, continueTurn: !options.legacyAgent, activeSettingsUpdate: !options.legacyAgent, approvals: true, userInput: true, images: true, ...(!options.legacyAgent ? { maxImages: 20, maxVideoBytes: 512 * 1024 * 1024 } : {}), attachments: true, collaborationModeUpdate: true, permissionsUpdate: !!options.permissions, mcpApprovals: true } },
           threads: Object.fromEntries((current.catalogs[deviceId]?.threads ?? []).map(thread => [thread.id, { ...normalizeThread({ ...thread, threadRuntimeStatus: { type: controls?.active ? 'active' : 'idle', activeFlags: [] }, turns: [], requests: [] }, 0), ownerAvailable: true,
             ...(controls ? { settings, activeTurnId: controls.active && !controls.unknownTurn ? 'active-turn' : null, turns: controls.interrupted ? [{ id: 'active-turn', status: 'interrupted', items: [], plan: [], diff: '', truncated: false }] : [], queuedMessages: [{ id: 'queue-1', text: controls.text.slice(0, 1000), imageCount: controls.images.length, createdAt: 1, status: 'queued' }] } : {}),
             ...(options.permissions ? {settings} : {}), requests: pendingRequests,
@@ -785,6 +785,65 @@ it('opens attachment actions from plus and sends a file-only message after uploa
     test.click('发送消息');
     await vi.waitFor(() => expect(test.commands.some(c => c.payload.type === 'turn.start' && c.payload.text === '' && c.payload.attachments?.[0] === 'f'.repeat(64))).toBe(true));
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="移除文件 说明.txt"]')).toBeNull());
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it('offers a video picker and sends an original video larger than the ordinary file limit', async () => {
+  const bytes = Buffer.alloc(21 * 1024 * 1024, 7);
+  let pickerKind: string | undefined;
+  const test = await fixture({ controls: { active: false, text: '', images: [] }, filePicker: async kind => {
+    pickerKind = kind;
+    return [{ name: '录屏.mp4', size: bytes.length, mimeType: 'video/mp4', readChunk: async (offset, length) => bytes.subarray(offset, offset + length).toString('base64') }];
+  } });
+  try {
+    await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-a']).toBe(false));
+    test.click('添加附件');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="添加视频"]')).not.toBeNull());
+    expect(test.dom.window.document.body.textContent).toContain('视频每个 512 MB');
+    test.click('添加视频');
+    await vi.waitFor(() => expect(test.uploadRequests).toHaveLength(43));
+    expect(pickerKind).toBe('video');
+    expect(test.imageUploads).toHaveLength(0);
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="发送消息"]')?.getAttribute('aria-disabled')).not.toBe('true'));
+    test.click('发送消息');
+    await vi.waitFor(() => expect(test.commands.some(c => c.payload.type === 'turn.start' && c.payload.text === '' && c.payload.attachments?.[0] === 'f'.repeat(64))).toBe(true));
+    expect(test.commands.at(-1)!.expiresAt - Date.now()).toBeGreaterThan(290000);
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it.each(['drop', 'paste'])('uploads a video from the browser composer %s event without converting it to an image', async action => {
+  const test = await fixture({ controls: { active: false, text: '', images: [] } });
+  try {
+    await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-a']).toBe(false));
+    const video = new test.dom.window.File([new Uint8Array([0, 1, 2, 3, 4])], '录屏.webm', { type: 'video/webm' });
+    const event = new test.dom.window.Event(action, { bubbles: true, cancelable: true });
+    Object.defineProperty(event, action === 'drop' ? 'dataTransfer' : 'clipboardData', { value: { files: [video], types: ['Files'] } });
+    composer(test).dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    await vi.waitFor(() => expect(test.uploadRequests).toHaveLength(2));
+    expect(test.imageUploads).toHaveLength(0);
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="发送消息"]')?.getAttribute('aria-disabled')).not.toBe('true'));
+    test.click('发送消息');
+    await vi.waitFor(() => expect(test.commands.find(c => c.payload.type === 'turn.start')?.payload).toMatchObject({ text: '', attachments: ['f'.repeat(64)] }));
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it.each([false, true])('honors the advertised image limit and legacy fallback (legacy=%s)', async legacyAgent => {
+  const limit = legacyAgent ? 4 : 20;
+  const test = await fixture({ legacyAgent, controls: { active: false, text: '', images: [] }, imagePicker: async () => ({ canceled: false, assets: Array.from({ length: 21 }, (_, i) => draftImage(`image-${i}.png`)) }) });
+  try {
+    await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-a']).toBe(false));
+    test.click('添加附件');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="添加图片"]')).not.toBeNull());
+    expect(test.dom.window.document.body.textContent).toContain(`最多 ${limit} 张图片`);
+    test.click('添加图片');
+    await vi.waitFor(() => expect(test.imageUploads).toHaveLength(limit));
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="发送消息"]')?.getAttribute('aria-disabled')).not.toBe('true'));
+    test.click('发送消息');
+    await vi.waitFor(() => expect(test.commands.find(c => c.payload.type === 'turn.start')?.payload).toMatchObject({ text: '', images: test.imageUploads.map(item => item.id) }));
     expect(test.errors).toEqual([]);
   } finally { test.close(); }
 });

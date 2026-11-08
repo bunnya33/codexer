@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { attachmentIdSchema, MAX_ATTACHMENTS } from "./uploads.js";
+import { attachmentIdSchema, MAX_ATTACHMENTS, MAX_VIDEO_BYTES } from "./uploads.js";
 import { fileResponseSchema } from "./files.js";
 import { previewResponseSchema } from './previews.js';
 import { MAX_SYNC_THREADS } from '../../shared/src/agent-settings.js';
@@ -10,7 +10,7 @@ export const MAX_THREAD_BYTES = 256 * 1024;
 export const MAX_THREADS = 20;
 export const MAX_CATALOG_BYTES = 6 * 1024 * 1024;
 export const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
-export const MAX_IMAGES = 4;
+export const MAX_IMAGES = 20;
 export const MAX_SUB_AGENTS = 32;
 export const imageIdSchema = z.string().regex(/^[a-f0-9]{64}$/);
 export const imagePayloadSchema = z.object({
@@ -133,7 +133,7 @@ const itemSchema = z.object({
   subAgents: subAgentsSchema.optional(),
   files: z.array(z.string().max(1000)).max(40).optional(),
   fileOperations: z.array(z.object({ path: z.string().max(1000), kind: z.enum(['add', 'update', 'delete', 'unknown']) })).max(40).optional(),
-  images: z.array(imageRefSchema).max(8).optional(),
+  images: z.array(imageRefSchema).max(MAX_IMAGES).optional(),
   truncated: z.boolean(),
 });
 export type RemoteItem = z.infer<typeof itemSchema>;
@@ -215,7 +215,7 @@ export const snapshotSchema = z.object({
     kind: z.enum(["official-desktop-ipc", "official-app-server"]),
     connected: z.boolean(),
     experimental: z.literal(true),
-    capabilities: z.object({ observe: z.boolean(), startTurn: z.boolean(), interrupt: z.boolean(), continueTurn: z.boolean().optional(), activeSettingsUpdate: z.boolean().optional(), approvals: z.boolean(), userInput: z.boolean(), modelUpdate: z.boolean().optional(), effortUpdate: z.boolean().optional(), collaborationModeUpdate: z.boolean().optional(), permissionsUpdate: z.boolean().optional(), mcpApprovals: z.boolean().optional(), images: z.boolean().optional(), attachments: z.boolean().optional(), subAgents: z.boolean().optional(), runtimeRefresh: z.boolean().optional() }),
+    capabilities: z.object({ observe: z.boolean(), startTurn: z.boolean(), interrupt: z.boolean(), continueTurn: z.boolean().optional(), activeSettingsUpdate: z.boolean().optional(), approvals: z.boolean(), userInput: z.boolean(), modelUpdate: z.boolean().optional(), effortUpdate: z.boolean().optional(), collaborationModeUpdate: z.boolean().optional(), permissionsUpdate: z.boolean().optional(), mcpApprovals: z.boolean().optional(), images: z.boolean().optional(), maxImages: z.number().int().min(1).max(MAX_IMAGES).optional(), maxVideoBytes: z.number().int().min(1).max(MAX_VIDEO_BYTES).optional(), attachments: z.boolean().optional(), subAgents: z.boolean().optional(), runtimeRefresh: z.boolean().optional() }),
   }),
   threads: z.record(idSchema, threadSchema).refine(threads => Object.keys(threads).length <= MAX_SYNC_THREADS && Object.entries(threads).every(([id, thread]) => id === thread.id)),
 });

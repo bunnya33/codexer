@@ -50,6 +50,9 @@ for(const payload of payloads) {
  }
 }
 for(const turnId of ['',null,'x'.repeat(161)]) add('command',{...envelope,payload:{type:'turn.continue',threadId:'thread',turnId}});
+for (const type of ['turn.start', 'turn.steer', 'turn.queue']) {
+ for (const count of [20, 21]) add('command', {...envelope, payload: {type, threadId:'thread', turnId:'turn', text:'', images:Array(count).fill('a'.repeat(64))}});
+}
 for(const extra of [{text:''},{input:[]},{images:[]},{unexpected:true}]) add('command',{...envelope,payload:{type:'turn.continue',threadId:'thread',turnId:'stopped',...extra}});
 for(const expiresAt of [null,1.2,'tomorrow',Number.MAX_VALUE]) add('command',{...envelope,expiresAt,payload:{type:'runtime.refresh'}});
 const items=[

@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import { expect, it } from "vitest";
 import { ImageRegistry } from "../packages/codex-adapter/src/images.js";
 import { normalizeHistoryTurn } from "../packages/codex-adapter/src/normalize.js";
-import { commandSchema, jsonBytes, MAX_IMAGE_BYTES } from "../packages/protocol/src/index.js";
+import { commandSchema, jsonBytes, MAX_IMAGE_BYTES, MAX_IMAGES, historyPageSchema } from "../packages/protocol/src/index.js";
 import { decodeImage } from "../packages/shared/src/images.js";
 import { stripInlineImageReferences } from "../packages/client-shared/src/audio.js";
 import { command } from "./helpers.js";
@@ -39,7 +39,20 @@ it("normalizes images to stable scoped references and never puts image bytes in 
 it("supports image-only turns while retaining empty input and attachment limit validation", () => {
   expect(commandSchema.safeParse(command({ type: "turn.start", threadId: "thread", text: "", images: ["a".repeat(64)] })).success).toBe(true);
   expect(commandSchema.safeParse(command({ type: "turn.start", threadId: "thread", text: " " })).success).toBe(false);
-  expect(commandSchema.safeParse(command({ type: "turn.start", threadId: "thread", text: "", images: Array(5).fill("a".repeat(64)) })).success).toBe(false);
+  for (const type of ['turn.start', 'turn.steer', 'turn.queue'] as const) {
+    for (const count of [MAX_IMAGES, MAX_IMAGES + 1]) {
+      const payload = { type, threadId: 'thread', turnId: 'turn', text: '', images: Array(count).fill('a'.repeat(64)) };
+      expect(commandSchema.safeParse(command(payload)).success).toBe(count === MAX_IMAGES);
+    }
+  }
+});
+
+it('preserves all twenty input pictures in normalized history', () => {
+  const registry = new ImageRegistry();
+  const content = Array.from({ length: 20 }, (_, i) => ({ type: 'localImage', path: `/fixture/picture-${i}.png` }));
+  const turn = normalizeHistoryTurn({ id: 'turn', status: 'completed', items: [{ id: 'user', type: 'userMessage', content }] }, registry, 'thread');
+  expect(turn.items[0]!.images).toHaveLength(20);
+  expect(historyPageSchema.safeParse({ threadId: 'thread', turns: [turn], nextCursor: null, generatedAt: 1 }).success).toBe(true);
 });
 
 it.each(["native", "drive-citation", "encoded", "file-url"])("reads assistant Markdown pictures with Chinese names, spaces and percent signs (%s)", async format => {

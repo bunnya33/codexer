@@ -92,6 +92,8 @@ void Service::connectAgent() {
                 {"permissionsUpdate", true},
                 {"mcpApprovals", true},
                 {"images", true},
+                {"maxImages", MaxInputImages},
+                {"maxVideoBytes", double(MaxVideoBytes)},
                 {"subAgents", true},
                 {"runtimeRefresh", true}};
     snapshot = {{"protocolVersion", 1},

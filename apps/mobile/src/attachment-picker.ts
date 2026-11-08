@@ -2,8 +2,8 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 
 export type AttachmentAsset = { name: string; size: number; mimeType: string; readChunk: (offset: number, length: number) => Promise<string> };
-export async function pickAttachments(): Promise<AttachmentAsset[]> {
-  const result = await DocumentPicker.getDocumentAsync({ multiple: true, copyToCacheDirectory: true });
+export async function pickAttachments(kind?: 'video'): Promise<AttachmentAsset[]> {
+  const result = await DocumentPicker.getDocumentAsync({ multiple: true, copyToCacheDirectory: true, ...(kind === 'video' ? { type: 'video/*' } : {}) });
   if (result.canceled) return [];
   return Promise.all(result.assets.map(async asset => {
     const info = asset.size === undefined ? await FileSystem.getInfoAsync(asset.uri) : null;

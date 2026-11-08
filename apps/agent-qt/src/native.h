@@ -13,6 +13,8 @@ using Object = QJsonObject;
 using Array = QJsonArray;
 inline constexpr int DefaultSyncedThreads = 20;
 inline constexpr int MaxSyncedThreads = 30;
+inline constexpr int MaxInputImages = 20;
+inline constexpr qint64 MaxVideoBytes = 512LL * 1024 * 1024;
 struct Error : std::exception {
   QString code;
   bool uncertain;

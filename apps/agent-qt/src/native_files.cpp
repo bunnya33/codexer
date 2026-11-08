@@ -203,7 +203,7 @@ Array Service::registerImages(const QString &threadId, const Object &item) {
                     .hasMatch();
     auto path = data ? original : localFilePath(original, candidate.second);
     if (path.isEmpty() || (!data && !QFileInfo(path).isAbsolute()) ||
-        seen.contains(path) || result.size() >= 8 ||
+        seen.contains(path) || result.size() >= MaxInputImages ||
         (data && path.size() > 5592450))
       continue;
     seen.insert(path);
@@ -256,11 +256,85 @@ Object Service::readImage(const QString &threadId, const QString &id) {
           {"mimeType", mime},
           {"base64", QString::fromLatin1(bytes.toBase64())}};
 }
+static qint64 attachmentLimit(const Object &ref) {
+  return ref["mimeType"].toString().startsWith("video/", Qt::CaseInsensitive) ||
+          QRegularExpression("\\.(mp4|mov|m4v|webm|mkv|avi|mpeg|mpg|3gp|3g2|m2ts|mts|ogv)$", QRegularExpression::CaseInsensitiveOption)
+              .match(ref["name"].toString()).hasMatch() ? MaxVideoBytes : 20LL * 1024 * 1024;
+}
+static QString attachmentHash(const QString &path, qint64 size) {
+  QFile file(path);
+  if (!file.open(QIODevice::ReadOnly) || file.size() != size)
+    throw Error("attachments-not-ready");
+  QCryptographicHash digest(QCryptographicHash::Sha256);
+  qint64 count = 0;
+  while (!file.atEnd()) {
+    const auto bytes = file.read(64 * 1024);
+    if (bytes.isEmpty() || (count += bytes.size()) > size)
+      throw Error("attachments-not-ready");
+    digest.addData(bytes);
+  }
+  if (count != size || file.error() != QFileDevice::NoError)
+    throw Error("attachments-not-ready");
+  return QString::fromLatin1(digest.result().toHex());
+}
+// Stream the original attachment into an atomic file. Video size must not
+// translate into an equally large resident QByteArray in the Agent.
+static void downloadAttachment(QNetworkAccessManager *network, const Object &credentials,
+                               const QString &endpoint, const QString &path, const Object &ref,
+                               const std::function<bool()> &cancelled) {
+  QUrl root(credentials["relayUrl"].toString()), url = root.resolved(QUrl(endpoint));
+  if (url.scheme() != root.scheme() || url.authority() != root.authority())
+    throw Error("invalid-url");
+  if (!QDir().mkpath(QFileInfo(path).absolutePath()))
+    throw Error("file-write-failed");
+  QSaveFile file(path);
+  if (!file.open(QIODevice::WriteOnly))
+    throw Error("file-write-failed");
+  file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+  QNetworkRequest request(url);
+  request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
+  request.setRawHeader("Authorization", "Bearer " + credentials["session"].toString().toUtf8());
+  request.setRawHeader("x-device-id", credentials["deviceId"].toString().toUtf8());
+  request.setTransferTimeout(30000);
+  auto reply = network->get(request);
+  reply->setReadBufferSize(128 * 1024);
+  QCryptographicHash digest(QCryptographicHash::Sha256);
+  qint64 count = 0;
+  bool failed = false;
+  auto drain = [&] {
+    while (reply->bytesAvailable() > 0) {
+      const auto bytes = reply->read(64 * 1024);
+      if (bytes.isEmpty()) break;
+      count += bytes.size();
+      if (count > ref["size"].toDouble() || file.write(bytes) != bytes.size()) {
+        failed = true;
+        reply->abort();
+        break;
+      }
+      digest.addData(bytes);
+    }
+  };
+  QObject::connect(reply, &QIODevice::readyRead, reply, drain);
+  const bool completed = waitFor([&] { return reply->isFinished() || cancelled(); }, 300000) && !cancelled();
+  if (!completed) reply->abort();
+  drain();
+  const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+  const auto error = reply->error();
+  reply->disconnect();
+  reply->deleteLater();
+  if (!completed || failed || error != QNetworkReply::NoError || status != 200 ||
+      count != ref["size"].toDouble() || QString::fromLatin1(digest.result().toHex()) != ref["sha256"].toString())
+    throw Error("attachments-not-ready");
+  if (!file.commit())
+    throw Error("file-write-failed");
+}
 Array Service::inputs(const QString &id, const Array &images,
                       const Array &attachments) {
-  if (images.size() > 4 || attachments.size() > 4)
+  if (images.size() > MaxInputImages || attachments.size() > 4)
     throw Error("invalid-attachment");
   QRegularExpression validId("^[a-f0-9]{64}$");
+  const auto generation = remoteGeneration;
+  const auto cancelled = [&] { return stopping || paused || generation != remoteGeneration; };
   Array result;
   for (const auto &v : images) {
     if (!validId.match(v.toString()).hasMatch())
@@ -283,6 +357,7 @@ Array Service::inputs(const QString &id, const Array &images,
     result.append(Object{{"type", "localImage"}, {"path", path}});
   }
   for (const auto &v : attachments) {
+    if (cancelled()) throw Error("attachments-not-ready");
     auto aid = v.toString();
     if (!validId.match(aid).hasMatch())
       throw Error("invalid-attachment");
@@ -296,7 +371,8 @@ Array Service::inputs(const QString &id, const Array &images,
       QFileInfo f(path);
       if (ref["id"] != aid || !f.isFile() || f.isSymLink() ||
           f.size() != ref["size"].toDouble() ||
-          hash(read(path, 20 * 1024 * 1024)) != ref["sha256"].toString())
+          f.size() > attachmentLimit(ref) ||
+          attachmentHash(path, f.size()) != ref["sha256"].toString())
         ref = {};
     } catch (...) {
       ref = {};
@@ -308,15 +384,12 @@ Array Service::inputs(const QString &id, const Array &images,
       if (ref["id"] != aid || ref["name"].toString().isEmpty() ||
           ref["name"].toString().size() > 255 || !ref["size"].isDouble() ||
           ref["size"].toDouble() < 0 ||
-          ref["size"].toDouble() > 20 * 1024 * 1024 ||
+          ref["size"].toDouble() > attachmentLimit(ref) ||
+          ref["size"].toDouble() != qint64(ref["size"].toDouble()) ||
           !validId.match(ref["sha256"].toString()).hasMatch())
         throw Error("attachments-not-ready");
-      auto bytes = http("GET", endpoint, {}, 20 * 1024 * 1024, 60000);
-      if (bytes.size() != ref["size"].toDouble() ||
-          hash(bytes) != ref["sha256"].toString())
-        throw Error("attachments-not-ready");
       path = base + "/content/" + safeName(ref["name"].toString());
-      save(path, bytes);
+      downloadAttachment(network, credentials, endpoint, path, ref, cancelled);
       save(metadata, json(ref));
     }
     auto name = ref["name"].toString();

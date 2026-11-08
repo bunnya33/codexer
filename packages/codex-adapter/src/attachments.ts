@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import { mkdir, open, readFile, rename, rm, writeFile, lstat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { attachmentIdSchema, attachmentSchema, MAX_ATTACHMENTS } from '../../protocol/src/uploads.js';
@@ -18,11 +19,16 @@ export class AttachmentInputs {
         ref = attachmentSchema.parse(JSON.parse(await readFile(metadata, 'utf8')));
         const path = join(directory, 'content', this.safeName(ref.name));
         const stat = await lstat(path);
-        if (ref.id !== id || !stat.isFile() || stat.isSymbolicLink() || stat.size !== ref.size || createHash('sha256').update(await readFile(path)).digest('hex') !== ref.sha256) ref = undefined;
+        const digest = createHash('sha256');
+        if (ref.id !== id || !stat.isFile() || stat.isSymbolicLink() || stat.size !== ref.size) ref = undefined;
+        else {
+          for await (const chunk of createReadStream(path)) digest.update(chunk);
+          if (digest.digest('hex') !== ref.sha256) ref = undefined;
+        }
       } catch { ref = undefined; }
       if (!ref) {
         const { url, token } = this.endpoint(threadId, id);
-        const headers = { authorization: `Bearer ${token}` }, signal = AbortSignal.timeout(60000);
+        const headers = { authorization: `Bearer ${token}` }, signal = AbortSignal.timeout(300000);
         const info = new URL(url); info.searchParams.set('info', '1');
         const response = await fetch(info, { headers, signal, redirect: 'error' });
         if (!response.ok) throw new Error('attachments-not-ready');

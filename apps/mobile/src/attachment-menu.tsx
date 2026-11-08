@@ -1,12 +1,12 @@
 import { themedStyles } from './theme';
 import { useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Camera, Image, Paperclip, Plus } from 'lucide-react-native';
+import { Camera, Image, Paperclip, Plus, Video } from 'lucide-react-native';
 import { ComposerPopover } from './composer-popover';
 import { useTheme } from './styles';
 
-export function AttachmentMenu({ enabled, imagesEnabled, filesEnabled, filesSupported, onImages, onCamera, onFiles }: {
-  enabled: boolean; imagesEnabled: boolean; filesEnabled: boolean; filesSupported: boolean; onImages: () => void; onCamera: () => void; onFiles: () => void;
+export function AttachmentMenu({ enabled, imagesEnabled, filesEnabled, filesSupported, onImages, onCamera, onFiles, onVideos, imageLimit = 20, videoLimitMB = 20 }: {
+  enabled: boolean; imagesEnabled: boolean; filesEnabled: boolean; filesSupported: boolean; onImages: () => void; onCamera: () => void; onFiles: () => void; onVideos?: () => void; imageLimit?: number; videoLimitMB?: number;
 }) {
   const { c, s } = useTheme();
   const styles = useLocalStyles();
@@ -23,8 +23,9 @@ export function AttachmentMenu({ enabled, imagesEnabled, filesEnabled, filesSupp
     <ComposerPopover anchor={anchor} open={open && enabled} onClose={() => setOpen(false)} onDismiss={() => { const action = pending.current; pending.current = null; action?.(); }} align="start" width={260}>
       {([...(Platform.OS === 'ios' || Platform.OS === 'android' || Platform.OS === 'web' ? [{ label: '相机', accessible: '拍照添加图片', icon: Camera, action: onCamera, enabled: imagesEnabled }] : []),
         { label: '照片', accessible: '添加图片', icon: Image, action: onImages, enabled: imagesEnabled },
+        ...(onVideos ? [{ label: '视频', accessible: '添加视频', icon: Video, action: onVideos, enabled: filesEnabled }] : []),
         { label: '文件', accessible: '添加文件', icon: Paperclip, action: onFiles, enabled: filesEnabled }]).map(item => <Pressable key={item.label} accessibilityRole="menuitem" accessibilityLabel={item.accessible} disabled={!item.enabled} onPress={() => select(item.action)} style={({ pressed }) => [styles.option, pressed && s.pressed, !item.enabled && s.disabled]}><View style={styles.icon}><item.icon size={21} color={c.text} strokeWidth={1.8} /></View><Text style={styles.label}>{item.label}</Text></Pressable>)}
-      <Text style={styles.hint}>{filesSupported ? '最多 4 个文件，每个 20 MB' : '更新电脑连接器后可添加文件'}</Text>
+      <Text style={styles.hint}>{`最多 ${imageLimit} 张图片`}{filesSupported ? `；最多 4 个文件，视频每个 ${videoLimitMB} MB，其他文件每个 20 MB` : '；更新电脑连接器后可添加文件和视频'}</Text>
     </ComposerPopover>
   </>;
 }

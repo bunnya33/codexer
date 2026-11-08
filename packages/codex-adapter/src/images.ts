@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { open } from "node:fs/promises";
 import { basename, isAbsolute } from "node:path";
 import MarkdownIt from "markdown-it";
-import { MAX_IMAGE_BYTES } from "../../protocol/src/index.js";
+import { MAX_IMAGE_BYTES, MAX_IMAGES } from "../../protocol/src/index.js";
 import type { ImagePayload, ImageRef } from "../../protocol/src/index.js";
 import { decodeImage, imageMime } from "../../shared/src/images.js";
 import { record } from "./normalize.js";
@@ -35,7 +35,7 @@ export class ImageRegistry {
       if (typeof item.savedPath === "string") candidates.push(item.savedPath);
       else if (typeof item.result === "string" && item.result.length) candidates.push(item.result.startsWith("data:") ? item.result : `data:image/png;base64,${item.result}`);
     }
-    return [...new Set(candidates)].slice(0, 8).flatMap(value => {
+    return [...new Set(candidates)].slice(0, MAX_IMAGES).flatMap(value => {
       let path = value;
       const data = /^data:image\/(png|jpeg|webp|gif);base64,/.test(path);
       // Markdown encodes spaces/non-ASCII characters; native item paths are literal.

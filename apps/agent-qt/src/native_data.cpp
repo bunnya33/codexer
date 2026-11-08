@@ -1138,7 +1138,7 @@ bool validCommand(const Object &command) {
         (type == "turn.steer" && !id(p["turnId"])))
       return false;
     for (auto key : {"images", "attachments"}) {
-      if (p.contains(key) && (!p[key].isArray() || p[key].toArray().size() > 4))
+      if (p.contains(key) && (!p[key].isArray() || p[key].toArray().size() > (QString(key) == "images" ? MaxInputImages : 4)))
         return false;
       for (auto v : p[key].toArray())
         if (!digest(v))
