@@ -6,7 +6,9 @@ import { ProjectActions } from '../../apps/mobile/src/project-actions';
 import type { CommandResult, DeviceCatalog, RemoteCommand } from '../../packages/protocol/src/index';
 
 const mode = new URLSearchParams(window.location.search).get('mode');
-const base: DeviceCatalog = { protocolVersion: 1, deviceId: 'device', generatedAt: 1, projects: [{ id: 'project', name: 'Demo', roots: ['/projects/demo'], position: 0, updatedAt: 1 }], threads: [], ...(mode !== 'old' ? { projectDeletion: true } : {}) };
+const projectUsage = { totalTokens: 9_000_000, totalThreads: 8, knownThreads: 8, recordedTokens: 1_200_000, partial: false,
+  models: [{ model: 'gpt-5.3-codex', totalTokens: 1_200_000, inputTokens: 1_000_000, cachedInputTokens: 800_000, outputTokens: 200_000 }] };
+const base: DeviceCatalog = { protocolVersion: 1, deviceId: 'device', generatedAt: 1, projects: [{ id: 'project', name: 'Demo', roots: ['/projects/demo'], position: 0, updatedAt: 1, ...(mode !== 'old' ? {usage: projectUsage} : {}) }], threads: [], ...(mode !== 'old' ? { projectDeletion: true } : {}) };
 const archived = { id: 'hidden', title: 'Archived', cwd: '/projects/demo', projectId: 'project', archived: true, updatedAt: 1 };
 function Fixture() {
   const [open, setOpen] = useState(true), [calls, setCalls] = useState<RemoteCommand['payload'][]>([]);

@@ -28,10 +28,10 @@ function Fixture() {
   const view = { phase: 'connected', devices: [{ id: 'fixture', name: '工作电脑', online: true, platform: 'win32' }], snapshots: { fixture: {
     deviceId: 'fixture', runtime: { connected: true }, threads: { fixture: { status: running ? 'active' : 'idle' }, second: { status: running && parallel ? 'active' : 'idle' } },
   } }, catalogs: {} } as unknown as RelayView;
-  const projectUsage = { totalTokens: 9_000_000, totalThreads: 8, knownThreads: 8, recordedTokens: 1_200_000, partial: false,
-    models: [{ model: 'gpt-5.3-codex', totalTokens: 1_200_000, inputTokens: 1_000_000, cachedInputTokens: 800_000, outputTokens: 200_000 }] };
+  const threadUsage = { totalTokens: 1200 * usageScale, totalKnown: true, recordedTokens: 1200 * usageScale, partial: false,
+    models: [{ model: 'gpt-5.3-codex', totalTokens: 1200 * usageScale, inputTokens: 1000 * usageScale, cachedInputTokens: 500 * usageScale, outputTokens: 200 * usageScale }] };
   return <View style={{ width: '100%', maxWidth: 520, alignSelf: 'center', gap: 16, backgroundColor: theme.colors.bg }}>
-    <ConversationHeader title={title} subtitle={`示例项目 · ${running ? '进行中' : '空闲'}`} projectUsage={projectUsage} running={running} deviceId="fixture" threadId="fixture"
+    <ConversationHeader title={title} subtitle={`示例项目 · ${running ? '进行中' : '空闲'}`} threadUsage={threadUsage} running={running} deviceId="fixture" threadId="fixture"
       agents={[]} supported synchronized truncated={false} hasTruncatedContent={false} onDrawer={noop} onRefresh={noop} onInfo={noop} />
     <View style={{ paddingHorizontal: 20 }}><TurnView turn={turn} active={running} deviceId="fixture" threadId="fixture" onImage={noop} questionRequestIds={[]} /></View>
     <View style={{ height: 370 }}><Directory view={view} deviceId="fixture" threadId="fixture" rows={[{ type: 'project', id: 'project', name: '示例项目', active: running, runningCount: count, expanded,

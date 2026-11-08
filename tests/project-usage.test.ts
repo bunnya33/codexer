@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest';
 import { projectUsageSchema, type ProjectUsage } from '../packages/protocol/src/index';
-import { compactTokens, estimateProjectCost, projectUsageLabel, turnCostLabel, usdLabel } from '../packages/client-shared/src/project-usage';
+import { compactTokens, currentThreadUsage, estimateProjectCost, projectUsageLabel, threadUsageLabel, turnCostLabel, usdLabel } from '../packages/client-shared/src/project-usage';
+import type { HistoryTurn } from '../packages/protocol/src/index';
 
 function usage(): ProjectUsage {
   return { totalTokens: 1_200_000, recordedTokens: 1_200_000, totalThreads: 3, knownThreads: 3, partial: false,
@@ -56,4 +57,22 @@ it('does not invent reply fees from a missing model, usage, or unsupported cache
   expect(turnCostLabel()).toBe('');
   for (const model of [undefined, 'unknown', '__proto__', 'constructor']) expect(turnCostLabel({ ...value, model })).toBe('');
   expect(turnCostLabel({ ...value, cacheWriteInputTokens: 1 })).toBe('');
+});
+
+it('keeps the Agent chat aggregate including unexpanded history separate from loaded turns', () => {
+  const summary = {totalTokens: 9_000, recordedTokens: 1200, totalKnown: true, partial: false,
+    models: [{model: 'gpt-5.3-codex', totalTokens: 1200, inputTokens: 1000, cachedInputTokens: 500, outputTokens: 200}]};
+  expect(currentThreadUsage(summary, null, [])).toBe(summary);
+  expect(threadUsageLabel(summary)).toBe('会话累计 9,000 Token · 部分预估 $0.0038');
+  expect(threadUsageLabel()).toBe('会话 Token 待同步');
+});
+
+it('falls back to only this chat counters on older Agents without double counting repeated turns', () => {
+  const tokenUsage = {...usage().models[0]!, totalTokens:1200, inputTokens:1000, cachedInputTokens:500, outputTokens:200, reasoningOutputTokens:0, state:'complete' as const, model:'gpt-5.3-codex'};
+  const turn: HistoryTurn = {id:'turn',status:'completed',items:[],truncated:false,tokenUsage};
+  const aggregate = currentThreadUsage(undefined, {total: {totalTokens:2000,inputTokens:1800,cachedInputTokens:500,outputTokens:200}}, [turn,turn]);
+  expect(aggregate).toMatchObject({totalTokens:2000,recordedTokens:1200,totalKnown:true,partial:true});
+  expect(estimateProjectCost(aggregate!).usd).toBeCloseTo(0.0037625);
+  expect(threadUsageLabel(currentThreadUsage(undefined,null,[turn]))).toContain('会话累计 ≥1,200 Token');
+  expect(currentThreadUsage(undefined,null,[])).toBeUndefined();
 });

@@ -7,6 +7,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Archive, ArrowDown, ArrowUp, Check, ListChecks, Paperclip, Pencil, Play, Square, Terminal, Trash2, X } from 'lucide-react-native';
 import { mergeTurnHistory } from '../../packages/client-shared/src/activity';
+import { currentThreadUsage } from '../../packages/client-shared/src/project-usage';
 import { conversationImages } from '../../packages/client-shared/src/images';
 import type { ImageDirection, ImageGallery, ImagePreview } from '../../packages/client-shared/src/images';
 import { buildDirectoryRows } from '../../packages/client-shared/src/directory';
@@ -181,6 +182,7 @@ function AppContent() {
   const turns = useMemo(() => {
     return mergeTurnHistory(history?.turns ?? [], thread?.turns ?? []);
   }, [history?.turns, thread?.turns]);
+  const chatUsage = useMemo(() => currentThreadUsage(thread?.usage, thread?.tokenUsage, turns), [thread?.usage, thread?.tokenUsage, turns]);
   // Preserve the pre-update follow state across card insertion. Size callbacks
   // repeat this after virtualized rows and asynchronous content are measured.
   useLayoutEffect(() => {
@@ -397,7 +399,7 @@ function AppContent() {
     <KeyboardAvoidingView style={s.page} behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}>
       <DrawerSwipeArea>
       <ConversationHeader title={summary?.title ?? thread?.title ?? 'Codexer'} subtitle={`${project?.name ?? device?.name ?? '选择设备'}${threadId ? ` · ${thread?.status === 'active' ? '进行中' : thread?.status === 'idle' ? '空闲' : '接入中'}` : ''}`}
-        projectUsage={project?.usage ?? (!summary?.projectId ? catalog?.unassignedUsage : undefined)}
+        threadUsage={chatUsage}
         running={thread?.status === 'active'}
         deviceId={deviceId} threadId={threadId} agents={conversationSubAgents(thread, turns)} supported={!!snapshot?.runtime.capabilities.subAgents}
         synchronized={view.phase === 'connected' && !!device?.online && !!snapshot?.runtime.connected && !!thread?.ownerAvailable && !view.syncing[deviceId]}

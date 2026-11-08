@@ -1564,7 +1564,7 @@ private slots:
     record.remove("model");
     QVERIFY(agent->saveUsage("archived", "c", record));
     QVERIFY(agent->saveUsage("not-in-catalog", "d", record));
-    agent->snapshot["threads"] = Object{{"current", Object{{"tokenUsage", Object{{"total", counts(1500, 200, 1000)}}}}}};
+    agent->snapshot["threads"] = Object{{"current", Object{{"id", "current"}, {"tokenUsage", Object{{"total", counts(1500, 200, 1000)}}}}}};
     agent->refreshProjectUsage(false);
     auto value = agent->catalog["projects"].toArray()[0].toObject()["usage"].toObject();
     QCOMPARE(value["totalTokens"], QJsonValue(5700));
@@ -1574,6 +1574,18 @@ private slots:
     QCOMPARE(value["models"].toArray().size(), 3);
     QCOMPARE(value["models"].toArray()[0].toObject()["model"], QJsonValue(QJsonValue::Null));
     QCOMPARE(value["models"].toArray()[1].toObject()["inputTokens"], QJsonValue(600));
+    const auto currentUsage = agent->snapshot["threads"].toObject()["current"].toObject()["usage"].toObject();
+    QCOMPARE(currentUsage["totalTokens"], QJsonValue(1700));
+    QCOMPARE(currentUsage["recordedTokens"], QJsonValue(1000));
+    QCOMPARE(currentUsage["totalKnown"], QJsonValue(true));
+    QCOMPARE(currentUsage["models"].toArray().size(), 2);
+    QCOMPARE(currentUsage["models"].toArray()[0].toObject()["inputTokens"], QJsonValue(600));
+    QVERIFY(!agent->snapshot["threads"].toObject().contains("archived"));
+    agent->rawThreads["current"] = {{"id", "current"}, {"title", "Current"},
+        {"threadRuntimeStatus", Object{{"type", "idle"}}}, {"turns", Array{}},
+        {"latestTokenUsageInfo", Object{{"total", counts(1500, 200, 1000)}}}};
+    agent->updateThread("current");
+    QCOMPARE(agent->snapshot["threads"].toObject()["current"].toObject()["usage"].toObject(), currentUsage);
     QCOMPARE(agent->catalog["projects"].toArray()[1].toObject()["usage"].toObject()["totalTokens"], QJsonValue(700));
     QCOMPARE(agent->catalog["projects"].toArray()[2].toObject()["usage"].toObject()["totalTokens"], QJsonValue(0));
     QCOMPARE(agent->catalog["unassignedUsage"].toObject()["totalTokens"], QJsonValue(50));
@@ -1585,6 +1597,7 @@ private slots:
     writeIndex("state_10.sqlite", 2000);
     agent->refreshProjectUsage(false);
     QCOMPARE(agent->catalog["projects"].toArray()[0].toObject()["usage"].toObject()["totalTokens"], QJsonValue(6000));
+    QCOMPARE(agent->snapshot["threads"].toObject()["current"].toObject()["usage"].toObject()["totalTokens"], QJsonValue(2000));
   }
   void projectUsageFallsBackWithoutPretendingHistoryIsComplete() {
     QTemporaryDir index;
@@ -1593,7 +1606,7 @@ private slots:
         {"threads", Array{Object{{"id", "live"}, {"projectId", "p"}},
           Object{{"id", "journal-only"}, {"projectId", "p"}},
           Object{{"id", "missing"}, {"projectId", "p"}}}}};
-    agent->snapshot["threads"] = Object{{"live", Object{{"tokenUsage", Object{{"total", counts(1000, 100, 500)}}}}}};
+    agent->snapshot["threads"] = Object{{"live", Object{{"id", "live"}, {"tokenUsage", Object{{"total", counts(1000, 100, 500)}}}}}};
     auto record = counts(200, 50, 100);
     record["state"] = "partial";
     QVERIFY(agent->saveUsage("journal-only", "a", record));

@@ -146,14 +146,15 @@ it('shows counts only for concurrent chats on the device and collapsed project, 
   } finally { f.close(); }
 });
 
-it('opens the project-wide total and cached-input cost breakdown from the header', async () => {
+it('shows only the current chat total and cached-input cost breakdown in the header', async () => {
   const f = await fixture();
   try {
-    expect(f.doc.querySelector('[data-testid="project-usage-summary"]')?.textContent).toBe('项目累计 9M Token · 部分预估 $3.29');
-    f.click('项目用量详情，项目累计 9M Token · 部分预估 $3.29');
-    await vi.waitFor(() => expect(f.doc.body.textContent).toContain('8/8 个会话有累计计数（含已归档会话）'));
-    expect(f.doc.body.textContent).toContain('缓存命中 800,000');
-    expect(f.doc.body.textContent).toContain('7,800,000 Token 缺少可计价明细');
+    expect(f.doc.querySelector('[data-testid="thread-usage-summary"]')?.textContent).toBe('会话累计 1,200 Token · 预估 $0.0038');
+    expect(f.doc.querySelector('[data-testid="project-usage-summary"]')).toBeNull();
+    f.click('会话用量详情，会话累计 1,200 Token · 预估 $0.0038');
+    await vi.waitFor(() => expect(f.doc.body.textContent).toContain('只统计当前设备的当前会话'));
+    expect(f.doc.body.textContent).toContain('缓存命中 500');
+    expect(f.doc.body.textContent).not.toContain('含已归档会话');
     expect(f.doc.body.textContent).toContain('不是订阅扣款或实际账单');
     expect(f.errors).toEqual([]);
   } finally { f.close(); }

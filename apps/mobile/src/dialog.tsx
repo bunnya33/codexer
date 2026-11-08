@@ -5,8 +5,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { X } from 'lucide-react-native';
 import { useTheme } from './styles';
 
-export function Dialog({ title, open = true, onClose, children, busy = false }: {
-  title: string; open?: boolean; onClose: () => void; children: ReactNode; busy?: boolean;
+export function Dialog({ title, titleAside, open = true, onClose, children, busy = false }: {
+  title: string; titleAside?: ReactNode; open?: boolean; onClose: () => void; children: ReactNode; busy?: boolean;
 }) {
   const { c, s } = useTheme();
   const styles = useLocalStyles();
@@ -16,7 +16,7 @@ export function Dialog({ title, open = true, onClose, children, busy = false }: 
       <KeyboardAvoidingView style={styles.frame} behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}>
         <Pressable accessibilityRole="button" accessibilityLabel={`关闭${title}弹窗`} style={StyleSheet.absoluteFill} onPress={close} />
         <View accessibilityViewIsModal accessibilityLabel={title} testID="dialog-card" style={styles.card}>
-          <View style={s.modalHeader}><Text numberOfLines={1} style={[s.modalTitle, styles.title]}>{title}</Text><Pressable accessibilityRole="button" accessibilityLabel={`关闭${title}`} disabled={busy} onPress={close} style={s.iconButton}><X size={20} color={c.muted} /></Pressable></View>
+          <View style={s.modalHeader}>{titleAside ? <View testID="dialog-title-with-usage" style={[styles.title, { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, minWidth: 0 }]}><Text numberOfLines={1} style={[s.modalTitle, { flexShrink: 1 }]}>{title}</Text>{titleAside}</View> : <Text numberOfLines={1} style={[s.modalTitle, styles.title]}>{title}</Text>}<Pressable accessibilityRole="button" accessibilityLabel={`关闭${title}`} disabled={busy} onPress={close} style={s.iconButton}><X size={20} color={c.muted} /></Pressable></View>
           <ScrollView style={styles.content} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">{children}</ScrollView>
         </View>
       </KeyboardAvoidingView>

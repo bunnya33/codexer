@@ -28,3 +28,30 @@ func TestProjectUsageContractAndLegacyCatalog(t *testing.T) {
 		expectFault(t, "invalid-message", func() { s.Validate("device", message) })
 	}
 }
+
+func TestThreadUsageContractAndLegacyPreview(t *testing.T) {
+	_, s, _, device := fixture(t)
+	thread := M{"id": "thread", "title": "Chat", "cwd": nil, "status": "idle", "activeFlags": []any{},
+		"ownerAvailable": true, "truncated": false, "revision": 1, "activeTurnId": nil,
+		"updatedAt": 1, "turns": []any{}, "requests": []any{}, "tokenUsage": nil}
+	message := M{"type": "device.event", "event": M{"protocolVersion": 1, "deviceId": device,
+		"epoch": "epoch", "seq": 1, "timestamp": now(), "change": M{"type": "thread.updated", "thread": thread}}}
+	s.Validate("device", message)
+	usage := M{"totalTokens": 2000, "recordedTokens": 1200, "totalKnown": true, "partial": false,
+		"models": []any{M{"model": "gpt-5.3-codex", "totalTokens": 1200, "inputTokens": 1000, "cachedInputTokens": 500, "outputTokens": 200}}}
+	thread["usage"] = usage
+	s.Validate("device", message)
+	for _, key := range []string{"totalKnown", "totalTokens", "models"} {
+		invalid := clone(usage)
+		switch key {
+		case "totalKnown":
+			invalid[key] = "yes"
+		case "totalTokens":
+			invalid[key] = -1
+		case "models":
+			invalid[key] = []any{M{"model": nil, "totalTokens": 1, "inputTokens": 1, "cachedInputTokens": 2, "outputTokens": 0}}
+		}
+		thread["usage"] = invalid
+		expectFault(t, "invalid-message", func() { s.Validate("device", message) })
+	}
+}

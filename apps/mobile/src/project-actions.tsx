@@ -7,6 +7,7 @@ import { projectDeletionError } from '../../../packages/client-shared/src/projec
 import { Dialog } from './dialog';
 import { useTheme } from './styles';
 import { copyText } from './runtime';
+import { ProjectUsage } from './project-usage';
 
 type Payload = Extract<RemoteCommand['payload'], { type: 'project.delete.prepare' | 'project.delete' }>;
 export function ProjectActions({ projectId, name, catalog, online, send, createThread, close }: {
@@ -51,7 +52,7 @@ export function ProjectActions({ projectId, name, catalog, online, send, createT
     } finally { pending.current = false; setBusy(false); }
   };
   const option = (label: string, action: () => void, disabled = false, danger = false) => <Pressable accessibilityRole="button" disabled={disabled || busy} onPress={action} style={[s.menuOption, (disabled || busy) && s.disabled]}><Text style={danger ? s.dangerText : s.menuText}>{label}</Text></Pressable>;
-  return <Dialog title={stage === 'directory' ? '再次确认删除目录' : stage === 'choose' ? '删除项目' : stage === 'done' ? '项目已删除' : name} busy={busy} onClose={close}>
+  return <Dialog title={stage === 'directory' ? '再次确认删除目录' : stage === 'choose' ? '删除项目' : stage === 'done' ? '项目已删除' : name} titleAside={stage === 'menu' ? <ProjectUsage usage={project?.usage} /> : undefined} busy={busy} onClose={close}>
     {stage === 'menu' ? <>
       <View style={{ gap: 6 }}>
         <Text style={s.sub}>项目路径</Text>

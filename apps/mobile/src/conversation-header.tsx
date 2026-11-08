@@ -22,8 +22,8 @@ import { useTheme } from "./styles";
 import { ConversationId } from './conversation-id';
 import { TaskStatusDot } from './task-status-dot';
 import { MarqueeTitle } from './marquee-title';
-import { ProjectUsage } from './project-usage';
-import type { ProjectUsage as Usage } from '../../../packages/protocol/src/index';
+import { ThreadUsage } from './project-usage';
+import type { ThreadUsage as Usage } from '../../../packages/protocol/src/index';
 
 function AgentCard({ agent }: { agent: RemoteSubAgent }) {
   const { c, s } = useTheme();
@@ -88,7 +88,7 @@ function AgentCard({ agent }: { agent: RemoteSubAgent }) {
 export function ConversationHeader({
   title,
   subtitle,
-  projectUsage,
+  threadUsage,
   running = false,
   deviceId,
   threadId,
@@ -103,7 +103,7 @@ export function ConversationHeader({
 }: {
   title: string;
   subtitle: string;
-  projectUsage?: Usage;
+  threadUsage?: Usage;
   running?: boolean;
   deviceId: string;
   threadId: string;
@@ -171,7 +171,7 @@ export function ConversationHeader({
           <Text style={s.sub} numberOfLines={1}>
             {subtitle}
           </Text>
-          {!!threadId && <ProjectUsage key={`${deviceId}:${threadId}`} usage={projectUsage} />}
+          {!!threadId && <ThreadUsage key={`${deviceId}:${threadId}`} usage={threadUsage} />}
         </View>
         {!!threadId && (
           <Pressable

@@ -294,8 +294,9 @@ void Service::refreshProjectUsage(bool notify) {
     }
     QSqlDatabase::removeDatabase(connection);
   }
-  QHash<QString, QHash<QString, Object>> groups;
-  QSet<QString> partial;
+  QHash<QString, QHash<QString, Object>> groups, threadGroups;
+  QSet<QString> partial, partialThreads;
+  const auto watchedThreads = snapshot["threads"].toObject();
   if (usage.isOpen()) {
     QSqlQuery query(usage);
     query.setForwardOnly(true);
@@ -313,11 +314,14 @@ void Service::refreshProjectUsage(bool notify) {
       const auto project = membership.value(id);
       if (value.isEmpty()) {
         partial.insert(project);
+        partialThreads.insert(id);
         continue;
       }
       recorded[id] += value["totalTokens"].toDouble();
-      if (value["state"] == "partial")
+      if (value["state"] == "partial") {
         partial.insert(project);
+        partialThreads.insert(id);
+      }
       auto model = value["model"].toString();
       if (groups[project].size() >= 199 && !groups[project].contains(model))
         model.clear();
@@ -326,6 +330,15 @@ void Service::refreshProjectUsage(bool notify) {
                                        : QJsonValue(model);
       for (const auto &key : counters)
         group[key] = group[key].toDouble() + value[key].toDouble();
+      if (watchedThreads.contains(id)) {
+        auto threadModel = value["model"].toString();
+        if (threadGroups[id].size() >= 199 && !threadGroups[id].contains(threadModel))
+          threadModel.clear();
+        auto &threadGroup = threadGroups[id][threadModel];
+        threadGroup["model"] = threadModel.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(threadModel);
+        for (const auto &key : counters)
+          threadGroup[key] = threadGroup[key].toDouble() + value[key].toDouble();
+      }
     }
   }
   QHash<QString, Object> summaries;
@@ -369,6 +382,35 @@ void Service::refreshProjectUsage(bool notify) {
         throw Error("project-usage-out-of-range");
     return summary;
   };
+  // Only the bounded live previews carry per-chat details. Historical turns
+  // are counted from the usage journal, independently of history pagination.
+  for (auto it = watchedThreads.begin(); it != watchedThreads.end(); ++it) {
+    if (!membership.contains(it.key()))
+      continue;
+    Array models;
+    const auto byModel = threadGroups.value(it.key());
+    auto names = byModel.keys();
+    names.sort();
+    for (const auto &name : names) {
+      const auto group = byModel.value(name);
+      if (breakdown(group).isEmpty())
+        throw Error("thread-usage-out-of-range");
+      models.append(group);
+    }
+    const auto total = qMax(totals.value(it.key()), recorded.value(it.key()));
+    if (total > 9007199254740991.0)
+      throw Error("thread-usage-out-of-range");
+    Object value{{"totalTokens", total}, {"recordedTokens", recorded.value(it.key())},
+                 {"totalKnown", totals.contains(it.key())},
+                 {"partial", partialThreads.contains(it.key()) || !totals.contains(it.key())},
+                 {"models", models}};
+    auto thread = it.value().toObject();
+    if (thread["usage"] == value)
+      continue;
+    thread["usage"] = value;
+    thread["revision"] = thread["revision"].toDouble() + 1;
+    commit({{"type", "thread.updated"}, {"thread", boundTurns(thread)}});
+  }
   auto projects = catalog["projects"].toArray();
   bool changed = false;
   for (int i = 0; i < projects.size(); ++i) {

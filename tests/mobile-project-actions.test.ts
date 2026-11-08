@@ -22,6 +22,20 @@ it('offers creation directly and never invokes deletion when creating a conversa
   try { button('新建会话').click(); await vi.waitFor(() => expect(dom.window.document.querySelector('[data-testid="created"]')!.textContent).toBe('true')); expect(calls()).toEqual([]); }
   finally { dom.window.close(); }
 });
+it('places project-wide usage after the project name and opens its own full-project breakdown', async () => {
+  const { dom, calls } = await fixture();
+  try {
+    const title = dom.window.document.querySelector('[data-testid="dialog-title-with-usage"]')!;
+    expect(title.textContent).toBe('Demo项目累计 9M Token · 部分预估 $3.29');
+    expect(title.querySelector('[data-testid="project-usage-summary"]')).not.toBeNull();
+    (title.querySelector('[role="button"]') as HTMLElement).click();
+    await vi.waitFor(() => expect(dom.window.document.querySelector('[data-testid="project-usage-dialog"]')).not.toBeNull());
+    expect(dom.window.document.body.textContent).toContain('8/8 个会话有累计计数（含已归档会话）');
+    expect(dom.window.document.body.textContent).toContain('缓存命中 800,000');
+    expect(dom.window.document.body.textContent).not.toContain('会话累计 1,200');
+    expect(calls()).toEqual([]);
+  } finally { dom.window.close(); }
+});
 it.each(['archived', 'offline', 'old'])('disables deletion for %s projects and explains why', async mode => {
   const { dom, button, calls } = await fixture(mode);
   try {

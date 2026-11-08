@@ -1,4 +1,5 @@
-import type { ProjectUsage, TokenBreakdown, TurnTokenUsage } from '../../protocol/src/index.js';
+import { tokenBreakdownSchema } from '../../protocol/src/index.js';
+import type { HistoryTurn, ProjectUsage, ThreadUsage, TokenBreakdown, TurnTokenUsage } from '../../protocol/src/index.js';
 
 export const pricingSource = 'https://developers.openai.com/api/docs/pricing';
 export const pricingDate = '2026-11-08';
@@ -29,7 +30,7 @@ export function estimateTokenCost(group: TokenBreakdown & { model?: string | nul
     + group.cachedInputTokens * (rate[1] ?? 0) + group.outputTokens * rate[2]) / 1_000_000;
 }
 
-export function estimateProjectCost(usage: ProjectUsage) {
+export function estimateProjectCost(usage: Pick<ProjectUsage, 'models' | 'totalTokens' | 'partial'>) {
   let usd = 0, pricedTokens = 0;
   for (const group of usage.models) {
     const cost = estimateTokenCost(group);
@@ -63,4 +64,32 @@ export function projectUsageLabel(usage?: ProjectUsage): string {
   const tokens = `项目累计 ${usage.knownThreads < usage.totalThreads ? '≥' : ''}${compactTokens(usage.totalTokens)} Token`;
   if (usage.totalTokens > 0 && cost.pricedTokens === 0) return `${tokens} · 费用待统计`;
   return `${tokens} · ${cost.partial ? '部分预估' : '预估'} ${usdLabel(cost.usd)}`;
+}
+
+export function threadUsageLabel(usage?: ThreadUsage): string {
+  if (!usage || !usage.totalKnown && !usage.recordedTokens) return '会话 Token 待同步';
+  const cost = estimateProjectCost(usage);
+  const tokens = `会话累计 ${usage.totalKnown ? '' : '≥'}${compactTokens(usage.totalTokens)} Token`;
+  if (usage.totalTokens > 0 && !cost.pricedTokens) return `${tokens} · 费用待统计`;
+  return `${tokens} · ${cost.partial ? '部分预估' : '预估'} ${usdLabel(cost.usd, 4)}`;
+}
+
+// Older Agents still provide this chat's cumulative counters and loaded turns.
+// Keep those separate from project totals and mark unavailable history as partial.
+export function currentThreadUsage(summary: ThreadUsage | undefined, tokenUsage: Record<string, unknown> | null | undefined, turns: HistoryTurn[]): ThreadUsage | undefined {
+  if (summary) return summary;
+  const total = tokenBreakdownSchema.safeParse(tokenUsage?.total);
+  const models = new Map<string | null, ThreadUsage['models'][number]>();
+  let recordedTokens = 0;
+  for (const turn of new Map(turns.map(turn => [turn.id, turn])).values()) {
+    const value = turn.tokenUsage;
+    if (!value) continue;
+    recordedTokens += value.totalTokens;
+    const model = value.model ?? null;
+    const group = models.get(model) ?? { model, totalTokens: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 };
+    for (const key of ['totalTokens', 'inputTokens', 'cachedInputTokens', 'outputTokens', 'cacheWriteInputTokens', 'reasoningOutputTokens'] as const) group[key] = (group[key] ?? 0) + (value[key] ?? 0);
+    models.set(model, group);
+  }
+  if (!total.success && !recordedTokens) return undefined;
+  return { totalTokens: Math.max(total.success ? total.data.totalTokens : 0, recordedTokens), recordedTokens, totalKnown: total.success, partial: true, models: [...models.values()] };
 }

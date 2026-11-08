@@ -616,6 +616,8 @@ void Service::updateThread(const QString &id) {
                         {"status", q["status"]}});
   }
   thread["queuedMessages"] = queue;
+  if (old["usage"].isObject())
+    thread["usage"] = old["usage"];
   thread = boundTurns(thread);
   auto comparable = old;
   comparable["revision"] = thread["revision"];

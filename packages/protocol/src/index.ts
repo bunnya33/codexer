@@ -47,6 +47,14 @@ export const turnTokenUsageSchema = tokenBreakdownSchema.safeExtend({
   model: z.string().min(1).max(200).optional(),
 });
 export type TurnTokenUsage = z.infer<typeof turnTokenUsageSchema>;
+const usageSummaryFields = {
+  totalTokens: seqSchema,
+  recordedTokens: seqSchema,
+  partial: z.boolean(),
+  models: z.array(tokenBreakdownSchema.safeExtend({ model: z.string().min(1).max(200).nullable() })).max(200),
+};
+export const threadUsageSchema = z.object({ ...usageSummaryFields, totalKnown: z.boolean() });
+export type ThreadUsage = z.infer<typeof threadUsageSchema>;
 export const permissionModeSchema = z.enum(['read-only', 'ask', 'auto-review', 'full-access']);
 export type PermissionMode = z.infer<typeof permissionModeSchema>;
 export const permissionSettingsSchema = z.object({ mode: z.enum(['read-only', 'ask', 'auto-review', 'full-access', 'custom']), sandbox: z.string().max(80), approval: z.string().max(80), reviewer: z.string().max(80), fingerprint: z.string().regex(/^[a-f0-9]{64}$/) });
@@ -156,16 +164,14 @@ export const threadSchema = z.object({
   })).max(2),
   requests: z.array(requestSchema).max(40),
   tokenUsage: boundedRecord(4096).nullable(),
+  usage: threadUsageSchema.optional(),
 }).refine(value => jsonBytes(value) <= MAX_THREAD_BYTES, "thread-too-large");
 export type RemoteThread = z.infer<typeof threadSchema>;
 
 export const projectUsageSchema = z.object({
-  totalTokens: seqSchema,
+  ...usageSummaryFields,
   totalThreads: z.number().int().min(0).max(10000),
   knownThreads: z.number().int().min(0).max(10000),
-  recordedTokens: seqSchema,
-  partial: z.boolean(),
-  models: z.array(tokenBreakdownSchema.safeExtend({ model: z.string().min(1).max(200).nullable() })).max(200),
 }).refine(value => value.knownThreads <= value.totalThreads, 'invalid-usage-coverage');
 export type ProjectUsage = z.infer<typeof projectUsageSchema>;
 
