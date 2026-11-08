@@ -9,7 +9,7 @@
 
 浏览器在 390 × 844、320 × 740 和默认桌面宽度检查亮/深色；方案 Markdown 实际下载成功。浏览器联调使用正式 App 组件和合成设备/接口，尚未进行生产账号端到端或原生实机验收。项目目录树、全文搜索未包含于本批交付。
 
-服务器 0.3.49 正式发布结果待补充，生产安装由用户在管理后台执行。
+正式 [v0.3.49](https://github.com/bunnya33/codexer/releases/tag/v0.3.49) 对应提交 `d8074be`，[发布流程](https://github.com/bunnya33/codexer/actions/runs/42522736150)成功完成类型检查、完整 Go 回归及 93 个文件共 780 项 TypeScript 测试、PostgreSQL、Go race、生产构建与 Linux 独立程序验收。四个平台归档及 SHA-256 共 8 个附件全部发布，摘要与正式资产一致，Linux amd64 正式包下载后的摘要、版本、平台和执行权限核对通过。发布记录位于 `release/server-0.3.49/publication.json`，生产安装由用户在管理后台执行。
 
 ## 2026-11-08 服务器 0.3.48 整组图片预览
 
