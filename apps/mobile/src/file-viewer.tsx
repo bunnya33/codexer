@@ -3,15 +3,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   ActivityIndicator,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { Download, X } from "lucide-react-native";
+import { Copy, Download, X } from "lucide-react-native";
 import { fileName, fileReaderKind, fileSize } from "../../../packages/client-shared/src/file-links";
 import { MAX_FILE_PREVIEW_BYTES } from "../../../packages/protocol/src/files";
 import type { FileInfo } from "../../../packages/protocol/src/files";
@@ -22,8 +20,9 @@ import { FileImage } from "./file-image";
 import { FileAudio } from "./file-audio";
 import type { FileSource } from "./file-transfer";
 import { Markdown } from "./markdown";
-import { CodeBlock } from "./code-block";
-import { codeLanguage } from '../../../packages/client-shared/src/code-highlighting';
+import { SourceCode } from "./source-code";
+import { ReviewReader } from "./review-reader";
+import { copyText } from "./runtime";
 import { relay } from "./relay";
 import { useTheme } from "./styles";
 
@@ -49,6 +48,7 @@ export function FileViewerProvider({
 }) {
   const { c } = useTheme();
   const fs = useFsStyles();
+  const [copyMessage, setCopyMessage] = useState('');
   const [storedFile, setStoredFile] = useState<OpenFile & { scope: string }>();
   const scope = JSON.stringify([deviceId, threadId]);
   // Hide the previous file in the same render as a conversation switch,
@@ -75,6 +75,7 @@ export function FileViewerProvider({
       const controller = new AbortController();
       operation.current = controller;
       const current = () => !controller.signal.aborted && operation.current === controller;
+      setCopyMessage('');
       setFile({ path, phase: "loading" });
       void (async () => {
         try {
@@ -106,6 +107,7 @@ export function FileViewerProvider({
               relay.fileSource(deviceId, threadId, path, info.version),
               info,
               controller.signal,
+              false,
             );
             if (current()) setFile({ path, info, phase: "preview", text });
           } catch (error) {
@@ -155,9 +157,8 @@ export function FileViewerProvider({
   return (
     <FileLinkContext.Provider value={open}>
       {children}
-      <Modal visible={!!file} animationType="fade" transparent onRequestClose={close}>
-        <View style={fs.backdrop}>
-          <SafeAreaView style={fs.reader}>
+      <ReviewReader open={!!file} onClose={close} title="会话文件">
+          <View style={{flex:1}}>
             <View style={fs.header}>
               <View style={fs.heading}>
                 <Text accessibilityRole="header" style={fs.title} numberOfLines={2}>
@@ -165,6 +166,7 @@ export function FileViewerProvider({
                 </Text>
                 {file?.info && <Text style={fs.meta}>{fileSize(file.info.size)}</Text>}
               </View>
+              {file?.phase === "preview" && file.text !== undefined && <Pressable accessibilityRole="button" accessibilityLabel="复制文件内容" onPress={() => void copyText(file.text!).then(() => setCopyMessage('已复制文件内容'), () => setCopyMessage('复制失败，请选择文字手动复制。'))} style={fs.icon}><Copy size={18} color={c.muted} /></Pressable>}
               {file?.phase === "preview" && (
                 <Pressable
                   accessibilityRole="button"
@@ -184,22 +186,18 @@ export function FileViewerProvider({
                 <X size={22} color={c.text} />
               </Pressable>
             </View>
+            {!!copyMessage && <Text accessibilityLiveRegion="polite" style={[fs.meta,{paddingHorizontal:16,paddingBottom:8}]}>{copyMessage}</Text>}
             {file?.phase === "preview" && file.imageSource ? (
               <FileImage source={file.imageSource} info={file.info!} onClose={close} />
             ) : file?.phase === "preview" && fileReaderKind(file.info!.name) === "audio" ? (
               <FileAudio key={file.path + file.info!.version} deviceId={deviceId} threadId={threadId} path={file.path} info={file.info!} />
-            ) : <ScrollView style={fs.body} contentContainerStyle={fs.content}>
+            ) : file?.phase === "preview" && file.text !== undefined && fileReaderKind(file.info!.name) !== "markdown" ? <SourceCode text={file.text} path={file.path} /> : <ScrollView style={fs.body} contentContainerStyle={fs.content}>
               {file?.phase === "preview" && (
                 <FileLinkContext.Provider value={undefined}>
                   {fileReaderKind(file.info!.name) === "markdown" ? (
                     <Markdown>{file.text ?? ""}</Markdown>
-                  ) : !['txt', 'log', 'csv', 'tsv', 'text'].includes(codeLanguage(file.info!.name)) ? (
-                    <CodeBlock language={codeLanguage(file.info!.name)}>{file.text ?? ""}</CodeBlock>
-                  ) : (
-                    <Text selectable style={fs.text}>
-                      {file.text}
-                    </Text>
-                  )}
+                  ) : <Text selectable style={fs.text}>{file.text}</Text>
+                  }
                 </FileLinkContext.Provider>
               )}
               {(file?.phase === "loading" || file?.phase === "downloading") && (
@@ -245,9 +243,8 @@ export function FileViewerProvider({
                 </Pressable>
               )}
             </ScrollView>}
-          </SafeAreaView>
-        </View>
-      </Modal>
+          </View>
+      </ReviewReader>
     </FileLinkContext.Provider>
   );
 }

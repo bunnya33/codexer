@@ -26,3 +26,5 @@
 .codexer-diff-deletion { color: var(--control-diffDeletedText, #a40e26); background: var(--control-diffDeletedBg, #ffebe9); }
 .codexer-diff-metadata { color: var(--control-muted, #687275); }
 .codexer-diff-hunk { color: var(--control-diffHunkText, #576f80); background: var(--control-diffHunkBg, #eef4f8); }
+
+.codexer-diff-gutter {display:inline-block;width:4em;padding-right:1em;box-sizing:border-box;text-align:right;opacity:.45;user-select:none}

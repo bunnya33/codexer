@@ -4,8 +4,9 @@ import { Check, Copy } from 'lucide-react-native';
 import { copyText } from './runtime';
 import { useTheme } from './styles';
 import { themedStyles } from './theme';
+import { ContextMenuRow } from './interaction/context-menu';
 
-export function ConversationId({ threadId }: { threadId: string }) {
+export function ConversationId({ threadId, variant = 'field' }: { threadId: string; variant?: 'field' | 'menu' }) {
   const { c } = useTheme();
   const styles = useLocalStyles();
   const [status, setStatus] = useState<'idle' | 'copying' | 'copied' | 'failed'>('idle');
@@ -25,6 +26,15 @@ export function ConversationId({ threadId }: { threadId: string }) {
       if (revision.current === current) setStatus('failed');
     }
   }
+
+  if (variant === 'menu') return <View>
+    <ContextMenuRow title={status === 'copied' ? '已复制' : status === 'copying' ? '正在复制…' : '复制会话 ID'} Icon={status === 'copied' ? Check : Copy}
+      accessibilityLabel="复制会话 ID" disabled={status === 'copying'} onPress={() => void copy()} />
+    {status === 'failed' && <View style={{ padding: 12, gap: 5 }}>
+      <Text selectable testID="conversation-id" style={styles.value}>{threadId}</Text>
+      <Text accessibilityRole="alert" style={styles.error}>复制失败，请长按或选择会话 ID 手动复制，也可再次点击重试</Text>
+    </View>}
+  </View>;
 
   return <View style={styles.field}>
     <View style={styles.row}>

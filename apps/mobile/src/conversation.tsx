@@ -1,10 +1,9 @@
 import { memo, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Easing, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { Bot, Check, ChevronDown, ChevronRight, ChevronUp, Copy, Folder, HelpCircle, Pencil, Sparkles, Terminal } from 'lucide-react-native';
-import { inputQuestions } from '../../../packages/client-shared/src/questions';
+import { ActivityIndicator, Animated, Easing, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { Bot, Check, ChevronDown, ChevronRight, ChevronUp, Copy, Pencil, Sparkles, Terminal } from 'lucide-react-native';
 import { activityLabel, activitySections, buildActivityBlocks, executionItemSummary, executionSectionSummary, formatDuration, itemDuration, messageRole } from '../../../packages/client-shared/src/activity';
 import type { ExecutionSection } from '../../../packages/client-shared/src/activity';
-import type { HistoryTurn, InteractiveRequest, RemoteCommand, RemoteItem } from '../../../packages/protocol/src/index';
+import type { HistoryTurn, RemoteItem } from '../../../packages/protocol/src/index';
 import { userPresentation } from '../../../packages/protocol/src/user-presentation';
 import { relay } from './relay';
 import { Markdown } from './markdown';
@@ -14,12 +13,14 @@ import { copyText } from './runtime';
 import { useTheme } from './styles';
 import { ShimmerLabel } from './shimmer';
 import { DrawerSwipeBlock } from './drawer-swipe-block';
-import { FileDiff } from './file-diff';
+import { FileChangesPanel } from './file-review';
 import { localAudioPath, stripInlineImageReferences } from '../../../packages/client-shared/src/audio';
 import { TurnEndTime, TurnTiming } from './turn-timing';
 import { recordedTurnTiming } from '../../../packages/client-shared/src/turn-timing';
 import { turnCostLabel } from '../../../packages/client-shared/src/project-usage';
 import { TaskStatusDot } from './task-status-dot';
+import { useInteractionMotion } from './interaction/motion';
+import { PlanCard, ExecutionPlan } from './plan-review';
 
 type ImageSource = { uri: string; headers?: Record<string, string> };
 type ImageViewer = (source: ImageSource, name: string) => void;
@@ -61,6 +62,7 @@ function Message({ item, running = false, deviceId, threadId, onImage }: { item:
 
 function ExecutionGroup({ section, deviceId, threadId, onImage }: { section: ExecutionSection; deviceId: string; threadId: string; onImage: ImageViewer }) {
   const { c, s } = useTheme();
+  const motion = useInteractionMotion();
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [contentHeight, setContentHeight] = useState(0);
@@ -68,16 +70,16 @@ function ExecutionGroup({ section, deviceId, threadId, onImage }: { section: Exe
   const rotation = useRef(new Animated.Value(0)).current;
   const listHeight = Math.min(contentHeight || 260, 260);
   useEffect(() => {
-    const animation = Animated.timing(rotation, {toValue: open ? 1 : 0, duration: 240, easing: Easing.inOut(Easing.cubic), useNativeDriver: Platform.OS !== 'web'});
+    const animation = Animated.timing(rotation, {toValue: open ? 1 : 0, duration: motion ? 240 : 0, easing: Easing.inOut(Easing.cubic), useNativeDriver: Platform.OS !== 'web'});
     animation.start();
     return () => animation.stop();
-  }, [open, rotation]);
+  }, [open, rotation, motion]);
   useEffect(() => {
     if (open) setMounted(true);
-    const animation = Animated.timing(height, {toValue: open ? Math.min(contentHeight, 260) : 0, duration: 240, easing: Easing.inOut(Easing.cubic), useNativeDriver: false});
+    const animation = Animated.timing(height, {toValue: open ? Math.min(contentHeight, 260) : 0, duration: motion ? 240 : 0, easing: Easing.inOut(Easing.cubic), useNativeDriver: false});
     animation.start(({finished}) => { if (finished && !open) setMounted(false); });
     return () => animation.stop();
-  }, [open, contentHeight, height]);
+  }, [open, contentHeight, height, motion]);
   const latest = section.items.at(-1);
   const title = executionSectionSummary(section);
   const iconItem = section.running ? latest : [...section.items].reverse().find(item => item.type !== 'reasoning') ?? latest;
@@ -88,7 +90,7 @@ function ExecutionGroup({ section, deviceId, threadId, onImage }: { section: Exe
 }
 
 type ActivityBlock = Extract<ReturnType<typeof buildActivityBlocks>[number], { kind: 'activity' }>;
-function Activity({ block, turn, deviceId, threadId, onImage, questionRequestIds }: { block: ActivityBlock; turn: HistoryTurn; deviceId: string; threadId: string; onImage: ImageViewer; questionRequestIds: string[] }) {
+function Activity({ block, turn, deviceId, threadId, onImage, questionRequestIds, steps }: { block: ActivityBlock; turn: HistoryTurn; deviceId: string; threadId: string; onImage: ImageViewer; questionRequestIds: string[]; steps?: {step:string;status:string}[] }) {
   const { c, s } = useTheme();
   const [now, setNow] = useState(Date.now());
   useEffect(() => { if (block.state !== 'running') return; const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, [block.state]);
@@ -98,9 +100,11 @@ function Activity({ block, turn, deviceId, threadId, onImage, questionRequestIds
       <View style={s.activityHead}>{block.state === 'running' ? <ActivityIndicator testID="processing-spinner" size="small" color={c.muted} accessibilityLabel="正在处理" /> : <View testID="activity-ended-check" accessible accessibilityLabel="任务已结束" style={{ width: 16, height: 16, alignItems: 'center', justifyContent: 'center' }}><Check size={16} strokeWidth={2.5} color={c.success} /></View>}<Text style={s.activityText}>{activityLabel(block, now)}</Text></View>
     </View>
     <View style={s.line} />
+    {!!steps?.length && <ExecutionPlan steps={steps} />}
     {activitySections(block).map(section => {
       if (section.kind === 'execution') return <ExecutionGroup key={section.id} section={section} deviceId={deviceId} threadId={threadId} onImage={onImage} />;
       const item = section.item;
+      if (item.type === 'plan') return <PlanCard key={item.id} item={item} turnId={turn.id} turnStatus={turn.status} deviceId={deviceId} threadId={threadId} />;
       if (item.questionRequestId && questionRequestIds.includes(item.questionRequestId)) return null;
       if (messageRole(item) === 'assistant' && item.phase !== 'final_answer') return <View key={item.id} style={s.commentary}><Markdown>{item.text ?? ''}</Markdown></View>;
       return <Message key={item.id} item={item} deviceId={deviceId} threadId={threadId} onImage={onImage} />;
@@ -108,33 +112,16 @@ function Activity({ block, turn, deviceId, threadId, onImage, questionRequestIds
   </View>;
 }
 
-export function FileChangesPanel({ changes, compact = true }: { changes: NonNullable<HistoryTurn['fileChanges']>; compact?: boolean }) {
-  const { c, s } = useTheme();
-  const [diffOpen, setDiffOpen] = useState(false);
-  const [expandedPath, setExpandedPath] = useState<string | null>(null);
-  useEffect(() => { if (expandedPath && !changes.some(change => change.path === expandedPath)) setExpandedPath(null); }, [changes, expandedPath]);
-  if (!changes.length) return null;
-  const diffs = changes.map(change => {
-    const open = expandedPath === change.path;
-    return <View key={change.path} style={s.diff}>
-      <Pressable accessibilityRole="button" accessibilityLabel={`${change.path}，${open ? '收起' : '查看'}差异`} accessibilityState={{ expanded: open }} aria-expanded={open}
-        onPress={() => setExpandedPath(current => current === change.path ? null : change.path)} style={({ pressed }) => [s.diffFileHead, pressed && s.pressed]}>
-        <ChevronRight size={14} color={c.muted} style={open ? s.chevronDown : undefined} /><Text style={s.diffPath}>{change.path}</Text><Text style={s.additions}>+{change.additions}</Text><Text style={s.deletions}>-{change.deletions}</Text>
-      </Pressable>
-      {open && <View testID="expanded-file-diff">{change.diff ? <FileDiff diff={change.diff} path={change.path} /> : <Text style={s.diffNotice}>差异暂不可用</Text>}{change.truncated && <Text style={s.diffNotice}>部分差异已截断</Text>}</View>}
-    </View>;
-  });
-  return <View style={compact ? s.changes : s.completedChanges}><Pressable accessibilityRole="button" accessibilityLabel={`${changes.length} 个文件已更改，${diffOpen ? '收起' : '查看'}差异`} aria-expanded={diffOpen} onPress={() => { setDiffOpen(!diffOpen); setExpandedPath(null); }} style={compact ? s.changeHead : s.completedChangeHead}>{!compact && <Folder size={15} color={c.muted} />}<Text style={compact ? s.changeTitle : s.completedChangeTitle}>{compact ? `${changes.length} 个文件已更改` : `已编辑 ${changes.length} 个文件`}</Text><Text style={compact ? s.additions : s.completedAdditions}>+{changes.reduce((n, change) => n + change.additions, 0)}</Text><Text style={s.deletions}>-{changes.reduce((n, change) => n + change.deletions, 0)}</Text>{!compact && <ChevronDown size={16} color={c.muted} style={diffOpen ? s.rotated : undefined} />}</Pressable>{diffOpen && (compact ? <ScrollView style={s.diffs} nestedScrollEnabled>{diffs}</ScrollView> : diffs)}</View>;
-}
+export { FileChangesPanel } from './file-review';
 
-export const TurnView = memo(function TurnView({ turn, active, deviceId, threadId, onImage, questionRequestIds }: { turn: HistoryTurn; active: boolean; deviceId: string; threadId: string; onImage: ImageViewer; questionRequestIds: string[] }) {
+export const TurnView = memo(function TurnView({ turn, active, deviceId, threadId, onImage, questionRequestIds, steps }: { turn: HistoryTurn; active: boolean; deviceId: string; threadId: string; onImage: ImageViewer; questionRequestIds: string[]; steps?: {step: string; status: string}[] }) {
   const { s } = useTheme();
   const { end } = recordedTurnTiming(turn, active);
   const running = active || turn.status === 'inProgress';
   const cost = turnCostLabel(turn.tokenUsage);
   return <View style={s.turn}>
-    {buildActivityBlocks(turn, active).map(block => block.kind === 'message' ? <Message key={block.item.id} item={block.item} deviceId={deviceId} threadId={threadId} onImage={onImage} /> : <Activity key={block.id} block={block} turn={turn} deviceId={deviceId} threadId={threadId} onImage={onImage} questionRequestIds={questionRequestIds} />)}
-    {!active && !!turn.fileChanges?.length && <FileChangesPanel changes={turn.fileChanges} compact={false} />}
+    {buildActivityBlocks(turn, active).map(block => block.kind === 'message' ? <Message key={block.item.id} item={block.item} deviceId={deviceId} threadId={threadId} onImage={onImage} /> : <Activity key={block.id} block={block} turn={turn} deviceId={deviceId} threadId={threadId} onImage={onImage} questionRequestIds={questionRequestIds} steps={steps} />)}
+    {!active && !!turn.fileChanges?.length && <FileChangesPanel changes={turn.fileChanges} compact={false} deviceId={deviceId} threadId={threadId} turnId={turn.id} />}
     {(turn.tokenUsage || running || end) && <View style={s.turnFooter}>
       {(turn.tokenUsage || running) && <View testID="turn-token-usage" style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
         {running && <TaskStatusDot running label="任务进行中" />}
@@ -145,66 +132,4 @@ export const TurnView = memo(function TurnView({ turn, active, deviceId, threadI
   </View>;
 });
 
-export function RequestPanel({ request, threadId, send, enabled }: { request: InteractiveRequest; threadId: string; enabled: boolean; send: (payload: RemoteCommand['payload']) => Promise<void> }) {
-  const { c, s } = useTheme();
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [choices, setChoices] = useState<Record<string, number>>({});
-  const [pending, setPending] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
-  const [submittedQuestions, setSubmittedQuestions] = useState<string[]>([]);
-  const [error, setError] = useState('');
-  const sending = useRef(false);
-  const questions = inputQuestions(request.details);
-  const perQuestion = request.details.source === 'asyncMessage';
-  const approval = request.kind === 'commandApproval' || request.kind === 'fileApproval';
-  const accessApproval = request.kind === 'mcpElicitation' ? request.approval : undefined;
-  const canAnswer = enabled && request.respondable && (!!request.turnId || !!accessApproval) && !pending && !submitted && (approval || !!accessApproval || request.kind === 'userInput' && questions.length > 0);
-  const answerFor = (id: string, selected = choices) => {
-    const question = questions.find(item => item.id === id)!;
-    const choice = selected[id];
-    return choice !== undefined && choice >= 0 ? question.options[choice]?.label ?? '' : answers[id] ?? '';
-  };
-  const submit = async (payload: RemoteCommand['payload']) => {
-    if (!canAnswer || sending.current) return;
-    sending.current = true; setPending(true); setError('');
-    try {
-      await send(payload);
-      if (perQuestion && payload.type === 'input.respond') {
-        const ids = Object.keys(payload.answers);
-        setSubmittedQuestions(value => [...new Set([...value, ...ids])]);
-        setAnswers(value => Object.fromEntries(Object.entries(value).filter(([id]) => !ids.includes(id))));
-      } else { setSubmitted(true); setAnswers({}); }
-    }
-    catch (failure) { setError(failure instanceof Error ? failure.message : '提交失败，请重试'); }
-    finally { sending.current = false; setPending(false); }
-  };
-  const sendAnswers = (ids: string[], selected = choices) => submit({type: 'input.respond', threadId, turnId: request.turnId!, requestId: request.id,
-    answers: Object.fromEntries(ids.map(id => [id, {answers: [answerFor(id, selected)]}]))});
-  const manualAnswer = (question: typeof questions[number], selected = choices) => !question.options.length || selected[question.id] === -1;
-  const selectOption = (id: string, option: number) => {
-    const selected = {...choices, [id]: option}; setChoices(selected);
-    if (perQuestion) void sendAnswers([id], selected);
-    else if (questions.every(question => !manualAnswer(question, selected) && answerFor(question.id, selected).trim())) void sendAnswers(questions.map(question => question.id), selected);
-  };
-  const remainingQuestions = questions.filter(question => !submittedQuestions.includes(question.id));
-  const hasManualAnswer = questions.some(question => manualAnswer(question));
-  const allowed = Array.isArray(request.details.availableDecisions) ? request.details.availableDecisions : ['accept', 'decline', 'cancel'];
-  return <View style={[s.request, request.kind === 'userInput' && s.questionCard]}>
-    <View style={s.requestHeading}><HelpCircle size={16} color={c.muted} /><Text style={s.requestTitle}>{request.kind === 'userInput' ? '回答问题' : '待处理请求'}</Text>{request.kind === 'userInput' && request.details.isBlocking === false && <Text style={s.sub}>任务可继续执行</Text>}</View>
-    {accessApproval && <View><Text style={s.requestTitle}>{accessApproval.kind === 'browser' ? 'Browser 网站授权' : 'Computer Use 应用授权'}</Text><Text selectable style={s.requestText}>{accessApproval.kind === 'browser' ? '允许 ChatGPT 访问网站：' : '允许 ChatGPT 使用应用：'}{accessApproval.target}</Text>{!!accessApproval.message && <Text selectable style={s.sub}>{accessApproval.message}</Text>}{accessApproval.kind === 'computer' && <Text style={s.sub}>允许后可查看该应用内容、截图并执行操作。</Text>}{accessApproval.elevatedRisk && <Text style={s.error}>此请求被官方标记为高风险，请核对访问目标及操作说明。</Text>}</View>}
-    {accessApproval && !submitted && <View style={s.decisionRow}>{accessApproval.scopes.map(scope => <Pressable key={scope} accessibilityRole="button" disabled={!canAnswer} style={[s.decision, s.decisionAccept, !canAnswer && s.disabled]} onPress={() => void submit({type: 'elicitation.respond', threadId, turnId: request.turnId, requestId: request.id, decision: 'accept', scope})}><Text style={s.primaryText}>{scope === 'always' ? accessApproval.kind === 'browser' ? '始终允许此网站' : '始终允许此应用' : scope === 'session' ? '允许本次会话' : '允许一次'}</Text></Pressable>)}<Pressable accessibilityRole="button" disabled={!canAnswer} style={[s.decision, !canAnswer && s.disabled]} onPress={() => void submit({type: 'elicitation.respond', threadId, turnId: request.turnId, requestId: request.id, decision: 'decline', scope: 'once'})}><Text style={s.requestText}>拒绝</Text></Pressable></View>}
-    {!!request.reason && <Text style={s.requestText}>{request.reason}</Text>}{!!request.command && <Text style={s.code}>{request.command}</Text>}
-    {request.kind === 'userInput' && !submitted && remainingQuestions.map((question, index) => <View key={question.id} style={s.question}>
-      {!!question.header && <Text style={s.questionHeader}>{questions.length > 1 ? `${index + 1}/${questions.length} · ` : ''}{question.header}</Text>}
-      <Text style={s.questionText}>{question.question}</Text>
-      {question.options.map((option, optionIndex) => <Pressable key={option.label} accessibilityRole="radio" aria-checked={choices[question.id] === optionIndex} aria-disabled={!canAnswer} disabled={!canAnswer} onPress={() => selectOption(question.id, optionIndex)} style={[s.option, choices[question.id] === optionIndex && s.optionSelected]}><View style={s.optionBody}><Text style={s.requestText}>{option.label}</Text>{!!option.description && <Text style={s.optionDescription}>{option.description}</Text>}</View>{choices[question.id] === optionIndex ? <Check size={17} color={c.accent} /> : <View style={s.optionCircle} />}</Pressable>)}
-      {!!question.options.length && question.isOther && <Pressable accessibilityRole="radio" accessibilityLabel={`自定义回答：${question.header || question.question}`} aria-checked={choices[question.id] === -1} aria-disabled={!canAnswer} disabled={!canAnswer} onPress={() => setChoices(value => ({...value, [question.id]: -1}))} style={[s.option, choices[question.id] === -1 && s.optionSelected]}><Text style={s.requestText}>自定义回答</Text>{choices[question.id] === -1 ? <Check size={17} color={c.accent} /> : <View style={s.optionCircle} />}</Pressable>}
-      {(!question.options.length || question.isOther && choices[question.id] === -1) && <TextInput accessibilityLabel={`回答：${question.header || question.question}`} style={s.answerInput} value={answers[question.id] ?? ''} onChangeText={value => setAnswers(current => ({...current, [question.id]: value}))} editable={canAnswer} placeholder="输入你的回答" placeholderTextColor={c.muted} multiline={!question.isSecret} secureTextEntry={question.isSecret} autoCorrect={!question.isSecret} autoComplete="off" maxLength={8192} />}
-      {perQuestion && manualAnswer(question) && <Pressable accessibilityRole="button" accessibilityLabel={`提交回答：${question.question}`} style={[s.smallPrimary, (!canAnswer || !answerFor(question.id).trim()) && s.disabled]} disabled={!canAnswer || !answerFor(question.id).trim()} onPress={() => void sendAnswers([question.id])}>{pending ? <ActivityIndicator color={c.onAccent} size="small" /> : <Text style={s.primaryText}>提交回答</Text>}</Pressable>}
-    </View>)}
-    {submitted || perQuestion && !remainingQuestions.length ? <Text style={s.sub}>回答已提交，等待 Codex 更新…</Text> : request.kind === 'userInput' && !perQuestion && questions.length > 0 && hasManualAnswer ? <Pressable accessibilityRole="button" accessibilityLabel="提交回答" style={[s.smallPrimary, (!canAnswer || questions.some(question => !answerFor(question.id).trim())) && s.disabled]} disabled={!canAnswer || questions.some(question => !answerFor(question.id).trim())} onPress={() => void sendAnswers(questions.map(question => question.id))}>{pending ? <ActivityIndicator color={c.onAccent} size="small" /> : <Text style={s.primaryText}>提交回答</Text>}</Pressable> : approval ? <View style={s.decisionRow}>{(['accept', 'decline', 'cancel'] as const).filter(decision => allowed.includes(decision)).map(decision => <Pressable accessibilityRole="button" key={decision} disabled={!canAnswer} onPress={() => void submit({type: 'approval.respond', threadId, turnId: request.turnId!, requestId: request.id, decision})} style={[s.decision, decision === 'accept' && s.decisionAccept, !canAnswer && s.disabled]}><Text style={decision === 'accept' ? s.primaryText : s.requestText}>{decision === 'accept' ? '允许' : decision === 'decline' ? '拒绝' : '取消'}</Text></Pressable>)}</View> : null}
-    {pending && request.kind === 'userInput' && <Text accessibilityLiveRegion="polite" style={s.sub}>正在发送回答…</Text>}
-    {(!request.respondable || !request.turnId && !accessApproval || request.kind === 'userInput' && !questions.length || !approval && !accessApproval && request.kind !== 'userInput') && <Text style={s.sub}>此请求暂不能在远程回答，请在 PC 的 Codex 中处理。</Text>}
-    {!!error && <Text accessibilityRole="alert" style={s.error}>{error}</Text>}
-  </View>;
-}
+export { RequestPanel } from './request-panel';

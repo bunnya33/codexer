@@ -55,6 +55,7 @@ export async function previewFile(
   source: FileSource,
   info: FileInfo,
   signal: AbortSignal,
+  formatJson = true,
 ): Promise<string> {
   if (info.size > MAX_FILE_PREVIEW_BYTES) throw new Error("文件较大，请下载后查看");
   const response = await fileResponse(source, signal);
@@ -62,7 +63,7 @@ export async function previewFile(
   if (signal.aborted) throw new Error("file-cancelled");
   if (bytes.length !== info.size) throw new Error("invalid-file-response");
   try {
-    return readableFileText(bytes, info.name);
+    return readableFileText(bytes, info.name, formatJson);
   } catch {
     throw new Error("无法按 UTF-8 文本读取，请下载后查看");
   }

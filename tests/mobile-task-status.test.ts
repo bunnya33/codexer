@@ -57,7 +57,7 @@ it('removes running markers and backgrounds on completion while retaining tokens
     expect(f.doc.querySelector('[data-testid="activity-ended-check"] svg')).not.toBeNull();
     expect(f.doc.querySelector('[data-testid="activity-ended-check"] [data-testid="task-status-dot"]')).toBeNull();
     expect(f.style(f.doc.querySelector('[data-testid="directory-project-heading-project"]')!).backgroundColor).toBe('rgba(0, 0, 0, 0)');
-    expect(f.style(f.doc.querySelector('[data-testid="directory-thread-fixture"]')!).backgroundColor).toBe('rgb(238, 244, 247)');
+    expect(f.style(f.doc.querySelector('[data-testid="directory-thread-fixture"]')!).backgroundColor).toBe('rgb(237, 241, 252)');
     expect(f.doc.querySelector('[data-testid="turn-end-time"]')?.textContent).toContain('已完成');
     expect(f.doc.querySelector('[data-testid="turn-end-time"]')?.textContent).toMatch(/已完成$/);
     expect(f.doc.querySelector('[data-testid="turn-end-time"] [data-testid="turn-cost"]')).toBeNull();

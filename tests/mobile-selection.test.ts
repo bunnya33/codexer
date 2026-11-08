@@ -4,7 +4,7 @@ import { JSDOM } from 'jsdom';
 import { resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { normalizeThread } from '../packages/codex-adapter/src/normalize';
-import type { DeviceCatalog, InteractiveRequest, ModelSettings, RemoteCommand } from '../packages/protocol/src/index';
+import type { DeviceCatalog, HistoryTurn, InteractiveRequest, ModelSettings, RemoteCommand, RemoteSubAgent } from '../packages/protocol/src/index';
 import { permissionPreset, permissionSettings } from '../packages/codex-adapter/src/permissions';
 
 const origin = 'http://selection.test';
@@ -42,11 +42,15 @@ type FixtureOptions = {
   imagePicker?: () => Promise<{ canceled: boolean; assets: { uri: string; fileName: string; width: number; height: number; mimeType: string; base64: string }[] }>;
   imageUpload?: { wait?: Promise<void>; fail?: boolean };
   submission?: { wait?: Promise<void>; fail?: boolean };
-  controls?: { active: boolean; text: string; images: string[]; failEffort?: boolean; interrupted?: boolean; unknownTurn?: boolean };
+  controls?: { active: boolean; text: string; images: string[]; failEffort?: boolean; failModel?: boolean; failPermissions?: boolean; interrupted?: boolean; unknownTurn?: boolean };
   paging?: { delay?: boolean; fail?: boolean; exhausted?: boolean };
   removal?: { confirmed: boolean; fail?: boolean; calls: string[] };
   clipboard?: { values: string[]; fail?: boolean };
   agentVersions?: Record<string, string>;
+  subAgents?: RemoteSubAgent[];
+  review?: { turns: HistoryTurn[]; mode?: 'plan' | 'default'; failMode?: boolean; fileError?: string; fileWait?: Promise<void>; fileText?: string; fileCalls?: {url: string; signal?: AbortSignal | null}[] };
+  answerSubmission?: { fail?: boolean; wait?: Promise<void> };
+  notification?: { enabled: boolean; fail?: boolean; wait?: Promise<void>; updates: { path: string; enabled: boolean }[] };
 };
 type TestRelay = {
   getSnapshot(): { userId: string | null; devicesReady: boolean; phase: string; syncing: Record<string, boolean> };
@@ -56,7 +60,7 @@ type TestRelay = {
 async function fixture(options: FixtureOptions = {}) {
   const current = { userId: options.userId ?? 'user-a', devices: options.devices ?? devices, catalogs: options.catalogs ?? Object.fromEntries(devices.map(device => [device.id, catalog(device.id)])) };
   const controls = options.controls;
-  const settings: ModelSettings = { model: 'gpt-6.1-sol', modelProvider: 'fixture', reasoningEffort: 'xhigh', collaborationMode: 'default' };
+  const settings: ModelSettings = { model: 'gpt-6.1-sol', modelProvider: 'fixture', reasoningEffort: 'xhigh', collaborationMode: options.review?.mode ?? 'default' };
   if (options.permissions) settings.permissions = permissionSettings(permissionPreset('ask', ['/fixture']));
   let pendingRequests = options.requests ?? [];
   if (controls) for (const item of Object.values(current.catalogs)) item.models = ['gpt-6.1-sol', 'gpt-6-astra'].map((model, index) => ({ model, displayName: index ? '6 Astra' : '6.1 Sol', supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'], defaultReasoningEffort: 'high' }));
@@ -66,10 +70,13 @@ async function fixture(options: FixtureOptions = {}) {
   const imageUploads: { path: string; name: string; id: string }[] = [];
   const earlierRequests: string[] = [];
   const historyRequests: string[] = [], commands: RemoteCommand[] = [], errors: unknown[] = [];
+  let refresh!: () => void;
   const dom = new JSDOM(`<style>${css}</style><div id="root"></div>`, {
     url: origin, runScripts: 'dangerously', pretendToBeVisual: true,
     beforeParse(window) {
-      Object.assign(window, { AnimationEvent: window.Event });
+      Object.assign(window, { AnimationEvent: window.Event, TextDecoder });
+      window.HTMLElement.prototype.getBoundingClientRect = function() { return { x:0,y:0,left:0,top:0,right:390,bottom:800,width:390,height:800,toJSON(){} }; };
+
       if (options.clipboard) Object.defineProperty(window.navigator, 'clipboard', { value: { writeText: async (value: string) => {
         if (options.clipboard!.fail) throw new Error('clipboard-denied');
         options.clipboard!.values.push(value);
@@ -102,7 +109,17 @@ async function fixture(options: FixtureOptions = {}) {
           return response({removed:true});
         }
         if (path === '/v1/ws/tickets') return response({ ticket: 'fixture-ticket' });
-        if (path === '/v1/weixin' || path.endsWith('/weixin-notification')) return response({ enabled: false, allEnabled: false, available: false, bound: false });
+        if (path === '/v1/weixin') return response({ enabled: false, allEnabled: false, available: false, bound: false });
+        if (path.endsWith('/weixin-notification')) {
+          if (init?.method === 'PUT' && options.notification) {
+            const { enabled } = JSON.parse(String(init.body));
+            options.notification.updates.push({ path, enabled });
+            await options.notification.wait;
+            if (options.notification.fail) return new Response(JSON.stringify({ error: 'save-failed' }), { status: 503 });
+            options.notification.enabled = enabled;
+          }
+          return response({ enabled: options.notification?.enabled ?? false, allEnabled: false, available: !!options.notification, bound: !!options.notification });
+        }
         const [, deviceId, suffix] = path.match(/^\/v1\/devices\/([^/]+)\/(.*)$/) ?? [];
         if (deviceId && suffix === 'catalog') { if (deviceId === options.delayCatalog) await catalogGate.promise; return response({ catalog: current.catalogs[deviceId] }); }
         if (deviceId && suffix === 'snapshot') return response({ online: current.devices.find(device => device.id === deviceId)?.online ?? false, snapshot: snapshot(deviceId) });
@@ -119,14 +136,37 @@ async function fixture(options: FixtureOptions = {}) {
             }
             return response({ threadId, turns: [], nextCursor: options.paging.exhausted ? null : 'earlier-page', generatedAt: 1 });
           }
-          return response({ threadId, turns: [], nextCursor: null, generatedAt: 1 });
+          return response({ threadId, turns: options.review?.turns ?? [], nextCursor: null, generatedAt: 1 });
+        }
+        if (deviceId && suffix?.includes('/files/')) {
+          options.review?.fileCalls?.push({url: String(input), signal: init?.signal});
+          const text = options.review?.fileText ?? 'const value = 42;\nexport { value };\n';
+          if (suffix.endsWith('/info')) return response({name: '示例.ts', size: Buffer.byteLength(text), version: 'a'.repeat(64)});
+          if (suffix.endsWith('/content')) {
+            await options.review?.fileWait;
+            return options.review?.fileError ? new Response(JSON.stringify({error: options.review.fileError}), {status:409}) : new Response(text);
+          }
         }
         if (deviceId && suffix === 'commands') {
           const command = JSON.parse(String(init?.body)) as RemoteCommand;
           commands.push(command);
-          if (!controls && !options.permissions && !options.requests) return response({ commandId: 'fixture-command' });
+          if (!controls && !options.permissions && !options.requests && !options.review) return response({ commandId: 'fixture-command' });
           let result: Record<string, unknown> = {}, code = 'ok';
           const payload = command.payload;
+          if (payload.type === 'input.respond' || payload.type === 'approval.respond') { await options.answerSubmission?.wait; if (options.answerSubmission?.fail) code = 'request-rejected'; }
+          if (payload.type === 'thread.mode.update') { if (options.review?.failMode) code = 'mode-rejected'; else settings.collaborationMode = payload.mode; }
+          if (payload.type === 'thread.rename') {
+            const thread = current.catalogs[deviceId]?.threads.find(thread => thread.id === payload.threadId);
+            if (thread) thread.title = payload.name;
+          }
+          if (payload.type === 'thread.archive') {
+            const thread = current.catalogs[deviceId]?.threads.find(thread => thread.id === payload.threadId);
+            if (thread) thread.archived = true;
+          }
+          if (payload.type === 'thread.delete') {
+            const catalog = current.catalogs[deviceId];
+            if (catalog) catalog.threads = catalog.threads.filter(thread => thread.id !== payload.threadId);
+          }
           if (payload.type === 'turn.start' || payload.type === 'turn.queue' || payload.type === 'turn.steer' || payload.type === 'turn.continue') {
             await options.submission?.wait;
             if (options.submission?.fail) code = 'turn-start-rejected';
@@ -137,9 +177,9 @@ async function fixture(options: FixtureOptions = {}) {
             if (controls?.failEffort) code = 'stale-settings';
             else settings.reasoningEffort = payload.effort;
           }
-          if (payload.type === 'thread.model.update') settings.model = payload.model;
+          if (payload.type === 'thread.model.update') { if (controls?.failModel) code = 'stale-settings'; else settings.model = payload.model; }
           if (payload.type === 'thread.permissions.update') {
-            if (settings.permissions?.fingerprint !== payload.expectedPermissions) code = 'stale-permissions';
+            if (controls?.failPermissions || settings.permissions?.fingerprint !== payload.expectedPermissions) code = 'stale-permissions';
             else settings.permissions = permissionSettings(permissionPreset(payload.mode, ['/fixture']));
           }
           if (payload.type === 'elicitation.respond') pendingRequests = pendingRequests.filter(r => r.id !== payload.requestId);
@@ -156,12 +196,13 @@ async function fixture(options: FixtureOptions = {}) {
       function snapshot(deviceId: string) {
         return { protocolVersion: 1, deviceId, epoch: 'fixture', lastSeq: 0, generatedAt: 1, hostname: deviceId, platform: 'darwin',
           agentVersion: options.agentVersions?.[deviceId],
-          runtime: { kind: 'official-desktop-ipc', connected: true, experimental: true, capabilities: { observe: true, startTurn: true, interrupt: true, continueTurn: !options.legacyAgent, activeSettingsUpdate: !options.legacyAgent, approvals: true, userInput: true, images: true, ...(!options.legacyAgent ? { maxImages: 20, maxVideoBytes: 512 * 1024 * 1024 } : {}), attachments: true, collaborationModeUpdate: true, permissionsUpdate: !!options.permissions, mcpApprovals: true } },
+          runtime: { kind: 'official-desktop-ipc', connected: true, experimental: true, capabilities: { observe: true, startTurn: true, interrupt: true, continueTurn: !options.legacyAgent, activeSettingsUpdate: !options.legacyAgent, approvals: true, userInput: true, images: true, modelUpdate: true, effortUpdate: true, ...(!options.legacyAgent ? { maxImages: 20, maxVideoBytes: 512 * 1024 * 1024 } : {}), attachments: true, collaborationModeUpdate: true, permissionsUpdate: !!options.permissions, mcpApprovals: true, subAgents: !!options.subAgents } },
           threads: Object.fromEntries((current.catalogs[deviceId]?.threads ?? []).map(thread => [thread.id, { ...normalizeThread({ ...thread, threadRuntimeStatus: { type: controls?.active ? 'active' : 'idle', activeFlags: [] }, turns: [], requests: [] }, 0), ownerAvailable: true,
             ...(controls ? { settings, activeTurnId: controls.active && !controls.unknownTurn ? 'active-turn' : null, turns: controls.interrupted ? [{ id: 'active-turn', status: 'interrupted', items: [], plan: [], diff: '', truncated: false }] : [], queuedMessages: [{ id: 'queue-1', text: controls.text.slice(0, 1000), imageCount: controls.images.length, createdAt: 1, status: 'queued' }] } : {}),
-            ...(options.permissions ? {settings} : {}), requests: pendingRequests,
+            ...(options.permissions || options.review ? {settings} : {}), ...(options.review ? {turns: options.review.turns.map(turn => ({...turn, plan:[], diff:''}))} : {}), requests: pendingRequests, subAgents: thread.id === 'recent-pc-a' ? options.subAgents : undefined,
           }])) };
       }
+      refresh = () => { for (const socket of sockets) for (const device of current.devices) { socket.onmessage?.({data:JSON.stringify({type:'device.presence',deviceId:device.id,online:device.online})}); socket.onmessage?.({data:JSON.stringify({type:'device.snapshot',snapshot:snapshot(device.id)})}); } };
       class Socket {
         static OPEN = 1;
         readyState = 0;
@@ -204,6 +245,10 @@ async function fixture(options: FixtureOptions = {}) {
   const closeDialog = async (label: string) => {
     const button = dom.window.document.querySelector(`[aria-label="${label}"]`)!;
     click(label);
+    if (label === '关闭面板' || label === '关闭模型面板') {
+      await vi.waitFor(() => expect(dom.window.document.querySelector(`[aria-label="${label}"]`)).toBeNull());
+      return;
+    }
     // JSDOM does not advance CSS animations; finish the real RN Web fade-out.
     await vi.waitFor(() => {
       let element: Element | null = button;
@@ -214,7 +259,7 @@ async function fixture(options: FixtureOptions = {}) {
     await vi.waitFor(() => expect(dom.window.document.querySelector(`[aria-label="${label}"]`)).toBeNull());
   };
   const close = () => { deviceGate.release(); catalogGate.release(); historyGate.release(); app().close(); dom.window.close(); };
-  return { dom, current, historyRequests, uploadRequests, imageUploads, earlierRequests, commands, errors, app, header, click, closeDialog, close, deviceGate, catalogGate, historyGate };
+  return { dom, current, historyRequests, uploadRequests, imageUploads, earlierRequests, commands, errors, app, header, click, closeDialog, close, deviceGate, catalogGate, historyGate, refresh };
 }
 
 async function pagingFixture(paging: NonNullable<FixtureOptions['paging']>) {
@@ -525,12 +570,15 @@ it.each([false, true])('selects reasoning effort and model from the combined com
     Object.getOwnPropertyDescriptor(test.dom.window.HTMLInputElement.prototype, 'value')!.set!.call(slider, '4');
     slider.dispatchEvent(new test.dom.window.Event('input', { bubbles: true }));
     expect(test.commands.filter(command => command.payload.type === 'thread.effort.update')).toHaveLength(0);
-    slider.dispatchEvent(new test.dom.window.KeyboardEvent('keyup', { key: 'ArrowRight', bubbles: true }));
+    slider.dispatchEvent(new test.dom.window.Event('pointerup', { bubbles: true }));
     await vi.waitFor(() => expect(test.commands.find(command => command.payload.type === 'thread.effort.update')?.payload).toMatchObject({ effort: 'max', expectedEffort: 'xhigh', expectedModel: 'gpt-6.1-sol' }));
-    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="模型与推理强度：6.1 Sol，最高"]')).not.toBeNull());
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="模型与推理强度：6.1 Sol，Max"]')).not.toBeNull());
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="打开模型高级设置"]')?.getAttribute('aria-disabled')).not.toBe('true'));
+    test.click('打开模型高级设置');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="选择模型"]')).not.toBeNull());
     test.click('选择模型');
-    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="选择模型 6 Astra"]')).not.toBeNull());
-    test.click('选择模型 6 Astra');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="6 Astra"]')).not.toBeNull());
+    test.click('6 Astra');
     await vi.waitFor(() => expect(test.commands.find(command => command.payload.type === 'thread.model.update')?.payload).toMatchObject({ model: 'gpt-6-astra', expectedModel: 'gpt-6.1-sol' }));
     expect(test.errors).toEqual([]);
   } finally { test.close(); }
@@ -546,8 +594,8 @@ it('restores the saved strength when changing effort fails', async () => {
     const slider = test.dom.window.document.querySelector<HTMLInputElement>('input[aria-label="推理强度"]')!;
     Object.getOwnPropertyDescriptor(test.dom.window.HTMLInputElement.prototype, 'value')!.set!.call(slider, '4');
     slider.dispatchEvent(new test.dom.window.Event('input', { bubbles: true }));
-    await vi.waitFor(() => expect(slider.getAttribute('aria-valuetext')).toBe('最高'));
-    slider.dispatchEvent(new test.dom.window.KeyboardEvent('keyup', { key: 'ArrowRight', bubbles: true }));
+    await vi.waitFor(() => expect(slider.getAttribute('aria-valuetext')).toBe('Max'));
+    slider.dispatchEvent(new test.dom.window.Event('pointerup', { bubbles: true }));
     await vi.waitFor(() => expect(test.dom.window.document.body.textContent).toContain('stale-settings'));
     await vi.waitFor(() => expect(slider.getAttribute('aria-valuetext')).toBe('极高'));
     expect(test.dom.window.document.querySelector(`[aria-label="${label}"]`)).not.toBeNull();
@@ -604,9 +652,9 @@ it('uses categorized settings with version information, keeps operation dialogs 
     expect(card.textContent).toContain(controlVersion);
     expect(test.dom.window.document.querySelector('[data-testid="dialog-card"]')).toBeNull();
     await test.closeDialog('关闭设置');
-    test.click('工作模式：默认');
-    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[data-testid="dialog-card"]')?.textContent).toContain('Plan Mode'));
-    await test.closeDialog('关闭工作模式');
+    test.click('添加附件');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[data-testid="interaction-surface"]')?.textContent).toContain('方案模式'));
+    await test.closeDialog('关闭面板');
     test.click('管理会话 recent-pc-a');
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[data-testid="dialog-card"]')?.textContent).toContain('归档'));
     expect(test.errors).toEqual([]);
@@ -630,13 +678,13 @@ it('copies the full ID of the menu target without selecting it, and the current 
     await test.closeDialog('关闭older-pc-a');
     expect(test.header()).toContain('recent-pc-a');
     test.click('会话选项');
-    await vi.waitFor(() => expect(document.querySelector('[data-testid="conversation-id"]')?.textContent).toBe(recentId));
-    expect(document.querySelector('[aria-label="复制会话 ID"]')?.textContent).toBe('复制');
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="conversation-options-menu"]')).not.toBeNull());
+    expect(document.querySelector('[aria-label="复制会话 ID"]')?.textContent).toBe('复制会话 ID');
     test.click('复制会话 ID');
     await vi.waitFor(() => expect(clipboard.values).toEqual([olderId, recentId]));
-    await test.closeDialog('关闭');
+    await test.closeDialog('关闭面板');
     test.click('会话选项');
-    await vi.waitFor(() => expect(document.querySelector('[aria-label="复制会话 ID"]')?.textContent).toBe('复制'));
+    await vi.waitFor(() => expect(document.querySelector('[aria-label="复制会话 ID"]')?.textContent).toBe('复制会话 ID'));
     expect(test.commands).toEqual([]);
     expect(test.errors).toEqual([]);
   } finally { test.close(); }
@@ -649,17 +697,135 @@ it('keeps the full ID selectable and offers retry instead of claiming clipboard 
   try {
     await vi.waitFor(() => expect(test.header()).toContain('recent-pc-a'));
     test.click('会话选项');
-    await vi.waitFor(() => expect(document.querySelector('[data-testid="conversation-id"]')).not.toBeNull());
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="conversation-options-menu"]')).not.toBeNull());
     test.click('复制会话 ID');
     await vi.waitFor(() => expect(document.querySelector('[role="alert"]')?.textContent).toContain('手动复制'));
     expect(document.querySelector('[data-testid="conversation-id"]')?.textContent).toBe('recent-pc-a');
-    expect(document.querySelector('[aria-label="复制会话 ID"]')?.textContent).toBe('复制');
+    expect(document.querySelector('[aria-label="复制会话 ID"]')?.textContent).toBe('复制会话 ID');
     expect(clipboard.values).toEqual([]);
     clipboard.fail = false; test.click('复制会话 ID');
     await vi.waitFor(() => expect(document.querySelector('[aria-label="复制会话 ID"]')?.textContent).toBe('已复制'));
     expect(document.querySelector('[role="alert"]')).toBeNull();
     expect(clipboard.values).toEqual(['recent-pc-a']);
     expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it('opens a compact title menu and performs rename/archive on the current chat while preserving its draft', async () => {
+  const test = await fixture({ controls: { active: false, text: '', images: [] } });
+  const doc = test.dom.window.document;
+  try {
+    await vi.waitFor(() => expect(test.header()).toContain('recent-pc-a'));
+    const input = doc.querySelector<HTMLTextAreaElement>('[aria-label="给 Codex 发送消息"]')!;
+    Object.getOwnPropertyDescriptor(test.dom.window.HTMLTextAreaElement.prototype, 'value')!.set!.call(input, '尚未发送的草稿');
+    input.dispatchEvent(new test.dom.window.Event('input', { bubbles: true }));
+    test.click('会话选项');
+    await vi.waitFor(() => expect(doc.querySelector('[data-testid="conversation-options-menu"]')).not.toBeNull());
+    const menu = doc.querySelector('[data-testid="conversation-options-menu"]')!;
+    expect(menu.textContent).toContain('recent-pc-a重命名复制会话 ID归档删除会话刷新会话');
+    expect(menu.textContent).not.toContain('会话设置');
+    expect(menu.querySelectorAll('[aria-label="复制会话 ID"]')).toHaveLength(1);
+    expect(menu.querySelector('[data-testid="conversation-id"]')).toBeNull();
+    expect(doc.querySelector('[data-testid="dialog-card"]')).toBeNull();
+    const row = doc.querySelector('[aria-label="重命名"]')!;
+    expect(row.firstElementChild?.textContent).toBe('重命名');
+    expect(row.lastElementChild?.tagName.toLowerCase()).toBe('svg');
+    test.click('重命名');
+    await vi.waitFor(() => expect(doc.querySelector<HTMLInputElement>('[aria-label="会话名称"]')?.value).toBe('recent-pc-a'));
+    expect(doc.querySelector('[data-testid="conversation-options-menu"]')).toBeNull();
+    const name = doc.querySelector<HTMLInputElement>('[aria-label="会话名称"]')!;
+    Object.getOwnPropertyDescriptor(test.dom.window.HTMLInputElement.prototype, 'value')!.set!.call(name, '重命名后的会话');
+    name.dispatchEvent(new test.dom.window.Event('input', { bubbles: true }));
+    test.click('保存会话名称');
+    await vi.waitFor(() => expect(test.commands.find(command => command.payload.type === 'thread.rename')?.payload).toEqual({ type: 'thread.rename', threadId: 'recent-pc-a', name: '重命名后的会话' }));
+    // Finish the existing RN Web dialog's closing CSS animation in JSDOM.
+    await vi.waitFor(() => {
+      const modal = Array.from(doc.querySelectorAll('*')).find(element => test.dom.window.getComputedStyle(element).animationDuration === '250ms' && test.dom.window.getComputedStyle(element).pointerEvents === 'none');
+      expect(modal).toBeDefined(); modal!.dispatchEvent(new test.dom.window.Event('animationend', { bubbles: true }));
+    });
+    await vi.waitFor(() => expect(test.header()).toContain('重命名后的会话'));
+    expect(input.value).toBe('尚未发送的草稿');
+    test.click('会话选项');
+    await vi.waitFor(() => expect(doc.querySelector('[data-testid="conversation-options-menu"]')?.textContent).toContain('重命名后的会话'));
+    test.click('归档');
+    await vi.waitFor(() => expect(test.commands.find(command => command.payload.type === 'thread.archive')?.payload).toEqual({ type: 'thread.archive', threadId: 'recent-pc-a' }));
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it('keeps sub-agents at the header and puts deletion below archive with an explicit permanent-delete confirmation', async () => {
+  const test = await fixture({ controls: { active: false, text: '', images: [] }, subAgents: [{ threadId: 'child-1', parentThreadId: 'recent-pc-a', name: '排版检查', task: '核对移动端布局', status: 'running', statusSource: 'thread' }] });
+  const doc = test.dom.window.document;
+  try {
+    await vi.waitFor(() => expect(test.header()).toContain('recent-pc-a'));
+    const agentLabel = '子 Agent，共 1 个，1 个运行中，0 个等待启动';
+    await vi.waitFor(() => expect(doc.querySelector(`[data-testid="conversation-header"] [aria-label="${agentLabel}"]`)).not.toBeNull());
+    test.click(agentLabel);
+    await vi.waitFor(() => expect(doc.body.textContent).toContain('核对移动端布局'));
+    await test.closeDialog('关闭面板');
+    test.click('会话选项');
+    await vi.waitFor(() => expect(doc.querySelector('[data-testid="conversation-options-menu"]')).not.toBeNull());
+    const menu = doc.querySelector('[data-testid="conversation-options-menu"]')!;
+    expect(menu.textContent).not.toContain('子 Agent'); expect(menu.textContent).not.toContain('会话设置');
+    expect(menu.querySelectorAll('[aria-label="复制会话 ID"]')).toHaveLength(1);
+    const actions = Array.from(menu.querySelectorAll('[role="button"]')).map(node => node.getAttribute('aria-label'));
+    expect(actions[actions.indexOf('归档') + 1]).toBe('删除会话');
+    await vi.waitFor(() => expect(doc.querySelector('[aria-label="本会话微信通知"]')).not.toBeNull());
+    const confirm = vi.fn(() => false); test.dom.window.confirm = confirm;
+    test.click('删除会话');
+    await vi.waitFor(() => expect(confirm).toHaveBeenCalledWith('删除会话\n\n这将永久删除“recent-pc-a”，删除后无法恢复。确定删除吗？'));
+    expect(test.commands.some(command => command.payload.type === 'thread.delete')).toBe(false);
+    expect(test.header()).toContain('recent-pc-a');
+    test.click('会话选项');
+    await vi.waitFor(() => expect(doc.querySelector('[aria-label="删除会话"]')).not.toBeNull());
+    confirm.mockReturnValue(true); test.click('删除会话');
+    await vi.waitFor(() => expect(test.commands.filter(command => command.payload.type === 'thread.delete').map(command => command.payload)).toEqual([{ type: 'thread.delete', threadId: 'recent-pc-a' }]));
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it('saves the inline notification switch for the current chat and keeps it unchanged on failure', async () => {
+  const wait = gate(), notification = { enabled: false, updates: [] as { path: string; enabled: boolean }[], wait: wait.promise, fail: false };
+  const test = await fixture({ notification, controls: { active: false, text: '', images: [] } });
+  const doc = test.dom.window.document;
+  try {
+    await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-a']).toBe(false));
+    test.click('会话选项');
+    const toggle = () => doc.querySelector<HTMLInputElement>('[aria-label="本会话微信通知"]')!;
+    await vi.waitFor(() => expect(toggle()).not.toBeNull());
+    expect(toggle().checked).toBe(false);
+    test.click('本会话微信通知');
+    await vi.waitFor(() => expect(toggle().disabled).toBe(true));
+    expect(toggle().checked).toBe(false);
+    wait.release();
+    await vi.waitFor(() => expect(toggle().checked).toBe(true));
+    expect(notification.updates).toEqual([{ path: '/v1/devices/pc-a/threads/recent-pc-a/weixin-notification', enabled: true }]);
+    await test.closeDialog('关闭面板');
+    test.click('会话选项，微信通知已开启');
+    await vi.waitFor(() => expect(toggle().checked).toBe(true));
+    notification.fail = true; test.click('本会话微信通知');
+    await vi.waitFor(() => expect(doc.querySelector('[data-testid="conversation-options-menu"]')?.textContent).toContain('保存失败，请重试'));
+    expect(toggle().checked).toBe(true);
+    expect(notification.enabled).toBe(true); expect(test.errors).toEqual([]);
+  } finally { wait.release(); test.close(); }
+});
+
+it('allows copying the chat ID offline while disabling remote rename and archive', async () => {
+  const clipboard = { values: [] as string[] };
+  const test = await fixture({ clipboard, controls: { active: false, text: '', images: [] } });
+  const doc = test.dom.window.document;
+  try {
+    await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-a']).toBe(false));
+    // Relay's fixture subscription is the same mechanism used by a real disconnect.
+    (test.app().relay as unknown as { set(view: {phase: string}): void }).set({ phase: 'reconnecting' });
+    test.click('会话选项');
+    await vi.waitFor(() => expect(doc.querySelector('[aria-label="重命名"]')?.getAttribute('aria-disabled')).toBe('true'));
+    expect(doc.querySelector('[aria-label="归档"]')?.getAttribute('aria-disabled')).toBe('true');
+    expect(doc.querySelector('[aria-label="删除会话"]')?.getAttribute('aria-disabled')).toBe('true');
+    expect(doc.querySelector<HTMLInputElement>('[aria-label="本会话微信通知"]')?.disabled).toBe(true);
+    test.click('复制会话 ID');
+    await vi.waitFor(() => expect(clipboard.values).toEqual(['recent-pc-a']));
+    expect(test.commands).toEqual([]); expect(test.errors).toEqual([]);
   } finally { test.close(); }
 });
 
@@ -698,7 +864,7 @@ it('switches three skins through settings without remounting the composer or los
     await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[aria-label="外观"]')).not.toBeNull());test.click('外观');
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[role="radiogroup"]')).not.toBeNull());
     expect(test.dom.window.document.querySelectorAll('[role="radiogroup"] [role="radio"]')).toHaveLength(3);
-    for (const [label, id, color] of [['暖白纸张', 'paper', '#faf7f1'], ['暖棕暗色', 'warm-dark', '#262322'], ['默认', 'default', '#ffffff']]) {
+    for (const [label, id, color] of [['暖白纸张', 'paper', '#faf7f1'], ['中性深色', 'warm-dark', '#111113'], ['默认', 'default', '#ffffff']]) {
       test.click(label!);
       await vi.waitFor(() => expect(test.dom.window.document.documentElement.dataset.controlTheme).toBe(id));
       expect(test.dom.window.document.documentElement.style.getPropertyValue('--control-bg')).toBe(color);
@@ -728,8 +894,8 @@ it('keeps a selected skin usable and explains a failed preference save', async (
     await vi.waitFor(() => expect(test.header()).toContain('recent-pc-a'));
     test.click('连接设置');
     await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[aria-label="外观"]')).not.toBeNull());test.click('外观');
-    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="暖棕暗色"]')).not.toBeNull());
-    test.click('暖棕暗色');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="中性深色"]')).not.toBeNull());
+    test.click('中性深色');
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[role="alert"]')?.textContent).toContain('偏好未能保存'));
     expect(test.dom.window.document.documentElement.dataset.controlTheme).toBe('warm-dark');
     expect(test.errors).toEqual([]);
@@ -749,11 +915,11 @@ it('keeps one attachment and model button after restoring, reopening menus and s
     for (const threadId of ['older-pc-a', 'recent-pc-a', 'older-pc-a']) {
       test.click('添加附件');
       await vi.waitFor(() => expect(document.querySelector('[aria-label="添加文件"]')).not.toBeNull());
-      await test.closeDialog('关闭菜单');
+      await test.closeDialog('关闭面板');
       expectSingleToolbar();
       test.click('模型与推理强度：6.1 Sol，极高');
       await vi.waitFor(() => expect(document.querySelector('input[aria-label="推理强度"]')).not.toBeNull());
-      await test.closeDialog('关闭菜单');
+      await test.closeDialog('关闭模型面板');
       const row = [...document.querySelectorAll('[role="button"]')].find(element => element.textContent === threadId) as HTMLElement;
       row.click();
       await vi.waitFor(() => expect(test.header()).toContain(threadId));
@@ -782,9 +948,10 @@ it('opens attachment actions from plus and sends a file-only message after uploa
     test.click('添加文件');
     await vi.waitFor(() => expect(test.uploadRequests).toHaveLength(2));
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="发送消息"]')?.getAttribute('aria-disabled')).not.toBe('true'));
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[data-testid="interaction-surface"]')).toBeNull());
     test.click('发送消息');
     await vi.waitFor(() => expect(test.commands.some(c => c.payload.type === 'turn.start' && c.payload.text === '' && c.payload.attachments?.[0] === 'f'.repeat(64))).toBe(true));
-    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="移除文件 说明.txt"]')).toBeNull());
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="移除 说明.txt"]')).toBeNull());
     expect(test.errors).toEqual([]);
   } finally { test.close(); }
 });
@@ -806,6 +973,7 @@ it('offers a video picker and sends an original video larger than the ordinary f
     expect(pickerKind).toBe('video');
     expect(test.imageUploads).toHaveLength(0);
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="发送消息"]')?.getAttribute('aria-disabled')).not.toBe('true'));
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[data-testid="interaction-surface"]')).toBeNull());
     test.click('发送消息');
     await vi.waitFor(() => expect(test.commands.some(c => c.payload.type === 'turn.start' && c.payload.text === '' && c.payload.attachments?.[0] === 'f'.repeat(64))).toBe(true));
     expect(test.commands.at(-1)!.expiresAt - Date.now()).toBeGreaterThan(290000);
@@ -825,6 +993,7 @@ it.each(['drop', 'paste'])('uploads a video from the browser composer %s event w
     await vi.waitFor(() => expect(test.uploadRequests).toHaveLength(2));
     expect(test.imageUploads).toHaveLength(0);
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="发送消息"]')?.getAttribute('aria-disabled')).not.toBe('true'));
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[data-testid="interaction-surface"]')).toBeNull());
     test.click('发送消息');
     await vi.waitFor(() => expect(test.commands.find(c => c.payload.type === 'turn.start')?.payload).toMatchObject({ text: '', attachments: ['f'.repeat(64)] }));
     expect(test.errors).toEqual([]);
@@ -842,6 +1011,7 @@ it.each([false, true])('honors the advertised image limit and legacy fallback (l
     test.click('添加图片');
     await vi.waitFor(() => expect(test.imageUploads).toHaveLength(limit));
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="发送消息"]')?.getAttribute('aria-disabled')).not.toBe('true'));
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[data-testid="interaction-surface"]')).toBeNull());
     test.click('发送消息');
     await vi.waitFor(() => expect(test.commands.find(c => c.payload.type === 'turn.start')?.payload).toMatchObject({ text: '', images: test.imageUploads.map(item => item.id) }));
     expect(test.errors).toEqual([]);
@@ -857,7 +1027,7 @@ it('discards a late file selection when the user has switched devices', async ()
     test.click('切换 PC Agent，当前：pc-a，在线'); await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="选择设备 pc-b，在线"]')).not.toBeNull()); test.click('选择设备 pc-b，在线');
     await vi.waitFor(() => expect(test.header()).toContain('recent-pc-b')); selection.release();
     await new Promise(resolve => setTimeout(resolve, 50)); expect(test.uploadRequests).toEqual([]);
-    expect(test.dom.window.document.querySelector('[aria-label="移除文件 old.txt"]')).toBeNull(); expect(test.errors).toEqual([]);
+    expect(test.dom.window.document.querySelector('[aria-label="移除 old.txt"]')).toBeNull(); expect(test.errors).toEqual([]);
   } finally { selection.release(); test.close(); }
 });
 
@@ -873,10 +1043,11 @@ it('keeps a file upload in its original draft while switching conversations', as
     row.click(); await vi.waitFor(() => expect(test.header()).toContain('older-pc-a'));
     chunk.release(); await vi.waitFor(() => expect(test.uploadRequests).toHaveLength(2));
     expect(test.commands.some(command => command.payload.type === 'turn.start')).toBe(false);
-    expect(test.dom.window.document.querySelector('[aria-label="移除文件 slow.txt"]')).toBeNull();
+    expect(test.dom.window.document.querySelector('[aria-label="移除 slow.txt"]')).toBeNull();
     await selectDraftThread(test, 'recent-pc-a');
-    expect(test.dom.window.document.querySelector('[aria-label="移除文件 slow.txt"]')).not.toBeNull();
+    expect(test.dom.window.document.querySelector('[aria-label="移除 slow.txt"]')).not.toBeNull();
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="发送消息"]')?.getAttribute('aria-disabled')).not.toBe('true'));
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[data-testid="interaction-surface"]')).toBeNull());
     test.click('发送消息');
     await vi.waitFor(() => expect(test.commands.some(command => command.payload.type === 'turn.start' && command.payload.threadId === 'recent-pc-a' && command.payload.attachments?.[0] === 'f'.repeat(64))).toBe(true));
     expect(test.errors).toEqual([]);
@@ -911,7 +1082,7 @@ async function addDraftImage(test: Awaited<ReturnType<typeof fixture>>) {
 it('restores independent multiline drafts after immediate conversation switches and repeated selection', async () => {
   const test = await fixture({ controls: { active: false, text: '', images: [] } });
   try {
-    await vi.waitFor(() => expect(composer(test)?.readOnly).toBe(false));
+    await vi.waitFor(() => { const button = test.dom.window.document.querySelector('[aria-label="添加附件"]'); expect(button).not.toBeNull(); expect(button?.getAttribute('aria-disabled')).not.toBe('true'); });
     writeDraft(test, '第一个会话的草稿\n保留换行  和空格');
     await selectDraftThread(test, 'older-pc-a');
     expect(composer(test).value).toBe('');
@@ -930,7 +1101,7 @@ it('separates drafts for identical thread ids on different PCs', async () => {
   const catalogs = Object.fromEntries(devices.map(device => [device.id, { ...catalog(device.id), threads: [{ ...catalog(device.id).threads[0]!, id: 'same-thread', title: 'Shared thread id' }] }]));
   const test = await fixture({ catalogs, controls: { active: false, text: '', images: [] } });
   try {
-    await vi.waitFor(() => expect(composer(test)?.readOnly).toBe(false));
+    await vi.waitFor(() => { const button = test.dom.window.document.querySelector('[aria-label="添加附件"]'); expect(button).not.toBeNull(); expect(button?.getAttribute('aria-disabled')).not.toBe('true'); });
     writeDraft(test, 'PC A 草稿');
     await selectDraftDevice(test, 'pc-a', 'pc-b');
     expect(composer(test).value).toBe('');
@@ -946,19 +1117,20 @@ it('restores an image uploaded in the background only to its original draft and 
   const upload = gate();
   const test = await fixture({ controls: { active: false, text: '', images: [] }, imagePicker: async () => ({ canceled: false, assets: [draftImage()] }), imageUpload: { wait: upload.promise } });
   try {
-    await vi.waitFor(() => expect(composer(test)?.readOnly).toBe(false));
+    await vi.waitFor(() => { const button = test.dom.window.document.querySelector('[aria-label="添加附件"]'); expect(button).not.toBeNull(); expect(button?.getAttribute('aria-disabled')).not.toBe('true'); });
     writeDraft(test, '带截图的消息');
     await addDraftImage(test);
     expect(test.dom.window.document.querySelector('[aria-label="发送消息"]')?.getAttribute('aria-disabled')).toBe('true');
     await selectDraftThread(test, 'older-pc-a');
     expect(composer(test).value).toBe('');
-    expect(test.dom.window.document.querySelector('[aria-label="预览待发送图片 草稿 截图.png"]')).toBeNull();
+    expect(test.dom.window.document.querySelector('[aria-label="预览 草稿 截图.png"]')).toBeNull();
     writeDraft(test, '保留另一个会话');
     upload.release();
     await selectDraftThread(test, 'recent-pc-a');
     expect(composer(test).value).toBe('带截图的消息');
-    expect(test.dom.window.document.querySelector('[aria-label="预览待发送图片 草稿 截图.png"]')).not.toBeNull();
+    expect(test.dom.window.document.querySelector('[aria-label="预览 草稿 截图.png"]')).not.toBeNull();
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="发送消息"]')?.getAttribute('aria-disabled')).not.toBe('true'));
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[data-testid="interaction-surface"]')).toBeNull());
     test.click('发送消息');
     await vi.waitFor(() => expect(composer(test).value).toBe(''));
     expect(test.commands.find(command => command.payload.type === 'turn.start')?.payload).toMatchObject({ threadId: 'recent-pc-a', text: '带截图的消息', images: [test.imageUploads[0]!.id] });
@@ -974,10 +1146,11 @@ it.each([false, true])('handles a delayed submission without clearing another dr
   const pending = gate();
   const test = await fixture({ controls: { active: false, text: '', images: [] }, submission: { wait: pending.promise, fail } });
   try {
-    await vi.waitFor(() => expect(composer(test)?.readOnly).toBe(false));
+    await vi.waitFor(() => { const button = test.dom.window.document.querySelector('[aria-label="添加附件"]'); expect(button).not.toBeNull(); expect(button?.getAttribute('aria-disabled')).not.toBe('true'); });
     await selectDraftThread(test, 'older-pc-a'); writeDraft(test, '另一个草稿');
     await selectDraftThread(test, 'recent-pc-a'); writeDraft(test, '正在发送的草稿');
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="发送消息"]')?.getAttribute('aria-disabled')).not.toBe('true'));
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[data-testid="interaction-surface"]')).toBeNull());
     test.click('发送消息');
     await vi.waitFor(() => expect(test.commands.some(command => command.payload.type === 'turn.start')).toBe(true));
     await selectDraftThread(test, 'older-pc-a'); pending.release();
@@ -992,7 +1165,7 @@ it('retains an upload error and lets the original conversation retry its image a
   const imageUpload = { fail: true };
   const test = await fixture({ controls: { active: false, text: '', images: [] }, imagePicker: async () => ({ canceled: false, assets: [draftImage()] }), imageUpload });
   try {
-    await vi.waitFor(() => expect(composer(test)?.readOnly).toBe(false));
+    await vi.waitFor(() => { const button = test.dom.window.document.querySelector('[aria-label="添加附件"]'); expect(button).not.toBeNull(); expect(button?.getAttribute('aria-disabled')).not.toBe('true'); });
     await addDraftImage(test);
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="重试上传 草稿 截图.png"]')).not.toBeNull());
     await selectDraftThread(test, 'older-pc-a');
@@ -1008,17 +1181,17 @@ it('clears all drafts on logout and ignores late image uploads even after loggin
   const upload = gate();
   const test = await fixture({ controls: { active: false, text: '', images: [] }, imagePicker: async () => ({ canceled: false, assets: [draftImage()] }), imageUpload: { wait: upload.promise } });
   try {
-    await vi.waitFor(() => expect(composer(test)?.readOnly).toBe(false));
+    await vi.waitFor(() => { const button = test.dom.window.document.querySelector('[aria-label="添加附件"]'); expect(button).not.toBeNull(); expect(button?.getAttribute('aria-disabled')).not.toBe('true'); });
     writeDraft(test, '退出前的草稿'); await addDraftImage(test);
     await test.app().relay.logout();
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="账号"]')).not.toBeNull());
     await test.app().relay.connect(origin, 'user-a', 'fixture-password');
-    await vi.waitFor(() => expect(composer(test)?.readOnly).toBe(false));
+    await vi.waitFor(() => { const button = test.dom.window.document.querySelector('[aria-label="添加附件"]'); expect(button).not.toBeNull(); expect(button?.getAttribute('aria-disabled')).not.toBe('true'); });
     expect(composer(test).value).toBe('');
     writeDraft(test, '重新登录后的新草稿'); upload.release();
     await new Promise(resolve => setTimeout(resolve, 40));
     expect(composer(test).value).toBe('重新登录后的新草稿');
-    expect(test.dom.window.document.querySelector('[aria-label="预览待发送图片 草稿 截图.png"]')).toBeNull();
+    expect(test.dom.window.document.querySelector('[aria-label="预览 草稿 截图.png"]')).toBeNull();
     expect(test.errors).toEqual([]);
   } finally { upload.release(); test.close(); }
 });
@@ -1026,13 +1199,13 @@ it('clears all drafts on logout and ignores late image uploads even after loggin
 it.each([[origin, 'user-b'], ['http://other-relay.test', 'user-a']])('keeps drafts private when changing to %s as %s', async (url, user) => {
   const test = await fixture({ controls: { active: false, text: '', images: [] }, imagePicker: async () => ({ canceled: false, assets: [draftImage()] }) });
   try {
-    await vi.waitFor(() => expect(composer(test)?.readOnly).toBe(false));
+    await vi.waitFor(() => { const button = test.dom.window.document.querySelector('[aria-label="添加附件"]'); expect(button).not.toBeNull(); expect(button?.getAttribute('aria-disabled')).not.toBe('true'); });
     writeDraft(test, '上一个账号和服务器的内容'); await addDraftImage(test);
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="发送消息"]')?.getAttribute('aria-disabled')).not.toBe('true'));
     await test.app().relay.connect(url!, user!, 'fixture-password');
-    await vi.waitFor(() => expect(composer(test)?.readOnly).toBe(false));
+    await vi.waitFor(() => { const button = test.dom.window.document.querySelector('[aria-label="添加附件"]'); expect(button).not.toBeNull(); expect(button?.getAttribute('aria-disabled')).not.toBe('true'); });
     expect(composer(test).value).toBe('');
-    expect(test.dom.window.document.querySelector('[aria-label="预览待发送图片 草稿 截图.png"]')).toBeNull();
+    expect(test.dom.window.document.querySelector('[aria-label="预览 草稿 截图.png"]')).toBeNull();
     expect(test.errors).toEqual([]);
   } finally { test.close(); }
 });
@@ -1041,16 +1214,16 @@ it('cancels pending file uploads on logout and never restores them into a later 
   const chunk = gate();
   const test = await fixture({ controls: { active: false, text: '', images: [] }, filePicker: async () => [{ name: 'private.txt', size: 1, mimeType: 'text/plain', readChunk: async () => { await chunk.promise; return 'YQ=='; } }] });
   try {
-    await vi.waitFor(() => expect(composer(test)?.readOnly).toBe(false));
+    await vi.waitFor(() => { const button = test.dom.window.document.querySelector('[aria-label="添加附件"]'); expect(button).not.toBeNull(); expect(button?.getAttribute('aria-disabled')).not.toBe('true'); });
     test.click('添加附件'); await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="添加文件"]')).not.toBeNull()); test.click('添加文件');
     await vi.waitFor(() => expect(test.uploadRequests).toHaveLength(1));
     await test.app().relay.logout();
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="账号"]')).not.toBeNull());
     await test.app().relay.connect(origin, 'user-a', 'fixture-password');
-    await vi.waitFor(() => expect(composer(test)?.readOnly).toBe(false));
+    await vi.waitFor(() => { const button = test.dom.window.document.querySelector('[aria-label="添加附件"]'); expect(button).not.toBeNull(); expect(button?.getAttribute('aria-disabled')).not.toBe('true'); });
     chunk.release(); await new Promise(resolve => setTimeout(resolve, 40));
     expect(test.uploadRequests).toHaveLength(1);
-    expect(test.dom.window.document.querySelector('[aria-label="移除文件 private.txt"]')).toBeNull();
+    expect(test.dom.window.document.querySelector('[aria-label="移除 private.txt"]')).toBeNull();
     expect(test.errors).toEqual([]);
   } finally { chunk.release(); test.close(); }
 });
@@ -1143,4 +1316,235 @@ it('keeps active settings and empty continuation unavailable on older connectors
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="发送消息"]')?.getAttribute('aria-disabled')).toBe('true'));
     expect(test.dom.window.document.querySelector('[aria-label="继续任务"]')).toBeNull();
   } finally { test.close(); }
+});
+
+
+it('discards an uncommitted effort gesture and leaves the runtime settings unchanged', async () => {
+  const test = await fixture({ controls: { active: true, text: '', images: [] } });
+  try {
+    await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-a']).toBe(false));
+    test.click('模型与推理强度：6.1 Sol，极高');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('input[aria-label="推理强度"]')).not.toBeNull());
+    const slider = test.dom.window.document.querySelector<HTMLInputElement>('input[aria-label="推理强度"]')!;
+    slider.dispatchEvent(new test.dom.window.Event('pointerdown', { bubbles: true }));
+    Object.getOwnPropertyDescriptor(test.dom.window.HTMLInputElement.prototype, 'value')!.set!.call(slider, '5');
+    slider.dispatchEvent(new test.dom.window.Event('input', { bubbles: true }));
+    await vi.waitFor(() => expect(slider.getAttribute('aria-valuetext')).toBe('Ultra'));
+    slider.dispatchEvent(new test.dom.window.Event('pointercancel', { bubbles: true }));
+    await vi.waitFor(() => expect(slider.getAttribute('aria-valuetext')).toBe('极高'));
+    expect(test.commands.filter(c => c.payload.type === 'thread.effort.update')).toHaveLength(0);
+  } finally { test.close(); }
+});
+
+it('restores the acknowledged model and permission after rejected settings changes', async () => {
+  const test = await fixture({ permissions: true, controls: { active: true, text: '', images: [], failModel: true, failPermissions: true } });
+  try {
+    await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-a']).toBe(false));
+    test.click('模型与推理强度：6.1 Sol，极高');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="打开模型高级设置"]')).not.toBeNull());
+    test.click('打开模型高级设置');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="选择模型"]')).not.toBeNull());
+    test.click('选择模型');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="6 Astra"]')).not.toBeNull());
+    test.click('6 Astra');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[role="alert"]')?.textContent).toContain('更改未保存'));
+    expect(test.dom.window.document.querySelector('[aria-label="模型与推理强度：6.1 Sol，极高"]')).not.toBeNull();
+    await test.closeDialog('关闭面板');
+    test.click('会话权限：请求批准');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="权限：只读"]')).not.toBeNull());
+    test.click('权限：只读');
+    await vi.waitFor(() => expect(test.commands.some(c => c.payload.type === 'thread.permissions.update')).toBe(true));
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[role="alert"]')?.textContent).toContain('更改未保存'));
+    expect(test.dom.window.document.querySelector('[aria-label="会话权限：请求批准"]')).not.toBeNull();
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it('keeps an offline draft editable while preventing sends and runtime settings', async () => {
+  const test = await fixture({ devices: devices.map(device => ({ ...device, online: false })), controls: { active: false, text: '', images: [] } });
+  try {
+    await vi.waitFor(() => expect(test.header()).toContain('recent-pc-a'));
+    writeDraft(test, '离线时继续整理的草稿');
+    await vi.waitFor(() => expect(composer(test).value).toBe('离线时继续整理的草稿'));
+    for (const label of ['发送消息', '添加附件', '模型与推理强度：6.1 Sol，极高']) {
+      expect(test.dom.window.document.querySelector(`[aria-label="${label}"]`)?.getAttribute('aria-disabled')).toBe('true');
+    }
+    expect(test.commands).toEqual([]);
+  } finally { test.close(); }
+});
+
+it('deduplicates a double click before a delayed send acknowledgement', async () => {
+  const wait = gate();
+  const test = await fixture({ controls: { active: false, text: '', images: [] }, submission: { wait: wait.promise } });
+  try {
+    await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-a']).toBe(false));
+    writeDraft(test, '只发送一次');
+    await vi.waitFor(() => expect(composer(test).value).toBe('只发送一次'));
+    const button = test.dom.window.document.querySelector('[aria-label="发送消息"]') as HTMLElement;
+    button.click(); button.click();
+    await vi.waitFor(() => expect(test.commands.filter(c => c.payload.type === 'turn.start')).toHaveLength(1));
+    wait.release();
+    await vi.waitFor(() => expect(composer(test).value).toBe(''));
+  } finally { wait.release(); test.close(); }
+});
+
+
+const reviewQuestions = (source = 'rpc'): InteractiveRequest => ({
+  id: 'question-request', kind: 'userInput', turnId: 'review-turn', respondable: true, detailsTruncated: false,
+  details: { source, questions: [
+    { id: 'layout', header: '布局', question: '选择布局', options: [{label:'卡片',description:'展示照片'}, {label:'列表',description:'紧凑排列'}], isOther:true },
+    { id: 'secret', header: '口令', question: '填写口令', isSecret: true, options: [] },
+  ] },
+});
+const reviewTurn = (truncated = false, type = 'plan'): HistoryTurn => ({ id:'review-turn',status:'completed',truncated:false,items:[{id:'review-plan',type,status:'completed',text:'# 相册方案\n\n1. 调整卡片布局。\n2. 验证移动端。',truncated}],fileChanges:[{path:'src/示例.ts',additions:1,deletions:1,diff:'--- a/src/示例.ts\n+++ b/src/示例.ts\n@@ -2 +2 @@\n-old\n+new\n',truncated:false}] });
+async function reviewReady(test: Awaited<ReturnType<typeof fixture>>) {
+  await vi.waitFor(() => expect(test.header()).toContain('recent-pc-a'));
+  await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-a']).toBe(false));
+}
+function answerInput(test: Awaited<ReturnType<typeof fixture>>, label: string, value: string) {
+  const input = test.dom.window.document.querySelector(`[aria-label="${label}"]`) as HTMLTextAreaElement | HTMLInputElement;
+  const prototype = input.tagName === 'TEXTAREA' ? test.dom.window.HTMLTextAreaElement.prototype : test.dom.window.HTMLInputElement.prototype;
+  Object.getOwnPropertyDescriptor(prototype,'value')!.set!.call(input,value);
+  input.dispatchEvent(new test.dom.window.Event('input',{bubbles:true}));
+}
+function chooseAnswer(test: Awaited<ReturnType<typeof fixture>>, label: string) {
+  ([...test.dom.window.document.querySelectorAll('[role="radio"]')].find(element => element.textContent?.startsWith(label)) as HTMLElement).click();
+}
+
+it('removes only the header new-chat action and retains project creation actions', async () => {
+  const test = await fixture();
+  try { await reviewReady(test); expect(test.dom.window.document.querySelector('[data-testid="conversation-header"] [aria-label="新建会话"]')).toBeNull(); expect(test.dom.window.document.querySelector('[aria-label="新建项目"]')).not.toBeNull(); }
+  finally { test.close(); }
+});
+
+it('pages real RPC questions, retains answers across chats, and explicitly submits the complete set once', async () => {
+  const test = await fixture({ requests:[reviewQuestions()] });
+  try {
+    await reviewReady(test); chooseAnswer(test,'卡片');
+    expect(test.commands).toHaveLength(0);
+    await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[aria-label="继续下一题"]')?.getAttribute('aria-disabled')).not.toBe('true'));
+    test.click('继续下一题');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="回答：口令"]')).not.toBeNull());
+    expect(test.dom.window.document.querySelector('[aria-label="回答：口令"]')?.getAttribute('type')).toBe('password');
+    answerInput(test,'回答：口令','私密答案');
+    await selectDraftThread(test,'older-pc-a');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="回答：口令"]')).toBeNull());
+    await selectDraftThread(test,'recent-pc-a');
+    await vi.waitFor(() => expect((test.dom.window.document.querySelector('[aria-label="回答：口令"]') as HTMLInputElement)?.value).toBe('私密答案'));
+    test.click('上一题'); await vi.waitFor(() => expect(test.dom.window.document.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toContain('卡片'));
+    chooseAnswer(test,'列表'); test.click('继续下一题');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="提交回答"]')?.getAttribute('aria-disabled')).not.toBe('true'));
+    const submit = test.dom.window.document.querySelector('[aria-label="提交回答"]') as HTMLElement; submit.click(); submit.click();
+    await vi.waitFor(() => expect(test.commands.filter(c=>c.payload.type==='input.respond')).toHaveLength(1));
+    expect(test.commands[0]!.payload).toEqual({type:'input.respond',threadId:'recent-pc-a',turnId:'review-turn',requestId:'question-request',answers:{layout:{answers:['列表']},secret:{answers:['私密答案']}}});
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it('submits async choices per question, retains failed custom answers and retries without duplicating accepted answers', async () => {
+  const answerSubmission = {fail:false};
+  const test = await fixture({requests:[reviewQuestions('asyncMessage')],answerSubmission});
+  try {
+    await reviewReady(test); chooseAnswer(test,'卡片');
+    await vi.waitFor(() => expect(test.commands.filter(c=>c.payload.type==='input.respond')).toHaveLength(1));
+    expect(test.commands[0]!.payload).toMatchObject({answers:{layout:{answers:['卡片']}}});
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="回答：口令"]')).not.toBeNull());
+    answerInput(test,'回答：口令','保留回答'); answerSubmission.fail=true;
+    test.click('提交回答：填写口令');
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[role="alert"]')?.textContent).toContain('答案已保留'));
+    expect((test.dom.window.document.querySelector('[aria-label="回答：口令"]') as HTMLInputElement).value).toBe('保留回答');
+    answerSubmission.fail=false; test.click('提交回答：填写口令');
+    await vi.waitFor(() => expect(test.commands.filter(c=>c.payload.type==='input.respond')).toHaveLength(3));
+    expect(test.commands.slice(1).every(c=>c.payload.type==='input.respond' && Object.keys(c.payload.answers).join()==='secret')).toBe(true);
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it('erases question drafts when the request expires or the account logs out', async () => {
+  const requests=[reviewQuestions()];
+  const test=await fixture({requests});
+  try {
+    await reviewReady(test); chooseAnswer(test,'卡片'); await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[aria-label="继续下一题"]')?.getAttribute('aria-disabled')).not.toBe('true')); test.click('继续下一题');
+    await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[aria-label="回答：口令"]')).not.toBeNull());
+    answerInput(test,'回答：口令','不应恢复');
+    requests.splice(0); test.refresh();
+    await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[data-testid="request-review-card"]')).toBeNull());
+    requests.push(reviewQuestions()); test.refresh();
+    await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[role="radio"]')).not.toBeNull());
+    expect(test.dom.window.document.querySelector('[role="radio"][aria-checked="true"]')).toBeNull();
+    await test.app().relay.logout(); await test.app().relay.connect(origin,'user-b','fixture-password');
+    await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[role="radio"]')).not.toBeNull());
+    expect(test.dom.window.document.querySelector('[role="radio"][aria-checked="true"]')).toBeNull();
+    expect(test.commands).toHaveLength(0); expect(test.errors).toEqual([]);
+  } finally {test.close();}
+});
+
+it.each([false,true])('prepares a real plan without sending, preserves attachments, deduplicates and guards mode failures (%s)',async failMode=>{
+  const review={turns:[reviewTurn()],mode:'plan' as const,failMode};
+  const test=await fixture({review,controls:{active:false,text:'',images:[]},imagePicker:async()=>({canceled:false,assets:[draftImage()]})});
+  try {
+    await reviewReady(test); await addDraftImage(test); await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[aria-label="移除 草稿 截图.png"]')).not.toBeNull());
+    writeDraft(test,'保留我的补充'); test.click('执行此方案');
+    await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[data-testid="prepared-plan"]')).not.toBeNull());
+    expect(composer(test).value).toContain('保留我的补充'); expect(composer(test).value).toContain('review-plan');
+    const original=composer(test).value; test.click('执行此方案'); expect(composer(test).value).toBe(original); expect(test.commands).toHaveLength(0);
+    expect(test.dom.window.document.querySelector('[aria-label="移除 草稿 截图.png"]')).not.toBeNull();
+    test.click('发送消息');
+    await vi.waitFor(()=>expect(test.commands.some(c=>c.payload.type==='thread.mode.update')).toBe(true));
+    if(failMode) {await vi.waitFor(()=>expect(test.dom.window.document.body.textContent).toContain('mode-rejected')); expect(test.commands.some(c=>c.payload.type==='turn.start')).toBe(false); expect(composer(test).value).toBe(original);}
+    else {await vi.waitFor(()=>expect(test.commands.some(c=>c.payload.type==='turn.start')).toBe(true)); expect(test.commands.map(c=>c.payload.type)).toEqual(['thread.mode.update','turn.start']); expect(test.commands[1]!.payload).toMatchObject({text:original,images:[test.imageUploads[0]!.id]}); await vi.waitFor(()=>expect(composer(test).value).toBe(''));}
+    expect(test.errors).toEqual([]);
+  } finally {test.close();}
+});
+
+it('waits for an active task before executing a prepared plan and allows removing the pending tag',async()=>{
+  const controls={active:true,text:'',images:[] as string[]};
+  const test=await fixture({review:{turns:[reviewTurn()],mode:'plan'},controls});
+  try {await reviewReady(test);test.click('执行此方案');await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[data-testid="prepared-plan"]')?.textContent).toContain('等待当前任务结束'));test.click('发送引导消息'); expect(test.commands).toHaveLength(0);test.click('移除待执行方案');await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[data-testid="prepared-plan"]')).toBeNull());expect(composer(test).value).toContain('review-plan');expect(test.commands).toHaveLength(0);expect(test.errors).toEqual([]);}finally{test.close();}
+});
+
+it('keeps a failed plan submission and reports that the mode has already changed', async()=>{
+  const test=await fixture({review:{turns:[reviewTurn()],mode:'plan'},submission:{fail:true}});
+  try {await reviewReady(test);test.click('执行此方案');await vi.waitFor(()=>expect(composer(test).value).toContain('review-plan'));test.click('发送消息');await vi.waitFor(()=>expect(test.dom.window.document.body.textContent).toContain('已切换为默认模式'));expect(composer(test).value).toContain('review-plan');expect(test.dom.window.document.querySelector('[data-testid="prepared-plan"]')).not.toBeNull();expect(test.commands.map(c=>c.payload.type)).toEqual(['thread.mode.update','turn.start']);expect(test.errors).toEqual([]);}finally{test.close();}
+});
+
+it.each([true,false])('only makes explicit complete plan items executable (truncated=%s)',async truncated=>{
+  const test=await fixture({review:{turns:[reviewTurn(truncated,truncated?'plan':'agentMessage')]}});
+  try {await reviewReady(test);if(truncated){await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[data-testid="plan-review-card"]')).not.toBeNull());expect(test.dom.window.document.querySelector('[aria-label="执行此方案"]')?.getAttribute('aria-disabled')).toBe('true');expect(test.dom.window.document.querySelector('[aria-label="导出方案"]')?.getAttribute('aria-disabled')).toBe('true');expect(test.dom.window.document.body.textContent).toContain('方案内容已截断');test.click('重新读取完整方案');await vi.waitFor(()=>expect(test.dom.window.document.body.textContent).toContain('当前历史仍未提供完整方案'));expect(test.dom.window.document.querySelector('[aria-label="导出方案"]')?.getAttribute('aria-disabled')).toBe('true');}else{expect(test.dom.window.document.querySelector('[data-testid="plan-review-card"]')).toBeNull();expect(test.dom.window.document.querySelector('[aria-label="执行此方案"]')).toBeNull();}expect(test.commands).toHaveLength(0);expect(test.errors).toEqual([]);}finally{test.close();}
+});
+
+it.each([undefined,'file-changed'])('reads versioned source from the real changed-file reader and reports changed files (%s)',async fileError=>{
+  const fileCalls: {url:string;signal?:AbortSignal|null}[]=[];
+  const test=await fixture({review:{turns:[reviewTurn()],fileCalls,fileError}});
+  try {
+    await reviewReady(test);test.click('1 个文件已更改，查看差异');await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[aria-label="src/示例.ts，查看差异"]')).not.toBeNull());test.click('src/示例.ts，查看差异');
+    await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[data-testid="expanded-file-diff"]')).not.toBeNull());
+    expect(test.dom.window.document.querySelector('[data-testid="expanded-file-diff"]')?.textContent).toContain('+new');
+    expect(test.dom.window.document.querySelectorAll('.codexer-diff-gutter')).toHaveLength(10);
+    test.click('当前源码');await vi.waitFor(()=>expect(fileCalls).toHaveLength(2));expect(new URL(fileCalls[1]!.url).searchParams.get('version')).toBe('a'.repeat(64));
+    if(fileError) await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[role="alert"]')?.textContent).toContain('文件已更改'));
+    else await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[aria-label="src/示例.ts 源码"]')?.textContent).toContain('const value = 42;'));
+    expect(test.errors).toEqual([]);
+  }finally{test.close();}
+});
+
+it('cancels a slow source read on closing and discards its late response',async()=>{
+  const wait=gate(),fileCalls:{url:string;signal?:AbortSignal|null}[]=[];
+  const test=await fixture({review:{turns:[reviewTurn()],fileWait:wait.promise,fileCalls}});
+  try {await reviewReady(test);test.click('1 个文件已更改，查看差异');await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[aria-label="src/示例.ts，查看差异"]')).not.toBeNull());test.click('src/示例.ts，查看差异');await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[aria-label="当前源码"]')).not.toBeNull());test.click('当前源码');await vi.waitFor(()=>expect(fileCalls).toHaveLength(2));await test.closeDialog('关闭面板');expect(fileCalls[1]!.signal?.aborted).toBe(true);wait.release();await new Promise(resolve=>setTimeout(resolve,30));expect(test.dom.window.document.querySelector('[aria-label="src/示例.ts 源码"]')).toBeNull();expect(test.errors).toEqual([]);}finally{wait.release();test.close();}
+});
+
+
+it('retains question drafts while offline snapshots temporarily omit requests',async()=>{
+  const requests=[reviewQuestions()];
+  const test=await fixture({requests});
+  try {
+    await reviewReady(test);chooseAnswer(test,'卡片');await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[aria-label="继续下一题"]')?.getAttribute('aria-disabled')).not.toBe('true'));test.click('继续下一题');
+    await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[aria-label="回答：口令"]')).not.toBeNull());answerInput(test,'回答：口令','等待恢复');
+    test.current.devices=test.current.devices.map(device=>({...device,online:false}));requests.splice(0);test.refresh();
+    await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[data-testid="request-review-card"]')).toBeNull());
+    requests.push(reviewQuestions());test.current.devices=test.current.devices.map(device=>({...device,online:true}));test.refresh();
+    await vi.waitFor(()=>expect((test.dom.window.document.querySelector('[aria-label="回答：口令"]') as HTMLInputElement)?.value).toBe('等待恢复'));
+    expect(test.commands).toHaveLength(0);expect(test.errors).toEqual([]);
+  }finally{test.close();}
 });

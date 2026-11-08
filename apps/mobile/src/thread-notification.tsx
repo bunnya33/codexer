@@ -1,6 +1,6 @@
 import { themedStyles } from './theme';
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Pressable, StyleSheet, Switch, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Switch, Text, View } from "react-native";
 import { historyKey, relay } from "./relay";
 import { useTheme } from "./styles";
 
@@ -86,22 +86,27 @@ export function useThreadNotification({
 
 export function ThreadNotificationToggle({
   control,
+  variant = 'field',
 }: {
   control: ReturnType<typeof useThreadNotification>;
+  variant?: 'field' | 'menu';
 }) {
   const { c } = useTheme();
   const ns = useNsStyles();
   if (!control.visible) return null;
   return (
-    <View style={ns.container}>
+    <View style={[ns.container, variant === 'menu' && { paddingHorizontal: 15, paddingVertical: 10, backgroundColor: c.glass }]}>
       <View style={ns.row}>
-        <Text style={ns.label}>本会话微信通知</Text>
+        <Text style={[ns.label, variant === 'menu' && { fontSize: 15 }]}>{variant === 'menu' ? '微信会话通知' : '本会话微信通知'}</Text>
         <Switch
           accessibilityLabel="本会话微信通知"
           value={control.notification?.enabled ?? false}
           disabled={control.pending || !control.notification || !control.connected}
           onValueChange={(value) => void control.change(value)}
-          trackColor={{ true: c.accent }}
+          trackColor={{ false: c.ring, true: c.accent }}
+          thumbColor="#fff"
+          {...(Platform.OS === 'web' ? { activeThumbColor: '#fff' } : {})}
+          style={variant === 'menu' ? { transform: [{ scale: .85 }], marginRight: -3 } : undefined}
         />
       </View>
       <Pressable

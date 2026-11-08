@@ -9,6 +9,12 @@ type ThemeState = { theme: ControlTheme; selectTheme: (id: ThemeId) => void; per
 const defaultState: ThemeState = { theme: controlTheme('default'), selectTheme: () => {}, persistenceError: '' };
 const ThemeContext = createContext<ThemeState | null>(null);
 
+/** An ephemeral theme for component previews; never writes the user's preferences. */
+export function ThemeScope({ theme, children }: { theme: ControlTheme; children: ReactNode }) {
+  const value = useMemo<ThemeState>(() => ({ theme, selectTheme: () => {}, persistenceError: '' }), [theme]);
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const inherited = useContext(ThemeContext);
   return inherited ? children : <RootThemeProvider>{children}</RootThemeProvider>;
@@ -39,10 +45,10 @@ function RootThemeProvider({ children }: { children: ReactNode }) {
 
 export function useControlTheme() { return useContext(ThemeContext) ?? defaultState; }
 export function themedStyles<T>(factory: (colors: ControlTheme['colors']) => T): () => T {
-  const cache = new Map<ThemeId, T>();
+  const cache = new WeakMap<ControlTheme, T>();
   return function useThemedStyles() {
     const { theme } = useControlTheme();
-    if (!cache.has(theme.id)) cache.set(theme.id, factory(theme.colors));
-    return cache.get(theme.id)!;
+    if (!cache.has(theme)) cache.set(theme, factory(theme.colors));
+    return cache.get(theme)!;
   };
 }

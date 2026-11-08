@@ -96,10 +96,10 @@ export function fileReaderKind(name: string): "image" | "audio" | "markdown" | "
   return "download";
 }
 
-export function readableFileText(bytes: Uint8Array, name: string): string {
+export function readableFileText(bytes: Uint8Array, name: string, formatJson = true): string {
   const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   if (text.includes("\u0000")) throw new Error("这个文件不是可阅读的文本，请下载后查看");
-  if (fileReaderKind(name) === "json") {
+  if (formatJson && fileReaderKind(name) === "json") {
     try {
       return JSON.stringify(JSON.parse(text), null, 2);
     } catch {

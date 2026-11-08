@@ -1,6 +1,6 @@
 {
   "name": "codex-remote",
-  "version": "0.3.48",
+  "version": "0.3.49",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -43,6 +43,7 @@
     "icons:mobile": "node scripts/generate-mobile-icons.mjs",
     "icons:android": "node scripts/generate-android-icons.mjs",
     "dev:web": "node scripts/dev-web.mjs",
+    "preview:interaction": "node scripts/preview-interaction.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit && npm run typecheck --workspace @codexer/admin && npm run typecheck --workspace @codexer/desktop && npm run typecheck:control-desktop",
     "test": "vitest run",
     "dev:relay": "go run ./cmd/codexer serve",

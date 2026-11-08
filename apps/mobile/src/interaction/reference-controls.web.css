@@ -1,0 +1,39 @@
+.reference-effort-rail { position: relative; width: 100%; min-width: 48px; height: 48px; border-radius: 24px; background: var(--reference-rail-bg, #fff); }
+.reference-effort-fill { position: absolute; inset: 0 auto 0 0; width: calc(48px + (100% - 48px) * var(--rail-position)); border-radius: 24px; background: var(--control-slider, #3565f6); }
+.reference-effort-ticks { position: absolute; inset: 0 18px; display: flex; align-items: center; justify-content: space-between; pointer-events: none; }
+.reference-effort-ticks span { width: 12px; height: 12px; border-radius: 50%; background: #cdcece; }
+.reference-effort-ticks .selected { background: #7997fa; }
+.reference-effort-thumb { position: absolute; top: 4px; left: calc(4px + (100% - 48px) * var(--rail-position)); width: 40px; height: 40px; border-radius: 50%; background: #fff; pointer-events: none; }
+/* The native range handles input only; opacity also suppresses WebKit's native thumb shadow. */
+.reference-effort-rail input { appearance: none; -webkit-appearance: none; position: absolute; inset: 0; width: 100%; height: 48px; margin: 0; padding: 0; border: 0; border-radius: 24px; background: transparent; opacity: 0; box-shadow: none; outline: none; -webkit-tap-highlight-color: transparent; cursor: grab; touch-action: none; }
+.reference-effort-rail input:active { cursor: grabbing; }
+.reference-effort-rail input::-webkit-slider-runnable-track { height: 48px; background: transparent; }
+.reference-effort-rail input::-moz-range-track { height: 48px; background: transparent; }
+.reference-effort-rail input::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; width: 48px; height: 48px; border: 0; border-radius: 50%; background: transparent; box-shadow: none; }
+.reference-effort-rail input::-moz-range-thumb { width: 48px; height: 48px; border: 0; border-radius: 50%; background: transparent; box-shadow: none; }
+.reference-effort-rail:has(input:focus-visible) .reference-effort-thumb { outline: 2px solid var(--control-accent); outline-offset: 5px; }
+.reference-effort-rail:has(input:disabled) { opacity: .5; }
+.reference-model-layer { position: absolute; inset: 0; z-index: 60; }
+.reference-model-dismiss { appearance: none; position: absolute; inset: 0; border: 0; padding: 0; background: transparent; cursor: default; }
+.reference-model-blur { position: absolute; left: 0; right: 0; bottom: 0; pointer-events: none; backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px); mask-image: linear-gradient(transparent, #000 55%); -webkit-mask-image: linear-gradient(transparent, #000 55%); animation: reference-blur-in 260ms both; }
+.reference-model-panel { position: absolute; outline: none; }
+.reference-model-panel [data-testid="quick-model-title"] { animation: reference-title-in 280ms 90ms both; }
+.reference-model-panel [data-testid="quick-model-capsule"] { position: absolute; overflow: hidden; left: 0; top: 44px; width: 100%; box-shadow: 0 3px 36px #0000000a; animation: reference-capsule-in 360ms cubic-bezier(.2,.85,.25,1) both; }
+.reference-model-panel .reference-effort-rail { animation: reference-rail-in 220ms 70ms both; }
+.reference-model-layer[data-state="closing"] .reference-model-blur { animation: reference-blur-out 230ms both; }
+.reference-model-layer[data-state="closing"] [data-testid="quick-model-title"] { animation: reference-title-out 100ms both; }
+.reference-model-layer[data-state="closing"] [data-testid="quick-model-capsule"] { animation: reference-capsule-out 230ms cubic-bezier(.4,0,.6,1) both; }
+.reference-model-layer[data-state="closing"] .reference-effort-rail { animation: reference-rail-out 170ms both; }
+@keyframes reference-capsule-in { from { left: var(--model-origin-x); top: var(--model-origin-y); width: 44px; height: 44px; border-radius: 22px; padding: 0; } to { left: 0; top: 44px; width: 100%; height: 68px; border-radius: 34px; padding: 10px 12px; } }
+@keyframes reference-capsule-out { from { left: 0; top: 44px; width: 100%; height: 68px; border-radius: 34px; padding: 10px 12px; } to { left: var(--model-origin-x); top: var(--model-origin-y); width: 44px; height: 44px; border-radius: 22px; padding: 0; opacity: 0; } }
+@keyframes reference-title-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes reference-title-out { to { opacity: 0; transform: translateY(6px); } }
+@keyframes reference-blur-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes reference-blur-out { to { opacity: 0; } }
+@keyframes reference-rail-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes reference-rail-out { to { opacity: 0; } }
+.reference-model-layer[data-motion="reduced"] *, .reference-model-layer[data-motion="reduced"] [data-testid] { animation-duration: 0ms !important; animation-delay: 0ms !important; }
+[data-testid="reference-setting-menu"] { transform-origin: bottom right; animation: reference-setting-in 180ms cubic-bezier(.2,.85,.25,1) both; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+@keyframes reference-setting-in { from { opacity: 0; transform: scale(.96) translateY(4px); } to { opacity: 1; transform: none; } }
+@media(prefers-reduced-motion: reduce) { .reference-model-layer *, .reference-model-layer [data-testid] { animation-duration: 0ms !important; animation-delay: 0ms !important; } }
+@media(prefers-reduced-motion: reduce) { [data-testid="reference-setting-menu"] { animation: none; } }

@@ -50,6 +50,7 @@ it('uses document readers for text and JSON, and requires a download for executa
   expect(fileReaderKind('readme.txt')).toBe('text');
   for (const name of ['setup.exe', 'archive.zip', 'archive.7z', 'file.pdf', 'file.docx', 'unknown']) expect(fileReaderKind(name)).toBe('download');
   expect(readableFileText(Buffer.from('{"a":1}'), 'a.json')).toBe('{\n  "a": 1\n}');
+  expect(readableFileText(Buffer.from('{"a":1}\n'), 'a.json', false)).toBe('{"a":1}\n');
   expect(readableFileText(Buffer.from('{invalid'), 'a.json')).toBe('{invalid');
   expect(() => readableFileText(Buffer.from([0xff]), 'a.txt')).toThrow();
   expect(() => readableFileText(Buffer.from('MZ\u0000'), 'a.txt')).toThrow();

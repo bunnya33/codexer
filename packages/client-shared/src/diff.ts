@@ -1,5 +1,19 @@
 export type DiffLine = { text: string; kind: 'addition' | 'deletion' | 'hunk' | 'metadata' | 'context' };
 
+/** Line numbers come only from a unified patch's hunk header. */
+export function numberedDiffLines(diff: string): (DiffLine & { oldLine?: number; newLine?: number })[] {
+  let oldLine: number | undefined, newLine: number | undefined;
+  return diffLines(diff).map(line => {
+    if (line.text.startsWith('diff --git ')) { oldLine = undefined; newLine = undefined; }
+    const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line.text);
+    if (line.kind === 'hunk') { oldLine = hunk ? Number(hunk[1]) : undefined; newLine = hunk ? Number(hunk[2]) : undefined; return line; }
+    if (line.kind === 'metadata' || oldLine === undefined || newLine === undefined) return line;
+    if (line.kind === 'addition') return { ...line, newLine: newLine++ };
+    if (line.kind === 'deletion') return { ...line, oldLine: oldLine++ };
+    return { ...line, oldLine: oldLine++, newLine: newLine++ };
+  });
+}
+
 /** Preserve the patch as text; file headers are not additions/deletions. */
 export function diffLines(diff: string): DiffLine[] {
   if (!diff) return [];

@@ -20,7 +20,7 @@ export function activitySections(block: ActivityBlock): ActivitySection[] {
   const sections: ActivitySection[] = [];
   let boundary = 'start', group: ExecutionSection | undefined;
   for (const item of block.items) {
-    if (messageRole(item)) {
+    if (messageRole(item) || item.type === 'plan') {
       sections.push({kind: 'message', item}); boundary = item.id; group = undefined;
     } else {
       if (!group) { group = {kind: 'execution', id: `${block.id}:after:${boundary}`, items: [], running: false}; sections.push(group); }

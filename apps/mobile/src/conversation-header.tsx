@@ -1,16 +1,14 @@
 import { themedStyles } from './theme';
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  useWindowDimensions,
   View,
 } from "react-native";
-import { Bot, ChevronDown, Info, Menu, MoreHorizontal, RefreshCw, X } from "lucide-react-native";
+import { Archive, Bot, ChevronDown, Info, Menu, MoreHorizontal, Pencil, RefreshCw, Trash2 } from "lucide-react-native";
 import type { RemoteSubAgent } from "../../../packages/protocol/src/index";
 import {
   subAgentCounts,
@@ -24,6 +22,8 @@ import { TaskStatusDot } from './task-status-dot';
 import { MarqueeTitle } from './marquee-title';
 import { ThreadUsage } from './project-usage';
 import type { ThreadUsage as Usage } from '../../../packages/protocol/src/index';
+import { InteractionSurface } from './interaction/surface';
+import { ContextMenuGroup, ContextMenuRow } from './interaction/context-menu';
 
 function AgentCard({ agent }: { agent: RemoteSubAgent }) {
   const { c, s } = useTheme();
@@ -100,6 +100,10 @@ export function ConversationHeader({
   onDrawer,
   onRefresh,
   onInfo,
+  onRename,
+  onArchive,
+  onDelete,
+  managementDisabled = false,
 }: {
   title: string;
   subtitle: string;
@@ -115,12 +119,16 @@ export function ConversationHeader({
   onDrawer?: () => void;
   onRefresh: () => void;
   onInfo: () => void;
+  onRename?: () => void;
+  onArchive?: () => void;
+  onDelete?: () => void;
+  managementDisabled?: boolean;
 }) {
   const { c, s } = useTheme();
   const hs = useHsStyles();
   const [panel, setPanel] = useState<"options" | "agents" | null>(null);
-  const [panelContent, setPanelContent] = useState<"options" | "agents">("options");
-  const { width, height } = useWindowDimensions();
+  const [panelOpen, setPanelOpen] = useState(false);
+  const host = useRef<View>(null), optionsAnchor = useRef<View>(null);
   const notification = useThreadNotification({ deviceId, threadId });
   const counts = subAgentCounts(agents);
   const notifying = notification.notification?.allEnabled || notification.notification?.enabled;
@@ -131,28 +139,25 @@ export function ConversationHeader({
   const agentLabel = `子 Agent，共 ${counts.total} 个${synchronized ? `，${counts.running} 个运行中，${counts.pending} 个等待启动` : "，状态待同步"}`;
   // Keep content mounted through the closing animation, as with the other menus.
   const openPanel = (kind: "options" | "agents") => {
-    setPanelContent(kind);
     setPanel(kind);
+    setPanelOpen(true);
   };
+  const closePanel = () => setPanelOpen(false);
+  // Open sibling dialogs only after this modal has released its focus trap.
+  const afterClose = useRef<(() => void) | null>(null);
+  const actionFrame = useRef(0);
+  const choose = (action: () => void) => { afterClose.current = action; closePanel(); };
 
   useEffect(() => {
     setPanel(null);
+    setPanelOpen(false);
+    afterClose.current = null;
+    return () => cancelAnimationFrame(actionFrame.current);
   }, [deviceId, threadId]);
-  useEffect(() => {
-    if (!panel || Platform.OS !== "web") return;
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.stopPropagation();
-        setPanel(null);
-      }
-    };
-    document.addEventListener("keydown", escape);
-    return () => document.removeEventListener("keydown", escape);
-  }, [panel]);
 
   return (
     <>
-      <View testID="conversation-header" style={s.threadHeader}>
+      <View testID="conversation-header" style={[s.threadHeader, { height: undefined, minHeight: 76, paddingHorizontal: 4 }]}>
         {!!onDrawer && (
           <Pressable
             accessibilityRole="button"
@@ -168,12 +173,12 @@ export function ConversationHeader({
             {running && <TaskStatusDot running label="当前会话正在运行" />}
             <MarqueeTitle key={`${deviceId}:${threadId}`} text={title} />
           </View>
-          <Text style={s.sub} numberOfLines={1}>
+          <Text style={[s.sub, { fontSize: 11, lineHeight: 15 }]} numberOfLines={1}>
             {subtitle}
           </Text>
           {!!threadId && <ThreadUsage key={`${deviceId}:${threadId}`} usage={threadUsage} />}
         </View>
-        {!!threadId && (
+        {!!threadId && counts.total > 0 && (
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={agentLabel}
@@ -189,86 +194,49 @@ export function ConversationHeader({
           </Pressable>
         )}
         <Pressable
+          ref={optionsAnchor}
+          collapsable={false}
           accessibilityRole="button"
           accessibilityLabel={`会话选项${notifying ? "，微信通知已开启" : ""}`}
+          accessibilityState={{ expanded: panelOpen && panel === 'options', disabled: !threadId }}
           disabled={!threadId}
           onPress={() => openPanel("options")}
           style={({ pressed }) => [s.iconButton, pressed && s.pressed, !threadId && s.disabled]}
         >
-          <MoreHorizontal size={21} color={c.text} />
-          {notifying && <View style={hs.notifyDot} />}
+          <MoreHorizontal size={21} color={c.text} style={{ opacity: panelOpen && panel === 'options' ? .15 : 1 }} />
+          {notifying && <View style={[hs.notifyDot, panelOpen && panel === 'options' && { opacity: .15 }]} />}
         </Pressable>
       </View>
       <Modal
         transparent
         visible={panel !== null}
-        animationType="fade"
-        onRequestClose={() => setPanel(null)}
+        animationType="none"
+        onRequestClose={closePanel}
       >
-        <View style={hs.overlay}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="关闭会话面板"
-            style={StyleSheet.absoluteFill}
-            onPress={() => setPanel(null)}
-          />
-          <View style={[hs.dialog, { width: Math.min(width - 32, 520), maxHeight: height * 0.82 }]}>
-            <View style={hs.dialogHead}>
-              <Text accessibilityRole="header" style={hs.dialogTitle}>
-                {panelContent === "agents" ? "子 Agent" : "会话选项"}
-              </Text>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="关闭"
-                style={s.iconButton}
-                onPress={() => setPanel(null)}
-              >
-                <X size={19} color={c.text} />
-              </Pressable>
-            </View>
-            <ScrollView style={hs.scroll} contentContainerStyle={hs.content}>
-              {panelContent === "options" ? (
-                <>
-                  {!!threadId && <ConversationId key={`${deviceId}:${threadId}:${panel}`} threadId={threadId} />}
-                  <ThreadNotificationToggle control={notification} />
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="查看子 Agent"
-                    onPress={() => openPanel("agents")}
-                    style={hs.option}
-                  >
-                    <Bot size={18} color={c.muted} />
-                    <Text style={hs.optionText}>子 Agent</Text>
-                    <Text style={hs.source}>{counts.total} 个</Text>
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="刷新会话"
-                    onPress={() => {
-                      setPanel(null);
-                      onRefresh();
-                    }}
-                    style={hs.option}
-                  >
-                    <RefreshCw size={18} color={c.muted} />
-                    <Text style={hs.optionText}>刷新会话</Text>
-                  </Pressable>
-                  {hasTruncatedContent && (
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel="查看会话展示范围"
-                      onPress={() => {
-                        setPanel(null);
-                        onInfo();
-                      }}
-                      style={hs.option}
-                    >
-                      <Info size={18} color={c.muted} />
-                      <Text style={hs.optionText}>会话展示范围</Text>
-                    </Pressable>
-                  )}
-                </>
-              ) : (
+        <View ref={host} collapsable={false} style={{ flex: 1 }}>
+          <InteractionSurface open={panelOpen} onClose={closePanel} onClosed={() => {
+            setPanel(null);
+            const action = afterClose.current; afterClose.current = null;
+            if (action) actionFrame.current = requestAnimationFrame(action);
+          }} host={host} anchor={panel === 'options' ? optionsAnchor : undefined} align="end" width={252}
+            kind={panel === 'options' ? 'popover' : 'sheet'} variant={panel === 'options' ? 'menu' : 'default'}
+            title={panel === 'options' ? '会话菜单' : '子 Agent'}>
+            <ScrollView style={hs.scroll} contentContainerStyle={panel === 'options' ? undefined : hs.content} keyboardShouldPersistTaps="handled">
+              {panel === 'options' ? <View testID="conversation-options-menu" style={{ borderRadius: 14, overflow: 'hidden' }}>
+                <Text numberOfLines={1} style={hs.menuTitle}>{title}</Text>
+                <ContextMenuGroup>
+                  {!!onRename && <ContextMenuRow title="重命名" Icon={Pencil} disabled={managementDisabled} onPress={() => choose(onRename)} />}
+                  <ConversationId key={`${deviceId}:${threadId}:${panelOpen}`} threadId={threadId} variant="menu" />
+                  {!!onArchive && <ContextMenuRow title="归档" Icon={Archive} danger disabled={managementDisabled} onPress={() => choose(onArchive)} />}
+                  {!!onDelete && <ContextMenuRow title="删除会话" Icon={Trash2} danger disabled={managementDisabled} onPress={() => choose(onDelete)} />}
+                </ContextMenuGroup>
+                <View style={hs.menuDivider} />
+                <ContextMenuGroup>
+                  <ContextMenuRow title="刷新会话" Icon={RefreshCw} onPress={() => choose(onRefresh)} />
+                  {hasTruncatedContent && <ContextMenuRow title="会话展示范围" accessibilityLabel="查看会话展示范围" Icon={Info} onPress={() => choose(onInfo)} />}
+                </ContextMenuGroup>
+                {notification.visible && <><View style={hs.menuDivider} /><ThreadNotificationToggle control={notification} variant="menu" /></>}
+              </View> : (
                 <>
                   <Text style={hs.summary}>
                     {synchronized
@@ -298,7 +266,7 @@ export function ConversationHeader({
                 </>
               )}
             </ScrollView>
-          </View>
+          </InteractionSurface>
         </View>
       </Modal>
     </>
@@ -327,28 +295,10 @@ const useHsStyles = themedStyles(c => StyleSheet.create({
     borderRadius: 3,
     backgroundColor: c.success,
   },
-  overlay: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#0005" },
-  dialog: { backgroundColor: c.surface, borderRadius: 16, overflow: "hidden" },
-  dialogHead: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingLeft: 20,
-    paddingRight: 8,
-    paddingTop: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: c.line,
-  },
-  dialogTitle: { flex: 1, fontSize: 17, fontWeight: "600", color: c.text },
+  menuTitle: { fontSize: 11, lineHeight: 16, color: c.muted, paddingHorizontal: 15, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.line },
+  menuDivider: { height: 5, backgroundColor: c.line },
   scroll: { flexShrink: 1 },
   content: { padding: 20, paddingTop: 8, gap: 10 },
-  option: {
-    minHeight: 46,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 9,
-  },
-  optionText: { flex: 1, fontSize: 14, color: c.text },
   summary: { fontSize: 12, color: c.muted, lineHeight: 19, paddingVertical: 6 },
   card: { borderWidth: 1, borderColor: c.line, borderRadius: 10, padding: 12, gap: 7 },
   cardHead: { flexDirection: "row", alignItems: "center", gap: 7, minHeight: 28 },
