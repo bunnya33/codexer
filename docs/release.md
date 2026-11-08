@@ -6,7 +6,7 @@
 
 实际 Relay + Agent 回归复现修复前的 20 图并发失败，修复后全部返回 200。Agent 0.2.31 和 Android 0.1.15（versionCode 16）继续适用，安装包及本地 Agent 安装无需重做。
 
-正式发布状态见后续记录。
+稳定版 [v0.3.48](https://github.com/bunnya33/codexer/releases/tag/v0.3.48) 已发布，源码为 `d1cde89`；[发布流程](https://github.com/bunnya33/codexer/actions/runs/42465822270)通过类型、完整 Go 和 753 项 TypeScript 回归、PostgreSQL、Go race、生产构建与 Linux 独立程序验收。四个平台归档及 SHA-256 共 8 个附件齐全，Linux amd64 正式包已下载核对摘要、版本、平台及执行权限。管理员可在后台检查安装，或手动上传匹配平台的更新包和校验文件；生产安装仍由用户执行。
 
 ## 服务器 0.3.47 / Agent 0.2.31：20 张图片和视频附件
 

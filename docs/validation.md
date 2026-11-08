@@ -8,7 +8,7 @@ Go 回归新增多设备并发、单设备和全局槽位上的取消、部分�
 
 本地完整 Go 回归、93 个文件共 753 项 TypeScript 回归、类型及文档检查通过。Web/Admin/Go 生产构建和 Linux amd64 归档核对通过，Windows 独立服务在空目录且 PATH 不含 Node／源码时启动成功，内嵌网页资源与生产产物逐字节摘要一致；结果为 `.local/server-0.3.48-verification.json`。
 
-服务器 0.3.48 正式发布结果待补充，生产安装由用户在管理后台执行。
+正式 [v0.3.48](https://github.com/bunnya33/codexer/releases/tag/v0.3.48) 对应提交 `d1cde89`，[发布流程](https://github.com/bunnya33/codexer/actions/runs/42465822270)成功完成类型检查、完整 Go 回归及 93 个文件共 753 项 TypeScript 测试、PostgreSQL、Go race、生产构建与 Linux 独立程序验收。四个平台归档及 SHA-256 共 8 个附件全部发布，摘要与正式资产一致，Linux amd64 正式包下载后的摘要、版本、平台和执行权限核对通过。发布记录位于 `release/server-0.3.48/publication.json`，生产安装由用户在管理后台执行。
 
 ## 2026-11-08 服务器 0.3.47 / Agent 0.2.31 / Android 0.1.15 媒体附件
 
