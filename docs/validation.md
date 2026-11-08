@@ -8,9 +8,13 @@ Qt/C++ Windows x64 Release 原生编译、后台 103 项、UI 18 项及跨语言
 
 共享生产组件在 320／390 像素检查项目标题换行、关闭按钮、当前会话明细与项目明细，两者没有混用且无横向溢出。截图位于 `.local/usage-scope-qa/thread-390.png`、`.local/usage-scope-qa/project-390.png` 与 `.local/usage-scope-qa/project-320.png`；仅操作合成数据，未执行实际删除或模型任务。Web/Admin/Go 生产构建通过；Android 和 Windows/macOS Control 未重新原生打包或实机验收。
 
+正式 [v0.3.46](https://github.com/bunnya33/codexer/releases/tag/v0.3.46) 对应提交 `fd6e1d2`，[发布流程](https://github.com/bunnya33/codexer/actions/runs/42431295684)成功完成类型检查、完整 Go 回归及 93 个文件共 744 项 TypeScript 测试、PostgreSQL、Go race、生产构建与 Linux 独立程序验收。四个平台归档及 SHA-256 共 8 个附件全部发布，摘要与正式资产一致，Linux amd64 正式包下载后的摘要、版本、平台和执行权限核对通过。发布记录位于 `release/server-0.3.46/publication.json`，生产安装仍由用户在后台执行。
+
 Agent 0.2.30 安装版／便携版已生成，最终便携包通过全新配置、原生 DPAPI 凭据和旧 Electron v10 凭据的启动、加密往返及单实例验收。三组均为同进程 C++/Qt 后台且无 Node；未连接真实账号的合成验收在启动后 2 秒采样，工作集约 48 MiB、私有提交约 15 MiB，不代表实际工作中内存。服务器 0.3.46 Linux amd64 更新包摘要与元数据核对通过，Windows 独立程序在空目录且 PATH 不含 Node／源码时启动正常，内嵌网页资源与本次 Web 产物逐字节摘要一致。证据分别位于 `release/agent-0.2.30/package-acceptance.json` 与 `.local/server-0.3.46-verification.json`。
 
 本机同目录覆盖安装 Agent 0.2.30，41 个文件与原生 stage 逐一匹配，安装及卸载版本均为 0.2.30，只有一个正式进程。settings、设备／安装身份与内存中解密比较的原登录会话保持一致；服务器、官方桌面 IPC 和运行时已在线，任务继续运行。安装前已备份原程序、配置及本地数据库，未重启独立 Codex 程序。结果为 `release/agent-0.2.30/local-install-verification.json`。
+
+升级后的只读用量核对确认 387 条原记录全部保留，385 条不变，2 条仍在进行／部分覆盖的记录继续累计，没有修改已完成记录；见 `release/agent-0.2.30/usage-preservation.json`。启动数分钟后再次验证同一进程、身份和连接保持，已同步 30 个会话。用于验收的本地网页服务已停止。
 
 ## 2026-11-08 服务器 0.3.45 Token 后实时金额
 
