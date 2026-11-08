@@ -130,6 +130,21 @@ func (s *Server) authorizeThread(p *Principal, device, thread string, archived b
 }
 func (s *Server) requestTransfer(r *http.Request, p *Principal, kind string, fields M) M {
 	id, thread := r.PathValue("deviceId"), r.PathValue("threadId")
+	if kind == "image" {
+		var cached M
+		s.lane(id, func() {
+			s.authorizeThread(p, id, thread, true)
+			if p.Share != "" {
+				fail(410, "preview-share-disabled")
+			}
+			cached = s.Store.Image(id, thread, str(fields["imageId"]), false)
+		})
+		if cached != nil {
+			return cached
+		}
+		release := s.admitImage(r.Context(), id)
+		defer release()
+	}
 	pending := &Pending{Device: id, Thread: thread, Kind: kind, ID: uuid(), Principal: p, Reply: make(chan response, 1), Path: str(fields["path"]), Version: str(fields["version"])}
 	if kind == "image" {
 		pending.Path = str(fields["imageId"])

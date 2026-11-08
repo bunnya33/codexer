@@ -181,7 +181,7 @@ turn 的可选 `fileChanges` 是最多 40 项的 `{path,additions,deletions,diff
 
 规范化 item 的可选 `images` 为最多 20 项的 `{id,name,source?}`，不含图片字节。`source` 仅用于替换回复 Markdown 中已经观察到的本机图片引用，不能用来请求任意文件。Agent 只为官方消息的图片输入、`imageView`、`imageGeneration` 以及 assistant Markdown 图片建立不透明 ID；远程请求只提供 ID。不会在后台下载任意 HTTP URL。只接受有图片文件头、大小合规的本机文件。
 
-缓存未命中时 Relay 通过 `image.request` 请求 Agent，并核对设备、thread、图片 ID 和 request ID 后接收 `device.image`。最多 12 个并发请求、一台设备最多 4 个，超时 15 秒；断线、撤销和连接替换会立即失败。图片字节不进入快照、目录、事件或命令结果；单次独立图片响应仍受 8 MiB 传输预算限制。
+缓存未命中时 Relay 通过 `image.request` 请求 Agent，并核对设备、thread、图片 ID 和 request ID 后接收 `device.image`。最多 12 个并发读取、一台设备最多 4 个，读取超时 15 秒。0.3.48 起，整组图片超过读取并发时先排队，含执行中的请求最多全局 96 个、单设备 24 个，最多等待 15 秒，超过队列容量仍返回 429 `images-busy`。缓存命中立即返回；排队取消或服务器关闭会清理槽位，出队后重新校验归属和权限。断线、撤销和连接替换会立即使已发起的读取失败。图片字节不进入快照、目录、事件或命令结果；单次独立图片响应仍受 8 MiB 传输预算限制。
 
 实时和历史 turn 可带 `tokenUsage`：
 

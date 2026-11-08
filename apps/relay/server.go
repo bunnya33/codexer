@@ -48,6 +48,9 @@ type Server struct {
 	agents         map[string]*Peer
 	clients        map[*Peer]bool
 	pending        map[string]*Pending
+	imageQueue     map[string]*imageAdmission
+	imageQueueRefs int
+	imageSlots     chan struct{}
 	previews       map[string]*Preview
 	shareTimers    map[string]*previewShareTimer
 	audio          map[string]*AudioPlayback
