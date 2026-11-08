@@ -18,6 +18,7 @@ import { FileDiff } from './file-diff';
 import { localAudioPath, stripInlineImageReferences } from '../../../packages/client-shared/src/audio';
 import { TurnEndTime, TurnTiming } from './turn-timing';
 import { recordedTurnTiming } from '../../../packages/client-shared/src/turn-timing';
+import { turnCostLabel } from '../../../packages/client-shared/src/project-usage';
 import { TaskStatusDot } from './task-status-dot';
 
 type ImageSource = { uri: string; headers?: Record<string, string> };
@@ -130,13 +131,14 @@ export const TurnView = memo(function TurnView({ turn, active, deviceId, threadI
   const { s } = useTheme();
   const { end } = recordedTurnTiming(turn, active);
   const running = active || turn.status === 'inProgress';
+  const cost = turnCostLabel(turn.tokenUsage);
   return <View style={s.turn}>
     {buildActivityBlocks(turn, active).map(block => block.kind === 'message' ? <Message key={block.item.id} item={block.item} deviceId={deviceId} threadId={threadId} onImage={onImage} /> : <Activity key={block.id} block={block} turn={turn} deviceId={deviceId} threadId={threadId} onImage={onImage} questionRequestIds={questionRequestIds} />)}
     {!active && !!turn.fileChanges?.length && <FileChangesPanel changes={turn.fileChanges} compact={false} />}
     {(turn.tokenUsage || running || end) && <View style={s.turnFooter}>
       {(turn.tokenUsage || running) && <View testID="turn-token-usage" style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
         {running && <TaskStatusDot running label="任务进行中" />}
-        <Text style={[s.usage, { flexShrink: 1 }]}>{turn.tokenUsage ? `输入 ${turn.tokenUsage.inputTokens.toLocaleString()} · 输出 ${turn.tokenUsage.outputTokens.toLocaleString()} · 缓存命中 ${turn.tokenUsage.cachedInputTokens.toLocaleString()}${turn.tokenUsage.state === 'partial' ? ' · 部分统计' : turn.tokenUsage.state === 'running' ? ' · 统计中' : ''}` : 'Token 统计中'}</Text>
+        <Text style={[s.usage, { flexShrink: 1 }]}>{turn.tokenUsage ? `输入 ${turn.tokenUsage.inputTokens.toLocaleString()} · 输出 ${turn.tokenUsage.outputTokens.toLocaleString()} · 缓存命中 ${turn.tokenUsage.cachedInputTokens.toLocaleString()}${turn.tokenUsage.state === 'partial' ? ' · 部分统计' : turn.tokenUsage.state === 'running' ? ' · 统计中' : ''}` : 'Token 统计中'}{!!cost && <Text testID="turn-cost"> · {cost}</Text>}</Text>
       </View>}
       <TurnEndTime turn={turn} running={active} />
     </View>}

@@ -15,13 +15,14 @@ function Fixture() {
   const [running, setRunning] = useState(true);
   const [expanded, setExpanded] = useState(true);
   const [usage, setUsage] = useState(true);
+  const [usageScale, setUsageScale] = useState(1);
   const [parallel, setParallel] = useState(false);
   const [title, setTitle] = useState(longTitle);
   const turn: HistoryTurn = { id: 'turn', status: running ? 'inProgress' : 'completed', truncated: false,
     startedAtMs: 1793966400000, ...(running ? {} : { completedAtMs: 1793966460000 }),
     items: [{ id: 'user', type: 'userMessage', text: '请检查任务状态', truncated: false },
       { id: 'reasoning', type: 'reasoning', text: '正在检查状态与布局', truncated: false }],
-    ...(usage ? { tokenUsage: { model: 'gpt-5.3-codex', totalTokens: 1200, inputTokens: 1000, cachedInputTokens: 500, outputTokens: 200, state: running ? 'running' : 'complete' } as const } : {}),
+    ...(usage ? { tokenUsage: { model: 'gpt-5.3-codex', totalTokens: 1200 * usageScale, inputTokens: 1000 * usageScale, cachedInputTokens: 500 * usageScale, outputTokens: 200 * usageScale, state: running ? 'running' : 'complete' } as const } : {}),
   };
   const count = running ? parallel ? 2 : 1 : 0;
   const view = { phase: 'connected', devices: [{ id: 'fixture', name: '工作电脑', online: true, platform: 'win32' }], snapshots: { fixture: {
@@ -40,6 +41,7 @@ function Fixture() {
       <Pressable accessibilityRole="button" accessibilityLabel="切换任务状态" onPress={() => setRunning(value => !value)}><Text>切换任务状态</Text></Pressable>
       <Pressable accessibilityRole="button" accessibilityLabel="切换并行会话" onPress={() => setParallel(value => !value)}><Text>切换并行会话</Text></Pressable>
       <Pressable accessibilityRole="button" accessibilityLabel="切换 Token 数据" onPress={() => setUsage(value => !value)}><Text>切换 Token 数据</Text></Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel="增加 Token 用量" onPress={() => setUsageScale(value => value + 1)}><Text>增加 Token 用量</Text></Pressable>
       <Pressable accessibilityRole="button" accessibilityLabel="切换标题长度" onPress={() => setTitle(value => value === longTitle ? '短标题' : longTitle)}><Text>切换标题长度</Text></Pressable>
       <Pressable accessibilityRole="button" accessibilityLabel="切换主题" onPress={() => selectTheme(theme.id === 'default' ? 'paper' : theme.id === 'paper' ? 'warm-dark' : 'default')}><Text>切换主题</Text></Pressable>
     </View>

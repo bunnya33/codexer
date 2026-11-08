@@ -51,10 +51,9 @@ export function usdLabel(value: number, decimals = 2): string {
 }
 
 export function turnCostLabel(usage?: TurnTokenUsage): string {
-  if (!usage) return '本次费用待统计';
+  if (!usage) return '';
   const cost = estimateTokenCost(usage);
-  if (cost === null) return '本次费用暂不可估';
-  return `本次${usage.state === 'complete' ? '预估' : '部分预估'} ${usdLabel(cost, 4)}`;
+  return cost === null ? '' : usdLabel(cost, 4);
 }
 
 export function projectUsageLabel(usage?: ProjectUsage): string {
