@@ -6,6 +6,8 @@
 
 共享生产组件在 320／390 像素宽度验证：运行中合成用量从 1,200 增至 2,400 Token，金额由 `$0.0038` 实时变为 `$0.0075`；完成后仅 Token 行保留金额，结束行只显示时间和「已完成」。浅色／深色下均无横向溢出，运行截图位于 `.local/live-turn-cost-qa/running.png`。Web/Admin/Go 生产构建通过；Android／原生桌面 Control 未重新打包或实机验收。
 
+正式 [v0.3.45](https://github.com/bunnya33/codexer/releases/tag/v0.3.45) 对应提交 `3548cb5`，[发布流程](https://github.com/bunnya33/codexer/actions/runs/42429064981)成功完成类型检查、完整 Go 回归及 93 个文件共 741 项 TypeScript 测试、PostgreSQL、Go race、生产构建与 Linux 独立程序验收。四个平台归档及 SHA-256 共 8 个附件全部发布，摘要与正式资产一致，Linux amd64 正式包下载后的摘要、版本、平台和执行权限核对通过。发布记录位于 `release/server-0.3.45/publication.json`，生产安装仍由用户在后台执行。
+
 按用户要求覆盖安装本地 Qt Agent 0.2.29，原安装目录与卸载版本一致，41 个文件与验收过的原生 stage 逐一核对通过，只有一个正式进程。settings 完整保留；重新连接会按服务端有效期重写 DPAPI 密文，在内存中比较解密后的会话令牌、设备及安装身份均相同，无需重新登录。服务器、Codex 官方桌面 IPC 与运行时在线，30 个会话继续同步。安装记录为 `release/agent-0.2.29/local-install-verification.json`。未重启独立 Codex 程序。
 
 ## 2026-11-08 服务器 0.3.44 单次回复美元费用
