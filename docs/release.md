@@ -8,7 +8,7 @@ Android 原发布密钥和密码的稳定保存位置、证书指纹及自动读
 
 完整浏览器标题与解析命令需要配套 Agent 0.2.33；旧 Agent 和旧会话记录保留兼容显示。Android 0.1.16 / versionCode 17 已有包含相同改动的原签名 APK，网页更新不自动替换 Agent 或原生控制端。本次无数据库迁移或更新器变更。
 
-正式发布状态见后续记录，生产安装仍由用户在后台执行。
+稳定版 [v0.3.51](https://github.com/bunnya33/codexer/releases/tag/v0.3.51) 已发布，源码为 `f25de4c`；[发布流程](https://github.com/bunnya33/codexer/actions/runs/42550486904)通过类型、完整 Go 和 790 项 TypeScript 回归、PostgreSQL、Go race、生产构建与 Linux 独立程序验收。四个平台归档及 SHA-256 共 8 个附件齐全，Linux amd64 正式包已下载核对摘要、版本、平台及执行权限。管理员可在后台检查安装，或手动上传匹配平台的更新包和校验文件；生产安装仍由用户执行。
 
 ## Agent 0.2.33 / Android 0.1.16：公开活动标题与模型面板
 

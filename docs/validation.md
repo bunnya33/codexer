@@ -2,7 +2,7 @@
 
 ## 2026-11-09 服务器 0.3.51 发布
 
-在主目录 main 核对 origin/main 后提升根服务器版本至 0.3.51，保留用户原有 AGENTS、Qt 指南和 HTML 改动。发布范围为上一节活动标题、工具/命令摘要和模型弹层位置改动；沿用已验证的 Agent 0.2.33 和 Android 0.1.16 包，不重新编译原生客户端。服务器 0.3.51 正式发布结果待补充，生产安装由用户在管理后台执行。
+在主目录 main 核对 origin/main 后提升根服务器版本至 0.3.51，保留用户原有 AGENTS、Qt 指南和 HTML 改动。发布范围为公开活动标题、工具/命令摘要和模型弹层位置改动；沿用已验证的 Agent 0.2.33 和 Android 0.1.16 包，不重新编译原生客户端。正式 [v0.3.51](https://github.com/bunnya33/codexer/releases/tag/v0.3.51) 对应提交 `f25de4c`，[发布流程](https://github.com/bunnya33/codexer/actions/runs/42550486904)成功完成类型检查、完整 Go 回归及 95 个文件共 790 项 TypeScript 测试、PostgreSQL、Go race、生产构建与 Linux 独立程序验收。四个平台归档及 SHA-256 共 8 个附件全部发布，摘要与正式资产一致，Linux amd64 正式包下载后的摘要、版本、平台和执行权限核对通过。发布记录位于 `release/server-0.3.51/publication.json`，生产安装由用户在管理后台执行。
 
 ## 2026-11-09 Agent 0.2.33 / Android 签名恢复与活动显示
 
