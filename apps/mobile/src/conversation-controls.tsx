@@ -66,7 +66,6 @@ export function ConversationControls(props: Props) {
     setEffort(option?.supportedReasoningEfforts.includes(effort) ? effort : option?.defaultReasoningEffort ?? '');
     void save(() => props.onModel(next), () => { setModel(props.settings?.model ?? ''); setEffort(props.settings?.reasoningEffort ?? ''); });
   };
-  const values = props.options.find(option => option.model === model)?.supportedReasoningEfforts ?? [];
   const pending = saving || props.busy;
   const modelAvailable = props.modelEnabled || props.effortEnabled;
   const pick = (action: () => void) => { close(); action(); };
@@ -82,7 +81,7 @@ export function ConversationControls(props: Props) {
     <ConversationChromeComposer inputLabel="给 Codex 发送消息" attachmentsLabel="添加附件" text={props.text} onChangeText={props.onChangeText} phase={props.phase} busy={props.busy} disabledAction={props.submitDisabled || saving}
       attachments={props.attachments} onRemoveAttachment={props.onRemoveAttachment} onRetryAttachment={props.onRetryAttachment} onAttachmentPress={props.onAttachmentPress}
       plan={props.settings?.collaborationMode === 'plan'} permission={props.settings?.permissions?.mode ?? 'ask'}
-      modelLabel={`${modelLabel(model, props.options)}，${referenceEffortLabel(effort)}`} effortIndex={Math.max(0, values.indexOf(effort))} effortCount={values.length}
+      modelLabel={modelLabel(model, props.options)} effortLabel={referenceEffortLabel(effort)}
       onSubmit={props.onSubmit} onAttachments={() => show('attachments')} onModel={() => show('model')} onPermissions={() => show('permissions')}
       onClearPlan={() => { void save(() => props.onMode('default')); }} attachmentAnchor={attachmentAnchor} modelAnchor={modelAnchor} composerAnchor={composerAnchor}
       attachmentsEnabled={props.ready && !saving} modelEnabled={props.ready && modelAvailable && !pending}

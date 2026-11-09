@@ -10,7 +10,7 @@ import { ComposerInput } from '../composer';
 import type { ComposerProps } from '../composer';
 import { ChromeButton } from './primitives';
 import { useInteractionMotion } from './motion';
-import { chromePermissionLabels, PermissionSymbol, ReasoningGauge } from './control-symbols';
+import { chromePermissionLabels, PermissionSymbol } from './control-symbols';
 
 export type ConversationPhase = 'idle' | 'running' | 'interrupted' | 'completed';
 export type ComposerAction = 'send' | 'steer' | 'stop' | 'continue';
@@ -38,12 +38,12 @@ export function ConversationChromeHeader({ title, subtitle, usage, running, onDr
   </View>;
 }
 
-export function ConversationChromeComposer({ text, onChangeText, phase, busy = false, disabledAction = false, attachments, onRemoveAttachment, onAttachmentPress, plan, modelLabel,
-  onSubmit, onAttachments, onModel, onPermissions, onClearPlan, attachmentAnchor, modelAnchor, composerAnchor, permission, effortIndex, effortCount, keepExpanded, onFocus,
+export function ConversationChromeComposer({ text, onChangeText, phase, busy = false, disabledAction = false, attachments, onRemoveAttachment, onAttachmentPress, plan, modelLabel, effortLabel,
+  onSubmit, onAttachments, onModel, onPermissions, onClearPlan, attachmentAnchor, modelAnchor, composerAnchor, permission, keepExpanded, onFocus,
   attachmentsEnabled = true, modelEnabled = true, permissionsEnabled = true, planEnabled = true, onRetryAttachment, inputLabel = '消息内容', attachmentsLabel = '添加附件和模式', ...media }: {
   text: string; onChangeText: (text: string) => void; phase: ConversationPhase; busy?: boolean; disabledAction?: boolean; attachments: ChromeAttachment[]; keepExpanded?: boolean;
   onRemoveAttachment: (id: string) => void; onAttachmentPress: (item: ChromeAttachment) => void;
-  plan: boolean; modelLabel: string; permission: PermissionSettings['mode']; effortIndex: number; effortCount: number; onSubmit: (action: ComposerAction) => void;
+  plan: boolean; modelLabel: string; effortLabel: string; permission: PermissionSettings['mode']; onSubmit: (action: ComposerAction) => void;
   onAttachments: () => void; onModel: () => void; onPermissions: () => void; onClearPlan: () => void;
   attachmentAnchor: RefObject<View | null>; modelAnchor: RefObject<View | null>; composerAnchor?: RefObject<View | null>; onFocus?: () => void;
   attachmentsEnabled?: boolean; modelEnabled?: boolean; permissionsEnabled?: boolean; planEnabled?: boolean; onRetryAttachment?: (id: string) => void;
@@ -52,8 +52,12 @@ export function ConversationChromeComposer({ text, onChangeText, phase, busy = f
   const { c } = useTheme();
   const motion = useInteractionMotion();
   const [focused, setFocused] = useState(false);
+  const [composerWidth, setComposerWidth] = useState(0);
+  const [modelWidth, setModelWidth] = useState(0);
   const expansion = useRef(new Animated.Value(0)).current;
-  const expanded = focused || !!text || !!attachments.length || plan || !!keepExpanded;
+  // Leave a readable input beside the wider model entry, or use the expanded layout.
+  const compactRight = Math.max(93, modelWidth + 49);
+  const expanded = focused || !!text || !!attachments.length || plan || !!keepExpanded || composerWidth > 0 && composerWidth - 88 - compactRight < 96;
   const hasContent = !!text.trim() || !!attachments.length;
   const action = composerAction(phase, hasContent);
   const disabled = busy || disabledAction || action === 'send' && !hasContent;
@@ -64,7 +68,7 @@ export function ConversationChromeComposer({ text, onChangeText, phase, busy = f
   }, [expanded, motion, expansion]);
   const submit = () => { if (!disabled) onSubmit(action); };
   return <View style={styles.composerDock}>
-    <Animated.View ref={composerAnchor} collapsable={false} testID="chrome-composer" style={[styles.composer, { backgroundColor: c.composer,
+    <Animated.View ref={composerAnchor} collapsable={false} testID="chrome-composer" onLayout={event => setComposerWidth(event.nativeEvent.layout.width)} style={[styles.composer, { backgroundColor: c.composer,
       paddingBottom: expansion.interpolate({ inputRange: [0, 1], outputRange: [4, 49] }),
     }]}>
       {!!attachments.length && <ScrollView horizontal style={styles.attachments} contentContainerStyle={{ gap: 8, padding: 5 }} showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">
@@ -77,7 +81,7 @@ export function ConversationChromeComposer({ text, onChangeText, phase, busy = f
           <Pressable accessibilityRole="button" accessibilityLabel={`移除 ${item.name}`} disabled={busy} onPress={() => onRemoveAttachment(item.id)} hitSlop={5} style={styles.remove}><X size={15} color={c.muted} /></Pressable>
         </View>)}
       </ScrollView>}
-      <Animated.View style={{ marginLeft: expansion.interpolate({ inputRange: [0, 1], outputRange: [88, 7] }), marginRight: expansion.interpolate({ inputRange: [0, 1], outputRange: [93, 7] }) }}>
+      <Animated.View style={{ marginLeft: expansion.interpolate({ inputRange: [0, 1], outputRange: [88, 7] }), marginRight: expansion.interpolate({ inputRange: [0, 1], outputRange: [compactRight, 7] }) }}>
         <ComposerInput imagesEnabled filesEnabled imageSlots={Math.max(0, 20 - attachments.filter(item => item.uri).length)} {...media} testID="chrome-input" accessibilityLabel={inputLabel} value={text} onChangeText={onChangeText} maxLength={32000} multiline editable={!busy}
           onFocus={() => { setFocused(true); onFocus?.(); }} onBlur={() => setFocused(false)}
           placeholder={phase === 'running' ? '跟进' : '发消息…'} placeholderTextColor={c.muted} textAlignVertical="top"
@@ -92,8 +96,12 @@ export function ConversationChromeComposer({ text, onChangeText, phase, busy = f
         <View ref={attachmentAnchor} collapsable={false}><ChromeButton Icon={Plus} label={attachmentsLabel} onPress={onAttachments} disabled={!attachmentsEnabled || busy} /></View>
         <Pressable accessibilityRole="button" accessibilityLabel={`会话权限：${chromePermissionLabels[permission]}`} accessibilityState={{ disabled: !permissionsEnabled }} disabled={!permissionsEnabled} onPress={onPermissions} style={[styles.symbolButton, !permissionsEnabled && { opacity: .35 }]}><PermissionSymbol mode={permission} size={23} /></Pressable>
         {expanded && plan && <Pressable accessibilityRole="button" accessibilityLabel="退出方案模式" disabled={!planEnabled || busy} onPress={onClearPlan} style={[styles.planChip, { backgroundColor: c.soft, opacity: planEnabled ? 1 : .4 }]}><ListChecks size={15} color={c.accent} /><Text style={{ color: c.accent, fontSize: 12 }}>方案</Text><X size={12} color={c.muted} /></Pressable>}
-        <View style={{ flex: 1 }} pointerEvents="none" />
-        <View ref={modelAnchor} collapsable={false}><Pressable accessibilityRole="button" accessibilityLabel={`模型与推理强度：${modelLabel}`} accessibilityState={{ disabled: !modelEnabled }} disabled={!modelEnabled} onPress={onModel} style={[styles.symbolButton, !modelEnabled && { opacity: .35 }]}><ReasoningGauge index={effortIndex} count={effortCount} /></Pressable></View>
+        <View style={{ flex: 1, minWidth: 0 }} pointerEvents="none" />
+        <View ref={modelAnchor} collapsable={false} style={styles.modelAnchor} onLayout={event => setModelWidth(event.nativeEvent.layout.width)}>
+          <Pressable testID="chrome-model-entry" accessibilityRole="button" accessibilityLabel={`模型与推理强度：${modelLabel}，${effortLabel}`} accessibilityState={{ disabled: !modelEnabled }} disabled={!modelEnabled} onPress={onModel} style={[styles.modelButton, !modelEnabled && { opacity: .35 }]}>
+            <Text numberOfLines={2} style={[styles.modelName, { color: c.text }, plan && { fontSize: composerWidth > 0 && composerWidth < 320 ? 12 : 14 }]}>{modelLabel}{!!effortLabel && <Text style={[styles.modelEffort, { color: c.muted }]}> {effortLabel}</Text>}</Text>
+          </Pressable>
+        </View>
         <Pressable testID="chrome-submit" accessibilityRole="button" accessibilityLabel={actionLabels[action]} accessibilityState={{ disabled }} disabled={disabled} onPress={submit}
           style={({ pressed }) => [styles.submit, { backgroundColor: disabled ? c.ring : c.solid, opacity: pressed ? 0.78 : 1 }]}>
           {busy ? <ActivityIndicator size="small" color={c.onSolid} /> : <ActionIcon size={action === 'stop' ? 14 : 19} color={c.onSolid} fill={action === 'stop' || action === 'continue' ? c.onSolid : 'none'} strokeWidth={2.1} />}
@@ -112,6 +120,9 @@ const styles = StyleSheet.create({
   toolbar: { position: 'absolute', left: 0, right: 7, bottom: 4, height: 44, flexDirection: 'row', alignItems: 'center' },
   submit: { width: 34, height: 34, marginLeft: 4, marginRight: 3, borderRadius: 18, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   symbolButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  modelAnchor: { flexShrink: 1, minWidth: 0 },
+  modelButton: { minHeight: 44, minWidth: 0, paddingHorizontal: 7, paddingVertical: 3, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 5 },
+  modelName: { fontSize: 15, lineHeight: 19, fontWeight: '500', flexShrink: 1 }, modelEffort: { fontWeight: '400' },
   planChip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, gap: 5, height: 27, borderRadius: 14 },
   attachments: { flexGrow: 0, maxHeight: 72, marginHorizontal: 8, marginBottom: 3 },
   attachment: { width: 185, borderRadius: 15, flexDirection: 'row', alignItems: 'center', padding: 6 },
