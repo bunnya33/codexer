@@ -4,7 +4,7 @@
 
 在主目录 main 核对 origin/main 后提升根服务器版本至 0.3.53，保留用户原有 AGENTS、Qt 指南与 HTML 改动。发布范围为模型名称与强度文字入口、长模型与窄屏方案模式适配，展开面板沿用原实现；不改协议、数据库、更新器或 Agent。共享界面浏览器与相关回归证据见下一节。
 
-服务器 0.3.53 的正式发布、完整回归及包校验结果待补充，生产安装由用户在管理后台执行。
+本地完整 Go 与 96 个文件共 793 项 TypeScript 回归、根工程类型检查、43 份本地文档和 Web/Admin/Go 生产构建通过。正式 [v0.3.53](https://github.com/bunnya33/codexer/releases/tag/v0.3.53) 对应提交 `5111f91`，[发布流程](https://github.com/bunnya33/codexer/actions/runs/42635400306)成功完成完整 Go 回归、96 文件共 793 项 TypeScript 测试、PostgreSQL、Go race、类型与已提交文档检查、生产构建及 Linux 独立程序验收。Linux/macOS 双架构共四个归档及 SHA-256 共 8 个附件全部发布，校验文件与正式资产摘要一致；Linux amd64 包已下载核对大小、SHA-256、manifest 版本/平台、ELF 架构及执行权限，正式包与证据位于 `release/server-0.3.53`。本轮未部署生产服务器或重新构建原生客户端，生产安装由用户在管理后台执行。
 
 ## 2026-11-09 模型文字入口（本地）
 
