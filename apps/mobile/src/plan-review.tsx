@@ -53,7 +53,7 @@ export function PlanCard({ item, turnId, turnStatus, deviceId, threadId }: { ite
     <Pressable accessibilityRole="button" accessibilityLabel="阅读全文方案" onPress={() => setOpen(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 7, paddingVertical: 6 }}><Maximize2 size={15} color={c.muted} /><Text style={{ color: c.text, fontSize: 13 }}>阅读全文</Text></Pressable>
     {!!limitation && <Text style={{ color: c.muted, fontSize: 12, lineHeight: 19 }}>{limitation}</Text>}{reload}{execute}
     {!!feedback && !open && <Text accessibilityLiveRegion="polite" style={{ color: c.muted, fontSize: 12 }}>{feedback}</Text>}
-    <ReviewReader open={open} onClose={() => setOpen(false)} title="完整方案" origin={card}>
+    <ReviewReader open={open} onClose={() => setOpen(false)} title="完整方案" origin={card} desktopWidth={860}>
       <View style={{ flexDirection: 'row', padding: 12, gap: 10, alignItems: 'center' }}>{controls}<View style={{ flex: 1 }} />{execute}</View>
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40, gap: 12 }}><FileLinkContext.Provider value={undefined}><Markdown>{text}</Markdown></FileLinkContext.Provider>{!!limitation && <Text style={{ color: c.muted, fontSize: 12 }}>{limitation}</Text>}{reload}{!!feedback && <Text accessibilityLiveRegion="polite" style={{ color: c.muted }}>{feedback}</Text>}</ScrollView>
     </ReviewReader>

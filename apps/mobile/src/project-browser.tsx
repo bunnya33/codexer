@@ -26,6 +26,7 @@ import type { ProjectPage, ProjectQuery } from "../../../packages/protocol/src/p
 import type { FileInfo } from "../../../packages/protocol/src/files";
 import { MAX_FILE_PREVIEW_BYTES } from "../../../packages/protocol/src/files";
 import { ReviewReader } from "./review-reader";
+import { useWideReader } from "./interaction/reader-layout";
 import { SourceCode } from "./source-code";
 import { ChromeButton } from "./interaction/primitives";
 import { useTheme } from "./styles";
@@ -58,6 +59,7 @@ export function ProjectBrowser({
   supported: boolean;
 }) {
   const { c } = useTheme();
+  const wide = useWideReader();
   const [root, setRoot] = useState(0),
     [directory, setDirectory] = useState(""),
     [expanded, setExpanded] = useState(new Set<string>()),
@@ -175,6 +177,7 @@ export function ProjectBrowser({
       }
     }
   };
+  useEffect(() => cancel, []);
   useEffect(() => {
     cancel();
     setListings({});
@@ -197,7 +200,16 @@ export function ProjectBrowser({
       void listDirectory(directory);
       for (const path of expanded) void listDirectory(path);
     }
-    return cancel;
+    // In the desktop split view the file remains open while its directory is
+    // refreshed or searched. Only cancel directory requests in this effect.
+    return () => {
+      for (const [key, controller] of operations.current) {
+        if (key.startsWith("list:")) {
+          controller.abort();
+          operations.current.delete(key);
+        }
+      }
+    };
   }, [ready, root, directory, hidden, project.roots.join("\0"), revision, !!query.trim()]);
   useEffect(() => {
     operations.current.get("search")?.abort();
@@ -250,15 +262,15 @@ export function ProjectBrowser({
       }
     })();
     return () => controller.abort();
-  }, [ready, selected?.path, root, fileRevision, !!query.trim()]);
+  }, [ready, selected?.path, root, fileRevision]);
   useEffect(() => {
-    if (!selected && open) {
+    if ((!selected || wide) && open) {
       const frame = requestAnimationFrame(() =>
         list.current?.scrollToOffset({ offset: listOffset.current, animated: false }),
       );
       return () => cancelAnimationFrame(frame);
     }
-  }, [selected, open]);
+  }, [selected, open, wide]);
   const close = () => {
     cancel();
     onClose();
@@ -344,144 +356,300 @@ export function ProjectBrowser({
     selected && info
       ? relay.projectFileSource(deviceId, project.id, root, selected.path, info.version)
       : undefined;
-  return (
-    <ReviewReader
-      open={open}
-      onClose={close}
-      onBack={selected ? back : undefined}
-      title={selected ? "文件" : "项目文件"}
-    >
-      <View style={{ padding: 16, gap: 10 }}>
-        <Text style={{ fontSize: 12, color: c.muted }}>
-          {project.name} · {project.roots[root] ?? "目录已移除"}
-        </Text>
-        {selected ? (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Text selectable style={{ color: c.text, fontSize: 13, flex: 1 }}>
-              {selected.path}
-            </Text>
-            <ChromeButton
-              Icon={Copy}
-              label="复制文件内容"
-              disabled={text === undefined}
-              onPress={() => void action(() => copyText(text ?? ""), "已复制")}
-              size={18}
-            />
-            <ChromeButton
-              Icon={Download}
-              label="下载项目文件"
-              disabled={!info || downloading}
-              onPress={() => void download()}
-              size={18}
-            />
-          </View>
-        ) : (
-          <>
-            {project.roots.length > 1 && (
-              <ScrollView horizontal>
-                {project.roots.map((path, index) =>
-                  button(`${index === root ? "✓ " : ""}${path}`, () => {
-                    setRoot(index);
-                    setDirectory("");
-                    setQuery("");
-                  }),
-                )}
-              </ScrollView>
-            )}
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-              {button("项目根目录", () => {
+  const navigation = (
+    <View style={{ padding: 12, gap: 10 }}>
+      <>
+        {project.roots.length > 1 && (
+          <ScrollView horizontal style={{ flexGrow: 0 }}>
+            {project.roots.map((path, index) =>
+              button(`${index === root ? "✓ " : ""}${path}`, () => {
+                setRoot(index);
                 setDirectory("");
                 setQuery("");
-              })}
-              {directory
-                .split("/")
-                .filter(Boolean)
-                .map((part, index) =>
-                  button(part, () => {
-                    setDirectory(
-                      directory
-                        .split("/")
-                        .slice(0, index + 1)
-                        .join("/"),
-                    );
-                    setQuery("");
-                  }),
-                )}
-              <View style={{ flex: 1 }} />
-              <ChromeButton
-                Icon={RefreshCw}
-                label="刷新项目文件"
-                onPress={() => setRevision((v) => v + 1)}
-                size={18}
-              />
-            </View>
-            <View
+              }),
+            )}
+          </ScrollView>
+        )}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+          <ScrollView
+            horizontal
+            style={{ flex: 1, minWidth: 0 }}
+            contentContainerStyle={{ alignItems: "center" }}
+          >
+            {button("项目根目录", () => {
+              setDirectory("");
+              setQuery("");
+            })}
+            {directory
+              .split("/")
+              .filter(Boolean)
+              .map((part, index) =>
+                button(part, () => {
+                  setDirectory(
+                    directory
+                      .split("/")
+                      .slice(0, index + 1)
+                      .join("/"),
+                  );
+                  setQuery("");
+                }),
+              )}
+          </ScrollView>
+          <ChromeButton
+            Icon={RefreshCw}
+            label="刷新项目文件"
+            onPress={() => setRevision((v) => v + 1)}
+            size={18}
+          />
+        </View>
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 8,
+            borderRadius: 16,
+            backgroundColor: c.composer,
+            paddingHorizontal: 12,
+          }}
+        >
+          <Search size={17} color={c.muted} />
+          <TextInput
+            accessibilityLabel="搜索项目文件"
+            value={query}
+            onChangeText={setQuery}
+            placeholder={mode === "content" ? "搜索文件内容" : "搜索文件名或路径"}
+            placeholderTextColor={c.muted}
+            style={{ flex: 1, minWidth: 0, color: c.text, minHeight: 44, fontSize: 14 }}
+          />
+          {!!query && (
+            <ChromeButton Icon={X} label="清空文件搜索" onPress={() => setQuery("")} size={15} />
+          )}
+        </View>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 4 }}>
+          {(["path", "content"] as const).map((value) => (
+            <Pressable
+              key={value}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: mode === value }}
+              onPress={() => setMode(value)}
               style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 8,
-                borderRadius: 16,
-                backgroundColor: c.composer,
-                paddingHorizontal: 12,
+                padding: 9,
+                borderRadius: 12,
+                backgroundColor: mode === value ? c.composer : "transparent",
               }}
             >
-              <Search size={17} color={c.muted} />
-              <TextInput
-                accessibilityLabel="搜索项目文件"
-                value={query}
-                onChangeText={setQuery}
-                placeholder={mode === "content" ? "搜索文件内容" : "搜索文件名或路径"}
-                placeholderTextColor={c.muted}
-                style={{ flex: 1, color: c.text, minHeight: 44, fontSize: 14 }}
-              />
-              {!!query && (
-                <ChromeButton
-                  Icon={X}
-                  label="清空文件搜索"
-                  onPress={() => setQuery("")}
-                  size={15}
-                />
-              )}
-            </View>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 4 }}>
-              {(["path", "content"] as const).map((value) => (
-                <Pressable
-                  key={value}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected: mode === value }}
-                  onPress={() => setMode(value)}
-                  style={{
-                    padding: 9,
-                    borderRadius: 12,
-                    backgroundColor: mode === value ? c.composer : "transparent",
-                  }}
-                >
-                  <Text style={{ color: c.text, fontSize: 13 }}>
-                    {value === "path" ? "文件名 / 路径" : "文件内容"}
-                  </Text>
-                </Pressable>
-              ))}
-              <Text style={{ fontSize: 11, color: c.muted }}>区分大小写</Text>
-              <Switch
-                accessibilityLabel="文件搜索区分大小写"
-                value={matchCase}
-                onValueChange={setMatchCase}
-              />
-            </View>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <Switch
-                accessibilityLabel="显示隐藏和常见忽略目录"
-                value={hidden}
-                onValueChange={setHidden}
-              />
-              <Text style={{ fontSize: 11, color: c.muted, flex: 1 }}>
-                {hidden
-                  ? "包括隐藏和常见忽略目录；目录外链接不可读取"
-                  : "隐藏点文件、.git、依赖及常见构建缓存"}
+              <Text style={{ color: c.text, fontSize: 13 }}>
+                {value === "path" ? "文件名 / 路径" : "文件内容"}
               </Text>
-            </View>
-          </>
-        )}
+            </Pressable>
+          ))}
+          <Text style={{ fontSize: 11, color: c.muted }}>区分大小写</Text>
+          <Switch
+            accessibilityLabel="文件搜索区分大小写"
+            value={matchCase}
+            onValueChange={setMatchCase}
+          />
+        </View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Switch
+            accessibilityLabel="显示隐藏和常见忽略目录"
+            value={hidden}
+            onValueChange={setHidden}
+          />
+          <Text style={{ fontSize: 11, color: c.muted, flex: 1 }}>
+            {hidden
+              ? "包括隐藏和常见忽略目录；目录外链接不可读取"
+              : "隐藏点文件、.git、依赖及常见构建缓存"}
+          </Text>
+        </View>
+      </>
+    </View>
+  );
+  const listing = query.trim() ? (
+    <FlatList
+      style={{ flex: 1, minHeight: 0 }}
+      data={results?.matches ?? []}
+      keyExtractor={(item, index) => `${item.path}:${item.line}:${index}`}
+      renderItem={({ item }) => (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`打开 ${item.path}${item.line ? ` 第 ${item.line} 行` : ""}`}
+          accessibilityState={{
+            selected: selected?.path === item.path && selected?.line === item.line,
+          }}
+          onPress={() => setSelected({ path: item.path, line: item.line })}
+          style={{
+            padding: 16,
+            borderBottomWidth: 0.5,
+            borderColor: c.line,
+            gap: 6,
+            backgroundColor:
+              selected?.path === item.path && selected?.line === item.line ? c.soft : undefined,
+          }}
+        >
+          <Text style={{ fontSize: 13, color: c.text }}>
+            {item.path}
+            {item.line ? ` : ${item.line}` : ""}
+          </Text>
+          {!!item.line && (
+            <Text numberOfLines={2} style={{ fontSize: 12, color: c.muted }}>
+              {item.text}
+            </Text>
+          )}
+        </Pressable>
+      )}
+      ListEmptyComponent={
+        <Text style={{ padding: 20, color: c.muted }}>
+          {searching ? "正在搜索…" : error || "没有匹配结果"}
+        </Text>
+      }
+      ListFooterComponent={
+        <View style={{ padding: 16, gap: 6 }}>
+          {searching ? (
+            <>
+              <ActivityIndicator color={c.muted} />
+              {button("停止搜索", () => {
+                operations.current.get("search")?.abort();
+                setSearching(false);
+              })}
+            </>
+          ) : results?.nextCursor ? (
+            button("继续搜索", () => void search(results.nextCursor))
+          ) : null}
+          {!!results && (
+            <Text style={{ color: c.muted, fontSize: 11 }}>
+              已扫描 {results.scanned ?? 0} 个文件 · 跳过 {results.skipped ?? 0}{" "}
+              个二进制、大文件、链接或不可读项目
+              {results.nextCursor ? " · 尚有结果未搜索" : ""}
+            </Text>
+          )}
+          {resultLimited && (
+            <Text style={{ color: c.muted, fontSize: 12 }}>
+              仅显示前 2,000 条匹配，请缩小搜索范围。
+            </Text>
+          )}
+          {!!error && <Text style={{ color: c.danger }}>{error}</Text>}
+        </View>
+      }
+    />
+  ) : (
+    <FlatList
+      style={{ flex: 1, minHeight: 0 }}
+      ref={list}
+      data={rows}
+      keyExtractor={(row) => row.key}
+      onScroll={(event) => {
+        listOffset.current = event.nativeEvent.contentOffset.y;
+      }}
+      scrollEventThrottle={64}
+      renderItem={({ item }) =>
+        item.entry ? (
+          <Pressable
+            accessibilityRole="button"
+            disabled={item.entry.link}
+            accessibilityState={{ selected: selected?.path === item.entry.path }}
+            accessibilityLabel={`${item.entry.kind === "directory" ? "展开目录" : "打开文件"} ${item.entry.path}`}
+            onPress={() => {
+              const entry = item.entry!;
+              if (entry.kind === "directory") {
+                const next = new Set(expanded);
+                if (next.has(entry.path)) next.delete(entry.path);
+                else {
+                  next.add(entry.path);
+                  if (!listings[entry.path]) void listDirectory(entry.path);
+                }
+                setExpanded(next);
+              } else setSelected({ path: entry.path, line: 0 });
+            }}
+            style={{
+              paddingLeft: 16 + item.depth * 16,
+              paddingRight: 16,
+              minHeight: 48,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+              borderBottomWidth: 0.5,
+              borderColor: c.line,
+              opacity: item.entry.link ? 0.45 : 1,
+              backgroundColor: selected?.path === item.entry.path ? c.soft : undefined,
+            }}
+          >
+            {item.entry.kind === "directory" ? (
+              <>
+                <ChevronRight
+                  size={14}
+                  color={c.muted}
+                  style={{
+                    transform: [{ rotate: expanded.has(item.entry.path) ? "90deg" : "0deg" }],
+                  }}
+                />
+                <Folder size={17} color={c.muted} />
+              </>
+            ) : (
+              <FileCode2 size={17} color={c.muted} />
+            )}
+            <Text numberOfLines={2} style={{ color: c.text, fontSize: 13, flex: 1, minWidth: 0 }}>
+              {item.entry.name}
+              {item.entry.link ? " · 链接不可读取" : ""}
+            </Text>
+            {item.entry.kind === "directory" &&
+              button("进入", () => setDirectory(item.entry!.path))}
+          </Pressable>
+        ) : (
+          <View style={{ paddingLeft: 16 + item.depth * 16, paddingVertical: 12 }}>
+            {item.loading ? (
+              <ActivityIndicator color={c.muted} />
+            ) : item.error ? (
+              <>
+                <Text style={{ color: c.danger, fontSize: 12 }}>{item.error}</Text>
+                {button("重试目录", () => void listDirectory(item.path!))}
+              </>
+            ) : item.more ? (
+              button(
+                "加载更多文件",
+                () => void listDirectory(item.path!, listings[item.path!]?.cursor),
+              )
+            ) : (
+              <Text style={{ color: c.muted, fontSize: 12 }}>空目录</Text>
+            )}
+          </View>
+        )
+      }
+      ListFooterComponent={
+        listings[directory]?.limited ? (
+          <Text style={{ color: c.muted, padding: 16, fontSize: 12 }}>
+            该目录超过 10,000 项，仅显示前 10,000 项。请进入子目录缩小范围。
+          </Text>
+        ) : null
+      }
+    />
+  );
+  const filePreview = selected ? (
+    <>
+      <View style={{ padding: 16, gap: 10 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Text
+            selectable
+            numberOfLines={2}
+            style={{ color: c.text, fontSize: 13, flex: 1, minWidth: 0 }}
+          >
+            {selected.path}
+          </Text>
+          <ChromeButton
+            Icon={Copy}
+            label="复制文件内容"
+            disabled={text === undefined}
+            onPress={() => void action(() => copyText(text ?? ""), "已复制")}
+            size={18}
+          />
+          <ChromeButton
+            Icon={Download}
+            label="下载项目文件"
+            disabled={!info || downloading}
+            onPress={() => void download()}
+            size={18}
+          />
+        </View>
         {!!feedback && (
           <Text
             accessibilityLiveRegion="polite"
@@ -490,188 +658,95 @@ export function ProjectBrowser({
             {feedback}
           </Text>
         )}
+      </View>
+      {ready && (
+        <View style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+          {loadingFile ? (
+            <ActivityIndicator color={c.muted} />
+          ) : text !== undefined ? (
+            <SourceCode
+              key={JSON.stringify([selected.path, info?.version, selected.line])}
+              path={selected.path}
+              text={text}
+              highlightLine={selected.line || undefined}
+              initialOffset={
+                !selected.line && positions.current.get(selected.path)?.version === info?.version
+                  ? positions.current.get(selected.path)!.offset
+                  : Math.max(0, selected.line - 5) * 23
+              }
+              onOffset={(offset) =>
+                info && positions.current.set(selected.path, { version: info.version, offset })
+              }
+            />
+          ) : source && /\.(png|jpe?g|webp|gif)$/i.test(selected.path) ? (
+            <Image
+              source={source}
+              resizeMode="contain"
+              style={{ flex: 1, minHeight: 200 }}
+              accessibilityLabel={selected.path}
+            />
+          ) : !info ? (
+            button("重新读取文件", () => setFileRevision((v) => v + 1))
+          ) : null}
+        </View>
+      )}
+    </>
+  ) : (
+    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 12 }}>
+      <FileCode2 size={32} color={c.faint} />
+      <Text style={{ color: c.muted, fontSize: 14 }}>选择左侧文件以预览</Text>
+    </View>
+  );
+  return (
+    <ReviewReader
+      open={open}
+      onClose={close}
+      onBack={!wide && selected ? back : undefined}
+      title={wide || !selected ? "项目文件" : "文件"}
+      desktopWidth={1280}
+    >
+      <View
+        style={{
+          paddingHorizontal: 16,
+          paddingVertical: 12,
+          borderBottomWidth: 0.5,
+          borderColor: c.line,
+          gap: 8,
+        }}
+      >
+        <Text numberOfLines={2} selectable style={{ fontSize: 12, color: c.muted }}>
+          {project.name} · {project.roots[root] ?? "目录已移除"}
+        </Text>
         {!online ? (
           <Text style={{ color: c.muted }}>设备离线，连接后可继续浏览。</Text>
         ) : !supported ? (
           <Text style={{ color: c.muted }}>请更新服务器和 Codexer Agent 以启用项目浏览。</Text>
         ) : null}
       </View>
-      {ready &&
-        (selected ? (
-          <View style={{ flex: 1 }}>
-            {loadingFile ? (
-              <ActivityIndicator color={c.muted} />
-            ) : text !== undefined ? (
-              <SourceCode
-                key={selected.path + info?.version}
-                path={selected.path}
-                text={text}
-                highlightLine={selected.line || undefined}
-                initialOffset={
-                  positions.current.get(selected.path)?.version === info?.version
-                    ? positions.current.get(selected.path)!.offset
-                    : Math.max(0, selected.line - 5) * 23
-                }
-                onOffset={(offset) =>
-                  info && positions.current.set(selected.path, { version: info.version, offset })
-                }
-              />
-            ) : source && /\.(png|jpe?g|webp|gif)$/i.test(selected.path) ? (
-              <Image
-                source={source}
-                resizeMode="contain"
-                style={{ flex: 1, minHeight: 200 }}
-                accessibilityLabel={selected.path}
-              />
-            ) : !info ? (
-              button("重新读取文件", () => setFileRevision((v) => v + 1))
-            ) : null}
+      <View style={{ flex: 1, minHeight: 0, flexDirection: wide ? "row" : "column" }}>
+        {(wide || !selected) && (
+          <View
+            key="navigation"
+            testID="project-navigation"
+            style={[
+              { minHeight: 0, minWidth: 0 },
+              wide ? { width: 360, borderRightWidth: 0.5, borderColor: c.line } : { flex: 1 },
+            ]}
+          >
+            {navigation}
+            {ready && listing}
           </View>
-        ) : query.trim() ? (
-          <FlatList
-            data={results?.matches ?? []}
-            keyExtractor={(item, index) => `${item.path}:${item.line}:${index}`}
-            renderItem={({ item }) => (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`打开 ${item.path}${item.line ? ` 第 ${item.line} 行` : ""}`}
-                onPress={() => setSelected({ path: item.path, line: item.line })}
-                style={{ padding: 16, borderBottomWidth: 0.5, borderColor: c.line, gap: 6 }}
-              >
-                <Text style={{ fontSize: 13, color: c.text }}>
-                  {item.path}
-                  {item.line ? ` : ${item.line}` : ""}
-                </Text>
-                {!!item.line && (
-                  <Text numberOfLines={2} style={{ fontSize: 12, color: c.muted }}>
-                    {item.text}
-                  </Text>
-                )}
-              </Pressable>
-            )}
-            ListEmptyComponent={
-              <Text style={{ padding: 20, color: c.muted }}>
-                {searching ? "正在搜索…" : error || "没有匹配结果"}
-              </Text>
-            }
-            ListFooterComponent={
-              <View style={{ padding: 16, gap: 6 }}>
-                {searching ? (
-                  <>
-                    <ActivityIndicator color={c.muted} />
-                    {button("停止搜索", () => {
-                      operations.current.get("search")?.abort();
-                      setSearching(false);
-                    })}
-                  </>
-                ) : results?.nextCursor ? (
-                  button("继续搜索", () => void search(results.nextCursor))
-                ) : null}
-                {!!results && (
-                  <Text style={{ color: c.muted, fontSize: 11 }}>
-                    已扫描 {results.scanned ?? 0} 个文件 · 跳过 {results.skipped ?? 0}{" "}
-                    个二进制、大文件、链接或不可读项目
-                    {results.nextCursor ? " · 尚有结果未搜索" : ""}
-                  </Text>
-                )}
-                {resultLimited && (
-                  <Text style={{ color: c.muted, fontSize: 12 }}>
-                    仅显示前 2,000 条匹配，请缩小搜索范围。
-                  </Text>
-                )}
-                {!!error && <Text style={{ color: c.danger }}>{error}</Text>}
-              </View>
-            }
-          />
-        ) : (
-          <FlatList
-            ref={list}
-            data={rows}
-            keyExtractor={(row) => row.key}
-            onScroll={(event) => {
-              listOffset.current = event.nativeEvent.contentOffset.y;
-            }}
-            scrollEventThrottle={64}
-            renderItem={({ item }) =>
-              item.entry ? (
-                <Pressable
-                  accessibilityRole="button"
-                  disabled={item.entry.link}
-                  accessibilityLabel={`${item.entry.kind === "directory" ? "展开目录" : "打开文件"} ${item.entry.path}`}
-                  onPress={() => {
-                    const entry = item.entry!;
-                    if (entry.kind === "directory") {
-                      const next = new Set(expanded);
-                      if (next.has(entry.path)) next.delete(entry.path);
-                      else {
-                        next.add(entry.path);
-                        if (!listings[entry.path]) void listDirectory(entry.path);
-                      }
-                      setExpanded(next);
-                    } else setSelected({ path: entry.path, line: 0 });
-                  }}
-                  style={{
-                    paddingLeft: 16 + item.depth * 16,
-                    paddingRight: 16,
-                    minHeight: 48,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 8,
-                    borderBottomWidth: 0.5,
-                    borderColor: c.line,
-                    opacity: item.entry.link ? 0.45 : 1,
-                  }}
-                >
-                  {item.entry.kind === "directory" ? (
-                    <>
-                      <ChevronRight
-                        size={14}
-                        color={c.muted}
-                        style={{
-                          transform: [{ rotate: expanded.has(item.entry.path) ? "90deg" : "0deg" }],
-                        }}
-                      />
-                      <Folder size={17} color={c.muted} />
-                    </>
-                  ) : (
-                    <FileCode2 size={17} color={c.muted} />
-                  )}
-                  <Text style={{ color: c.text, fontSize: 13, flex: 1 }}>
-                    {item.entry.name}
-                    {item.entry.link ? " · 链接不可读取" : ""}
-                  </Text>
-                  {item.entry.kind === "directory" &&
-                    button("进入", () => setDirectory(item.entry!.path))}
-                </Pressable>
-              ) : (
-                <View style={{ paddingLeft: 16 + item.depth * 16, paddingVertical: 12 }}>
-                  {item.loading ? (
-                    <ActivityIndicator color={c.muted} />
-                  ) : item.error ? (
-                    <>
-                      <Text style={{ color: c.danger, fontSize: 12 }}>{item.error}</Text>
-                      {button("重试目录", () => void listDirectory(item.path!))}
-                    </>
-                  ) : item.more ? (
-                    button(
-                      "加载更多文件",
-                      () => void listDirectory(item.path!, listings[item.path!]?.cursor),
-                    )
-                  ) : (
-                    <Text style={{ color: c.muted, fontSize: 12 }}>空目录</Text>
-                  )}
-                </View>
-              )
-            }
-            ListFooterComponent={
-              listings[directory]?.limited ? (
-                <Text style={{ color: c.muted, padding: 16, fontSize: 12 }}>
-                  该目录超过 10,000 项，仅显示前 10,000 项。请进入子目录缩小范围。
-                </Text>
-              ) : null
-            }
-          />
-        ))}
+        )}
+        {(wide || selected) && (
+          <View
+            key="preview"
+            testID="project-file-preview"
+            style={{ flex: 1, minWidth: 0, minHeight: 0 }}
+          >
+            {filePreview}
+          </View>
+        )}
+      </View>
     </ReviewReader>
   );
 }

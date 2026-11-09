@@ -6,15 +6,17 @@ import { useTheme } from '../styles';
 import { ChromeButton } from './primitives';
 import { useInteractionMotion } from './motion';
 import { useSurfaceAccessibility } from './surface-accessibility';
+import { useWideReader } from './reader-layout';
 
 type Position = { left: number; top: number; width: number };
-export function InteractionSurface({ open, onClose, onBack, onClosed, title, kind = 'sheet', host, anchor, aboveAnchor, origin, align = 'start', width = 270, children, variant = 'default' }: {
+export function InteractionSurface({ open, onClose, onBack, onClosed, title, kind = 'sheet', host, anchor, aboveAnchor, origin, align = 'start', width = 270, readerWidth = 1040, children, variant = 'default' }: {
   open: boolean; onClose: () => void; onBack?: () => void; title: string; kind?: 'sheet' | 'reader' | 'popover' | 'drawer';
-  host: RefObject<View | null>; anchor?: RefObject<View | null>; aboveAnchor?: RefObject<View | null>; origin?:RefObject<View|null>; align?: 'start' | 'end'; width?: number; children: ReactNode; variant?: 'default' | 'settings' | 'permissions' | 'menu'; onClosed?: () => void;
+  host: RefObject<View | null>; anchor?: RefObject<View | null>; aboveAnchor?: RefObject<View | null>; origin?:RefObject<View|null>; align?: 'start' | 'end'; width?: number; readerWidth?:number; children: ReactNode; variant?: 'default' | 'settings' | 'permissions' | 'menu'; onClosed?: () => void;
 }) {
   const { c } = useTheme();
   const motion = useInteractionMotion();
   const viewport = useWindowDimensions();
+  const desktopReader = useWideReader() && kind === 'reader';
   const [present, setPresent] = useState(open);
   const [bounds, setBounds] = useState({ width: viewport.width, height: viewport.height });
   const [position, setPosition] = useState<Position>();
@@ -76,17 +78,20 @@ export function InteractionSurface({ open, onClose, onBack, onClosed, title, kin
   }, [open, host, anchor, aboveAnchor, origin, align, width, panelHeight, viewport.width, viewport.height]);
 
   const pan = useMemo(() => PanResponder.create({
-    onMoveShouldSetPanResponder: (_event, gesture) => kind === 'drawer' ? gesture.dx < -6 && Math.abs(gesture.dx) > Math.abs(gesture.dy) : (kind === 'sheet' || kind === 'reader') && gesture.dy > 6 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+    onMoveShouldSetPanResponder: (_event, gesture) => kind === 'drawer' ? gesture.dx < -6 && Math.abs(gesture.dx) > Math.abs(gesture.dy) : !desktopReader && (kind === 'sheet' || kind === 'reader') && gesture.dy > 6 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
     onPanResponderMove: (_event, gesture) => drag.setValue(kind === 'drawer' ? Math.min(0, gesture.dx) : Math.max(0, gesture.dy)),
     onPanResponderRelease: (_event, gesture) => {
       if (kind === 'drawer' ? gesture.dx < -65 || gesture.vx < -0.9 : gesture.dy > 75 || gesture.vy > 0.9) close();
       else Animated.spring(drag, { toValue: 0, damping: 26, stiffness: 280, useNativeDriver: Platform.OS !== 'web' }).start();
     },
     onPanResponderTerminate: () => drag.setValue(0),
-  }), [kind, drag, close]);
+  }), [kind, drag, close, desktopReader]);
 
   if (!present) return null;
   const reader = kind === 'reader', sheet = kind === 'sheet' || reader, drawer = kind === 'drawer';
+  const finalReaderWidth = desktopReader ? Math.min(bounds.width - 48, readerWidth) : Math.min(bounds.width, 700);
+  const finalReaderHeight = desktopReader ? bounds.height - 48 : bounds.height * .96;
+  const readerTop = desktopReader ? 24 : bounds.height * .04;
   return <View style={StyleSheet.absoluteFill} pointerEvents={open ? 'auto' : 'none'} accessibilityViewIsModal onAccessibilityEscape={back}>
     <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: c.overlay, opacity: Animated.multiply(progress, sheet || drawer ? 1 : menu ? 0 : 0.18) }]}>
       <Pressable style={StyleSheet.absoluteFill} accessibilityRole="button" accessibilityLabel="关闭面板" onPress={close} />
@@ -97,9 +102,11 @@ export function InteractionSurface({ open, onClose, onBack, onClosed, title, kin
         // Keep geometry and theme color together so the color cannot zero it out.
         shadowColor: c.shadow, shadowOffset: { width: 0, height: variant === 'menu' ? 12 : 7 }, shadowOpacity: variant === 'menu' ? .18 : .13, shadowRadius: variant === 'menu' ? 28 : 24,
         opacity: !measured||anchor && !position ? 0 : menu ? progress.interpolate({ inputRange: [0, .65, 1], outputRange: [0, 1, 1], extrapolate: 'clamp' }) : progress,
-        ...(reader ? { height: bounds.height * .96 } : {}),
+        ...(reader ? { height: finalReaderHeight } : {}),
         maxHeight: bounds.height * (drawer ? 1 : reader ? .96 : sheet ? 0.86 : 0.8),
-        ...(sheet ? { bottom: 0, left: Math.max(0, (bounds.width - 520) / 2), right: Math.max(0, (bounds.width - 520) / 2), borderBottomWidth: 0, borderBottomLeftRadius: 0, borderBottomRightRadius: 0,
+        ...(desktopReader ? { top: readerTop, left: (bounds.width - finalReaderWidth) / 2, width: finalReaderWidth, maxHeight: finalReaderHeight, borderRadius: 20,
+          transform: [{translateY: progress.interpolate({inputRange: [0, 1], outputRange: [motion ? 14 : 0, 0]})}, {scale: progress.interpolate({inputRange: [0, 1], outputRange: [motion ? .98 : 1, 1]})}] }
+          : sheet ? { bottom: 0, left: Math.max(0, (bounds.width - 520) / 2), right: Math.max(0, (bounds.width - 520) / 2), borderBottomWidth: 0, borderBottomLeftRadius: 0, borderBottomRightRadius: 0,
           transform: [{ translateY: Animated.add(progress.interpolate({ inputRange: [0, 1], outputRange: [Math.min(bounds.height, 600), 0] }), drag) }] }
           : drawer ? { left: 0, top: 0, bottom: 0, width: Math.min(332, bounds.width * 0.88), borderTopLeftRadius: 0, borderBottomLeftRadius: 0, transform: [{ translateX: Animated.add(progress.interpolate({ inputRange: [0, 1], outputRange: [-Math.min(332, bounds.width * 0.88), 0] }), drag) }] }
           : { ...position, transform: [...(variant === 'menu' ? [
@@ -107,14 +114,14 @@ export function InteractionSurface({ open, onClose, onBack, onClosed, title, kin
             { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [motion ? -panelHeight * .28 : 0, 0] }) },
           ] : []), { scale: progress.interpolate({ inputRange: [0, 1], outputRange: [motion ? menu ? .44 : .96 : 1, 1] }) }] }),
       },morph&&startRect?{
-        left:progress.interpolate({inputRange:[0,1],outputRange:[startRect.left,Math.max(0,(bounds.width-700)/2)]}),
-        top:progress.interpolate({inputRange:[0,1],outputRange:[startRect.top,bounds.height*.04]}),
-        width:progress.interpolate({inputRange:[0,1],outputRange:[startRect.width,Math.min(bounds.width,700)]}),
-        height:progress.interpolate({inputRange:[0,1],outputRange:[startRect.height,bounds.height*.96]}),
+        left:progress.interpolate({inputRange:[0,1],outputRange:[startRect.left,Math.max(0,(bounds.width-finalReaderWidth)/2)]}),
+        top:progress.interpolate({inputRange:[0,1],outputRange:[startRect.top,readerTop]}),
+        width:progress.interpolate({inputRange:[0,1],outputRange:[startRect.width,finalReaderWidth]}),
+        height:progress.interpolate({inputRange:[0,1],outputRange:[startRect.height,finalReaderHeight]}),
         bottom:undefined,right:undefined,maxHeight:undefined,borderRadius:20,transform:[{translateY:drag}],
       }:undefined]}>
       {sheet || drawer ? <View {...pan.panHandlers} style={styles.sheetTop}>
-        {sheet && <View style={[styles.handle, { backgroundColor: c.ring }]} />}
+        {sheet && !desktopReader && <View style={[styles.handle, { backgroundColor: c.ring }]} />}
         {variant === 'default' ? <View style={styles.heading}>{onBack?<ChromeButton Icon={ChevronLeft} label="返回列表" onPress={back} size={19}/>:<View style={{ width: 44 }} />}<Text accessibilityRole="header" style={[styles.title, { color: c.text }]}>{title}</Text><ChromeButton Icon={X} label="关闭" onPress={close} size={19} /></View>
           : variant === 'settings' ? <Text accessibilityRole="header" style={{ color: c.text, fontSize: 14, textAlign: 'center', paddingVertical: 7 }}>高级 ›</Text> : null}
       </View> : null}
