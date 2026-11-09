@@ -11,7 +11,7 @@ import { useInteractionMotion } from './interaction/motion';
 export function RequestPanel({ request, deviceId = '', threadId, send, enabled }: { request: InteractiveRequest; deviceId?: string; threadId: string; enabled: boolean; send: (payload: RemoteCommand['payload']) => Promise<void> }) {
   const { c } = useTheme();
   const [state, update] = useRequestDraft(deviceId, threadId, request);
-  const motion = useInteractionMotion(), fade = useRef(new Animated.Value(1)).current;
+  const motion = useInteractionMotion(), fade = useRef(new Animated.Value(1)).current,previousPage=useRef(0),direction=useRef(1);
   const questions = inputQuestions(request.details), perQuestion = request.details.source === 'asyncMessage';
   const approval = request.kind === 'commandApproval' || request.kind === 'fileApproval';
   const access = request.kind === 'mcpElicitation' ? request.approval : undefined;
@@ -26,6 +26,7 @@ export function RequestPanel({ request, deviceId = '', threadId, send, enabled }
   };
   const manual = !!question && (!question.options.length || state.choices[question.id] === -1);
   useEffect(() => {
+    direction.current=page>=previousPage.current?1:-1;previousPage.current=page;
     fade.setValue(motion ? 0 : 1);
     const animation = Animated.timing(fade, { toValue: 1, duration: motion ? 170 : 0, useNativeDriver: Platform.OS !== 'web' });
     animation.start(); return () => animation.stop();
@@ -66,7 +67,7 @@ export function RequestPanel({ request, deviceId = '', threadId, send, enabled }
     {request.detailsTruncated && <Text style={{ color: c.muted, fontSize: 12 }}>请求详情已截断，请在 PC 核对完整内容。</Text>}
     {!!request.command && <View style={[styles.command, { backgroundColor: c.surface }]}><Text selectable style={{ color: c.text, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 12, lineHeight: 19 }}>{request.command}</Text></View>}
     {access && <><Text selectable style={{ color: c.text, lineHeight: 21 }}>{access.kind === 'browser' ? '允许 ChatGPT 访问网站：' : '允许 ChatGPT 使用应用：'}{access.target}</Text>{!!access.message && <Text selectable style={{ color: c.muted, lineHeight: 20 }}>{access.message}</Text>}{access.kind === 'computer' && <Text style={{ color: c.muted, fontSize: 12 }}>允许后可查看该应用内容、截图并执行操作。</Text>}{access.elevatedRisk && <Text style={{ color: c.danger }}>此请求被官方标记为高风险，请核对访问目标及操作说明。</Text>}</>}
-    {question && !complete && <Animated.View key={question.id} style={{ opacity: fade, gap: 10 }}>
+    {question && !complete && <Animated.View key={question.id} style={{ opacity: fade, gap: 10,transform:[{translateX:fade.interpolate({inputRange:[0,1],outputRange:[motion?direction.current*18:0,0]})}] }}>
       {!!question.header && <Text style={{ color: c.muted, fontSize: 12 }}>{question.header}</Text>}
       <Text selectable accessibilityRole="header" style={{ color: c.text, fontSize: 17, lineHeight: 25, fontWeight: '600' }}>{question.question}</Text>
 

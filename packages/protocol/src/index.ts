@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { attachmentIdSchema, MAX_ATTACHMENTS, MAX_VIDEO_BYTES } from "./uploads.js";
 import { fileResponseSchema } from "./files.js";
+import { projectResponseSchema } from './project-files.js';
 import { previewResponseSchema } from './previews.js';
 import { MAX_SYNC_THREADS } from '../../shared/src/agent-settings.js';
 
@@ -215,7 +216,7 @@ export const snapshotSchema = z.object({
     kind: z.enum(["official-desktop-ipc", "official-app-server"]),
     connected: z.boolean(),
     experimental: z.literal(true),
-    capabilities: z.object({ observe: z.boolean(), startTurn: z.boolean(), interrupt: z.boolean(), continueTurn: z.boolean().optional(), activeSettingsUpdate: z.boolean().optional(), approvals: z.boolean(), userInput: z.boolean(), modelUpdate: z.boolean().optional(), effortUpdate: z.boolean().optional(), collaborationModeUpdate: z.boolean().optional(), permissionsUpdate: z.boolean().optional(), mcpApprovals: z.boolean().optional(), images: z.boolean().optional(), maxImages: z.number().int().min(1).max(MAX_IMAGES).optional(), maxVideoBytes: z.number().int().min(1).max(MAX_VIDEO_BYTES).optional(), attachments: z.boolean().optional(), subAgents: z.boolean().optional(), runtimeRefresh: z.boolean().optional() }),
+    capabilities: z.object({ observe: z.boolean(), startTurn: z.boolean(), interrupt: z.boolean(), continueTurn: z.boolean().optional(), activeSettingsUpdate: z.boolean().optional(), approvals: z.boolean(), userInput: z.boolean(), modelUpdate: z.boolean().optional(), effortUpdate: z.boolean().optional(), collaborationModeUpdate: z.boolean().optional(), permissionsUpdate: z.boolean().optional(), mcpApprovals: z.boolean().optional(), images: z.boolean().optional(), maxImages: z.number().int().min(1).max(MAX_IMAGES).optional(), maxVideoBytes: z.number().int().min(1).max(MAX_VIDEO_BYTES).optional(), attachments: z.boolean().optional(), subAgents: z.boolean().optional(), runtimeRefresh: z.boolean().optional(), projectFiles: z.boolean().optional() }),
   }),
   threads: z.record(idSchema, threadSchema).refine(threads => Object.keys(threads).length <= MAX_SYNC_THREADS && Object.entries(threads).every(([id, thread]) => id === thread.id)),
 });
@@ -280,7 +281,8 @@ export const resultSchema = z.object({
 export type CommandResult = z.infer<typeof resultSchema>;
 
 export const deviceMessageSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("device.capabilities"), features: z.array(z.enum(["files", "previews"])).max(2) }),
+  z.object({ type: z.literal("device.capabilities"), features: z.array(z.enum(["files", "previews", "project-files"])).max(3) }),
+  projectResponseSchema,
   previewResponseSchema,
   fileResponseSchema,
   z.object({ type: z.literal("device.snapshot"), snapshot: snapshotSchema }),

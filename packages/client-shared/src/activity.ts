@@ -152,8 +152,8 @@ export function buildActivityBlocks(turn: HistoryTurn, isActive: boolean): Conve
     ...(process.length || durationMs !== undefined || running ? [activity] : [])];
 }
 
-export function mergeLiveTurn(history: HistoryTurn, live: HistoryTurn): HistoryTurn {
-  if (history.status === "completed" && live.status !== "completed" && history.items.some(item => item.phase === "final_answer")) return { ...history, ...(live.tokenUsage ? { tokenUsage: live.tokenUsage } : {}) };
+export function mergeLiveTurn(history: HistoryTurn, live: HistoryTurn, active = false): HistoryTurn {
+  if (!active && history.status === "completed" && live.status !== "completed" && history.items.some(item => item.phase === "final_answer")) return { ...history, ...(live.tokenUsage ? { tokenUsage: live.tokenUsage } : {}) };
   const previous = new Map(history.items.map(item => [item.id, item]));
   const items = live.items.map(item => {
     const recorded = previous.get(item.id);
@@ -170,15 +170,19 @@ export function mergeLiveTurn(history: HistoryTurn, live: HistoryTurn): HistoryT
   }
   const merged = { ...history, ...live, ...(changes.size ? { fileChanges: [...changes.values()] } : {}) };
   if (!live.itemsTruncatedBefore) return { ...merged, items, truncated: Boolean(live.itemsTruncatedAfter || items.some(item => item.truncated)) };
-  const incoming = new Map(items.map(item => [item.id, item]));
-  const combined = history.items.map(item => incoming.get(item.id) ?? item);
-  for (let index = 0; index < items.length; index++) {
-    const item = items[index]!;
-    if (combined.some(existing => existing.id === item.id)) continue;
-    const next = items.slice(index + 1).find(candidate => combined.some(existing => existing.id === candidate.id));
-    const previous = [...items.slice(0, index)].reverse().find(candidate => combined.some(existing => existing.id === candidate.id));
-    const position = next ? combined.findIndex(existing => existing.id === next.id) : previous ? combined.findIndex(existing => existing.id === previous.id) + 1 : combined.length;
+  // The desktop's current sequence is authoritative. A historical page may have
+  // recorded a steering entry or streamed reply at its former position.
+  const combined = [...items];
+  const ids = new Set(combined.map(item => item.id));
+  for (let index = 0; index < history.items.length; index++) {
+    const item = history.items[index]!;
+    if (ids.has(item.id)) continue;
+    const next = history.items.slice(index + 1).find(candidate => ids.has(candidate.id));
+    const previous = [...history.items.slice(0, index)].reverse().find(candidate => ids.has(candidate.id));
+    const timed = item.startedAtMs === undefined ? -1 : combined.findIndex(candidate => candidate.startedAtMs !== undefined && candidate.startedAtMs > item.startedAtMs!);
+    const position = timed >= 0 ? timed : next ? combined.findIndex(existing => existing.id === next.id) : previous ? combined.findIndex(existing => existing.id === previous.id) + 1 : 0;
     combined.splice(position, 0, item);
+    ids.add(item.id);
   }
   return { ...merged, previousMessage: history.previousMessage ?? live.previousMessage, itemsTruncatedBefore: history.itemsTruncatedBefore ?? false, itemsTruncatedAfter: live.itemsTruncatedAfter ?? false,
     items: combined, truncated: Boolean(history.truncated || live.truncated || combined.some(item => item.truncated)) };
@@ -187,12 +191,12 @@ export function mergeLiveTurn(history: HistoryTurn, live: HistoryTurn): HistoryT
 /** Both inputs are chronological. Insert missing turns beside their shared neighbours,
  * so an overlapping page or live preview cannot append an older turn at the bottom.
  */
-export function mergeTurnHistory(recorded: HistoryTurn[], incoming: HistoryTurn[], placement: 'earlier' | 'latest' = 'latest'): HistoryTurn[] {
+export function mergeTurnHistory(recorded: HistoryTurn[], incoming: HistoryTurn[], placement: 'earlier' | 'latest' = 'latest', activeTurnId?: string | null): HistoryTurn[] {
   const turns = [...recorded];
   const updates = new Map(incoming.map(turn => [turn.id, turn]));
   for (let index = 0; index < turns.length; index++) {
     const update = updates.get(turns[index]!.id);
-    if (update) turns[index] = mergeLiveTurn(turns[index]!, update);
+    if (update) turns[index] = mergeLiveTurn(turns[index]!, update, update.id === activeTurnId);
   }
   for (let index = 0; index < incoming.length; index++) {
     const turn = incoming[index]!;

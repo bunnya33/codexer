@@ -21,6 +21,7 @@ import { turnCostLabel } from '../../../packages/client-shared/src/project-usage
 import { TaskStatusDot } from './task-status-dot';
 import { useInteractionMotion } from './interaction/motion';
 import { PlanCard, ExecutionPlan } from './plan-review';
+import {Disclosure} from './interaction/disclosure';
 
 type ImageSource = { uri: string; headers?: Record<string, string> };
 type ImageViewer = (source: ImageSource, name: string) => void;
@@ -56,7 +57,7 @@ function Message({ item, running = false, deviceId, threadId, onImage }: { item:
   const ToggleIcon = open ? ChevronUp : ChevronDown;
   return <View style={s.tool}>
     <Pressable accessibilityRole="button" aria-expanded={open} accessibilityLabel={`${title}，${open ? '收起' : '展开'}详情`} onPress={() => setOpen(!open)} style={s.toolHead}><ExecutionIcon item={item} /><Text style={s.toolTitle} numberOfLines={1}>{title}</Text>{itemDuration(item) !== undefined && <Text style={s.toolTime}>{formatDuration(itemDuration(item)!)}</Text>}<ToggleIcon size={13} color={c.muted} /></Pressable>
-    {open && <View style={s.toolBody}>{!!item.text && <Markdown>{item.text}</Markdown>}{!!item.command && <CodeBlock language="命令">{item.command}</CodeBlock>}{!!item.output && <CodeBlock language="输出">{item.output}</CodeBlock>}{!!item.files?.length && <Text style={s.fileNames}>{item.files.join('\n')}</Text>}</View>}
+    <Disclosure open={open}><View style={s.toolBody}>{!!item.text && <Markdown>{item.text}</Markdown>}{!!item.command && <CodeBlock language="命令">{item.command}</CodeBlock>}{!!item.output && <CodeBlock language="输出">{item.output}</CodeBlock>}{!!item.files?.length && <Text style={s.fileNames}>{item.files.join('\n')}</Text>}</View></Disclosure>
   </View>;
 }
 

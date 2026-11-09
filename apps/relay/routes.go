@@ -17,6 +17,7 @@ func (s *Server) routes() {
 	s.agentSettingsRoutes()
 	s.removeDeviceRoutes()
 	s.logRoutes()
+	s.projectFileRoutes()
 	s.route("GET /health", "", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
 		return M{"ok": true, "protocolVersion": 1, "version": s.Options.Version}
 	})
@@ -169,6 +170,9 @@ func (s *Server) routes() {
 		devices := s.Store.Devices(p)
 		for _, d := range devices {
 			d["online"] = s.agent(str(d["id"])) != nil
+			if head := s.Store.One("SELECT payload FROM snapshots WHERE device_id=$1", d["id"]); head != nil {
+				d["agentVersion"] = obj(head["payload"])["agentVersion"]
+			}
 		}
 		return M{"devices": devices}
 	})

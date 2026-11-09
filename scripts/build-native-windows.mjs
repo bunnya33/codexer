@@ -31,7 +31,7 @@ if(!flags.has('--skip-build')){
     }
   }
   if(!sdk)throw new Error('Install the Windows SDK desktop headers and x64 libraries, or set CODEXER_WINDOWS_SDK.');
-  await run(msbuild,['windows/RelayDesk.sln','/restore','/t:RelayDesk','/p:Configuration=Release','/p:Platform=x64',`/p:PlatformToolset=${process.env.CODEXER_PLATFORM_TOOLSET||'v145'}`,`/p:WindowsTargetPlatformVersion=${sdk}`,'/p:WindowsAppSDKSelfContained=true','/p:WindowsPackageType=None','/m:4','/v:minimal','/nologo'],app);
+  await run(msbuild,['windows/RelayDesk.sln','/restore','/t:RelayDesk','/p:Configuration=Release','/p:Platform=x64',`/p:PlatformToolset=${process.env.CODEXER_PLATFORM_TOOLSET||'v145'}`,`/p:WindowsTargetPlatformVersion=${sdk}`,'/p:WindowsAppSDKSelfContained=true','/p:WindowsPackageType=None',`/p:CodegenCommand="${process.execPath}" "${join(app,'node_modules/@react-native-community/cli/build/bin.js')}" codegen-windows`,'/m:4','/v:minimal','/nologo'],app);
 }
 const built=join(app,'windows/x64/Release');
 const bundle=await readFile(join(built,'Bundle/index.windows.bundle'));

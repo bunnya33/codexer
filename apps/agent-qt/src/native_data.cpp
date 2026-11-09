@@ -581,14 +581,15 @@ Object normalizeTurn(
   }
   int limit = history ? 80 : 20;
   QSet<int> selected;
-  QList<int> users;
-  for (int i = 0; i < items.size(); ++i)
-    if (user(items[i].toObject()))
-      users.append(i);
-  if (users.size() > limit)
-    users = QList<int>{users[0]} + users.mid(users.size() - limit + 1);
-  for (int i : users)
-    selected.insert(i);
+  if (!items.isEmpty()) {
+    selected.insert(0);
+    selected.insert(items.size() - 1);
+  }
+  for (int i = items.size() - 1; i >= 0 && selected.size() < limit; --i) {
+    const auto item = items[i].toObject();
+    if (user(item) || QStringList{"agentMessage", "assistantMessage"}.contains(item["type"].toString()))
+      selected.insert(i);
+  }
   for (int i = items.size() - 1; i >= 0 && selected.size() < limit; --i)
     selected.insert(i);
   Array normalized;
@@ -897,10 +898,13 @@ Object boundTurns(Object result, qint64 limit) {
       auto is = t["items"].toArray();
       int index = -1;
       for (int j = 0; j < is.size(); ++j)
-        if (!user(is[j].toObject())) {
+        if (!user(is[j].toObject()) && !QStringList{"agentMessage", "assistantMessage"}.contains(is[j].toObject()["type"].toString())) {
           index = j;
           break;
         }
+      if (index < 0)
+        for (int j = 0; j < is.size(); ++j)
+          if (!user(is[j].toObject())) { index = j; break; }
       if (index < 0 && !is.isEmpty())
         index = 0;
       if (index >= 0) {

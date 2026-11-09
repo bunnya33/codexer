@@ -233,7 +233,6 @@ export function ConversationHeader({
                 <View style={hs.menuDivider} />
                 <ContextMenuGroup>
                   <ContextMenuRow title="刷新会话" Icon={RefreshCw} onPress={() => choose(onRefresh)} />
-                  {hasTruncatedContent && <ContextMenuRow title="会话展示范围" accessibilityLabel="查看会话展示范围" Icon={Info} onPress={() => choose(onInfo)} />}
                 </ContextMenuGroup>
                 {notification.visible && <><View style={hs.menuDivider} /><ThreadNotificationToggle control={notification} variant="menu" /></>}
               </View> : (

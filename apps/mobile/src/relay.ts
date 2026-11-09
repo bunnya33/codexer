@@ -9,6 +9,8 @@ import { mergeTurnHistory } from '../../../packages/client-shared/src/activity';
 import { agentErrorMessage } from '../../../packages/client-shared/src/agent-errors';
 import { fileInfoSchema } from '../../../packages/protocol/src/files';
 import type { FileInfo } from '../../../packages/protocol/src/files';
+import { projectPageSchema, projectQuerySchema } from '../../../packages/protocol/src/project-files';
+import type { ProjectQuery, ProjectPage } from '../../../packages/protocol/src/project-files';
 import type { WidgetState } from '../../../packages/client-shared/src/previews';
 import { attachmentSchema, attachmentByteLimit, UPLOAD_CHUNK_BYTES } from '../../../packages/protocol/src/uploads';
 import type { Attachment } from '../../../packages/protocol/src/uploads';
@@ -17,7 +19,7 @@ import {agentReleaseSchema} from '../../../packages/shared/src/agent-release';
 import type {AgentRelease} from '../../../packages/shared/src/agent-release';
 export type PreviewShare = { id: string; url: string; enabled: boolean; kind: 'html' | 'server' | 'audio'; expiresAt:number; durationMinutes:number };
 
-export type Device = { id: string; name: string; platform: string; online: boolean; owner_user_id?: string | null; last_seen_at?: number | string | null };
+export type Device = { id: string; name: string; platform: string; online: boolean; agentVersion?: string; owner_user_id?: string | null; last_seen_at?: number | string | null };
 export type HistoryState = { turns: HistoryTurn[]; nextCursor: string | null; loading: boolean; error?: string };
 export type RelayView = {
   phase: 'locked' | 'connecting' | 'connected' | 'reconnecting';
@@ -507,9 +509,9 @@ export class RelayClient {
     } finally { if (generation === this.generation && this.historyLoading.get(key) === version) this.historyLoading.delete(key); }
   }
 
-  watchThread(deviceId: string, threadId: string): void {
+  watchThread(deviceId: string, threadId: string, force = false): void {
     const snapshot = this.view.snapshots[deviceId];
-    if (this.view.phase !== 'connected' || this.view.syncing[deviceId] || !snapshot || !this.view.devices.find(device => device.id === deviceId)?.online || snapshot.threads[threadId]?.ownerAvailable) return;
+    if (this.view.phase !== 'connected' || this.view.syncing[deviceId] || !snapshot || !this.view.devices.find(device => device.id === deviceId)?.online || !force && snapshot.threads[threadId]?.ownerAvailable) return;
     const key = historyKey(deviceId, threadId);
     if (Date.now() - (this.watched.get(key) ?? 0) < 15000) return;
     this.watched.set(key, Date.now());
@@ -591,6 +593,15 @@ export class RelayClient {
   async fileInfo(deviceId: string, threadId: string, path: string, signal: AbortSignal): Promise<FileInfo> {
     const result = await this.api<unknown>(`/v1/devices/${encodeURIComponent(deviceId)}/threads/${encodeURIComponent(threadId)}/files/info?path=${encodeURIComponent(path)}`, undefined, 'GET', false, signal);
     return fileInfoSchema.parse(result);
+  }
+
+  async projectFiles(deviceId: string, projectId: string, query: ProjectQuery, signal: AbortSignal): Promise<ProjectPage> {
+    const result=await this.api<unknown>(`/v1/devices/${encodeURIComponent(deviceId)}/projects/${encodeURIComponent(projectId)}/files`,projectQuerySchema.parse(query),'POST',false,signal);
+    return projectPageSchema.parse(result);
+  }
+  projectFileSource(deviceId: string,projectId: string,rootIndex: number,path: string,version: string) {
+    if(!this.view.url || !this.token)throw new Error('device-offline');
+    return {uri:`${this.view.url}/v1/devices/${encodeURIComponent(deviceId)}/projects/${encodeURIComponent(projectId)}/files/content?rootIndex=${rootIndex}&path=${encodeURIComponent(path)}&version=${encodeURIComponent(version)}`,headers:{authorization:`Bearer ${this.token}`}};
   }
 
   fileSource(deviceId: string, threadId: string, path: string, version: string) {

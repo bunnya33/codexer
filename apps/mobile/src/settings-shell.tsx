@@ -30,9 +30,8 @@ import {
 import { useTheme } from "./styles";
 
 export type SettingsSection =
-  "overview" | "general" | "appearance" | "connection" | "updates" | "about";
+  "overview" | "appearance" | "connection" | "updates" | "about";
 const entries = [
-  { id: "general", label: "常规", group: "应用设置", Icon: Settings2 },
   { id: "appearance", label: "外观", group: "应用设置", Icon: Palette },
   { id: "connection", label: "服务器与设备", group: "连接", Icon: Monitor },
   { id: "weixin", label: "微信 ClawBot", group: "连接", Icon: MessageCircle },
@@ -129,7 +128,7 @@ export function SettingsShell({
       }),
     [wide, sheetHeight, onClose],
   );
-  const selected = section === "overview" ? (wide ? "general" : section) : section;
+  const selected = section === "overview" ? (wide ? "appearance" : section) : section;
   const navigate = (id: (typeof entries)[number]["id"]) => {
     if (id === "weixin") onWeixin();
     else setSection(id);
@@ -240,6 +239,7 @@ export function SettingsShell({
                   .filter((entry) => entry.label.toLowerCase().includes(query.toLowerCase()))
                   .map((entry) => row(entry, true))}
               </ScrollView>
+              {children('overview')}
             </View>
           )}
           <View style={{ flex: 1, minHeight: 0 }}>

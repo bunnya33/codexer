@@ -19,6 +19,7 @@ type response struct {
 type Pending struct {
 	Device, Thread, Kind, ID, Path, Version, Token string
 	Offset                                         *int64
+	ProjectRequest                                 M
 	Principal                                      *Principal
 	Reply                                          chan response
 	Failure                                        chan error

@@ -447,6 +447,9 @@ Object Service::readFile(const Object &request) {
   if (path.isEmpty() || !QFileInfo(path).isAbsolute() ||
       !fileSources[id].contains(path))
     throw Error("file-not-in-thread");
+  return filePayload(request,path);
+}
+Object filePayload(const Object &request, const QString &path) {
   QFileInfo before(path);
   if (!before.isFile())
     throw Error("file-unavailable");

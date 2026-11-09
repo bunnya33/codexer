@@ -50,6 +50,9 @@ func refinementIssue(v any, path string) *logIssue {
 			limit := 16384
 			if k == "result" {
 				limit = 256 * 1024
+				if x["type"] == "device.project" {
+					limit = 512 * 1024
+				}
 			}
 			if (k == "details" || k == "result") && v != nil && len(js(v)) > limit {
 				return &logIssue{path + "/" + k, "maxBytes:" + strconv.Itoa(limit)}

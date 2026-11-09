@@ -232,7 +232,7 @@ async function fixture(options: FixtureOptions = {}) {
       }
       if (options.blockedThemeStorage) {
         const set = window.Storage.prototype.setItem;
-        window.Storage.prototype.setItem = function(key, value) { if (key === 'codexer.control.theme.v1') throw new Error('storage-blocked'); set.call(this, key, value); };
+        window.Storage.prototype.setItem = function(key, value) { if (key === 'codexer.control.appearance.v2') throw new Error('storage-blocked'); set.call(this, key, value); };
       }
     },
   });
@@ -837,7 +837,7 @@ it('shows the selected PC Agent version and marks older agents without guessing 
     test.click('连接设置');
     await vi.waitFor(()=>expect(document.querySelector('[aria-label="服务器与设备"]')).not.toBeNull());test.click('服务器与设备');
     const version = () => document.querySelector('[data-testid="selected-agent-version"]')?.textContent;
-    await vi.waitFor(() => expect(version()).toContain('pc-a · 在线\n0.1.16'));
+    await vi.waitFor(() => expect(version()).toContain('pc-a · 在线\nmacOS · 0.1.16'));
     expect(version()).not.toContain('未上报');
     await test.closeDialog('关闭设置');
     test.click('切换 PC Agent，当前：pc-a，在线');
@@ -863,13 +863,13 @@ it('switches three skins through settings without remounting the composer or los
     test.click('连接设置');
     await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[aria-label="外观"]')).not.toBeNull());test.click('外观');
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[role="radiogroup"]')).not.toBeNull());
-    expect(test.dom.window.document.querySelectorAll('[role="radiogroup"] [role="radio"]')).toHaveLength(3);
+    expect(test.dom.window.document.querySelectorAll('[aria-label="控制端皮肤"] [role="radio"]')).toHaveLength(3);
     for (const [label, id, color] of [['暖白纸张', 'paper', '#faf7f1'], ['中性深色', 'warm-dark', '#111113'], ['默认', 'default', '#ffffff']]) {
       test.click(label!);
       await vi.waitFor(() => expect(test.dom.window.document.documentElement.dataset.controlTheme).toBe(id));
       expect(test.dom.window.document.documentElement.style.getPropertyValue('--control-bg')).toBe(color);
       expect(test.dom.window.document.querySelector(`[aria-label="${label}"]`)!.getAttribute('aria-checked')).toBe('true');
-      await vi.waitFor(() => expect(test.dom.window.localStorage.getItem('codexer.control.theme.v1')).toBe(id));
+      await vi.waitFor(() => expect(JSON.parse(test.dom.window.localStorage.getItem('codexer.control.appearance.v2')??'null')).toMatchObject({appearance:id==='warm-dark'?'dark':'light',skin:id==='paper'?'paper':'neutral'}));
       expect(test.dom.window.document.querySelector('[aria-label="给 Codex 发送消息"]')).toBe(input);
       expect(input.value).toBe(text);
       expect(test.header()).toContain('recent-pc-a');

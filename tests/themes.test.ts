@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest';
 import { controlTheme, controlThemes, themeId } from '../packages/client-shared/src/themes';
 import { codeRuns } from '../packages/client-shared/src/code-highlighting';
+import {appearancePreferences,resolveAppearance} from '../packages/client-shared/src/appearance';
 
 function contrast(foreground: string, background: string) {
   const luminance = (hex: string) => {
@@ -28,4 +29,18 @@ it('defaults corrupt or future preferences to the existing skin', () => {
 it.each(['typescript', 'xml', 'json', 'text'])('preserves literal code and entities in native highlighting (%s)', language => {
   const source = 'const html = "<script>&amp; &lt; &#39;</script>";\n// 中文 < > & "\'\n';
   expect(codeRuns(source, language).map(run => run.text).join('')).toBe(source);
+});
+
+it('migrates old skins and follows the system without changing task status colors',()=>{
+  const saved=appearancePreferences(null,'paper');
+  expect(saved).toEqual({appearance:'light',skin:'paper',accent:'green'});
+  const preferences={...saved,appearance:'system' as const};
+  expect(resolveAppearance(preferences,'dark').dark).toBe(true);
+  expect(resolveAppearance(preferences,'light').colors.bg).toBe('#faf7f1');
+  for(const scheme of ['light','dark'])for(const accent of ['blue','green','purple','orange'] as const){
+    const theme=resolveAppearance({...preferences,accent},scheme),c=theme.colors;
+    expect(contrast(c.onAccent,c.accent)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(c.text,c.bg)).toBeGreaterThanOrEqual(4.5);
+    expect(c.taskRunning).toBe(controlTheme(theme.id).colors.taskRunning);
+  }
 });

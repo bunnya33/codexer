@@ -1,3 +1,4 @@
+import {ProjectBrowseContext} from './src/project-browser-context';
 import { ThemeProvider } from './src/theme';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, AppState, FlatList, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
@@ -7,6 +8,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Archive, ArrowDown, Check, Pencil, Terminal, Trash2 } from 'lucide-react-native';
 import { mergeTurnHistory } from '../../packages/client-shared/src/activity';
+import {JumpToBottom} from './src/interaction/jump-to-bottom';
 import { currentThreadUsage } from '../../packages/client-shared/src/project-usage';
 import { conversationImages } from '../../packages/client-shared/src/images';
 import type { ImageDirection, ImageGallery, ImagePreview } from '../../packages/client-shared/src/images';
@@ -27,6 +29,7 @@ import { useTheme } from './src/styles';
 import { Directory } from './src/directory';
 import { ProjectCreate } from './src/project-create';
 import { ProjectActions } from './src/project-actions';
+import { ProjectBrowser } from './src/project-browser';
 import { confirmAction, defaultRelayUrl } from './src/runtime';
 import { ConversationControls } from './src/conversation-controls';
 import { ConversationViewport } from './src/conversation-viewport';
@@ -172,6 +175,7 @@ function AppContent() {
 
   const device = view.devices.find(item => item.id === deviceId);
   const catalog = view.catalogs[deviceId];
+  const [browserProject,setBrowserProject]=useState<{deviceId:string;id:string;open:boolean}>();
   const snapshot = view.snapshots[deviceId];
   const imageLimit = Math.min(MAX_IMAGES, snapshot?.runtime.capabilities.maxImages ?? 4);
   const videoLimit = snapshot?.runtime.capabilities.maxVideoBytes ?? MAX_ATTACHMENT_BYTES;
@@ -184,8 +188,8 @@ function AppContent() {
   useEffect(() => { if (view.phase !== 'connected' || !deviceId || !threadId || !device?.online || view.syncing[deviceId] || thread?.ownerAvailable) return; const timer = setInterval(() => relay.watchThread(deviceId, threadId), 16000); return () => clearInterval(timer); }, [view.phase, deviceId, threadId, device?.online, view.syncing[deviceId], thread?.ownerAvailable]);
   const ready = view.phase === 'connected' && !!device?.online && !view.syncing[deviceId] && !!thread?.ownerAvailable && ['idle', 'active'].includes(thread.status);
   const turns = useMemo(() => {
-    return mergeTurnHistory(history?.turns ?? [], thread?.turns ?? []);
-  }, [history?.turns, thread?.turns]);
+    return mergeTurnHistory(history?.turns ?? [], thread?.turns ?? [], 'latest', thread?.status === 'active' ? thread.activeTurnId : null);
+  }, [history?.turns, thread?.turns, thread?.status, thread?.activeTurnId]);
   const chatUsage = useMemo(() => currentThreadUsage(thread?.usage, thread?.tokenUsage, turns), [thread?.usage, thread?.tokenUsage, turns]);
   // Preserve the pre-update follow state across card insertion. Size callbacks
   // repeat this after virtualized rows and asynchronous content are measured.
@@ -450,7 +454,7 @@ function AppContent() {
   const submitDisabled = !ready || busy || (!!composerDraft.preparedPlan && thread?.status !== 'idle') || (emptyComposer && !continueMode && !stopMode) || (thread?.status === 'active' && !thread.activeTurnId) || images.some(image => image.loading || !!image.error) || files.some(file => file.loading || !!file.error || !file.id);
   const settings = thread?.settings ?? summary?.settings;
   return <View style={s.safe}><StatusBar style={theme.dark ? "light" : "dark"} />
-    <RequestDraftProvider scope={draftScope} deviceId={deviceId} threadId={threadId} requests={view.phase === 'connected' && device?.online && !view.syncing[deviceId] ? thread?.requests : undefined}><PlanPreparationContext.Provider value={plan => { preparePlan(plan); }}><FileViewerProvider deviceId={deviceId} threadId={threadId}><PreviewContext.Provider value={{deviceId, threadId}}><ConversationDrawer wide={wide} open={drawerOpen} onOpenChange={setDrawerOpen} directory={directory}>
+    <RequestDraftProvider scope={draftScope} deviceId={deviceId} threadId={threadId} requests={view.phase === 'connected' && device?.online && !view.syncing[deviceId] ? thread?.requests : undefined}><PlanPreparationContext.Provider value={plan => { preparePlan(plan); }}><FileViewerProvider deviceId={deviceId} threadId={threadId}><PreviewContext.Provider value={{deviceId, threadId}}><ProjectBrowseContext.Provider value={project?()=>setBrowserProject({deviceId,id:project.id,open:true}):undefined}><ConversationDrawer wide={wide} open={drawerOpen} onOpenChange={setDrawerOpen} directory={directory}>
     <SafeAreaView style={s.page} edges={['top', 'left', 'right', 'bottom']}>
     <KeyboardAvoidingView style={s.page} behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}>
       <ConversationControls key={`controls:${draftScope}:${deviceId}:${threadId}`} text={draft} onChangeText={setDraft}
@@ -485,7 +489,7 @@ function AppContent() {
         deviceId={deviceId} threadId={threadId} agents={conversationSubAgents(thread, turns)} supported={!!snapshot?.runtime.capabilities.subAgents}
         synchronized={view.phase === 'connected' && !!device?.online && !!snapshot?.runtime.connected && !!thread?.ownerAvailable && !view.syncing[deviceId]}
         truncated={!!thread?.subAgentsTruncated} hasTruncatedContent={hasTruncatedContent} onDrawer={wide ? undefined : () => setDrawerOpen(true)}
-        onRefresh={() => { void relay.loadHistory(deviceId, threadId).catch(() => relay.showNotice('会话刷新失败，请重试。')); relay.watchThread(deviceId, threadId); }}
+        onRefresh={() => { void relay.loadHistory(deviceId, threadId).catch(() => relay.showNotice('会话刷新失败，请重试。')); relay.watchThread(deviceId, threadId, true); }}
         onInfo={() => relay.showNotice('部分长记录受传输大小限制。完整内容可在本机 Codex 查看；更早消息可在会话顶部加载。')} />
       <ConversationViewport onScrollIntent={markScrollIntent}><FlatList key={historyKey(deviceId, threadId)} ref={listRef} testID="conversation-stream" data={turns} keyExtractor={item => item.id} style={s.stream} contentContainerStyle={[s.streamContent, wide && s.desktopContent]} initialNumToRender={8} windowSize={7} maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
         onScroll={event => {
@@ -520,7 +524,7 @@ function AppContent() {
         ListFooterComponent={<View>{!!history?.error && <Text style={s.error}>{history.error}</Text>}{thread?.requests.map(request => <DrawerSwipeBlock key={request.id}><RequestPanel request={request} deviceId={deviceId} threadId={threadId} enabled={ready && !busy} send={async payload => { const result = await relay.sendCommand(deviceId, payload); if (result.status !== 'succeeded') throw new Error(result.code); }} /></DrawerSwipeBlock>)}</View>} /></ConversationViewport>
       </DrawerSwipeArea>
       <View testID="composer-dock" style={[s.composerDock, wide && {maxWidth: 900, alignSelf: 'center'}]}>
-        {showJumpToBottom && <Pressable accessibilityRole="button" accessibilityLabel="滚动到会话底部" style={s.jumpToBottom} onPress={scrollToBottom}><ArrowDown size={19} color={c.text} /></Pressable>}
+        <JumpToBottom visible={showJumpToBottom} onPress={scrollToBottom}/>
         {!!changedTurn?.fileChanges?.length && <FileChangesPanel key={`${deviceId}:${threadId}:${changedTurn.id}`} changes={changedTurn.fileChanges} deviceId={deviceId} threadId={threadId} turnId={changedTurn.id} />}
         <View style={[wide && s.desktopContent, { paddingHorizontal: 18 }]}>
           <QueuedMessages items={thread?.queuedMessages ?? []} enabled={ready && !busy} canSteer={!!thread?.activeTurnId}
@@ -533,10 +537,11 @@ function AppContent() {
       </ConversationControls>
     </KeyboardAvoidingView>
     </SafeAreaView>
-    </ConversationDrawer></PreviewContext.Provider></FileViewerProvider></PlanPreparationContext.Provider></RequestDraftProvider>
+    </ConversationDrawer></ProjectBrowseContext.Provider></PreviewContext.Provider></FileViewerProvider></PlanPreparationContext.Provider></RequestDraftProvider>
+    {browserProject && view.catalogs[browserProject.deviceId]?.projects.find(p=>p.id===browserProject.id) && <ProjectBrowser key={JSON.stringify([view.url,view.userId,browserProject.deviceId,browserProject.id])} open={browserProject.open} onClose={()=>setBrowserProject(old=>old?{...old,open:false}:undefined)} deviceId={browserProject.deviceId} project={view.catalogs[browserProject.deviceId]!.projects.find(p=>p.id===browserProject.id)!} online={!!view.devices.find(d=>d.id===browserProject.deviceId)?.online} supported={view.snapshots[browserProject.deviceId]?.runtime.capabilities.projectFiles===true} />}
     {editingQueueId && <QueueEditor key={`${deviceId}:${threadId}:${editingQueueId}`} deviceId={deviceId} threadId={threadId} queueId={editingQueueId} onClose={() => setEditingQueueId(null)} />}
     {!!projectDeviceId && <ProjectCreate key={projectDeviceId} catalog={view.catalogs[projectDeviceId]} online={!!view.devices.find(item => item.id === projectDeviceId)?.online} create={createProject} close={() => setProjectDeviceId('')} />}
-    {actionProject && <ProjectActions key={`${actionProject.deviceId}:${actionProject.id}`} projectId={actionProject.id} name={actionProject.name} catalog={view.catalogs[actionProject.deviceId]} online={!!view.devices.find(device => device.id === actionProject.deviceId)?.online} close={() => setActionProject(null)} createThread={() => { setActionProject(null); void createThread(actionProject.id, actionProject.deviceId); }} send={async payload => {
+    {actionProject && <ProjectActions key={`${actionProject.deviceId}:${actionProject.id}`} projectId={actionProject.id} name={actionProject.name} catalog={view.catalogs[actionProject.deviceId]} online={!!view.devices.find(device => device.id === actionProject.deviceId)?.online} browseFiles={()=>{setBrowserProject({deviceId:actionProject.deviceId,id:actionProject.id,open:true});setActionProject(null);}} close={() => setActionProject(null)} createThread={() => { setActionProject(null); void createThread(actionProject.id, actionProject.deviceId); }} send={async payload => {
       const target = actionProject.deviceId;
       const fresh = relay.getSnapshot().catalogs[target];
       if (!fresh?.projects.some(project => project.id === payload.projectId)) throw new Error('project-not-in-catalog');
@@ -559,7 +564,7 @@ function AppContent() {
             <Pressable style={s.menuOption} disabled={managing} onPress={() => { const target = actionThread; if (target) void confirmAction('永久删除会话', `删除“${target.title}”后无法恢复。`).then(confirmed => { if (confirmed) void manageThread({ type: 'thread.delete', threadId: target.id }); }); }}><Trash2 size={18} color={c.danger} /><Text style={s.dangerText}>永久删除</Text></Pressable>
           </>}
     </Dialog>
-    <SettingsShell open={menuOpen&&menu==='settings'} onClose={closeMenu} onWeixin={()=>setMenu('weixin')} updateAvailable={clientUpdates.available}>{section=><ControlSettings section={section} url={view.url} device={device&&{id:device.id,name:device.name,online:device.online,agentVersion:snapshot?.agentVersion,runtimeRefresh:snapshot?.runtime.capabilities.runtimeRefresh===true}} onWeixin={()=>setMenu('weixin')} onLogout={()=>{closeMenu();void relay.logout().catch(()=>{});}}/>}</SettingsShell>
+    <SettingsShell open={menuOpen&&menu==='settings'} onClose={closeMenu} onWeixin={()=>setMenu('weixin')} updateAvailable={clientUpdates.available}>{section=><ControlSettings section={section} url={view.url} device={device&&{id:device.id,name:device.name,online:device.online,platform:device.platform,agentVersion:snapshot?.agentVersion??device.agentVersion,runtimeRefresh:snapshot?.runtime.capabilities.runtimeRefresh===true}} onWeixin={()=>setMenu('weixin')} onLogout={()=>{closeMenu();void relay.logout().catch(()=>{});}}/>}</SettingsShell>
     <Dialog open={menuOpen && menu === 'weixin'} title="微信设置" onClose={closeMenu}>{menuOpen && menu === 'weixin' && <WeixinSettings />}</Dialog>
     <ImageViewer preview={preview} onClose={() => setPreview(null)} onNavigate={moveImage} />
   </View>;

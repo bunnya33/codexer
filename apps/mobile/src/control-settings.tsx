@@ -28,7 +28,7 @@ export function ControlSettings({ url, device, onWeixin, onLogout,section='all' 
   const show=(...sections:string[])=>section==='all'||sections.includes(section);
   return <>
     {show('appearance')&&<ThemePicker />}
-    {show('general')&&<View style={styles.group}><WindowClosePreference/><Text style={{color:c.muted,lineHeight:22,paddingVertical:14}}>设置仅保存在当前设备。界面外观在“外观”中选择，客户端升级在“更新与下载”中管理。</Text></View>}
+
     {show('updates')&&<ClientUpdatePanel/>}
     {show('connection')&&<View style={styles.group}><RuntimeRefresh device={device}/></View>}
     {show('connection','about')&&<>
@@ -41,7 +41,7 @@ export function ControlSettings({ url, device, onWeixin, onLogout,section='all' 
       <View style={[styles.agent, styles.divider]}><AgentVersion device={device} /></View>
     </View>
     </>}
-    {show('overview','general')&&<View style={styles.group}>
+    {show('overview')&&<View style={styles.group}>
       {section==='all'&&<Pressable accessibilityRole="button" accessibilityLabel="微信 ClawBot" onPress={onWeixin} style={styles.row}><MessageCircle size={19} color={c.text} /><Text style={[styles.name, styles.grow]}>微信 ClawBot</Text><ChevronRight size={18} color={c.muted} /></Pressable>}
       <Pressable accessibilityRole="button" accessibilityLabel="退出登录" onPress={onLogout} style={[styles.row,section==='all'&&styles.divider]}><LogOut size={19} color={c.danger} /><Text style={s.dangerText}>退出登录</Text></Pressable>
     </View>}

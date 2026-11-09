@@ -59,11 +59,18 @@ function messageBoundary(item: RemoteItem): HistoryTurn["previousMessage"] {
 }
 function visibleTurnItems(items: unknown[], limit: number): unknown[] {
   if (items.length <= limit) return items;
-  const userIndexes = items.flatMap((value, index) => ["userMessage", "steeringUserMessage"].includes(String(record(value).type)) ? [index] : []);
-  const retainedUsers = userIndexes.length > limit ? [userIndexes[0]!, ...userIndexes.slice(-(limit - 1))] : userIndexes;
-  const selected = new Set(retainedUsers);
+  // A refresh must retain the conversation, even after many tool calls. Reserve
+  // the opening prompt and latest activity, then prefer recent public messages.
+  const selected = new Set<number>([0, items.length - 1]);
+  for (let index = items.length - 1; index >= 0 && selected.size < limit; index--) {
+    if (["userMessage", "steeringUserMessage", "agentMessage", "assistantMessage"].includes(String(record(items[index]).type))) selected.add(index);
+  }
   for (let index = items.length - 1; index >= 0 && selected.size < limit; index--) selected.add(index);
   return [...selected].sort((a, b) => a - b).map(index => items[index]);
+}
+function removableActivity(items: RemoteItem[]) {
+  const tool = items.findIndex(item => !["userMessage", "steeringUserMessage", "agentMessage", "assistantMessage"].includes(item.type));
+  return tool >= 0 ? tool : items.findIndex(item => !["userMessage", "steeringUserMessage"].includes(item.type));
 }
 /** Desktop steering entries and persisted user messages have different local IDs.
  * Match their explicit server/client identity, never their text (a user can repeat it).
@@ -279,7 +286,7 @@ export function boundThread(thread: RemoteThread): RemoteThread {
     const turn = thread.turns.find(value => value.items.some(item => !["userMessage", "steeringUserMessage"].includes(item.type)) || value.diff.length > 0 || value.plan.length > 0)
       ?? thread.turns.find(value => value.items.length > 0);
     if (turn) {
-      const removable = turn.items.findIndex(item => !["userMessage", "steeringUserMessage"].includes(item.type));
+      const removable = removableActivity(turn.items);
       if (removable >= 0) markTruncatedStart(turn, turn.items.splice(removable, 1)[0]);
       else if (turn.diff.length) turn.diff = "";
       else if (turn.plan.length) turn.plan.shift();
@@ -297,7 +304,7 @@ export function boundHistoryPage(page: HistoryPage): HistoryPage {
     const largest = page.turns.filter(turn => turn.items.some(item => !["userMessage", "steeringUserMessage"].includes(item.type))).sort((a, b) => b.items.length - a.items.length)[0]
       ?? page.turns.filter(turn => turn.items.length).sort((a, b) => b.items.length - a.items.length)[0];
     if (!largest) throw new Error("history-too-large");
-    const removable = largest.items.findIndex(item => !["userMessage", "steeringUserMessage"].includes(item.type));
+    const removable = removableActivity(largest.items);
     markTruncatedStart(largest, largest.items.splice(removable < 0 ? 0 : removable, 1)[0]); largest.truncated = true;
   }
   return page;

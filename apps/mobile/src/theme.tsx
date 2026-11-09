@@ -2,16 +2,19 @@ import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef,
 import type { ReactNode } from 'react';
 import { controlTheme } from '../../../packages/client-shared/src/themes';
 import type { ControlTheme, ThemeId } from '../../../packages/client-shared/src/themes';
-import { readTheme, saveTheme } from './theme-storage';
+import { readAppearance, saveAppearance } from './theme-storage';
+import { Appearance } from 'react-native';
+import { defaultAppearance, appearanceForSkin, resolveAppearance } from '../../../packages/client-shared/src/appearance';
+import type { AppearancePreferences } from '../../../packages/client-shared/src/appearance';
 import { applyTheme } from './theme-platform';
 
-type ThemeState = { theme: ControlTheme; selectTheme: (id: ThemeId) => void; persistenceError: string };
-const defaultState: ThemeState = { theme: controlTheme('default'), selectTheme: () => {}, persistenceError: '' };
+type ThemeState = { theme: ControlTheme; selectTheme: (id: ThemeId) => void; preferences: AppearancePreferences; setPreferences: (value: AppearancePreferences) => void; persistenceError: string };
+const defaultState: ThemeState = { theme: controlTheme('default'), selectTheme: () => {}, preferences: defaultAppearance, setPreferences: () => {}, persistenceError: '' };
 const ThemeContext = createContext<ThemeState | null>(null);
 
 /** An ephemeral theme for component previews; never writes the user's preferences. */
 export function ThemeScope({ theme, children }: { theme: ControlTheme; children: ReactNode }) {
-  const value = useMemo<ThemeState>(() => ({ theme, selectTheme: () => {}, persistenceError: '' }), [theme]);
+  const value = useMemo<ThemeState>(() => ({ theme, selectTheme: () => {}, preferences: defaultAppearance, setPreferences: () => {}, persistenceError: '' }), [theme]);
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
@@ -21,25 +24,32 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 }
 
 function RootThemeProvider({ children }: { children: ReactNode }) {
-  const [initial] = useState(() => readTheme());
-  const [id, setId] = useState<ThemeId>(() => typeof initial === 'string' ? initial : 'default');
+  const [initial] = useState(() => readAppearance());
+  const [preferences, setValue] = useState<AppearancePreferences>(() => initial instanceof Promise ? defaultAppearance : initial);
+  const [system, setSystem] = useState(() => Appearance?.getColorScheme?.() ?? null);
   const [persistenceError, setError] = useState('');
   const revision = useRef(0), writes = useRef(Promise.resolve());
   useEffect(() => {
+    const listener = Appearance?.addChangeListener?.(event => setSystem(event.colorScheme));
+    return () => listener?.remove();
+  }, []);
+  useEffect(() => {
     let active = true;
-    void Promise.resolve(initial).then(value => { if (active && !revision.current) setId(value); });
+    void Promise.resolve(initial).then(value => { if (active && !revision.current) setValue(value); });
     return () => { active = false; };
   }, [initial]);
-  const theme = controlTheme(id);
+  const theme = useMemo(() => resolveAppearance(preferences,system),[preferences,system]);
   useLayoutEffect(() => applyTheme(theme), [theme]);
-  const value = useMemo<ThemeState>(() => ({ theme, persistenceError, selectTheme(next) {
-    const current = ++revision.current;
-    setId(next); setError('');
-    // Serialize native writes so quick successive choices cannot persist an older skin last.
-    writes.current = writes.current.catch(() => {}).then(() => saveTheme(next)).catch(() => {
-      if (revision.current === current) setError('皮肤已切换，但偏好未能保存。请重试。');
-    });
-  } }), [theme, persistenceError]);
+  const value = useMemo<ThemeState>(() => {
+    const setPreferences = (next: AppearancePreferences) => {
+      const current = ++revision.current;
+      setValue(next); setError('');
+      writes.current = writes.current.catch(() => {}).then(() => saveAppearance(next)).catch(() => {
+        if (revision.current === current) setError('外观已切换，但偏好未能保存。请重试。');
+      });
+    };
+    return { theme, preferences, persistenceError, setPreferences, selectTheme: next => setPreferences(appearanceForSkin(next)) };
+  }, [theme, preferences, persistenceError]);
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 

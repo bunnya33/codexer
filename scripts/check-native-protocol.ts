@@ -65,6 +65,10 @@ const items=[
 const turn={id:'turn',turnId:'turn',status:'completed',startedAt:100,completedAt:102,items,itemTimingsById:{cmd:{startedAtMs:100200,completedAtMs:100500}}};
 const base={id:'thread-test',title:'Contract',cwd:'C:/sandbox',threadRuntimeStatus:{type:'idle'},turns:[turn],requests:[],updatedAt:102000};
 add('thread',base); add('history',turn);
+for (const count of [30, 100]) {
+ const long={...turn,status:'inProgress',items:[items[0],...Array.from({length:count},(_,i)=>({id:`steer-${i}`,type:'steeringUserMessage',input:[{type:'text',text:'Again'}]})),{id:'progress',type:'agentMessage',phase:'commentary',text:'Still working'},...Array.from({length:count},(_,i)=>({id:`cmd-${i}`,type:'commandExecution',command:'test'}))]};
+ add('thread',{...base,threadRuntimeStatus:{type:'active'},turns:[long]});add('history',long);
+}
 for(const identity of [{},{turnId:null},{turnId:''},{id:''},{turnId:'',id:'fallback'},{turnId:'current',id:'legacy'},{turnId:'x'.repeat(161)},{turnId:123,id:'fallback'}]) {
   add('thread',{...base,threadRuntimeStatus:{type:'active'},turns:[{id:'previous',status:'inProgress',items:[]},{...identity,status:'inProgress',items:[]}]});
 }

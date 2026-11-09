@@ -24,10 +24,9 @@ import { previewAccents } from "./review-fixtures";
 import type { PreviewPreferences, ReviewCondition } from "./review-fixtures";
 
 export type SettingsReviewSection =
-  "overview" | "appearance" | "accent" | "connection" | "general" | "updates" | "about";
+  "overview" | "appearance" | "accent" | "connection" | "updates" | "about";
 const appearanceLabels = { system: "跟随系统", light: "浅色", dark: "深色" };
 const sections = [
-  { id: "general", name: "常规", group: "应用设置", Icon: Settings2 },
   { id: "appearance", name: "外观", group: "主题", Icon: Sun },
   { id: "accent", name: "强调色", group: "主题", Icon: Palette },
   { id: "connection", name: "服务器与设备", group: "连接", Icon: Monitor },
@@ -378,29 +377,6 @@ export function SettingsReviewPanel({
             )}
             <Text style={[s.note, { color: c.muted }]}>
               此页为示例连接。正式版显示所选设备的真实状态和可用操作。
-            </Text>
-          </>
-        ) : section === "general" ? (
-          <>
-            {title("输入与阅读")}
-            <View style={[s.group, { backgroundColor: c.composer }]}>
-              {row("发送消息", "Enter")}
-              {row("输入换行", "Shift + Enter")}
-              {row("会话草稿", "切换时保留", undefined, undefined, false, true)}
-            </View>
-            {title("通知")}
-            <View style={[s.group, { backgroundColor: c.composer }]}>
-              {row(
-                "任务通知",
-                "沿用当前客户端设置",
-                () => onNotice("通知设置将在正式版连接现有偏好"),
-                Bell,
-                false,
-                true,
-              )}
-            </View>
-            <Text style={[s.note, { color: c.muted }]}>
-              手机使用输入框旁的发送按钮；系统键盘回车用于换行。
             </Text>
           </>
         ) : section === "updates" ? (

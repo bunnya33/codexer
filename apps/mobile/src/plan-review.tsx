@@ -25,6 +25,7 @@ export function PlanCard({ item, turnId, turnStatus, deviceId, threadId }: { ite
   const { c } = useTheme(), prepare = useContext(PlanPreparationContext);
   const [open, setOpen] = useState(false), [feedback, setFeedback] = useState('');
   const [loading, setLoading] = useState(false), loadLock = useRef(false);
+  const card=useRef<View>(null);
   const text = item.text ?? '', summary = text.replace(/^\s*#{1,6}\s+[^\n]*\n?/, ''), title = planTitle(item), ready = completePlan(item, turnStatus);
   const generated = item.status === 'inProgress' || turnStatus === 'inProgress' && item.status !== 'completed';
   const act = async (action: () => Promise<unknown>, success: string) => { try { await action(); setFeedback(success); } catch { setFeedback('操作失败，请重试。'); } };
@@ -45,14 +46,14 @@ export function PlanCard({ item, turnId, turnStatus, deviceId, threadId }: { ite
     finally { loadLock.current = false; setLoading(false); }
   };
   const reload = item.truncated && <Pressable accessibilityRole="button" accessibilityLabel="重新读取完整方案" disabled={loading} onPress={() => void load()} style={{ paddingVertical: 8 }}><Text style={{ color:c.accent,fontSize:12 }}>{loading ? '正在读取方案…' : '重新读取完整方案'}</Text></Pressable>;
-  return <View testID="plan-review-card" style={{ backgroundColor: c.composer, padding: 18, gap: 12, borderRadius: 20, marginVertical: 10 }}>
+  return <View ref={card} collapsable={false} testID="plan-review-card" style={{ backgroundColor: c.composer, padding: 18, gap: 12, borderRadius: 20, marginVertical: 10 }}>
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><ListChecks size={18} color={c.muted} /><Text style={{ color: c.muted, fontSize: 12, flex: 1 }}>计划</Text>{controls}</View>
     <Text accessibilityRole="header" style={{ color: c.text, fontSize: 18, lineHeight: 26, fontWeight: '600' }}>{title}</Text>
     <View style={{ maxHeight: 156, overflow: 'hidden' }}><Markdown>{summary}</Markdown><View pointerEvents="none" style={{ position: 'absolute', bottom: 0, height: 48, left: 0, right: 0 }}><Svg width="100%" height="100%"><Defs><LinearGradient id={`plan-fade-${item.id}`} x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor={c.composer} stopOpacity="0" /><Stop offset="1" stopColor={c.composer} stopOpacity="1" /></LinearGradient></Defs><Rect width="100%" height="100%" fill={`url(#plan-fade-${item.id})`} /></Svg></View></View>
     <Pressable accessibilityRole="button" accessibilityLabel="阅读全文方案" onPress={() => setOpen(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 7, paddingVertical: 6 }}><Maximize2 size={15} color={c.muted} /><Text style={{ color: c.text, fontSize: 13 }}>阅读全文</Text></Pressable>
     {!!limitation && <Text style={{ color: c.muted, fontSize: 12, lineHeight: 19 }}>{limitation}</Text>}{reload}{execute}
     {!!feedback && !open && <Text accessibilityLiveRegion="polite" style={{ color: c.muted, fontSize: 12 }}>{feedback}</Text>}
-    <ReviewReader open={open} onClose={() => setOpen(false)} title="完整方案">
+    <ReviewReader open={open} onClose={() => setOpen(false)} title="完整方案" origin={card}>
       <View style={{ flexDirection: 'row', padding: 12, gap: 10, alignItems: 'center' }}>{controls}<View style={{ flex: 1 }} />{execute}</View>
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40, gap: 12 }}><FileLinkContext.Provider value={undefined}><Markdown>{text}</Markdown></FileLinkContext.Provider>{!!limitation && <Text style={{ color: c.muted, fontSize: 12 }}>{limitation}</Text>}{reload}{!!feedback && <Text accessibilityLiveRegion="polite" style={{ color: c.muted }}>{feedback}</Text>}</ScrollView>
     </ReviewReader>

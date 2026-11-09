@@ -12,6 +12,37 @@ const turn = (items: RemoteItem[], rest: Partial<HistoryTurn> = {}): HistoryTurn
 const groups = (value: HistoryTurn, active = false) => buildActivityBlocks(value, active).filter((block): block is ActivityBlock => block.kind === "activity");
 
 describe('refresh history identity and order', () => {
+  it('uses the current desktop order when an older reply was recorded after a follow-up', () => {
+    const prompt = item('prompt', 'userMessage');
+    const before = item('before', 'agentMessage', {text:'Earlier reply', startedAtMs:1000});
+    const steer = item('steer', 'steeringUserMessage');
+    const after = item('after', 'agentMessage', {text:'Latest reply', startedAtMs:3000});
+    const history = turn([prompt, steer, after, before], {status:'inProgress'});
+    const live = turn([prompt, before, steer, after], {status:'inProgress', itemsTruncatedBefore:true});
+    expect(mergeLiveTurn(history, live).items.map(entry=>entry.id)).toEqual(['prompt','before','steer','after']);
+    const clipped = {...live,items:[prompt,after]};
+    expect(mergeLiveTurn(history, clipped).items.map(entry=>entry.id)).toEqual(['prompt','steer','before','after']);
+    expect(mergeLiveTurn(mergeLiveTurn(history,live),live).items.map(entry=>entry.id)).toEqual(live.items.map(entry=>entry.id));
+  });
+
+  it('keeps public replies after long tool runs and repeated steering on a fresh snapshot', () => {
+    const state=rawThread();
+    const commands=Array.from({length:100},(_,i)=>({id:`cmd-${i}`,type:'commandExecution',command:'test'}));
+    const messages=Array.from({length:30},(_,i)=>({id:`steer-${i}`,type:'steeringUserMessage',input:[{type:'text',text:'Again'}]}));
+    desktopTurns(state)[0]!.items=[{id:'prompt',type:'userMessage'},...messages,{id:'reply',type:'agentMessage',text:'Working'},...commands];
+    const live=normalizeThread(state,1).turns[0]!;
+    expect(live.items).toHaveLength(20);
+    expect(live.items.map(entry=>entry.id)).toEqual(expect.arrayContaining(['prompt','steer-29','reply','cmd-99']));
+    expect(live.items.find(entry=>entry.id==='reply')?.text).toBe('Working');
+    expect(historyTurnSchema.safeParse(live).success).toBe(true);
+  });
+
+  it('allows a resumed active turn to replace completed history while rejecting an unconfirmed stale snapshot', () => {
+    const done=turn([item('done','agentMessage',{phase:'final_answer',text:'Earlier finish'})]);
+    const live=turn([...done.items,item('more','agentMessage',{text:'Continuing'})],{status:'inProgress'});
+    expect(mergeTurnHistory([done],[live],'latest','turn')[0]?.items.at(-1)?.id).toBe('more');
+    expect(mergeTurnHistory([done],[live])[0]?.status).toBe('completed');
+  });
   it('merges accepted desktop steering with its persisted message once, in recorded order', () => {
     const prompt = {id: 'prompt', type: 'userMessage', content: [{type: 'text', text: 'Initial request'}]};
     const before = {id: 'before', type: 'agentMessage', phase: 'commentary', text: 'Before steering'};
@@ -189,14 +220,14 @@ describe("official timing normalization", () => {
     expect(normalizeThread(state, 0).turns[0]?.itemsTruncatedBefore).toBe(true);
   });
 
-  it("carries the message boundary for long live turns without serializing old content", () => {
+  it("retains the public message and its timing across long tool runs", () => {
     const state = rawThread(), raw = desktopTurns(state)[0]!;
     raw.items = [{ id: "progress", type: "agentMessage", text: "Progress", phase: "commentary" }, ...Array.from({ length: 30 }, (_, index) => ({ id: `cmd-${index}`, type: "commandExecution", command: "npm test" }))];
     raw.aeonAssistantMessageStartedAtMsById = { progress: 1000 };
     const value = normalizeThread(state, 0).turns[0]!;
     expect(value.previousMessage).toEqual({ id: "progress", startedAtMs: 1000 });
     expect(value.items).toHaveLength(20);
-    expect(value.items.every(item => item.id !== "progress")).toBe(true);
+    expect(value.items[0]).toMatchObject({id:'progress',text:'Progress',startedAtMs:1000});
     const group = groups(value, true)[0]!;
     expect(group.id).toBe("turn-A:work");
     expect(activityLabel(group, 86000)).toBe("正在处理 1分钟25秒");

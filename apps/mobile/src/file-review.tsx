@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
+import {ProjectBrowseContext} from './project-browser-context';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { ChevronLeft, ChevronRight, Copy, Download, FileCode2, Folder, Search } from 'lucide-react-native';
 import type { HistoryTurn } from '../../../packages/protocol/src/index';
@@ -19,6 +20,7 @@ type Changes = NonNullable<HistoryTurn['fileChanges']>;
 type Source = { phase: 'loading' | 'ready' | 'error' | 'download'; path: string; info?: FileInfo; text?: string; error?: string };
 export function FileChangesPanel({ changes, compact = true, deviceId = '', threadId = '', turnId }: { changes: Changes; compact?: boolean; deviceId?: string; threadId?: string; turnId?: string }) {
   const { c, s } = useTheme();
+  const browse=useContext(ProjectBrowseContext),pendingBrowse=useRef(false);
   const [open, setOpen] = useState(false), [path, setPath] = useState<string>(), [query, setQuery] = useState(''), [tab, setTab] = useState<'diff' | 'source'>('diff');
   const [source, setSource] = useState<Source>(), [feedback, setFeedback] = useState(''), [downloading, setDownloading] = useState(false);
   const [loadRevision, setLoadRevision] = useState(0);
@@ -70,7 +72,8 @@ export function FileChangesPanel({ changes, compact = true, deviceId = '', threa
   if (!changes.length) return null;
   return <View style={compact ? s.changes : s.completedChanges}>
     <Pressable accessibilityRole="button" accessibilityLabel={`${changes.length} 个文件已更改，${open ? '收起' : '查看'}差异`} aria-expanded={open} onPress={() => { setOpen(true); setPath(undefined); }} style={compact ? s.changeHead : s.completedChangeHead}>{!compact && <Folder size={15} color={c.muted} />}<Text style={compact ? s.changeTitle : s.completedChangeTitle}>{compact ? `${changes.length} 个文件已更改` : `已编辑 ${changes.length} 个文件`}</Text><Text style={s.additions}>+{changes.reduce((sum, change) => sum + change.additions, 0)}</Text><Text style={s.deletions}>-{changes.reduce((sum, change) => sum + change.deletions, 0)}</Text><ChevronRight size={15} color={c.muted} /></Pressable>
-    <ReviewReader open={open} onClose={close} title="本轮文件更改" onBack={path ? () => { operation.current?.abort(); setPath(undefined); setTab('diff'); setFeedback(''); } : undefined}>
+    <ReviewReader open={open} onClose={close} title="本轮文件更改" onClosed={()=>{if(pendingBrowse.current){pendingBrowse.current=false;browse?.();}}} onBack={path ? () => { operation.current?.abort(); setPath(undefined); setTab('diff'); setFeedback(''); } : undefined}>
+      {!!browse&&<Pressable accessibilityRole="button" accessibilityLabel="浏览全部项目文件" onPress={()=>{pendingBrowse.current=true;close();}} style={{padding:16}}><Text style={{color:c.accent,fontSize:13}}>本轮更改 · 浏览全部项目文件 ›</Text></Pressable>}
       <View style={{ padding: 16, gap: 8, flexShrink: 0 }}><Text style={{ color: c.muted, fontSize: 11 }}>仅本轮已观测更改{turnId ? ` · ${turnId}` : ''}，不代表整个仓库状态</Text>
       {selected ? <><View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}><ChromeButton Icon={ChevronLeft} label="返回更改列表" onPress={() => { operation.current?.abort(); setPath(undefined); setTab('diff'); setFeedback(''); }} size={18} /><Text selectable style={{ color: c.text, flex: 1, fontSize: 13 }}>{selected.path}</Text></View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><Pressable accessibilityRole="tab" accessibilityLabel="文件差异" aria-selected={tab === 'diff'} onPress={() => { operation.current?.abort(); setTab('diff'); setFeedback(''); }} style={{ padding: 10, borderRadius: 14, borderBottomColor:c.text,borderBottomWidth:tab==='diff'?1.5:0, backgroundColor: tab === 'diff' ? c.composer : 'transparent' }}><Text style={{ color: c.text, fontSize: 13 }}>差异</Text></Pressable><Pressable accessibilityRole="tab" accessibilityLabel="当前源码" aria-selected={tab === 'source'} disabled={!deviceId || !threadId} onPress={() => { setSource(undefined); setFeedback(''); setTab('source'); }} style={{ padding: 10, borderRadius: 14, borderBottomColor:c.text,borderBottomWidth:tab==='source'?1.5:0, backgroundColor: tab === 'source' ? c.composer : 'transparent', opacity: deviceId && threadId ? 1 : .4 }}><Text style={{ color: c.text, fontSize: 13 }}>当前源码</Text></Pressable><View style={{ flex: 1 }} />

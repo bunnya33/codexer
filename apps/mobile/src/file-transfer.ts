@@ -7,6 +7,15 @@ export type FileSource = { uri: string; headers: Record<string, string> };
 export function fileError(error: unknown): string {
   const code = error instanceof Error ? error.message : "";
   const messages: Record<string, string> = {
+    'project-files-update-required':'此设备尚不支持项目文件浏览，请更新服务器和 Codexer Agent 后重连。',
+    'project-not-in-catalog':'项目已被移除，请刷新项目列表。',
+    'project-path-invalid':'项目相对路径无效。',
+    'project-path-not-allowed':'该文件是目录外链接或不在项目授权范围内。',
+    'project-directory-unavailable':'目录不存在、已移走或没有读取权限。',
+    'project-directory-changed':'目录已变化，请刷新后重试。',
+    'project-search-expired':'搜索结果已过期，请重新搜索。',
+    'projects-busy':'项目文件读取繁忙，请稍后重试。',
+    'project-timeout':'读取项目文件超时，请检查设备连接。',
     "file-not-in-thread": "这个文件没有在当前会话中引用，请刷新会话后重试",
     "file-unavailable": "PC 上的文件不存在或无法读取",
     "file-too-large": "文件超过 512 MB，暂时无法传输",

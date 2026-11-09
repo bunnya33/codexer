@@ -6,6 +6,7 @@ import { useTheme } from './styles';
 import { confirmAction } from './runtime';
 import { deviceRunningTaskCount } from '../../../packages/client-shared/src/device-activity';
 import { RunningTaskCount } from './running-task-count';
+import { deviceDetails } from '../../../packages/client-shared/src/device-label';
 
 function DeviceIcon({ color, count }: { color: string; count: number }) {
   const { c } = useTheme();
@@ -43,7 +44,7 @@ export function DevicePicker({ devices, snapshots = {}, deviceId, selectDevice }
   return <View style={s.devicePicker}>
     <Pressable accessibilityRole="button" accessibilityLabel={selected ? `切换 PC Agent，当前：${selected.name}，${selected.online ? '在线' : '离线'}${selectedRunning ? '，有任务正在运行' : ''}` : '暂无 PC Agent'} aria-expanded={open} disabled={!devices.length} onPress={() => { setSearch(''); setError(''); setManaging(false); setOpen(true); }} style={({ pressed }) => [s.deviceTrigger, pressed && s.pressed]}>
       <DeviceIcon color={c.muted} count={selectedCount} />
-      <View style={s.deviceLabel}><Text style={s.deviceText} numberOfLines={2}>{selected?.name ?? '等待 PC Agent 登录'}</Text>{selected && <View style={s.devicePresence}><View style={[s.dot, selected.online && s.dotOnline]} /><Text style={s.deviceStatus}>{selected.online ? '在线' : '离线'}</Text></View>}</View>
+      <View style={s.deviceLabel}><Text style={s.deviceText} numberOfLines={2}>{selected?.name ?? '等待 PC Agent 登录'}</Text>{selected && <Text style={s.deviceStatus}>{deviceDetails(selected,snapshots[selected.id])}</Text>}{selected && <View style={s.devicePresence}><View style={[s.dot, selected.online && s.dotOnline]} /><Text style={s.deviceStatus}>{selected.online ? '在线' : '离线'}</Text></View>}</View>
       {!!devices.length && <ChevronDown size={16} color={c.muted} />}
     </Pressable>
     <Modal visible={open} transparent animationType="fade" onRequestClose={close}>
@@ -56,7 +57,7 @@ export function DevicePicker({ devices, snapshots = {}, deviceId, selectDevice }
           <View style={s.deviceSearch}><Search size={17} color={c.muted} /><TextInput accessibilityLabel="搜索设备" style={[s.searchInput, { outlineStyle: 'solid', outlineWidth: 0 }]} value={search} onChangeText={setSearch} placeholder="搜索设备" placeholderTextColor={c.muted} autoCapitalize="none" autoCorrect={false} /></View>
           <FlatList testID="device-options" data={filtered} keyExtractor={device => device.id} style={s.deviceOptions} contentContainerStyle={s.deviceOptionsContent} keyboardShouldPersistTaps="handled" renderItem={({ item }) => <View style={[s.deviceOption, item.id === deviceId && s.deviceSelected]}><Pressable accessibilityRole="button" accessibilityLabel={`选择设备 ${item.name}，${item.online ? '在线' : '离线'}${(runningDevices.get(item.id) ?? 0) > 0 ? '，有任务正在运行' : ''}`} disabled={managing || !!busyId} accessibilityState={{ selected: item.id === deviceId }} onPress={() => { close(); if (item.id !== deviceId) selectDevice(item.id); }} style={({ pressed }) => [{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 10 }, pressed && s.pressed]}>
             <DeviceIcon color={item.id === deviceId ? c.accent : c.muted} count={runningDevices.get(item.id) ?? 0} />
-            <View style={s.deviceLabel}><Text style={[s.deviceText, item.id === deviceId && s.deviceTextSelected]}>{item.name}</Text><View style={s.devicePresence}><View style={[s.dot, item.online && s.dotOnline]} /><Text style={s.deviceStatus}>{item.online ? '在线' : '离线'}</Text></View>{managing && <Text style={s.deviceStatus}>{({win32: 'Windows', darwin: 'macOS', linux: 'Linux'} as Record<string, string>)[item.platform] ?? item.platform} · {item.id.slice(0, 8)}{item.last_seen_at && Number.isFinite(Number(item.last_seen_at)) ? `\n最后在线：${new Date(Number(item.last_seen_at)).toLocaleString()}` : ''}</Text>}</View>
+            <View style={s.deviceLabel}><Text style={[s.deviceText, item.id === deviceId && s.deviceTextSelected]}>{item.name}</Text><Text style={s.deviceStatus}>{deviceDetails(item,snapshots[item.id])}</Text><View style={s.devicePresence}><View style={[s.dot, item.online && s.dotOnline]} /><Text style={s.deviceStatus}>{item.online ? '在线' : '离线'}</Text></View>{managing && <Text style={s.deviceStatus}>{({win32: 'Windows', darwin: 'macOS', linux: 'Linux'} as Record<string, string>)[item.platform] ?? item.platform} · {item.id.slice(0, 8)}{item.last_seen_at && Number.isFinite(Number(item.last_seen_at)) ? `\n最后在线：${new Date(Number(item.last_seen_at)).toLocaleString()}` : ''}</Text>}</View>
             {item.id === deviceId && <Check size={18} color={c.accent} />}
           </Pressable>{managing && (item.online ? <Text style={s.deviceStatus}>在线不可删除</Text> : <Pressable accessibilityRole="button" accessibilityLabel={`删除离线设备 ${item.name}（${item.id.slice(0, 8)}）`} disabled={!!busyId} onPress={() => void remove(item)} style={[s.iconButton, !!busyId && s.disabled]}>{busyId === item.id ? <ActivityIndicator size="small" color={c.danger} /> : <Trash2 size={19} color={c.danger} />}</Pressable>)}</View>} ListEmptyComponent={<Text style={s.empty}>{devices.length ? '没有匹配的设备' : '暂无设备'}</Text>} />
         </View>

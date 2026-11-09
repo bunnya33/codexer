@@ -1,16 +1,16 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode, RefObject } from 'react';
 import { Animated, Easing, Keyboard, PanResponder, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
-import { X } from 'lucide-react-native';
+import { ChevronLeft, X } from 'lucide-react-native';
 import { useTheme } from '../styles';
 import { ChromeButton } from './primitives';
 import { useInteractionMotion } from './motion';
 import { useSurfaceAccessibility } from './surface-accessibility';
 
 type Position = { left: number; top: number; width: number };
-export function InteractionSurface({ open, onClose, onBack, onClosed, title, kind = 'sheet', host, anchor, align = 'start', width = 270, children, variant = 'default' }: {
+export function InteractionSurface({ open, onClose, onBack, onClosed, title, kind = 'sheet', host, anchor, origin, align = 'start', width = 270, children, variant = 'default' }: {
   open: boolean; onClose: () => void; onBack?: () => void; title: string; kind?: 'sheet' | 'reader' | 'popover' | 'drawer';
-  host: RefObject<View | null>; anchor?: RefObject<View | null>; align?: 'start' | 'end'; width?: number; children: ReactNode; variant?: 'default' | 'settings' | 'permissions' | 'menu'; onClosed?: () => void;
+  host: RefObject<View | null>; anchor?: RefObject<View | null>; origin?:RefObject<View|null>; align?: 'start' | 'end'; width?: number; children: ReactNode; variant?: 'default' | 'settings' | 'permissions' | 'menu'; onClosed?: () => void;
 }) {
   const { c } = useTheme();
   const motion = useInteractionMotion();
@@ -19,6 +19,7 @@ export function InteractionSurface({ open, onClose, onBack, onClosed, title, kin
   const [bounds, setBounds] = useState({ width: viewport.width, height: viewport.height });
   const [position, setPosition] = useState<Position>();
   const [panelHeight, setPanelHeight] = useState(0);
+  const [startRect,setStartRect]=useState<{left:number;top:number;width:number;height:number}>();
   const progress = useRef(new Animated.Value(0)).current;
   const drag = useRef(new Animated.Value(0)).current;
   const panel = useRef<View>(null);
@@ -30,7 +31,8 @@ export function InteractionSurface({ open, onClose, onBack, onClosed, title, kin
   const back = useMemo(() => () => backRef.current(), []);
   useSurfaceAccessibility(open && present, panel, back, title);
   const menu = kind === 'popover' && variant === 'menu';
-  const measured = !menu || !anchor || !!position && panelHeight > 0;
+  const morph=kind==='reader'&&!!origin;
+  const measured = (!menu || !anchor || !!position && panelHeight > 0) && (!morph||!!startRect);
 
   useEffect(() => {
     if (open) { setPresent(true); drag.setValue(0); if (previousKind.current !== kind) progress.setValue(0); }
@@ -40,10 +42,10 @@ export function InteractionSurface({ open, onClose, onBack, onClosed, title, kin
     if (open && !measured) return;
     const animation = menu && open && motion
       ? Animated.spring(progress, { toValue: 1, stiffness: 420, damping: 33, mass: 1, restSpeedThreshold: .01, restDisplacementThreshold: .001, useNativeDriver: Platform.OS !== 'web' })
-      : Animated.timing(progress, { toValue: open ? 1 : 0, duration: motion ? open ? kind === 'popover' ? 200 : 240 : 170 : 0, easing: open ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic), useNativeDriver: Platform.OS !== 'web' });
+      : Animated.timing(progress, { toValue: open ? 1 : 0, duration: motion ? morph ? open ? 320 : 260 : open ? kind === 'popover' ? 200 : 240 : 170 : 0, easing: open ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic), useNativeDriver: Platform.OS !== 'web'&&!morph });
     animation.start(({ finished }) => { if (finished && !open) { setPresent(false); closedRef.current?.(); } });
     return () => animation.stop();
-  }, [open, motion, progress, drag, kind, menu, measured]);
+  }, [open, motion, progress, drag, kind, menu, measured,morph]);
 
   useLayoutEffect(() => {
     if (!open) return;
@@ -52,6 +54,7 @@ export function InteractionSurface({ open, onClose, onBack, onClosed, title, kin
       frame = requestAnimationFrame(() => host.current?.measureInWindow((hx, hy, hw, hh) => {
         if (!live || !hw || !hh) return;
         setBounds({ width: hw, height: hh });
+        origin?.current?.measureInWindow((x,y,w,h)=>{if(live)setStartRect({left:x-hx,top:y-hy,width:Math.max(1,w),height:Math.max(1,h)});});
         anchor?.current?.measureInWindow((ax, ay, aw, ah) => {
           if (!live) return;
           const pw = Math.min(width, hw - 24);
@@ -65,7 +68,7 @@ export function InteractionSurface({ open, onClose, onBack, onClosed, title, kin
     measure();
     const show = Keyboard.addListener('keyboardDidShow', measure), hide = Keyboard.addListener('keyboardDidHide', measure);
     return () => { live = false; cancelAnimationFrame(frame); show.remove(); hide.remove(); };
-  }, [open, host, anchor, align, width, panelHeight, viewport.width, viewport.height]);
+  }, [open, host, anchor, origin, align, width, panelHeight, viewport.width, viewport.height]);
 
   const pan = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponder: (_event, gesture) => kind === 'drawer' ? gesture.dx < -6 && Math.abs(gesture.dx) > Math.abs(gesture.dy) : (kind === 'sheet' || kind === 'reader') && gesture.dy > 6 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
@@ -84,11 +87,11 @@ export function InteractionSurface({ open, onClose, onBack, onClosed, title, kin
       <Pressable style={StyleSheet.absoluteFill} accessibilityRole="button" accessibilityLabel="关闭面板" onPress={close} />
     </Animated.View>
     <Animated.View ref={panel} testID="interaction-surface" accessibilityLabel={title} onLayout={event => setPanelHeight(event.nativeEvent.layout.height)}
-      style={[styles.panel, variant === 'settings' && { height: bounds.height * .52, overflow: 'visible' }, variant === 'menu' && { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, overflow: 'visible' }, { backgroundColor: variant === 'settings' ? c.sidebar : variant === 'permissions' ? c.surface : c.glass, borderColor: c.glassBorder,
+      style={[styles.panel, variant === 'settings' && { height: bounds.height * .52, overflow: 'visible' }, variant === 'menu' && { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, overflow: 'visible' }, { backgroundColor: morph?c.bg:variant === 'settings' ? c.sidebar : variant === 'permissions' ? c.surface : c.glass, borderColor: c.glassBorder,
         // RN Web compiles each shadow object to one box-shadow declaration.
         // Keep geometry and theme color together so the color cannot zero it out.
         shadowColor: c.shadow, shadowOffset: { width: 0, height: variant === 'menu' ? 12 : 7 }, shadowOpacity: variant === 'menu' ? .18 : .13, shadowRadius: variant === 'menu' ? 28 : 24,
-        opacity: anchor && !position ? 0 : menu ? progress.interpolate({ inputRange: [0, .65, 1], outputRange: [0, 1, 1], extrapolate: 'clamp' }) : progress,
+        opacity: !measured||anchor && !position ? 0 : menu ? progress.interpolate({ inputRange: [0, .65, 1], outputRange: [0, 1, 1], extrapolate: 'clamp' }) : progress,
         ...(reader ? { height: bounds.height * .96 } : {}),
         maxHeight: bounds.height * (drawer ? 1 : reader ? .96 : sheet ? 0.86 : 0.8),
         ...(sheet ? { bottom: 0, left: Math.max(0, (bounds.width - 520) / 2), right: Math.max(0, (bounds.width - 520) / 2), borderBottomWidth: 0, borderBottomLeftRadius: 0, borderBottomRightRadius: 0,
@@ -98,10 +101,16 @@ export function InteractionSurface({ open, onClose, onBack, onClosed, title, kin
             { translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [motion ? (position?.width ?? width) * .28 : 0, 0] }) },
             { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [motion ? -panelHeight * .28 : 0, 0] }) },
           ] : []), { scale: progress.interpolate({ inputRange: [0, 1], outputRange: [motion ? menu ? .44 : .96 : 1, 1] }) }] }),
-      }]}>
+      },morph&&startRect?{
+        left:progress.interpolate({inputRange:[0,1],outputRange:[startRect.left,Math.max(0,(bounds.width-700)/2)]}),
+        top:progress.interpolate({inputRange:[0,1],outputRange:[startRect.top,bounds.height*.04]}),
+        width:progress.interpolate({inputRange:[0,1],outputRange:[startRect.width,Math.min(bounds.width,700)]}),
+        height:progress.interpolate({inputRange:[0,1],outputRange:[startRect.height,bounds.height*.96]}),
+        bottom:undefined,right:undefined,maxHeight:undefined,borderRadius:20,transform:[{translateY:drag}],
+      }:undefined]}>
       {sheet || drawer ? <View {...pan.panHandlers} style={styles.sheetTop}>
         {sheet && <View style={[styles.handle, { backgroundColor: c.ring }]} />}
-        {variant === 'default' ? <View style={styles.heading}><View style={{ width: 44 }} /><Text accessibilityRole="header" style={[styles.title, { color: c.text }]}>{title}</Text><ChromeButton Icon={X} label="关闭" onPress={close} size={19} /></View>
+        {variant === 'default' ? <View style={styles.heading}>{onBack?<ChromeButton Icon={ChevronLeft} label="返回列表" onPress={back} size={19}/>:<View style={{ width: 44 }} />}<Text accessibilityRole="header" style={[styles.title, { color: c.text }]}>{title}</Text><ChromeButton Icon={X} label="关闭" onPress={close} size={19} /></View>
           : variant === 'settings' ? <Text accessibilityRole="header" style={{ color: c.text, fontSize: 14, textAlign: 'center', paddingVertical: 7 }}>高级 ›</Text> : null}
       </View> : null}
       <View style={[styles.content, reader && { flex: 1, paddingHorizontal: 0, paddingBottom: 0 }, variant === 'permissions' && { paddingHorizontal: 24 }, variant === 'settings' && { paddingHorizontal: 20 }, !sheet && { padding: variant === 'menu' ? 0 : 6 }]}>{children}</View>

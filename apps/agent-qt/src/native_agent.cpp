@@ -400,6 +400,7 @@ void Service::relayMessage(const Object &message) {
       supported.append("files");
     if (features.contains("previews"))
       supported.append("previews");
+    if (features.contains("project-files")) supported.append("project-files");
     send({{"type", "device.capabilities"}, {"features", supported}});
     auto runtime = snapshot["runtime"].toObject(),
          caps = runtime["capabilities"].toObject();
@@ -407,6 +408,7 @@ void Service::relayMessage(const Object &message) {
       caps["attachments"] = true;
     else
       caps.remove("attachments");
+    if(features.contains("project-files")) caps["projectFiles"]=true; else caps.remove("projectFiles");
     runtime["capabilities"] = caps;
     snapshot["runtime"] = runtime;
     send({{"type", "device.snapshot"}, {"snapshot", snapshot}});
@@ -421,6 +423,20 @@ void Service::relayMessage(const Object &message) {
   }
   if (type == "device.resync") {
     send({{"type", "device.snapshot"}, {"snapshot", snapshot}});
+    return;
+  }
+  if (type == "project.cancel") {
+    auto id=message["requestId"].toString();
+    if (!QUuid(id).isNull()) {
+      if(cancelledProjectRequests.size()>=64)cancelledProjectRequests.erase(cancelledProjectRequests.begin());
+      cancelledProjectRequests.insert(id);
+      for(int i=commandQueue.size()-1;i>=0;--i)if(commandQueue[i]["requestId"]==id)commandQueue.removeAt(i);
+      QTimer::singleShot(15000,this,[this,id]{cancelledProjectRequests.remove(id);});
+    }
+    return;
+  }
+  if (type == "project.request") {
+    if (!QUuid(message["requestId"].toString()).isNull() && commandQueue.size()<32)commandQueue.append(message);
     return;
   }
   if (type.startsWith("preview.")) {
@@ -528,6 +544,13 @@ void Service::tick() {
           member = true;
       if (type == "command")
         processCommand(message["command"].toObject());
+      else if (type == "project.request") {
+        Object response{{"type","device.project"},{"requestId",message["requestId"]},{"projectId",message["projectId"]},{"result",QJsonValue::Null},{"code",QJsonValue::Null}};
+        try { response["result"]=browseProject(message); }
+        catch(const Error &e) { response["code"]=QStringList{"project-not-in-catalog","project-path-invalid","project-path-not-allowed","project-directory-unavailable","project-directory-changed","project-search-expired","project-cancelled","file-unavailable","file-too-large","file-changed","invalid-file-offset"}.contains(e.code)?e.code:QString("project-directory-unavailable"); }
+        cancelledProjectRequests.remove(message["requestId"].toString());
+        send(response);
+      }
       else if (type == "history.request") {
         Object response{{"type", "device.history"},
                         {"requestId", message["requestId"]},

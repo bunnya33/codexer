@@ -377,6 +377,69 @@ private slots:
     agent.reset();
     qunsetenv("CODEX_REMOTE_DESKTOP_ENDPOINT");
   }
+  void projectBrowseSearchAndVersionedDownload() {
+    QTemporaryDir files;
+    QVERIFY(files.isValid());
+    auto root=files.path();
+    QDir().mkpath(root+"/中文目录");QDir().mkpath(root+"/node_modules");
+    save(root+"/中文目录/hello world.txt","first\nNeedle here\nlast\n");
+    save(root+"/node_modules/skip.txt","Needle");
+    save(root+"/.secret","Needle");save(root+"/binary.dat",QByteArray("x\0Needle",8));
+    for(int i=0;i<205;++i) save(root+QString("/file-%1.txt").arg(i,3,10,QChar('0')),"Needle\n");
+    agent->catalog={{"projects",Array{Object{{"id","browse"},{"roots",Array{root,temp.path()}}}}}};
+    auto request=[&](Object query){return Object{{"requestId",uuid()},{"projectId","browse"},{"query",query}};};
+    Object query{{"operation","list"},{"rootIndex",0},{"path",""}};
+    auto first=agent->browseProject(request(query));
+    QCOMPARE(first["entries"].toArray().size(),200);QVERIFY(first["nextCursor"].isString());
+    auto secondQuery=query;secondQuery["cursor"]=first["nextCursor"];
+    auto second=agent->browseProject(request(secondQuery));
+    QCOMPARE(second["entries"].toArray().size(),7);QVERIFY(second["nextCursor"].isNull());
+    QSet<QString> paths;for(auto v:first["entries"].toArray()) paths.insert(v.toObject()["path"].toString());
+    for(auto v:second["entries"].toArray()) QVERIFY(!paths.contains(v.toObject()["path"].toString()));
+    query={{"operation","search"},{"rootIndex",0},{"path",""},{"mode","content"},{"query","needle"}};
+    int matches=0,skipped=0;
+    do {auto page=agent->browseProject(request(query));matches+=page["matches"].toArray().size();skipped=page["skipped"].toInt();query["cursor"]=page["nextCursor"];}while(!query["cursor"].isNull());
+    QCOMPARE(matches,206);QVERIFY(skipped>=1);
+    query["caseSensitive"]=true;query.remove("cursor");QCOMPARE(agent->browseProject(request(query))["matches"].toArray().size(),0);
+    query={{"operation","file"},{"rootIndex",0},{"path","中文目录/hello world.txt"}};
+    auto info=agent->browseProject(request(query))["file"].toObject();
+    QVERIFY(!info.contains("base64"));query["version"]=info["version"];query["offset"]=0;
+    QCOMPARE(QByteArray::fromBase64(agent->browseProject(request(query))["file"].toObject()["base64"].toString().toLatin1()),QByteArray("first\nNeedle here\nlast\n"));
+    save(root+"/中文目录/hello world.txt","changed");
+    try{agent->browseProject(request(query));QFAIL("Expected changed file rejection");}catch(const Error &e){QCOMPARE(e.code,QString("file-changed"));}
+    query={{"operation","list"},{"rootIndex",0},{"path","../"}};
+    try{agent->browseProject(request(query));QFAIL("Expected traversal rejection");}catch(const Error &e){QCOMPARE(e.code,QString("project-path-invalid"));}
+    query["path"]="C:/outside";
+    QVERIFY_EXCEPTION_THROWN(agent->browseProject(request(query)),Error);
+    query["path"]="";query["rootIndex"]=2;
+    QVERIFY_EXCEPTION_THROWN(agent->browseProject(request(query)),Error);
+    query["rootIndex"]=0;auto cancelled=request(query);agent->cancelledProjectRequests.insert(cancelled["requestId"].toString());
+    try{agent->browseProject(cancelled);QFAIL("Expected cancellation");}catch(const Error &e){QCOMPARE(e.code,QString("project-cancelled"));}
+    query={{"operation","search"},{"rootIndex",0},{"path",""},{"mode","path"},{"query","file-"}};
+    auto page=agent->browseProject(request(query));query["cursor"]=page["nextCursor"];query["rootIndex"]=1;
+    try{agent->browseProject(request(query));QFAIL("Expected cursor binding rejection");}catch(const Error &e){QCOMPARE(e.code,QString("project-search-expired"));}
+  }
+  void projectBrowseRejectsDirectoryLinks() {
+    QTemporaryDir root,outside;
+    QVERIFY(root.isValid() && outside.isValid());
+    save(outside.path()+"/private.txt","outside project");
+#ifdef Q_OS_WIN
+    QProcess process;
+    process.start("powershell.exe",{"-NoProfile","-NonInteractive","-Command",QString("New-Item -ItemType Junction -Path '%1/link' -Target '%2' | Out-Null").arg(root.path(),outside.path())});
+    QVERIFY(process.waitForFinished(10000));QCOMPARE(process.exitCode(),0);
+#else
+    QVERIFY(QFile::link(outside.path(),root.path()+"/link"));
+#endif
+    agent->catalog={{"projects",Array{Object{{"id","browse"},{"roots",Array{root.path()}}}}}};
+    Object request{{"requestId",uuid()},{"projectId","browse"},{"query",Object{{"operation","file"},{"rootIndex",0},{"path","link/private.txt"}}}};
+    try{agent->browseProject(request);QFAIL("Directory link must not escape project");}catch(const Error &e){QCOMPARE(e.code,QString("project-path-not-allowed"));}
+#ifdef Q_OS_WIN
+    QVERIFY(QDir(root.path()).rmdir("link"));
+#else
+    QVERIFY(QFile::remove(root.path()+"/link"));
+#endif
+    QVERIFY(QFileInfo::exists(outside.path()+"/private.txt"));
+  }
   void framePatches() {
     auto result = applyPatch(
         {{"id", "x"}, {"items", Array{1, 2}}},
