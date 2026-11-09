@@ -57,7 +57,7 @@ controlRelease {
 }
 ```
 
-在 `buildTypes.release` 中使用 `signingConfig signingConfigs.controlRelease`。不能沿用 Expo 模板的 `signingConfigs.debug`。同步 `defaultConfig.versionName`、`versionCode` 与主源码；现有 ABI 为 `arm64-v8a,x86_64`。入口会检查签名配置和版本，但开发者仍需核对源码同步和原生配置。
+在 `buildTypes.release` 中使用 `signingConfig signingConfigs.controlRelease`。不能沿用 Expo 模板的 `signingConfigs.debug`。同步 `defaultConfig.versionName`、`versionCode` 与主源码；当前生成工程的 ABI 为 `armeabi-v7a,arm64-v8a,x86,x86_64`，交付时按实际 APK 的 `native-code` 和原生库核对，不沿用旧构建记录中的 ABI 常量。入口会检查签名配置和版本，但开发者仍需核对源码同步和原生配置。
 
 ## 保管与换电脑
 

@@ -1,5 +1,13 @@
 # 当前 Go 迁移验证
 
+## 2026-11-09 Android 0.1.17 / versionCode 18
+
+主目录 main 与 origin/main 一致后递增 Android 版本，保留用户原有 AGENTS、Qt 指南和 HTML 改动。源码提交 `d1364ff` 通过已提交的同步脚本进入 `F:/ca20` 构建副本，1,174 个文件哈希一致，依赖和版本以外原生配置没有变化。原密钥和 DPAPI 密码继续保留在稳定签名目录，没有重新生成发布身份。
+
+Mobile 类型检查和 43 份本地文档检查通过。真正的 Gradle `:app:assembleRelease` 在 JBR/生产配置下成功完成，597 个任务中 72 个执行，发布 APK 版本实际为 0.1.17 / 18、应用 ID 为 `com.bunnya33.codexer.remote`，非调试清单、原发布证书 SHA-256、v2 签名及 16 KiB ZIP 对齐核对通过。包内 Hermes 与 Gradle 输出一致，20 份关键 source map 内容匹配当前主源码，包含阅读器、项目浏览请求隔离、活动标题及模型弹层。实际 APK 的四个 ABI 均含 React Native 和应用原生库，构建记录按 APK 提取架构，未沿用旧记录的两架构常量。
+
+APK、校验值、构建日志和签名/源码记录位于 `release/android-0.1.17`，APK SHA-256 为 `6f25d0895f38b056cf5e0466d23b5f3b7c244523d12ed4b1ed9eaf2be3ec311e`。本轮只交付可覆盖安装的原签名 APK，未做模拟器覆盖安装、真实手机或登录远程任务验收，未上传客户端更新目录或商店；未重新发布服务器或构建其它原生客户端。
+
 ## 2026-11-09 服务器 0.3.52 发布
 
 在主目录 main 核对 origin/main 后提升根服务器版本至 0.3.52，保留用户原有 AGENTS、Qt 指南和 HTML 改动。发布范围为桌面项目文件双栏、共享阅读器宽屏尺寸和目录/预览请求隔离；不改协议、数据库、更新器或 Agent。本地完整 Go 回归、96 个文件共 793 项 TypeScript 测试、根工程/Mobile/Windows Native 类型检查、43 份本地文档及 Web/Admin/Go 生产构建通过。
