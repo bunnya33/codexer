@@ -26,7 +26,7 @@
 - JDK：`C:\Program Files\Android\Android Studio\jbr`。不要使用系统 Java 8。
 - SDK：`%LOCALAPPDATA%\Android\Sdk`；当前 Build Tools `36.0.0`，SDK/NDK/CMake 版本以生成工程为准。
 - Windows 原生编译使用短路径 Ninja：`F:/ca20/.local/ninja-1.13.1/ninja.exe`，保留生成工程的 CMake 参数。
-- 版本来自 `apps/mobile/package.json`、`apps/mobile/app.json`，当前 `0.1.16` / `versionCode 17`。上传安装包时填写 APK 内实际的 versionCode；后续发布递增，不能只改文件名。
+- 版本来自 `apps/mobile/package.json`、`apps/mobile/app.json`，当前 `0.1.17` / `versionCode 18`。上传安装包时填写 APK 内实际的 versionCode；后续发布递增，不能只改文件名。
 
 先通过下面已提交的同步入口更新短路径副本；它核对依赖和 Expo 原生配置、逐文件校验复制、同步原生版本，并保留副本的 `node_modules`、Android 工程和 Ninja。依赖或原生配置变化时停止；此时需在副本重新安装依赖、执行 `npx expo prebuild --platform android`，重新应用下节的发布签名配置和已有原生构建适配。不要用旧副本打包新版本。
 
