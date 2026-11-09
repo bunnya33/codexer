@@ -2001,6 +2001,18 @@
                                   "type": "string",
                                   "maxLength": 300
                                 },
+                                "toolServer": {
+                                  "type": "string",
+                                  "maxLength": 300
+                                },
+                                "activityTitle": {
+                                  "type": "string",
+                                  "maxLength": 300
+                                },
+                                "commandPreview": {
+                                  "type": "string",
+                                  "maxLength": 4096
+                                },
                                 "subAgents": {
                                   "maxItems": 32,
                                   "type": "array",
@@ -3017,6 +3029,18 @@
                                       "tool": {
                                         "type": "string",
                                         "maxLength": 300
+                                      },
+                                      "toolServer": {
+                                        "type": "string",
+                                        "maxLength": 300
+                                      },
+                                      "activityTitle": {
+                                        "type": "string",
+                                        "maxLength": 300
+                                      },
+                                      "commandPreview": {
+                                        "type": "string",
+                                        "maxLength": 4096
                                       },
                                       "subAgents": {
                                         "maxItems": 32,
@@ -4266,6 +4290,18 @@
                               "tool": {
                                 "type": "string",
                                 "maxLength": 300
+                              },
+                              "toolServer": {
+                                "type": "string",
+                                "maxLength": 300
+                              },
+                              "activityTitle": {
+                                "type": "string",
+                                "maxLength": 300
+                              },
+                              "commandPreview": {
+                                "type": "string",
+                                "maxLength": 4096
                               },
                               "subAgents": {
                                 "maxItems": 32,

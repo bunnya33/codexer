@@ -8,9 +8,9 @@ import { useInteractionMotion } from './motion';
 import { useSurfaceAccessibility } from './surface-accessibility';
 
 type Position = { left: number; top: number; width: number };
-export function InteractionSurface({ open, onClose, onBack, onClosed, title, kind = 'sheet', host, anchor, origin, align = 'start', width = 270, children, variant = 'default' }: {
+export function InteractionSurface({ open, onClose, onBack, onClosed, title, kind = 'sheet', host, anchor, aboveAnchor, origin, align = 'start', width = 270, children, variant = 'default' }: {
   open: boolean; onClose: () => void; onBack?: () => void; title: string; kind?: 'sheet' | 'reader' | 'popover' | 'drawer';
-  host: RefObject<View | null>; anchor?: RefObject<View | null>; origin?:RefObject<View|null>; align?: 'start' | 'end'; width?: number; children: ReactNode; variant?: 'default' | 'settings' | 'permissions' | 'menu'; onClosed?: () => void;
+  host: RefObject<View | null>; anchor?: RefObject<View | null>; aboveAnchor?: RefObject<View | null>; origin?:RefObject<View|null>; align?: 'start' | 'end'; width?: number; children: ReactNode; variant?: 'default' | 'settings' | 'permissions' | 'menu'; onClosed?: () => void;
 }) {
   const { c } = useTheme();
   const motion = useInteractionMotion();
@@ -57,18 +57,23 @@ export function InteractionSurface({ open, onClose, onBack, onClosed, title, kin
         origin?.current?.measureInWindow((x,y,w,h)=>{if(live)setStartRect({left:x-hx,top:y-hy,width:Math.max(1,w),height:Math.max(1,h)});});
         anchor?.current?.measureInWindow((ax, ay, aw, ah) => {
           if (!live) return;
-          const pw = Math.min(width, hw - 24);
-          const above = ay - hy - panelHeight - 8;
-          const below = ay - hy + ah + 6;
-          setPosition({ width: pw, left: Math.max(12, Math.min(hw - pw - 12, ax - hx + (align === 'end' ? aw - pw : 0))),
-            top: Math.max(8, Math.min(hh - panelHeight - 8, above >= 8 && ay - hy > hh * 0.4 ? above : below)) });
+          const place = (topEdge: number, forceAbove: boolean) => {
+            if (!live) return;
+            const pw = Math.min(width, hw - 24);
+            const above = topEdge - hy - panelHeight - (forceAbove ? 12 : 8);
+            const below = ay - hy + ah + 6;
+            setPosition({ width: pw, left: Math.max(12, Math.min(hw - pw - 12, ax - hx + (align === 'end' ? aw - pw : 0))),
+              top: Math.max(8, Math.min(hh - panelHeight - 8, forceAbove || above >= 8 && ay - hy > hh * 0.4 ? above : below)) });
+          };
+          if (aboveAnchor?.current) aboveAnchor.current.measureInWindow((_x, y) => place(y, true));
+          else place(ay, false);
         });
       }));
     };
     measure();
     const show = Keyboard.addListener('keyboardDidShow', measure), hide = Keyboard.addListener('keyboardDidHide', measure);
     return () => { live = false; cancelAnimationFrame(frame); show.remove(); hide.remove(); };
-  }, [open, host, anchor, origin, align, width, panelHeight, viewport.width, viewport.height]);
+  }, [open, host, anchor, aboveAnchor, origin, align, width, panelHeight, viewport.width, viewport.height]);
 
   const pan = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponder: (_event, gesture) => kind === 'drawer' ? gesture.dx < -6 && Math.abs(gesture.dx) > Math.abs(gesture.dy) : (kind === 'sheet' || kind === 'reader') && gesture.dy > 6 && Math.abs(gesture.dy) > Math.abs(gesture.dx),

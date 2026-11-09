@@ -81,7 +81,7 @@ function Preview({ dark, preferences, onPreferences }: { dark: boolean; preferen
   const [prepared, setPrepared] = useState<Record<string, boolean>>({});
   const [filesView, setFilesView] = useState(initialFileReview);
   const [settingsSection, setSettingsSection] = useState<SettingsReviewSection>('overview');
-  const host = useRef<View>(null), attachmentsAnchor = useRef<View>(null), modelAnchor = useRef<View>(null), optionsAnchor = useRef<View>(null);
+  const host = useRef<View>(null), attachmentsAnchor = useRef<View>(null), modelAnchor = useRef<View>(null), composerAnchor = useRef<View>(null), optionsAnchor = useRef<View>(null);
   const list = useRef<ScrollView>(null), follow = useRef(true), sending = useRef(false), ids = useRef(100), activeThread = useRef(thread);
   activeThread.current = thread;
   const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
@@ -225,11 +225,11 @@ function Preview({ dark, preferences, onPreferences }: { dark: boolean; preferen
               <ConversationChromeComposer text={draft.text} onChangeText={setText} phase={session.phase} busy={busy} disabledAction={condition === 'offline'} attachments={attachments} plan={plan} modelLabel={`${modelLabel(model, previewModels)} · ${referenceEffortLabel(effort)}`} permission={permission} effortIndex={Math.max(0, supportedEfforts.indexOf(effort))} effortCount={supportedEfforts.length} keepExpanded={panelOpen && (panel === 'model' || panel === 'advanced' || panel === 'permissions')} onSubmit={submit}
                 onRemoveAttachment={id => id.startsWith('image-') ? setImages(value => value.filter(item => `image-${item.key}` !== id)) : setFiles(value => value.filter(item => `file-${item.key}` !== id))}
                 onAttachmentPress={item => { setPreviewImage(item.uri); setPanel('image'); }} onAttachments={() => setPanel('attachments')} onModel={() => setPanel('model')} onPermissions={() => setPanel('permissions')} onClearPlan={() => setPlan(false)}
-                attachmentAnchor={attachmentsAnchor} modelAnchor={modelAnchor} onImages={addImages} onFiles={addFiles} onImageError={notify} />
+                attachmentAnchor={attachmentsAnchor} modelAnchor={modelAnchor} composerAnchor={composerAnchor} onImages={addImages} onFiles={addFiles} onImageError={notify} />
             </View>
           </View>
           {!!notice && <View pointerEvents="none" style={[styles.toast, { backgroundColor: c.text }]}><Text accessibilityLiveRegion="polite" style={{ color: c.surface, fontSize: 12 }}>{notice}</Text></View>}
-          <ModelSurface open={panelOpen && panel === 'model'} host={host} anchor={modelAnchor} onClose={close}>
+          <ModelSurface open={panelOpen && panel === 'model'} host={host} anchor={modelAnchor} composerAnchor={composerAnchor} onClose={close}>
             <QuickModelPanel options={previewModels} model={model} effort={effort} onEffort={setEffort} onAdvanced={() => { Keyboard.dismiss(); setPanel('advanced'); }} />
           </ModelSurface>
           <InteractionSurface open={panelOpen && panel !== 'model'} host={host} anchor={anchor} kind={compactPanel ? 'popover' : panel === 'projects' ? 'drawer' : panel === 'files' || panel === 'settings' || panel === 'plan-reader' ? 'reader' : 'sheet'} onClose={() => setPanel(null)} onBack={close} title={surfaceTitle} width={248} align={panel === 'attachments' ? 'start' : 'end'} variant={panel === 'advanced' ? 'settings' : panel === 'permissions' ? 'permissions' : 'default'}>

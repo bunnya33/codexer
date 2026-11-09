@@ -39,13 +39,13 @@ export function ConversationChromeHeader({ title, subtitle, usage, running, onDr
 }
 
 export function ConversationChromeComposer({ text, onChangeText, phase, busy = false, disabledAction = false, attachments, onRemoveAttachment, onAttachmentPress, plan, modelLabel,
-  onSubmit, onAttachments, onModel, onPermissions, onClearPlan, attachmentAnchor, modelAnchor, permission, effortIndex, effortCount, keepExpanded, onFocus,
+  onSubmit, onAttachments, onModel, onPermissions, onClearPlan, attachmentAnchor, modelAnchor, composerAnchor, permission, effortIndex, effortCount, keepExpanded, onFocus,
   attachmentsEnabled = true, modelEnabled = true, permissionsEnabled = true, planEnabled = true, onRetryAttachment, inputLabel = '消息内容', attachmentsLabel = '添加附件和模式', ...media }: {
   text: string; onChangeText: (text: string) => void; phase: ConversationPhase; busy?: boolean; disabledAction?: boolean; attachments: ChromeAttachment[]; keepExpanded?: boolean;
   onRemoveAttachment: (id: string) => void; onAttachmentPress: (item: ChromeAttachment) => void;
   plan: boolean; modelLabel: string; permission: PermissionSettings['mode']; effortIndex: number; effortCount: number; onSubmit: (action: ComposerAction) => void;
   onAttachments: () => void; onModel: () => void; onPermissions: () => void; onClearPlan: () => void;
-  attachmentAnchor: RefObject<View | null>; modelAnchor: RefObject<View | null>; onFocus?: () => void;
+  attachmentAnchor: RefObject<View | null>; modelAnchor: RefObject<View | null>; composerAnchor?: RefObject<View | null>; onFocus?: () => void;
   attachmentsEnabled?: boolean; modelEnabled?: boolean; permissionsEnabled?: boolean; planEnabled?: boolean; onRetryAttachment?: (id: string) => void;
   inputLabel?: string; attachmentsLabel?: string;
 } & Pick<ComposerProps, 'onImages' | 'onImageError' | 'onFiles'> & Partial<Pick<ComposerProps, 'imagesEnabled' | 'filesEnabled' | 'imageSlots'>>) {
@@ -64,7 +64,7 @@ export function ConversationChromeComposer({ text, onChangeText, phase, busy = f
   }, [expanded, motion, expansion]);
   const submit = () => { if (!disabled) onSubmit(action); };
   return <View style={styles.composerDock}>
-    <Animated.View testID="chrome-composer" style={[styles.composer, { backgroundColor: c.composer,
+    <Animated.View ref={composerAnchor} collapsable={false} testID="chrome-composer" style={[styles.composer, { backgroundColor: c.composer,
       paddingBottom: expansion.interpolate({ inputRange: [0, 1], outputRange: [4, 49] }),
     }]}>
       {!!attachments.length && <ScrollView horizontal style={styles.attachments} contentContainerStyle={{ gap: 8, padding: 5 }} showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">

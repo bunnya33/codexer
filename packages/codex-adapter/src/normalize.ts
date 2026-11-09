@@ -146,6 +146,11 @@ function normalizeItem(value: unknown, turn: RecordValue, textLimit = 4096, outp
   const completedAtMs = milliseconds(timing.completedAtMs) ?? milliseconds(item.completedAtMs);
   const questionRequestId = asyncQuestionRequestId(item);
   const subAgents = itemSubAgents(item, threadId);
+  // Forward public activity metadata only; tool arguments/results can contain credentials.
+  const toolArguments = record(item.arguments);
+  const browserTool = item.server === 'cua_repl' || String(item.tool).startsWith('mcp__cua_repl__');
+  const activityTitle = text(typeof item.title === 'string' ? item.title : browserTool ? toolArguments.title ?? toolArguments.completion_summary : undefined, 300).trim();
+  const commandPreview = array(item.commandActions).map(record).map(action => typeof action.command === 'string' ? action.command : '').filter(Boolean).join('; ');
   return {
     id: text(item.id, 160) || "unknown",
     type: text(item.type, 100) || "unknown",
@@ -160,6 +165,9 @@ function normalizeItem(value: unknown, turn: RecordValue, textLimit = 4096, outp
     ...(typeof item.command === "string" ? { command: text(item.command, textLimit === 4096 ? 4096 : 8192) } : {}),
     ...(output ? { output: displayText(output.slice(-outputLimit)) } : {}),
     ...(typeof item.tool === "string" ? { tool: text(item.tool, 300) } : {}),
+    ...(typeof item.server === 'string' ? {toolServer: text(item.server, 300)} : {}),
+    ...(activityTitle ? {activityTitle} : {}),
+    ...(commandPreview ? {commandPreview: text(commandPreview, 4096)} : {}),
     ...(subAgents.length ? { subAgents } : {}),
     ...(files.length ? { files } : {}),
     ...(fileOperations.length ? { fileOperations } : {}),

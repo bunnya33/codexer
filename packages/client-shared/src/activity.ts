@@ -13,6 +13,48 @@ export type ConversationBlock = { kind: "message"; item: RemoteItem } | Activity
 export type ExecutionSection = { kind: "execution"; id: string; items: RemoteItem[]; running: boolean };
 export type ActivitySection = { kind: "message"; item: RemoteItem } | ExecutionSection;
 
+function toolName(item: RemoteItem) {
+  return (item.tool ?? '').replace(/^mcp__.+?__/, '');
+}
+const chatToolActions: Record<string, string> = {
+  read_thread: '读取聊天', list_threads: '查看聊天列表', list_archived_threads: '查看归档聊天',
+  wait_threads: '等待聊天', create_thread: '创建聊天', fork_thread: '分支聊天',
+  set_thread_title: '重命名聊天', set_thread_archived: '归档聊天', delete_thread: '删除聊天',
+  set_thread_read_state: '更新聊天阅读状态', set_thread_pinned: '更新聊天置顶状态',
+  navigate_to_codex_page: '打开聊天', send_message_to_thread: '发送聊天消息',
+  list_projects: '查看项目列表', list_artifacts: '查看附件', open_in_codex: '打开预览',
+  load_workspace_dependencies: '加载工作区依赖',
+};
+function toolAction(item: RemoteItem) {
+  const name = toolName(item);
+  if (!item.toolServer || item.toolServer === 'codex_app' || item.tool?.startsWith('mcp__codex_app__')) {
+    if (chatToolActions[name]) return chatToolActions[name];
+  }
+  if (item.toolServer === 'cua_repl' || item.tool?.startsWith('mcp__cua_repl__')) return '操作浏览器';
+  if (item.type === 'webSearch') return '搜索网页';
+  if (item.type === 'imageView') return '查看图片';
+  if (item.type === 'contextCompaction') return '压缩上下文';
+  if (item.type === 'sleep') return '等待';
+  return undefined;
+}
+export function executionItemIcon(item: RemoteItem | undefined): 'agent' | 'reasoning' | 'file' | 'command' | 'browser' | 'chat' | 'image' | 'clock' | 'search' | 'compaction' | 'tool' {
+  if (item?.subAgents?.length) return 'agent';
+  if (!item || item.type === 'reasoning') return 'reasoning';
+  if (item.command || item.type === 'commandExecution') return 'command';
+  if (item.files?.length || item.fileOperations?.length || item.type === 'fileChange') return 'file';
+  if (item.toolServer === 'cua_repl' || item.tool?.startsWith('mcp__cua_repl__')) return 'browser';
+  if (toolAction(item) && /聊天/.test(toolAction(item)!)) return 'chat';
+  if (item.type === 'imageView') return 'image';
+  if (item.type === 'sleep') return 'clock';
+  if (item.type === 'webSearch') return 'search';
+  if (item.type === 'contextCompaction') return 'compaction';
+  return 'tool';
+}
+function itemActive(item: RemoteItem, running: boolean) {
+  if (item.status === 'inProgress' || item.status === 'running') return running && item.completedAtMs === undefined;
+  return running && item.completedAtMs === undefined && item.durationMs === undefined && !['completed', 'failed', 'interrupted', 'cancelled', 'declined'].includes(item.status ?? '');
+}
+
 /** Keep prose visible and collapse consecutive execution records between messages.
  * IDs follow the preceding message, so appending streamed steps retains expansion state.
  */
@@ -42,15 +84,29 @@ export function executionItemLabel(item: RemoteItem | undefined, running: boolea
     const action: Record<string, string> = { spawnAgent: '创建子 Agent', wait: '等待子 Agent', closeAgent: '关闭子 Agent', resumeAgent: '恢复子 Agent', interruptAgent: '中断子 Agent', followupTask: '安排子 Agent 任务', sendInput: '向子 Agent 发送指令', sendMessage: '向子 Agent 发送消息', listAgents: '查看子 Agent' };
     return `${running && item.status === 'inProgress' ? '正在' : '已'}${action[item.tool ?? ''] || '协调子 Agent'}`;
   }
-  const active = running && item.completedAtMs === undefined && item.durationMs === undefined && !['completed', 'failed', 'interrupted', 'cancelled', 'declined'].includes(item.status ?? '');
+  const active = itemActive(item, running);
   if (item.type === 'reasoning') return active ? '正在思考' : '已思考';
   if (item.command || item.type === 'commandExecution') return active ? '正在运行命令' : '已运行命令';
   if (item.files?.length || item.type === 'fileChange') return active ? '正在修改文件' : '已修改文件';
+  const action = toolAction(item);
+  if (action) return `${active ? '正在' : '已'}${action}`;
+  if (item.type === 'error') return '发生错误';
   return `${active ? '正在调用' : '已调用'}${item.tool || '工具'}`;
 }
 
 function oneLine(value: string | undefined) {
   return (value ?? '').split(/\r?\n/).map(line => line.trim()).find(Boolean)?.replace(/^#{1,6}\s+/, '').replace(/\*\*|__/g, '').replace(/\s+/g, ' ').slice(0, 220) ?? '';
+}
+/** Unwrap only recognized shell launchers for display. Keep the recorded command intact. */
+export function displayCommand(command: string): string {
+  const shell = command.trim().match(/^(?:"[^"\r\n]*[\\/]((?:pwsh|powershell|cmd|bash|zsh|sh)(?:\.exe)?)"|'[^'\r\n]*[\\/]((?:pwsh|powershell|cmd|bash|zsh|sh)(?:\.exe)?)'|((?:pwsh|powershell|cmd|bash|zsh|sh)(?:\.exe)?))\s+(.*)$/is);
+  if (!shell) return command;
+  const name = (shell[1] || shell[2] || shell[3] || '').toLowerCase();
+  const flags = shell[4]!.match(name.startsWith('cmd') ? /^(?:(?:\/d|\/s)\s+)*\/c\s+([\s\S]+)$/i
+    : /^(?:(?:-NoLogo|-NoProfile|-NonInteractive|-ExecutionPolicy\s+\w+|-l)\s+)*(?:-Command|-c|-lc)\s+([\s\S]+)$/i);
+  if (!flags) return command;
+  const body = flags[1]!;
+  return (body[0] === '"' || body[0] === "'") && body.at(-1) === body[0] ? body.slice(1, -1) : body;
 }
 function fileNames(paths: string[]) {
   const names = [...new Set(paths)].map(path => path.split(/[\\/]/).at(-1) || path);
@@ -71,7 +127,9 @@ export function executionItemSummary(item: RemoteItem | undefined, running: bool
   const active = label.startsWith('正在');
   const prefix = item.status === 'failed' ? '失败：' : item.status === 'declined' ? '已拒绝：'
     : ['interrupted', 'cancelled'].includes(item.status ?? '') ? '已停止：' : active ? '正在' : '已';
-  if (item.command || item.type === 'commandExecution') return `${prefix}运行${item.command ? ` ${oneLine(item.command)}` : '命令'}`;
+  const title = oneLine(item.activityTitle);
+  if (title) return `${['失败：', '已拒绝：', '已停止：'].includes(prefix) ? prefix : ''}${title}`;
+  if (item.command || item.type === 'commandExecution') return `${prefix}运行${item.command ? ` ${oneLine(item.commandPreview || displayCommand(item.command))}` : '命令'}`;
   if (item.files?.length || item.fileOperations?.length || item.type === 'fileChange') {
     const operations = fileOperations(item);
     const descriptions = (['add', 'update', 'delete', 'unknown'] as const).flatMap(kind => {
@@ -80,13 +138,23 @@ export function executionItemSummary(item: RemoteItem | undefined, running: bool
     });
     return `${prefix}${descriptions.join('，') || '修改文件'}`;
   }
+  const action = toolAction(item);
+  if (action) return `${prefix}${action}`;
+  if (item.type === 'error') return item.text ? `发生错误：${oneLine(item.text)}` : '发生错误';
   return `${prefix}调用${item.tool || '工具'}${oneLine(item.text) ? ` · ${oneLine(item.text)}` : ''}`;
+}
+
+/** Empty reasoning placeholders have no public title; retain the latest named activity. */
+export function executionSectionItem(section: ExecutionSection): RemoteItem | undefined {
+  return [...section.items].reverse().find(item => item.type !== 'reasoning' || oneLine(item.text)) ?? section.items.at(-1);
 }
 
 /** Finished groups describe their work instead of always naming the final reasoning step. */
 export function executionSectionSummary(section: ExecutionSection): string {
-  const latest = section.items.at(-1);
+  const latest = executionSectionItem(section);
   if (section.running) return executionItemSummary(latest, true);
+  const publicSummary = [...section.items].reverse().find(item => item.type === 'reasoning' && oneLine(item.text));
+  if (publicSummary && !section.items.some(item => ['failed', 'interrupted', 'cancelled', 'declined'].includes(item.status ?? ''))) return executionItemSummary(publicSummary, false);
   const operations = section.items.filter(item => item.type !== 'reasoning' && !unsuccessful(item));
   const failure = section.items.find(item => ['failed', 'interrupted', 'cancelled', 'declined'].includes(item.status ?? ''));
   if (!operations.length) return executionItemSummary(failure ?? latest, false);

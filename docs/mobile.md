@@ -43,6 +43,8 @@ Web 开发服务默认 5173，读取 `.local/services.json` 中本机 Relay 地�
 
 ## 构建
 
+Android 正式 APK 必须沿用原发布证书。密钥和已保存密码的位置、短路径工程及自动打包命令见 [Android 发布签名](android-signing.md)。后续开发和 AI 打包从该入口开始，不能重新生成签名或用 debug APK 代替。
+
 ```bash
 npm run mobile:typecheck
 npm run build:web

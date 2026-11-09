@@ -6,8 +6,8 @@ import { useInteractionMotion } from './motion';
 import { useSurfaceAccessibility } from './surface-accessibility';
 import './reference-controls.web.css';
 
-export function ModelSurface({ open, host, anchor, onClose, children }: {
-  open: boolean; host: RefObject<View | null>; anchor: RefObject<View | null>; onClose: () => void; children: ReactNode;
+export function ModelSurface({ open, host, anchor, composerAnchor, onClose, children }: {
+  open: boolean; host: RefObject<View | null>; anchor: RefObject<View | null>; composerAnchor?: RefObject<View | null>; onClose: () => void; children: ReactNode;
 }) {
   const { theme } = useControlTheme();
   const motion = useInteractionMotion();
@@ -27,18 +27,20 @@ export function ModelSurface({ open, host, anchor, onClose, children }: {
     const measure = () => {
       const h = (host.current as unknown as HTMLElement)?.getBoundingClientRect();
       const a = (anchor.current as unknown as HTMLElement)?.getBoundingClientRect();
+      const composer = (composerAnchor?.current as unknown as HTMLElement)?.getBoundingClientRect();
       if (!h?.width || !a?.width) return;
       const width = Math.min(360, h.width - 32, Math.max(248, h.width * .82));
       const left = (h.width - width) / 2;
-      const top = Math.max(10, Math.min(h.height - 112, a.top - h.top + a.height / 2 - 78));
+      const top = Math.max(10, Math.min(h.height - 122, (composer?.top ?? a.top) - h.top - 112 - 12));
       setGeometry({ left, top, width, originX: a.left - h.left - left, originY: a.top - h.top - top });
     };
     measure();
     const observer = new ResizeObserver(measure);
     if (host.current) observer.observe(host.current as unknown as Element);
+    if (composerAnchor?.current) observer.observe(composerAnchor.current as unknown as Element);
     window.visualViewport?.addEventListener('resize', measure);
     return () => { observer.disconnect(); window.visualViewport?.removeEventListener('resize', measure); };
-  }, [open, host, anchor]);
+  }, [open, host, anchor, composerAnchor]);
   if (!present || !geometry) return null;
   return <div className="reference-model-layer" aria-hidden={!open} data-state={open ? 'open' : 'closing'} data-motion={motion ? 'full' : 'reduced'} style={{ pointerEvents: open ? 'auto' : 'none' }}>
     <button aria-label="关闭模型面板" className="reference-model-dismiss" onClick={close} />

@@ -35,7 +35,7 @@ export function ConversationControls(props: Props) {
   const [model, setModel] = useState(props.settings?.model ?? '');
   const [effort, setEffort] = useState(props.settings?.reasoningEffort ?? '');
   const lock = useRef(false), mounted = useRef(true);
-  const host = useRef<View>(null), attachmentAnchor = useRef<View>(null), modelAnchor = useRef<View>(null);
+  const host = useRef<View>(null), attachmentAnchor = useRef<View>(null), modelAnchor = useRef<View>(null), composerAnchor = useRef<View>(null);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => { setModel(props.settings?.model ?? ''); setEffort(props.settings?.reasoningEffort ?? ''); }, [props.settings?.model, props.settings?.reasoningEffort]);
   useEffect(() => { if (!props.ready) setOpen(false); }, [props.ready]);
@@ -84,7 +84,7 @@ export function ConversationControls(props: Props) {
       plan={props.settings?.collaborationMode === 'plan'} permission={props.settings?.permissions?.mode ?? 'ask'}
       modelLabel={`${modelLabel(model, props.options)}，${referenceEffortLabel(effort)}`} effortIndex={Math.max(0, values.indexOf(effort))} effortCount={values.length}
       onSubmit={props.onSubmit} onAttachments={() => show('attachments')} onModel={() => show('model')} onPermissions={() => show('permissions')}
-      onClearPlan={() => { void save(() => props.onMode('default')); }} attachmentAnchor={attachmentAnchor} modelAnchor={modelAnchor}
+      onClearPlan={() => { void save(() => props.onMode('default')); }} attachmentAnchor={attachmentAnchor} modelAnchor={modelAnchor} composerAnchor={composerAnchor}
       attachmentsEnabled={props.ready && !saving} modelEnabled={props.ready && modelAvailable && !pending}
       permissionsEnabled={props.ready && props.permissionsEnabled && !pending} planEnabled={props.modeEnabled}
       onImages={props.onImages} onImageError={props.onImageError} imagesEnabled={props.imagesEnabled && !pending} imageSlots={props.imageSlots}
@@ -108,7 +108,7 @@ export function ConversationControls(props: Props) {
           onChange={mode => { void save(() => props.onPermission(mode)).then(ok => { if (ok && mounted.current) close(); }); }} /> : null}
       {feedback}
     </InteractionSurface>}
-    {(panel === 'model' || panel === 'advanced') && <ModelSurface open={open && panel === 'model'} host={host} anchor={modelAnchor} onClose={close}>
+    {(panel === 'model' || panel === 'advanced') && <ModelSurface open={open && panel === 'model'} host={host} anchor={modelAnchor} composerAnchor={composerAnchor} onClose={close}>
       <View style={{ position: 'absolute', bottom: 112, left: 0, right: 0 }}>{feedback}</View>
       <QuickModelPanel options={props.options} model={model} effort={effort} onEffort={setEffort} onCommit={commitEffort} disabled={pending} effortDisabled={!props.effortEnabled} onAdvanced={() => show('advanced')} />
     </ModelSurface>}

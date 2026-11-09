@@ -58,6 +58,10 @@ for(const expiresAt of [null,1.2,'tomorrow',Number.MAX_VALUE]) add('command',{..
 const items=[
  {id:'user',type:'userMessage',content:[{type:'text',text:'Please fix this'}]},
  {id:'reason',type:'reasoning',summary:['First','Second']},
+ {id:'browser',type:'mcpToolCall',server:'cua_repl',tool:'js',arguments:{title:'检查弹层最终布局',code:'never forwarded'},status:'inProgress'},
+ {id:'browser-done',type:'mcpToolCall',server:'cua_repl',tool:'js',arguments:{completion_summary:'已验证模型弹层上移'},status:'completed'},
+ {id:'chat',type:'mcpToolCall',server:'codex_app',tool:'read_thread',arguments:{threadId:'unneeded'}},
+ {id:'parsed-command',type:'commandExecution',command:'"C:/runtime/pwsh.exe" -Command "Get-Location"',commandActions:[{type:'unknown',command:'Get-Location'}]},
  {id:'cmd',type:'commandExecution',command:'Get-Location',aggregatedOutput:'C:/sandbox',status:'completed'},
  {id:'file',type:'fileChange',status:'completed',changes:[{path:'hello.cpp',kind:{type:'update'},diff:'@@ -1 +1 @@\n-old\n+new'}]},
  {id:'agent',type:'agentMessage',phase:'final_answer',text:'Finished'},
@@ -100,7 +104,7 @@ for(let i=0;i<jobs.length;i++) {
    threadSchema.parse(actual);
    const expected=normalizeThread(value,0);
    assert.equal(actual.status,expected.status); assert.equal(actual.activeTurnId,expected.activeTurnId);
-   assert.deepEqual(actual.turns.map((t:any)=>t.items.map((item:any)=>[item.id,item.text,item.command,item.output,item.startedAtMs,item.completedAtMs])),expected.turns.map(t=>t.items.map(item=>[item.id,item.text,item.command,item.output,item.startedAtMs,item.completedAtMs])));
+   assert.deepEqual(actual.turns.map((t:any)=>t.items.map((item:any)=>[item.id,item.text,item.command,item.output,item.startedAtMs,item.completedAtMs,item.toolServer,item.activityTitle,item.commandPreview])),expected.turns.map(t=>t.items.map(item=>[item.id,item.text,item.command,item.output,item.startedAtMs,item.completedAtMs,item.toolServer,item.activityTitle,item.commandPreview])));
    assert.deepEqual(actual.requests,expected.requests);
    assert.deepEqual(actual.subAgents.map((a:any)=>[a.threadId,a.status,a.message]),expected.subAgents?.map(a=>[a.threadId,a.status,a.message]));
  }
@@ -108,6 +112,7 @@ for(let i=0;i<jobs.length;i++) {
    historyPageSchema.parse({threadId:'thread-test',turns:[actual],nextCursor:null,generatedAt:Date.now()});
    const expected=normalizeHistoryTurn(value,undefined,'thread-test');
    assert.equal(actual.startedAtMs,expected.startedAtMs); assert.equal(actual.completedAtMs,expected.completedAtMs);
+   assert.deepEqual(actual.items.map((item:any)=>[item.id,item.toolServer,item.activityTitle,item.commandPreview]),expected.items.map(item=>[item.id,item.toolServer,item.activityTitle,item.commandPreview]));
  }
  if(kind==='approval') assert.deepEqual(actual,mcpApproval(value) ?? {});
 }

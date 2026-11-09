@@ -30,6 +30,7 @@
 | [协议](protocol.md) | 状态、epoch/seq、命令幂等与结果语义 |
 | [安全与配置](security.md) | 会话、凭据、日志、示例地址、公开文件边界 |
 | [发布与打包](release.md) | Windows/macOS、服务器包、App、签名与升级 |
+| [Android 发布签名](android-signing.md) | 原密钥与加密密码位置、证书核验、自动签名打包、迁移保管 |
 | [干净源码导出](new-repository.md) | 无历史源码导出、检查、仓库初始化与当前地址 |
 | [目录清理与保留说明](cleanup.md) | 废弃入口、历史资料、构建范围、仍需保留的文件 |
 | [验证范围](validation.md) | 本次检查结果及实机/生产验收范围 |

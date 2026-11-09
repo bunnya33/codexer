@@ -108,7 +108,7 @@ describe('collapsed execution records', () => {
       item('edit', 'fileChange', {status: 'completed', files: ['App.tsx'], fileOperations: [{path: 'App.tsx', kind: 'update'}]}),
       item('command', 'commandExecution', {status: 'completed', command: 'npm test'}), item('last', 'reasoning')];
     expect(executionSectionSummary({kind: 'execution', id: 'group', items, running: false})).toBe('已创建 helper.ts，编辑文件并运行命令');
-    expect(executionSectionSummary({kind: 'execution', id: 'group', items, running: true})).toBe('正在思考');
+    expect(executionSectionSummary({kind: 'execution', id: 'group', items, running: true})).toBe('已运行 npm test');
     expect(executionItemSummary(items[0], false)).toBe('已创建 helper.ts');
     expect(executionItemSummary(item('old-agent', 'fileChange', {files: ['App.tsx']}), false)).toBe('已修改 App.tsx');
     expect(executionItemSummary(item('delete', 'fileChange', {fileOperations: [{path: 'old.ts', kind: 'delete'}]}), false)).toBe('已删除 old.ts');

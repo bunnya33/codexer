@@ -478,6 +478,25 @@ static Object normalizeItem(
     out["output"] = output.right(outputLimit);
   if (item["tool"].isString())
     out["tool"] = text(item["tool"], 300);
+  if (item["server"].isString())
+    out["toolServer"] = text(item["server"], 300);
+  auto arguments = item["arguments"].toObject();
+  bool browserTool = item["server"] == "cua_repl" ||
+                     item["tool"].toString().startsWith("mcp__cua_repl__");
+  auto title = text(item["title"].isString() ? item["title"]
+                     : browserTool ? (arguments.contains("title")
+                                          ? arguments["title"]
+                                          : arguments["completion_summary"])
+                                   : QJsonValue(), 300).trimmed();
+  if (!title.isEmpty())
+    out["activityTitle"] = title;
+  QStringList commandPreview;
+  for (auto action : item["commandActions"].toArray())
+    if (action.toObject()["command"].isString() &&
+        !action.toObject()["command"].toString().isEmpty())
+      commandPreview << action.toObject()["command"].toString();
+  if (!commandPreview.isEmpty())
+    out["commandPreview"] = text(commandPreview.join("; "), 4096);
   auto time =
       turn["itemTimingsById"].toObject()[item["id"].toString()].toObject();
   timing(out, item);

@@ -1,7 +1,7 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Easing, Platform, Pressable, ScrollView, Text, View } from 'react-native';
-import { Bot, Check, ChevronDown, ChevronRight, ChevronUp, Copy, Pencil, Sparkles, Terminal } from 'lucide-react-native';
-import { activityLabel, activitySections, buildActivityBlocks, executionItemSummary, executionSectionSummary, formatDuration, itemDuration, messageRole } from '../../../packages/client-shared/src/activity';
+import { Bot, Check, ChevronDown, ChevronRight, ChevronUp, Copy, Pencil, Sparkles, SquareTerminal, Globe, MessageCircle, Image, Clock, Search, Layers, Wrench } from 'lucide-react-native';
+import { activityLabel, activitySections, buildActivityBlocks, executionItemIcon, executionItemSummary, executionSectionItem, executionSectionSummary, formatDuration, itemDuration, messageRole } from '../../../packages/client-shared/src/activity';
 import type { ExecutionSection } from '../../../packages/client-shared/src/activity';
 import type { HistoryTurn, RemoteItem } from '../../../packages/protocol/src/index';
 import { userPresentation } from '../../../packages/protocol/src/user-presentation';
@@ -28,7 +28,7 @@ type ImageViewer = (source: ImageSource, name: string) => void;
 
 function ExecutionIcon({ item }: { item?: RemoteItem }) {
   const { c } = useTheme();
-  const Icon = item?.subAgents?.length ? Bot : !item || item.type === 'reasoning' ? Sparkles : item.files?.length || item.type === 'fileChange' ? Pencil : Terminal;
+  const Icon = {agent: Bot, reasoning: Sparkles, file: Pencil, command: SquareTerminal, browser: Globe, chat: MessageCircle, image: Image, clock: Clock, search: Search, compaction: Layers, tool: Wrench}[executionItemIcon(item)];
   return <Icon size={14} color={c.muted} />;
 }
 
@@ -81,12 +81,13 @@ function ExecutionGroup({ section, deviceId, threadId, onImage }: { section: Exe
     animation.start(({finished}) => { if (finished && !open) setMounted(false); });
     return () => animation.stop();
   }, [open, contentHeight, height, motion]);
-  const latest = section.items.at(-1);
+  const latest = executionSectionItem(section);
   const title = executionSectionSummary(section);
-  const iconItem = section.running ? latest : [...section.items].reverse().find(item => item.type !== 'reasoning') ?? latest;
+  const iconItem = !section.running && section.items.some(item => item.type === 'reasoning' && item.text?.trim()) ? [...section.items].reverse().find(item => item.type === 'reasoning' && item.text?.trim()) : latest;
+  const visibleItems = section.items.filter(item => item.type !== 'reasoning' || item.text?.trim() && executionItemSummary(item, section.running) !== title);
   return <View style={s.executionGroup}>
     <Pressable accessibilityRole="button" aria-expanded={open} accessibilityLabel={`${title}，${open ? '收起' : '展开'}处理记录`} onPress={() => setOpen(value => !value)} style={s.executionHead}><ExecutionIcon item={iconItem} />{section.running ? <ShimmerLabel text={title} /> : <Text style={s.executionTitle} numberOfLines={1}>{title}</Text>}<Animated.View testID={`execution-arrow-${section.id}`} style={[s.executionArrow, {transform: [{rotate: rotation.interpolate({inputRange: [0, 1], outputRange: ['0deg', '90deg']})}]}]}><ChevronRight size={14} color={c.muted} /></Animated.View></Pressable>
-    {mounted && <Animated.View testID={`execution-body-${section.id}`} pointerEvents={open ? 'auto' : 'none'} aria-hidden={!open} accessibilityElementsHidden={!open} importantForAccessibility={open ? 'auto' : 'no-hide-descendants'} style={[s.executionBody, {height}]}><ScrollView nestedScrollEnabled style={[s.executionList, {height: listHeight}]} contentContainerStyle={s.executionListContent} onContentSizeChange={(_width, measuredHeight) => setContentHeight(Math.ceil(measuredHeight))}>{section.items.map((item, index) => <Message key={item.id} item={item} running={section.running && index === section.items.length - 1} deviceId={deviceId} threadId={threadId} onImage={onImage} />)}{!section.items.length && <Text style={s.executionWaiting}>等待新的处理记录…</Text>}</ScrollView></Animated.View>}
+    {mounted && <Animated.View testID={`execution-body-${section.id}`} pointerEvents={open ? 'auto' : 'none'} aria-hidden={!open} accessibilityElementsHidden={!open} importantForAccessibility={open ? 'auto' : 'no-hide-descendants'} style={[s.executionBody, {height}]}><ScrollView nestedScrollEnabled style={[s.executionList, {height: listHeight}]} contentContainerStyle={s.executionListContent} onContentSizeChange={(_width, measuredHeight) => setContentHeight(Math.ceil(measuredHeight))}>{visibleItems.map(item => <Message key={item.id} item={item} running={section.running} deviceId={deviceId} threadId={threadId} onImage={onImage} />)}{!visibleItems.length && <Text style={s.executionWaiting}>等待新的处理记录…</Text>}</ScrollView></Animated.View>}
   </View>;
 }
 

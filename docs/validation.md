@@ -1,5 +1,17 @@
 # 当前 Go 迁移验证
 
+## 2026-11-09 Agent 0.2.33 / Android 签名恢复与活动显示
+
+通过只读官方桌面 IPC 核对实际会话，确认浏览器标题位于 `mcpToolCall.arguments.title` / `completion_summary`，工具来源位于 `server`，原始命令有 `commandActions`。TS 与 Qt 仅同步有界的公开标题、来源与命令摘要，不传工具参数或结果。实时和历史新字段、旧记录回退、失败状态、公开思考摘要、空占位和宿主命令剥离均有回归覆盖。模型面板锚定整个编辑框上沿，保留从模型按钮展开的原点与强度交互。
+
+Mobile、Windows Native 与根工程类型检查、协议生成一致性、43 份文档检查和 Go Relay 回归通过。活动相关两文件 43 项通过；完整 95 文件 790 项执行中 789 项通过，复制会话 ID 的拒绝后重试用例一次未观察到成功状态；单独重跑整个 Mobile selection 文件的 84 项全部通过。更早并行 Android 编译时视频粘贴/拖入的两项也曾未观察到发送，单独重跑两项及整个文件通过。保留此时序不稳定记录，不表述为一次全绿的完整运行。
+
+Qt 6.8.3/MSVC 真正原生编译与 0.2.33 安装版/便携版打包成功。后台 110、UI 18、跨语言 338 项检查通过，分别保留原有 2 / 1 个条件跳过。stage 的全新、原生凭据、旧 Electron 加密凭据与单实例检查通过；同进程无 Node。本轮未覆盖安装正式 Agent，也未对新便携包再做独立启动验收。
+
+浏览器使用正式会话组件和示例数据，验证公开思考标题、简洁命令、聊天与浏览器图标、运行中浏览器标题不被空占位替换，以及展开后仍显示完整宿主命令；警告/错误日志为空。截图为 `.local/conversation-integration/public-activity-final.png`。模型面板此前以正式 App 和合成 Relay 在默认桌面尺寸检查，空输入与三行草稿均距编辑框上沿 12px，强度切换正常；截图为 `model-above-composer-pc.png`。不代表生产账号端到端验收。
+
+原 PKCS#12 与 DPAPI 密码已找回，发布证书 SHA-256 与旧 APK 一致。已提交的 `scripts/sync-android-source.mjs` 在短路径副本实际同步 1173 文件并核对摘要；`scripts/build-android-release.ps1` 自动解密密码、核验证书、使用 Android Studio JBR 与生产 NODE_ENV，真正执行 Gradle Release 构建成功。Android 0.1.16 / versionCode 17 的签名 APK、非调试清单、应用 ID、16 KiB ZIP 对齐、包内 Hermes 与 16 份关键 source map 源码核对通过。证据与 APK 位于 `release/android-0.1.16`；本轮没有模拟器覆盖安装、真实手机或登录远程任务验收，未上传发布目录或商店。密钥位置与后续流程见[Android 发布签名](android-signing.md)。Windows Control 和 macOS 本轮未重新原生编译；没有新服务器发布或生产安装。
+
 ## 2026-11-09 服务器 0.3.50 / Agent 0.2.32 / Control 0.2.13
 
 在主目录 main 与 origin/main 一致的基础上开发，保留原有 AGENTS、Qt 指南与 HTML 改动。修复长工具序列裁剪助手回复、插话后的实时/历史排序及旧完成状态遮住活动回复；Qt 与 TypeScript 规范化实现使用同一保留规则。新增跨语言长工具/插话案例。项目目录与搜索接入真实 Qt/Relay 协议，含多根、分页、取消、版本锁定、账号/项目授权、目录穿越和链接边界；Relay 实际 WebSocket 回归覆盖超过旧 256 KiB 限制的下载块，保持设备连接。
