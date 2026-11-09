@@ -6,7 +6,7 @@
 
 运行中刷新优先保留助手与用户消息，避免大量工具活动挤掉回复；插话后的合并使用最新实时顺序，恢复中的活动轮次不会被旧历史完成状态覆盖。补齐回到底部按钮、工具展开、问答翻页和计划阅读动作。设置提供系统/浅色/深色和强调色，删除重复“常规”；更多菜单移除“会话展示范围”，设备显示系统及真实 Agent 版本。
 
-Windows Qt Agent 0.2.32 和 Windows Native Control 0.2.13 已完成实际原生编译与安装包生成。Qt 后台仍为同进程 C++/Qt，无 Node。Android 源码版本为 0.1.16 / versionCode 17，发布签名材料尚待恢复，不能以 JS 检查代替正式 APK；macOS 未重新编译验收。各平台验证边界见[验证记录](validation.md)。正式发布状态见后续记录，生产安装仍由用户在后台执行。
+Windows Qt Agent 0.2.32 和 Windows Native Control 0.2.13 已完成实际原生编译与安装包生成，分别位于 `release/agent-0.2.32` 和 `release/control-0.2.13`。Qt 后台仍为同进程 C++/Qt，无 Node。Android 0.1.16 / versionCode 17 已完成未签名的原生 Release 构建，原发布签名材料尚待恢复，目前没有可覆盖安装的正式 APK；macOS 未重新编译验收。各平台验证边界见[验证记录](validation.md)。稳定版 [v0.3.50](https://github.com/bunnya33/codexer/releases/tag/v0.3.50) 已发布，源码为 `14862db`；[发布流程](https://github.com/bunnya33/codexer/actions/runs/42540400300)通过类型、完整 Go 和 785 项 TypeScript 回归、PostgreSQL、Go race、生产构建与 Linux 独立程序验收。四个平台归档及 SHA-256 共 8 个附件齐全，Linux amd64 正式包已下载核对摘要、版本、平台及执行权限。管理员可在后台检查安装，或手动上传匹配平台的更新包和校验文件；生产安装仍由用户执行。
 
 ## 服务器 0.3.49：控制端交互与阅读器改版
 
