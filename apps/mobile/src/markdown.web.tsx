@@ -11,8 +11,10 @@ export function Markdown({ children }: { children: string }) {
 
 function MarkdownText({ children }: { children: string }) {
   const onFile = useFileLink();
-  const html = useMemo(() => renderMarkdown(children, undefined, !!onFile), [children, onFile]);
-  return <div className="codexer-markdown" dangerouslySetInnerHTML={{ __html: html }} onClick={event => {
+  // React rewrites innerHTML when this prop object changes, even for identical
+  // HTML. Keep it stable so sync, timers and new file handlers preserve selection.
+  const content = useMemo(() => ({ __html: renderMarkdown(children, undefined, !!onFile) }), [children, !!onFile]);
+  return <div className="codexer-markdown" dangerouslySetInnerHTML={content} onClick={event => {
     const target = event.target as HTMLElement;
     const file = target.closest<HTMLAnchorElement>('[data-file-path]');
     if (file) { event.preventDefault(); onFile?.(file.dataset.filePath!); return; }

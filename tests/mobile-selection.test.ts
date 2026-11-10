@@ -287,6 +287,28 @@ async function pagingFixture(paging: NonNullable<FixtureOptions['paging']>) {
   return { ...test, stream, scroll, wheel };
 }
 
+it.each(['completed', 'inProgress'] as const)('preserves selected reply text through background sync and timer updates (%s)', async status => {
+  const turn: HistoryTurn = { id: 'active-turn', status, truncated: false, startedAtMs: Date.now() - 10000,
+    items: [{ id: 'selected-reply', type: 'agentMessage', phase: status === 'inProgress' ? 'commentary' : 'final_answer', text: '保留选中的文字，后台同步不应清除选区。', truncated: false }] };
+  const test = await fixture({ controls: { active: status === 'inProgress', text: '', images: [] }, review: { turns: [turn] } });
+  try {
+    const document = test.dom.window.document;
+    await vi.waitFor(() => expect(document.querySelector('.codexer-markdown p')?.textContent).toBe(turn.items[0]!.text));
+    await new Promise(resolve => test.dom.window.requestAnimationFrame(() => test.dom.window.requestAnimationFrame(resolve)));
+    const paragraph = document.querySelector('.codexer-markdown p')!, node = paragraph.firstChild!;
+    const selection = test.dom.window.getSelection()!, range = document.createRange();
+    range.setStart(node, 2); range.setEnd(node, 8); selection.removeAllRanges(); selection.addRange(range);
+    const selected = selection.toString();
+    test.refresh();
+    await new Promise(resolve => test.dom.window.setTimeout(resolve, 1150));
+    expect(document.querySelector('.codexer-markdown p')).toBe(paragraph);
+    expect(selection.toString()).toBe(selected);
+    expect(selection.anchorNode).toBe(node);
+    expect(selection.anchorOffset).toBe(2); expect(selection.focusOffset).toBe(8);
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
 it('keeps the real conversation list at the true end after tall content and delayed resize scrolls', async () => {
   const test = await pagingFixture({ exhausted: true });
   try {
