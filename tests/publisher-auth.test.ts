@@ -34,7 +34,7 @@ async function fixture() {
     grantExpiresAt: Date.now() + 2 * 86400000,
     grantId: "test-grant",
     scopes: ["server:read"],
-    username: "admin",
+    username: "管理员·兔子🐰",
   });
   const server = createServer(async (req, res) => {
     calls.push(req.url!);
@@ -145,6 +145,7 @@ it.skipIf(process.platform !== "win32")(
     expect(disk).not.toContain(remote.reply().accessToken);
     expect(disk).not.toContain(remote.refresh);
     const loaded = await loadPublishingClient(path);
+  expect(loaded.identity().username).toBe(remote.reply().username);
     await loaded.client.assertAdmin();
     expect(remote.counts().refreshes).toBe(1);
   },

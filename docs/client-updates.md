@@ -53,4 +53,4 @@ Windows 原生界面自动验收工具因启动错误 `failed to write kernel as
 
 ## 专用发布工具
 
-0.3.54 起可通过[网页授权的本机发布工具](server-deploy.md)统一上传上述八类安装包；后台可查看并撤销工具权限。Android 校验原签名和实际版本，Windows Agent 安装版兼容原更新通道。发布不自动安装到设备。
+0.3.55 起可通过[网页授权的本机发布工具](server-deploy.md)统一上传上述八类安装包；后台可查看并撤销工具权限。Android 校验原签名和实际版本，Windows Agent 安装版兼容原更新通道。发布不自动安装到设备。

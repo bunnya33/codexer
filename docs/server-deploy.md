@@ -1,6 +1,6 @@
 # 让 Codex 发布和更新 Codexer
 
-`codexer-server-deploy` Skill 调用仓库中的按需 CLI，不新增常驻 MCP 服务。服务器继续使用 Go 和既有 systemd 更新器。服务器从 **0.3.54** 起支持专用发布授权；第一次先在后台手动上传新版服务器包、准备并确认重启，之后再授权工具。
+`codexer-server-deploy` Skill 调用仓库中的按需 CLI，不新增常驻 MCP 服务。服务器继续使用 Go 和既有 systemd 更新器。服务器从 **0.3.55** 起支持专用发布授权；第一次先在后台手动上传新版服务器包、准备并确认重启，之后再授权工具。
 
 ## 首次网页授权
 
@@ -36,8 +36,8 @@ npm run server:deploy -- login --url https://codexer.example.com
 
 ```powershell
 npm run server:deploy -- status
-npm run server:deploy -- deploy --archive "F:/downloads/codexer-server-0.3.54-linux-amd64.tar.gz"
-npm run server:deploy -- deploy --archive "F:/downloads/codexer-server-0.3.54-linux-amd64.tar.gz" --apply
+npm run server:deploy -- deploy --archive "F:/downloads/codexer-server-0.3.55-linux-amd64.tar.gz"
+npm run server:deploy -- deploy --archive "F:/downloads/codexer-server-0.3.55-linux-amd64.tar.gz" --apply
 ```
 
 `deploy` 默认只校验并返回 `dry-run`。同目录需要同名 `.sha256`，或用 `--checksum` 指定。工具流式核对 SHA-256、文件名版本、平台和 256 MiB 上限，检查上传能力、版本及其它更新冲突。仅 `--apply` 上传，等待 `built` 后为同一任务提交一次 `restart`，最终核对任务 `succeeded`、当前版本、`/health` 和专用发布身份接口。
@@ -71,7 +71,7 @@ npm run server:deploy -- publish-client --target agent-windows-x64-setup --archi
 
 | 错误 | 处理 |
 | --- | --- |
-| `server-upgrade-required-for-publishing` | 先手动安装 0.3.54 或更新版本 |
+| `server-upgrade-required-for-publishing` | 先手动安装 0.3.55 或更新版本 |
 | `http-server-requires-allow-http` / `publishing-requires-https` | 改用 HTTPS 或本机 SSH 隧道；新授权没有 HTTP 兼容开关 |
 | `legacy-admin-login-requires-new-web-authorization` / `login-expired` | 运行 login 重新在服务器网页授权 |
 | `refresh-reused-reauthorize` | 原刷新凭据已使用，授权被撤销；重新网页授权，不重复刷新 |

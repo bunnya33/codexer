@@ -4,7 +4,9 @@ import { dirname } from "node:path";
 
 async function dpapi(value: string, operation: "protect" | "unprotect"): Promise<string> {
   const protect = operation === "protect";
-  const script = `Add-Type -AssemblyName System.Security\n$secretText = [Console]::In.ReadToEnd()\n$secretBytes = ${protect ? "[System.Text.Encoding]::UTF8.GetBytes($secretText)" : "[Convert]::FromBase64String($secretText)"}\n$secretResult = [System.Security.Cryptography.ProtectedData]::${protect ? "Protect" : "Unprotect"}($secretBytes, $null, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)\n[Console]::Out.Write(${protect ? "[Convert]::ToBase64String($secretResult)" : "[System.Text.Encoding]::UTF8.GetString($secretResult)"})`;
+  // Windows PowerShell's default pipe encoding can corrupt JSON containing
+  // non-ASCII account names. Node writes and reads these pipes as UTF-8.
+  const script = `Add-Type -AssemblyName System.Security\n[Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)\n[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)\n$secretText = [Console]::In.ReadToEnd()\n$secretBytes = ${protect ? "[System.Text.Encoding]::UTF8.GetBytes($secretText)" : "[Convert]::FromBase64String($secretText)"}\n$secretResult = [System.Security.Cryptography.ProtectedData]::${protect ? "Protect" : "Unprotect"}($secretBytes, $null, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)\n[Console]::Out.Write(${protect ? "[Convert]::ToBase64String($secretResult)" : "[System.Text.Encoding]::UTF8.GetString($secretResult)"})`;
   return new Promise((resolve, reject) => {
     const child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
     let output = "";
