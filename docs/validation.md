@@ -5,11 +5,13 @@
 发布前补查发现旧 DPAPI 桥接对表情符号账号名存在控制台编码损坏；已固定 stdin/stdout 为 UTF-8，真实 Windows 中文与 emoji 加密往返、轮换后重载均通过。0.3.54 候选未发布，正式版本使用 0.3.55。
 
 - 完整 Go 测试及 100 个文件共 822 项 TypeScript 回归通过；全仓类型检查、Go vet、文档链接检查、Skill 源模板与已安装副本校验通过。
-- 新授权覆盖等待/拒绝/过期、错误证明、一次交换、并发消费、scope 隔离、十分钟访问过期、刷新旋转/重放撤销、管理员密码重置、后台撤销、上传过程中撤销、包摘要拒绝和可信/伪造 TLS 代理。PostgreSQL 核心生命周期在正式发布工作流的真实数据库中复跑，结果发布后另记。
+- 新授权覆盖等待/拒绝/过期、错误证明、一次交换、并发消费、scope 隔离、十分钟访问过期、刷新旋转/重放撤销、管理员密码重置、后台撤销、上传过程中撤销、包摘要拒绝和可信/伪造 TLS 代理。PostgreSQL 核心生命周期已在正式发布工作流的真实数据库中复跑通过。
 - 生产 Web/Admin/Go 独立程序构建及 Windows StandaloneBinary 验收通过。真实浏览器从未登录的 `/admin/?publish=...` 登录，核对电脑/验证码/权限、批准、CLI 自动接收 DPAPI 授权、后台审计和撤销，撤销后 CLI 返回 401，logout 清理自己的测试凭据。
 - 独立本机 SQLite 测试服务器实际发布已有正式签名 Android 0.1.17 / versionCode 18（93,234,214 字节）和 Windows Qt Agent 0.2.33 安装版（11,164,535 字节）。Android 原证书、包名及实际版本检验通过；Agent 现代目录和原兼容通道均发布，摘要核对通过。未向生产服务器上传客户端、未安装到用户设备；这些是既有安装包，未宣称重新原生编译。
 - 更新了 CLI 和可安装的 codexer-server-deploy Skill，不新增常驻 MCP。公网 HTTP 不接受新发布凭据；HTTPS/Caddy 和 SSH 隧道文档完成，实际生产域名、证书和公网接入尚未配置或验收。
 
+
+正式发布：[v0.3.55](https://github.com/bunnya33/codexer/releases/tag/v0.3.55)，源码 `7d561d5c1d491cdf7e73e3262b0c34206df9d20d`；[流水线 42764213224](https://github.com/bunnya33/codexer/actions/runs/42764213224)全部成功，Linux CI 为 820 通过/2 项 Windows 专用跳过，Windows 本机全部 822 通过。四平台及 SHA-256 共 8 个正式附件，Linux amd64 包 8,209,994 字节，摘要 `7823b20e8c965862768929eac242e592a63ebe8d3af69d183a80c3ce41a63db4`。已从正式 Release 下载核对归档路径、manifest、版本、ELF 架构和执行权限，构建及流水线记录保存在 `release/server-0.3.55/`。生产 `/health` 仍为 0.3.53，本次未上传或安装生产更新、未更改证书/网络配置。
 
 ## 2026-11-10 初版本地服务器升级工具与 Skill（已替换授权方式）
 

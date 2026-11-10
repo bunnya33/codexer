@@ -10,7 +10,9 @@ Android 原发布密钥和密码的稳定保存位置、证书指纹及自动读
 
 同时包含编辑框加号菜单动画、图片和视频合并入口，侧栏去除冗余区并把会话搜索移到设备下方，以及浏览器选中文本在状态更新时保持的修复。Web 随服务器更新，Android 和原生 Control 需另行打包。本次无 PC Agent 后台协议变更，无需更换已安装 Agent。
 
-本轮源码、构建及隔离环境验收见[验证记录](validation.md)，工具使用见[发布与升级](server-deploy.md)。正式发布和生产安装分别记录，不将本地包构建等同已安装。
+稳定版 [v0.3.55](https://github.com/bunnya33/codexer/releases/tag/v0.3.55) 已正式发布，源码为 `7d561d5`；[发布流程](https://github.com/bunnya33/codexer/actions/runs/42764213224)通过类型、完整 Go 回归、PostgreSQL 授权生命周期、100 个文件中 820 项 TypeScript 测试（2 项 Windows 专用测试在 Linux 跳过）、Go race、生产构建和 Linux 独立程序验收。Windows 本机全部 822 项通过。四个平台归档和配套校验文件共 8 个附件齐全；Linux amd64 正式包已下载，核对 SHA-256、manifest、版本、平台、归档边界和执行权限。生产健康检查仍为 0.3.53，本轮未安装或重启生产服务器。
+
+本轮源码、构建及隔离环境验收见[验证记录](validation.md)，工具使用见[发布与升级](server-deploy.md)。首次在后台手动上传新包和同名校验文件、准备并确认重启，再接入专用网页授权。
 
 ## 服务器 0.3.53：模型与强度文字入口
 
