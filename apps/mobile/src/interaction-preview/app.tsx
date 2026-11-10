@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, Image, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useColorScheme, useWindowDimensions, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { ArrowDown, Camera, Check, ChevronDown, Copy, FileText, FlaskConical, Folder, Image as ImageIcon, ListChecks, MessageCircleQuestion, Monitor, Moon, Paperclip, Pencil, Plus, RotateCcw, Settings2, ShieldCheck, Sun, Video, X } from 'lucide-react-native';
+import { ArrowDown, Camera, Check, ChevronDown, Copy, FileText, FlaskConical, Folder, Image as ImageIcon, ListChecks, MessageCircleQuestion, Monitor, Moon, Paperclip, Pencil, Plus, RotateCcw, Settings2, ShieldCheck, Sun, X } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import type { PermissionMode } from '../../../../packages/protocol/src/index';
 import { modelLabel } from '../../../../packages/client-shared/src/models';
@@ -13,6 +13,7 @@ import { TaskStatusDot } from '../task-status-dot';
 import { Markdown } from '../markdown';
 import { copyText } from '../runtime';
 import { pickAttachments } from '../attachment-picker';
+import { pickMedia } from '../media-picker';
 import type { AttachmentAsset } from '../attachment-picker';
 import { useConversationDraft } from '../conversation-drafts';
 import { ConversationChromeComposer, ConversationChromeHeader } from '../interaction/conversation-chrome';
@@ -109,14 +110,15 @@ function Preview({ dark, preferences, onPreferences }: { dark: boolean; preferen
   const addImages = (assets: ImagePicker.ImagePickerAsset[]) => setImages(current => [...current, ...assets.slice(0, Math.max(0, 20 - current.length)).map(asset => ({ key: ++ids.current, uri: asset.uri, name: asset.fileName || '照片.png', asset, loading: false }))]);
   const addFiles = (assets: AttachmentAsset[]) => setFiles(current => [...current, ...assets.slice(0, Math.max(0, 4 - current.length)).map(asset => ({ key: ++ids.current, asset, loading: false }))]);
   const addExample = () => { setImages(current => current.length >= 20 ? current : [...current, { key: ++ids.current, uri: samplePhoto, name: '旅行照片.png', loading: false }]); setPanel(null); };
-  const pick = async (kind: 'photos' | 'camera' | 'files' | 'videos') => {
+  const pick = async (kind: 'media' | 'camera' | 'files') => {
     setPanel(null);
     const key = thread;
     try {
-      if (kind === 'files' || kind === 'videos') { const assets = await pickAttachments(kind === 'videos' ? 'video' : undefined); if (activeThread.current === key) addFiles(assets); }
+      if (kind === 'files') { const assets = await pickAttachments(); if (activeThread.current === key) addFiles(assets); }
+      else if (kind === 'media') { const result = await pickMedia({ imageSlots: Math.max(0, 20 - draft.images.length), videoSlots: Math.max(0, 4 - draft.files.length) }); if (activeThread.current === key) { addImages(result.images); addFiles(result.videos); } }
       else {
         if (kind === 'camera' && !(await ImagePicker.requestCameraPermissionsAsync()).granted) { notify('需要相机权限才能拍照'); return; }
-        const result = kind === 'camera' ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'] }) : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsMultipleSelection: true, selectionLimit: 20 });
+        const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'] });
         if (!result.canceled && activeThread.current === key) addImages(result.assets);
       }
     } catch { notify('未能读取所选附件，请重试'); }
@@ -232,9 +234,9 @@ function Preview({ dark, preferences, onPreferences }: { dark: boolean; preferen
           <ModelSurface open={panelOpen && panel === 'model'} host={host} anchor={modelAnchor} composerAnchor={composerAnchor} onClose={close}>
             <QuickModelPanel options={previewModels} model={model} effort={effort} onEffort={setEffort} onAdvanced={() => { Keyboard.dismiss(); setPanel('advanced'); }} />
           </ModelSurface>
-          <InteractionSurface open={panelOpen && panel !== 'model'} host={host} anchor={anchor} kind={compactPanel ? 'popover' : panel === 'projects' ? 'drawer' : panel === 'files' || panel === 'settings' || panel === 'plan-reader' ? 'reader' : 'sheet'} onClose={() => setPanel(null)} onBack={close} title={surfaceTitle} width={248} align={panel === 'attachments' ? 'start' : 'end'} variant={panel === 'advanced' ? 'settings' : panel === 'permissions' ? 'permissions' : 'default'}>
+          <InteractionSurface open={panelOpen && panel !== 'model'} host={host} anchor={anchor} kind={compactPanel ? 'popover' : panel === 'projects' ? 'drawer' : panel === 'files' || panel === 'settings' || panel === 'plan-reader' ? 'reader' : 'sheet'} onClose={() => setPanel(null)} onBack={close} title={surfaceTitle} width={248} align={panel === 'attachments' ? 'start' : 'end'} variant={panel === 'advanced' ? 'settings' : panel === 'permissions' ? 'permissions' : panel === 'attachments' ? 'attachment-menu' : 'default'}>
             {panel === 'attachments' && <>
-              <MenuRow Icon={Camera} title="相机" onPress={() => void pick('camera')} /><MenuRow Icon={ImageIcon} title="照片" onPress={() => void pick('photos')} /><MenuRow Icon={Video} title="视频" onPress={() => void pick('videos')} /><MenuRow Icon={Paperclip} title="文件" onPress={() => void pick('files')} />
+              <MenuRow Icon={Camera} title="相机" onPress={() => void pick('camera')} /><MenuRow Icon={ImageIcon} title="图片与视频" onPress={() => void pick('media')} /><MenuRow Icon={Paperclip} title="文件" onPress={() => void pick('files')} />
               <View style={{ height: 1, backgroundColor: c.line, margin: 6 }} /><MenuRow Icon={ListChecks} title="方案模式" selected={plan} disabled={session.phase === 'running'} onPress={() => { setPlan(!plan); setPanel(null); }} />
             </>}
             {panel === 'advanced' && <AdvancedModelPanel options={previewModels} model={model} effort={effort} onModel={setModelValue} onEffort={setEffort} />}

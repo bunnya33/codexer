@@ -21,8 +21,9 @@ beforeAll(async () => {
     resolveExtensions: ['.web.tsx', '.web.ts', '.web.js', '.tsx', '.ts', '.jsx', '.js', '.json'], nodePaths: [resolve('apps/mobile/node_modules')], alias: { 'react-native': 'react-native-web' },
     plugins: [{ name: 'fixture-pickers', setup(build) {
       build.onResolve({ filter: /^\.\/src\/attachment-picker$/ }, () => ({ path: 'files', namespace: 'fixture' }));
+      build.onResolve({ filter: /^\.\/src\/media-picker$/ }, () => ({ path: 'media', namespace: 'fixture' }));
       build.onResolve({ filter: /^expo-image-picker$/ }, () => ({ path: 'images', namespace: 'fixture' }));
-      build.onLoad({ filter: /.*/, namespace: 'fixture' }, ({ path }) => ({ contents: path === 'files' ? 'export async function pickAttachments(kind) { return window.__pickAttachments(kind); }' : 'export async function launchImageLibraryAsync() { return window.__pickImages(); } export const launchCameraAsync = launchImageLibraryAsync; export async function requestCameraPermissionsAsync() { return {granted:true}; }', loader: 'js' }));
+      build.onLoad({ filter: /.*/, namespace: 'fixture' }, ({ path }) => ({ contents: path === 'files' ? 'export async function pickAttachments(kind) { return window.__pickAttachments(kind); }' : path === 'media' ? 'export async function pickMedia(options) { const photos = options.imageSlots ? await window.__pickImages() : {assets:[]}; return {images:photos.assets ?? [],videos:options.videoSlots ? await window.__pickAttachments("video") : []}; }' : 'export async function launchImageLibraryAsync() { return window.__pickImages(); } export const launchCameraAsync = launchImageLibraryAsync; export async function requestCameraPermissionsAsync() { return {granted:true}; }', loader: 'js' }));
     } }],
     define: { 'process.env.NODE_ENV': '"production"', __DEV__: 'false', global: 'globalThis', 'process.env': '{}' } });
   javascript = result.outputFiles!.find(file => file.path.endsWith('.js'))!.text;
@@ -944,7 +945,7 @@ it('opens attachment actions from plus and sends a file-only message after uploa
     await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-a']).toBe(false));
     test.click('添加附件');
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="添加文件"]')).not.toBeNull());
-    expect(test.dom.window.document.body.textContent).toContain('照片');
+    expect(test.dom.window.document.body.textContent).toContain('图片与视频');
     test.click('添加文件');
     await vi.waitFor(() => expect(test.uploadRequests).toHaveLength(2));
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="发送消息"]')?.getAttribute('aria-disabled')).not.toBe('true'));
@@ -956,26 +957,27 @@ it('opens attachment actions from plus and sends a file-only message after uploa
   } finally { test.close(); }
 });
 
-it('offers a video picker and sends an original video larger than the ordinary file limit', async () => {
+it('offers one mixed media entry and sends photos with an original video larger than the ordinary file limit', async () => {
   const bytes = Buffer.alloc(21 * 1024 * 1024, 7);
   let pickerKind: string | undefined;
-  const test = await fixture({ controls: { active: false, text: '', images: [] }, filePicker: async kind => {
+  const test = await fixture({ controls: { active: false, text: '', images: [] }, imagePicker: async () => ({ canceled: false, assets: [draftImage('混选图片.png')] }), filePicker: async kind => {
     pickerKind = kind;
     return [{ name: '录屏.mp4', size: bytes.length, mimeType: 'video/mp4', readChunk: async (offset, length) => bytes.subarray(offset, offset + length).toString('base64') }];
   } });
   try {
     await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-a']).toBe(false));
     test.click('添加附件');
-    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="添加视频"]')).not.toBeNull());
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="添加图片与视频"]')).not.toBeNull());
+    expect(test.dom.window.document.querySelector('[aria-label="添加视频"]')).toBeNull();
     expect(test.dom.window.document.body.textContent).toContain('视频每个 512 MB');
-    test.click('添加视频');
+    test.click('添加图片与视频');
     await vi.waitFor(() => expect(test.uploadRequests).toHaveLength(43));
     expect(pickerKind).toBe('video');
-    expect(test.imageUploads).toHaveLength(0);
+    expect(test.imageUploads).toHaveLength(1);
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="发送消息"]')?.getAttribute('aria-disabled')).not.toBe('true'));
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[data-testid="interaction-surface"]')).toBeNull());
     test.click('发送消息');
-    await vi.waitFor(() => expect(test.commands.some(c => c.payload.type === 'turn.start' && c.payload.text === '' && c.payload.attachments?.[0] === 'f'.repeat(64))).toBe(true));
+    await vi.waitFor(() => expect(test.commands.some(c => c.payload.type === 'turn.start' && c.payload.text === '' && c.payload.images?.[0] === test.imageUploads[0]!.id && c.payload.attachments?.[0] === 'f'.repeat(64))).toBe(true));
     expect(test.commands.at(-1)!.expiresAt - Date.now()).toBeGreaterThan(290000);
     expect(test.errors).toEqual([]);
   } finally { test.close(); }
@@ -1006,9 +1008,9 @@ it.each([false, true])('honors the advertised image limit and legacy fallback (l
   try {
     await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-a']).toBe(false));
     test.click('添加附件');
-    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="添加图片"]')).not.toBeNull());
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="添加图片与视频"]')).not.toBeNull());
     expect(test.dom.window.document.body.textContent).toContain(`最多 ${limit} 张图片`);
-    test.click('添加图片');
+    test.click('添加图片与视频');
     await vi.waitFor(() => expect(test.imageUploads).toHaveLength(limit));
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="发送消息"]')?.getAttribute('aria-disabled')).not.toBe('true'));
     await vi.waitFor(() => expect(test.dom.window.document.querySelector('[data-testid="interaction-surface"]')).toBeNull());
@@ -1074,8 +1076,8 @@ async function selectDraftDevice(test: Awaited<ReturnType<typeof fixture>>, from
 const draftImage = (name = '草稿 截图.png') => ({ uri: 'data:image/png;base64,ZmFrZQ==', fileName: name, width: 1, height: 1, mimeType: 'image/png', base64: 'ZmFrZQ==' });
 async function addDraftImage(test: Awaited<ReturnType<typeof fixture>>) {
   test.click('添加附件');
-  await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="添加图片"]')).not.toBeNull());
-  test.click('添加图片');
+  await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="添加图片与视频"]')).not.toBeNull());
+  test.click('添加图片与视频');
   await vi.waitFor(() => expect(test.imageUploads.length).toBeGreaterThan(0));
 }
 

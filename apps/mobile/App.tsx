@@ -47,6 +47,7 @@ import { ControlSettings } from './src/control-settings';
 import {SettingsShell} from './src/settings-shell';
 import {useClientUpdates} from './src/client-updates';
 import { pickAttachments } from './src/attachment-picker';
+import { pickMedia } from './src/media-picker';
 import type { AttachmentAsset } from './src/attachment-picker';
 import { MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES, attachmentByteLimit } from '../../packages/protocol/src/uploads';
 import { useConversationDraft } from './src/conversation-drafts';
@@ -305,13 +306,14 @@ function AppContent() {
       });
     }
   };
-  const pickImages = async () => {
-    if (images.length >= imageLimit) return;
+  const pickPhotosAndVideos = async () => {
     const scope = currentStreamKey.current;
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsMultipleSelection: true, selectionLimit: imageLimit - images.length, base64: true, quality: 0.85 });
-      if (!result.canceled && draftIsCurrent() && scope === currentStreamKey.current) addImages(result.assets);
-    } catch (error) { if (draftIsCurrent()) relay.showNotice(error instanceof Error ? error.message : '无法读取图片'); }
+      const result = await pickMedia({ imageSlots: snapshot?.runtime.capabilities.images ? Math.max(0, imageLimit - images.length) : 0,
+        videoSlots: snapshot?.runtime.capabilities.attachments ? Math.max(0, MAX_ATTACHMENTS - files.length) : 0 });
+      if (!draftIsCurrent() || scope !== currentStreamKey.current) return;
+      addImages(result.images); addFiles(result.videos);
+    } catch (error) { if (draftIsCurrent()) relay.showNotice(error instanceof Error ? error.message : '无法读取图片或视频'); }
   };
   const pickCamera = async () => {
     const scope = currentStreamKey.current;
@@ -473,7 +475,7 @@ function AppContent() {
         onRemoveAttachment={id => { const file = files.find(item => `file:${item.key}` === id); if (file) removeFile(file); else setImages(current => current.filter(item => `image:${item.key}` !== id)); }}
         onRetryAttachment={id => { const file = files.find(item => `file:${item.key}` === id), image = images.find(item => `image:${item.key}` === id); if (file) void uploadFile(file); else if (image) void uploadDraft(image, deviceId, threadId); }}
         onAttachmentPress={item => { const index = images.findIndex(image => `image:${image.key}` === item.id); if (index >= 0) openDraftImage(index); else relay.showNotice('文件已附加，可移除或发送后在会话中查看。'); }}
-        onPhotos={() => void pickImages()} onCamera={() => void pickCamera()} onFilesPick={() => void pickFiles()} onVideos={() => void pickFiles('video')}
+        onMedia={() => void pickPhotosAndVideos()} onCamera={() => void pickCamera()} onFilesPick={() => void pickFiles()}
         imageLimit={imageLimit} videoLimitMB={videoLimit / 1024 / 1024} filesSupported={!!snapshot?.runtime.capabilities.attachments}
         onImages={addImages} imageSlots={Math.max(0, imageLimit - images.length)} onFiles={addFiles}
         filesEnabled={ready && !busy && !!snapshot?.runtime.capabilities.attachments && files.length < MAX_ATTACHMENTS}

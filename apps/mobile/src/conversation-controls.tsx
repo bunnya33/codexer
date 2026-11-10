@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ActivityIndicator, Platform, Text, View } from 'react-native';
-import { Camera, Image, ListChecks, Paperclip, Video, X } from 'lucide-react-native';
+import { Camera, Images, ListChecks, Paperclip, X } from 'lucide-react-native';
 import type { ModelOption, ModelSettings, PermissionMode } from '../../../packages/protocol/src/index';
 import { modelLabel } from '../../../packages/client-shared/src/models';
 import type { ComposerProps } from './composer';
@@ -22,7 +22,7 @@ type Props = {
   onModel: (model: string) => Promise<boolean>; onEffort: (effort: string) => Promise<boolean>; onPermission: (mode: PermissionMode) => Promise<boolean>;
   onMode: (mode: 'default' | 'plan') => Promise<boolean>; onSubmit: () => void;
   preparedPlan?: string; onRemovePreparedPlan?: () => void;
-  onPhotos: () => void; onCamera: () => void; onFilesPick: () => void; onVideos: () => void; imageLimit: number; videoLimitMB: number; filesSupported: boolean;
+  onMedia: () => void; onCamera: () => void; onFilesPick: () => void; imageLimit: number; videoLimitMB: number; filesSupported: boolean;
 } & Pick<ComposerProps, 'onImages' | 'imagesEnabled' | 'onImageError' | 'onFiles' | 'filesEnabled' | 'imageSlots'>;
 
 /** Shared production controls. Selection previews never issue runtime commands until committed. */
@@ -92,11 +92,10 @@ export function ConversationControls(props: Props) {
     </View>
     {panel !== 'model' && <InteractionSurface open={open} host={host} anchor={panel === 'attachments' ? attachmentAnchor : undefined}
       title={panel === 'advanced' ? '高级' : panel === 'permissions' ? '会话权限' : '附件和模式'} kind={panel === 'attachments' ? 'popover' : 'sheet'}
-      variant={panel === 'advanced' ? 'settings' : panel === 'permissions' ? 'permissions' : 'default'} onClose={close}>
+      variant={panel === 'advanced' ? 'settings' : panel === 'permissions' ? 'permissions' : 'attachment-menu'} onClose={close}>
       {panel === 'attachments' ? <>
         {['ios', 'android', 'web'].includes(Platform.OS) && <MenuRow Icon={Camera} title="相机" accessibilityLabel="拍照添加图片" disabled={!props.imagesEnabled} onPress={() => pick(props.onCamera)} />}
-        <MenuRow Icon={Image} title="照片" accessibilityLabel="添加图片" disabled={!props.imagesEnabled} onPress={() => pick(props.onPhotos)} />
-        <MenuRow Icon={Video} title="视频" accessibilityLabel="添加视频" disabled={!props.filesEnabled} onPress={() => pick(props.onVideos)} />
+        <MenuRow Icon={Images} title="图片与视频" accessibilityLabel="添加图片与视频" disabled={!props.imagesEnabled && !props.filesEnabled} onPress={() => pick(props.onMedia)} />
         <MenuRow Icon={Paperclip} title="文件" accessibilityLabel="添加文件" disabled={!props.filesEnabled} onPress={() => pick(props.onFilesPick)} />
         <View style={{ height: 1, backgroundColor: c.line, marginVertical: 6 }} />
         <MenuRow Icon={ListChecks} title="方案模式" selected={props.settings?.collaborationMode === 'plan'} disabled={!props.modeEnabled || pending}

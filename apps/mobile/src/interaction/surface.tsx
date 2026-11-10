@@ -11,7 +11,7 @@ import { useWideReader } from './reader-layout';
 type Position = { left: number; top: number; width: number };
 export function InteractionSurface({ open, onClose, onBack, onClosed, title, kind = 'sheet', host, anchor, aboveAnchor, origin, align = 'start', width = 270, readerWidth = 1040, children, variant = 'default' }: {
   open: boolean; onClose: () => void; onBack?: () => void; title: string; kind?: 'sheet' | 'reader' | 'popover' | 'drawer';
-  host: RefObject<View | null>; anchor?: RefObject<View | null>; aboveAnchor?: RefObject<View | null>; origin?:RefObject<View|null>; align?: 'start' | 'end'; width?: number; readerWidth?:number; children: ReactNode; variant?: 'default' | 'settings' | 'permissions' | 'menu'; onClosed?: () => void;
+  host: RefObject<View | null>; anchor?: RefObject<View | null>; aboveAnchor?: RefObject<View | null>; origin?:RefObject<View|null>; align?: 'start' | 'end'; width?: number; readerWidth?:number; children: ReactNode; variant?: 'default' | 'settings' | 'permissions' | 'menu' | 'attachment-menu'; onClosed?: () => void;
 }) {
   const { c } = useTheme();
   const motion = useInteractionMotion();
@@ -33,8 +33,10 @@ export function InteractionSurface({ open, onClose, onBack, onClosed, title, kin
   const back = useMemo(() => () => backRef.current(), []);
   useSurfaceAccessibility(open && present, panel, back, title);
   const menu = kind === 'popover' && variant === 'menu';
+  const attachmentMenu = kind === 'popover' && variant === 'attachment-menu';
+  const anchoredMenu = menu || attachmentMenu;
   const morph=kind==='reader'&&!!origin;
-  const measured = (!menu || !anchor || !!position && panelHeight > 0) && (!morph||!!startRect);
+  const measured = (!anchor || !!position && panelHeight > 0) && (!morph||!!startRect);
 
   useEffect(() => {
     if (open) { setPresent(true); drag.setValue(0); if (previousKind.current !== kind) progress.setValue(0); }
@@ -42,12 +44,12 @@ export function InteractionSurface({ open, onClose, onBack, onClosed, title, kin
     // Begin the menu's spring only once its anchor and size are known. Otherwise
     // the initial expansion runs invisibly while the native modal is measured.
     if (open && !measured) return;
-    const animation = menu && open && motion
+    const animation = anchoredMenu && open && motion
       ? Animated.spring(progress, { toValue: 1, stiffness: 420, damping: 33, mass: 1, restSpeedThreshold: .01, restDisplacementThreshold: .001, useNativeDriver: Platform.OS !== 'web' })
       : Animated.timing(progress, { toValue: open ? 1 : 0, duration: motion ? morph ? open ? 320 : 260 : open ? kind === 'popover' ? 200 : 240 : 170 : 0, easing: open ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic), useNativeDriver: Platform.OS !== 'web'&&!morph });
     animation.start(({ finished }) => { if (finished && !open) { setPresent(false); closedRef.current?.(); } });
     return () => animation.stop();
-  }, [open, motion, progress, drag, kind, menu, measured,morph]);
+  }, [open, motion, progress, drag, kind, anchoredMenu, measured,morph]);
 
   useLayoutEffect(() => {
     if (!open) return;
@@ -101,7 +103,7 @@ export function InteractionSurface({ open, onClose, onBack, onClosed, title, kin
         // RN Web compiles each shadow object to one box-shadow declaration.
         // Keep geometry and theme color together so the color cannot zero it out.
         shadowColor: c.shadow, shadowOffset: { width: 0, height: variant === 'menu' ? 12 : 7 }, shadowOpacity: variant === 'menu' ? .18 : .13, shadowRadius: variant === 'menu' ? 28 : 24,
-        opacity: !measured||anchor && !position ? 0 : menu ? progress.interpolate({ inputRange: [0, .65, 1], outputRange: [0, 1, 1], extrapolate: 'clamp' }) : progress,
+        opacity: !measured ? 0 : anchoredMenu ? progress.interpolate({ inputRange: [0, .65, 1], outputRange: [0, 1, 1], extrapolate: 'clamp' }) : progress,
         ...(reader ? { height: finalReaderHeight } : {}),
         maxHeight: bounds.height * (drawer ? 1 : reader ? .96 : sheet ? 0.86 : 0.8),
         ...(desktopReader ? { top: readerTop, left: (bounds.width - finalReaderWidth) / 2, width: finalReaderWidth, maxHeight: finalReaderHeight, borderRadius: 20,
@@ -112,7 +114,10 @@ export function InteractionSurface({ open, onClose, onBack, onClosed, title, kin
           : { ...position, transform: [...(variant === 'menu' ? [
             { translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [motion ? (position?.width ?? width) * .28 : 0, 0] }) },
             { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [motion ? -panelHeight * .28 : 0, 0] }) },
-          ] : []), { scale: progress.interpolate({ inputRange: [0, 1], outputRange: [motion ? menu ? .44 : .96 : 1, 1] }) }] }),
+          ] : attachmentMenu ? [
+            { translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [motion ? -((position?.width ?? width) / 2 - 22) * .56 : 0, 0] }) },
+            { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [motion ? panelHeight * .28 : 0, 0] }) },
+          ] : []), { scale: progress.interpolate({ inputRange: [0, 1], outputRange: [motion ? anchoredMenu ? .44 : .96 : 1, 1] }) }] }),
       },morph&&startRect?{
         left:progress.interpolate({inputRange:[0,1],outputRange:[startRect.left,Math.max(0,(bounds.width-finalReaderWidth)/2)]}),
         top:progress.interpolate({inputRange:[0,1],outputRange:[startRect.top,readerTop]}),
