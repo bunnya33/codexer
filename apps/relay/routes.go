@@ -11,6 +11,7 @@ import (
 var uuidPattern = regexp.MustCompile(`^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$`)
 
 func (s *Server) routes() {
+	s.publishRoutes()
 	s.uploadRoutes()
 	s.agentReleaseRoutes()
 	s.clientReleaseRoutes()

@@ -30,6 +30,8 @@ var bundled embed.FS
 type Options struct {
 	Version, WebRoot, AdminRoot, DataDir, UpdateDir, UpdateStatus string
 	Origins                                                       []string
+	PublicURL                                                     string
+	TrustedProxies                                                []string
 	Weixin                                                        bool
 	WeixinBase                                                    string
 	WeixinKey                                                     []byte
@@ -178,8 +180,11 @@ func (s *Server) Handler() http.Handler {
 		if len(r.URL.Path) > 16384 {
 			fail(400, "invalid-request")
 		}
-		if strings.HasPrefix(r.URL.Path, "/v1/weixin") {
+		if strings.HasPrefix(r.URL.Path, "/v1/weixin") || strings.HasPrefix(r.URL.Path, "/v1/publish") || strings.HasPrefix(r.URL.Path, "/v1/admin/publishing") {
 			w.Header().Set("Cache-Control", "no-store")
+		}
+		if strings.HasPrefix(r.URL.Path, "/v1/publish") || strings.HasPrefix(r.URL.Path, "/v1/admin/publishing") {
+			r.Body = http.MaxBytesReader(w, r.Body, 16*1024)
 		}
 		if strings.HasPrefix(r.URL.Path, "/share/") || strings.HasPrefix(r.URL.Path, "/v1/") && !strings.HasPrefix(r.URL.Path, "/v1/previews/") {
 			limit := 120
@@ -249,6 +254,22 @@ func (s *Server) route(pattern string, role string, fn func(http.ResponseWriter,
 		if role != "" {
 			p = s.principal(r, requestRole)
 		}
+		if strings.HasPrefix(role, "publish:") && r.Method != "GET" {
+			defer func() {
+				e := recover()
+				outcome, code := "succeeded", ""
+				if e != nil {
+					outcome, code = "rejected", "server-error"
+					if f, ok := e.(Fault); ok {
+						code = f.Code
+					}
+				}
+				s.Store.publishAudit(p, pattern, r.URL.Query().Get("name"), outcome, code)
+				if e != nil {
+					panic(e)
+				}
+			}()
+		}
 		global := r.Method != "GET" && r.Method != "OPTIONS" && (strings.HasPrefix(r.URL.Path, "/v1/users") || strings.HasPrefix(r.URL.Path, "/v1/admin/accounts") || r.URL.Path == "/v1/admin/auth-settings" || r.URL.Path == "/v1/admin/agent-settings" || r.URL.Path == "/v1/agents/login" || r.URL.Path == "/v1/auth/login" || r.URL.Path == "/v1/admin/auth/login" || r.URL.Path == "/v1/auth/logout")
 		if global {
 			waitStart := time.Now()
@@ -282,6 +303,16 @@ func (s *Server) principal(r *http.Request, role string) *Principal {
 	value := r.Header.Get("Authorization")
 	if !strings.HasPrefix(value, "Bearer ") {
 		fail(401, "unauthorized")
+	}
+	if strings.HasPrefix(value, "Bearer cdxp_a_") {
+		if !strings.HasPrefix(role, "publish:") {
+			fail(403, "publishing-scope-denied")
+		}
+		s.publishTransport(r)
+		return s.Store.publishPrincipal(strings.TrimPrefix(value, "Bearer "), strings.TrimPrefix(role, "publish:"))
+	}
+	if strings.HasPrefix(role, "publish:") {
+		role = "admin"
 	}
 	p := s.Store.Session(strings.TrimPrefix(value, "Bearer "), "")
 	if p == nil {

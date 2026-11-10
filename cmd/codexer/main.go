@@ -73,7 +73,7 @@ func serve() error {
 			return e
 		}
 	}
-	s, e := relay.New(store, relay.Options{Version: version, DataDir: dir, WebRoot: os.Getenv("RELAY_WEB_DIR"), AdminRoot: os.Getenv("RELAY_ADMIN_DIR"), UpdateDir: relay.EnvDefault("RELAY_UPDATE_DIR", "/var/lib/codexer-updater/inbox"), UpdateStatus: os.Getenv("RELAY_UPDATE_STATUS"), Origins: relay.SplitOrigins(os.Getenv("RELAY_ALLOWED_ORIGINS")), Weixin: os.Getenv("RELAY_WEIXIN_ENABLED") != "false", WeixinKey: key})
+	s, e := relay.New(store, relay.Options{Version: version, DataDir: dir, WebRoot: os.Getenv("RELAY_WEB_DIR"), AdminRoot: os.Getenv("RELAY_ADMIN_DIR"), UpdateDir: relay.EnvDefault("RELAY_UPDATE_DIR", "/var/lib/codexer-updater/inbox"), UpdateStatus: os.Getenv("RELAY_UPDATE_STATUS"), Origins: relay.SplitOrigins(os.Getenv("RELAY_ALLOWED_ORIGINS")), PublicURL: os.Getenv("RELAY_PUBLIC_URL"), TrustedProxies: relay.SplitOrigins(os.Getenv("RELAY_TRUSTED_PROXIES")), Weixin: os.Getenv("RELAY_WEIXIN_ENABLED") != "false", WeixinKey: key})
 	if e != nil {
 		return e
 	}

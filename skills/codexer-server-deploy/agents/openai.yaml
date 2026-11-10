@@ -1,4 +1,4 @@
 interface:
-  display_name: "Codexer 服务器升级"
-  short_description: "复用本机管理员登录，发布并上传更新包，完成服务器重启和版本核验。"
-  default_prompt: "使用 $codexer-server-deploy 把已完成的 Codexer 修改发布并更新到已配置的服务器。"
+  display_name: "Codexer 发布与升级"
+  short_description: "通过服务器网页授权发布多端安装包，并上传、安装和核验服务器更新。"
+  default_prompt: "使用 $codexer-server-deploy 发布已完成的 Codexer 修改，并按本次要求上传安装包或更新既有服务器。"

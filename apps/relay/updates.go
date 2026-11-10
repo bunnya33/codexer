@@ -388,10 +388,10 @@ func (u *Updates) AutoPrepare() {
 }
 func (s *Server) updateRoutes() {
 	s.serverUpdateUploadRoute()
-	s.route("GET /v1/admin/system/version", "admin", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
+	s.route("GET /v1/admin/system/version", "publish:server:read", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
 		return s.updates.Info(r.URL.Query().Get("force") == "true")
 	})
-	s.route("POST /v1/admin/system/update", "admin", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
+	s.route("POST /v1/admin/system/update", "publish:server:write", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
 		b := body(r)
 		for k := range b {
 			if k != "tag" && k != "action" && k != "jobId" {
@@ -404,6 +404,15 @@ func (s *Server) updateRoutes() {
 		}
 		if !stableTag.MatchString(tag) || (action != "update" && action != "build" && action != "restart") || (id != "" && !uuidPattern.MatchString(id)) {
 			fail(400, "invalid-request")
+		}
+		if p.Grant != "" {
+			if action != "restart" || id == "" {
+				fail(403, "publishing-upload-restart-only")
+			}
+			job := obj(s.updates.Info(false)["job"])
+			if action != "restart" || id == "" || job["id"] != id || job["source"] != "upload" {
+				fail(403, "publishing-upload-restart-only")
+			}
 		}
 		return s.updates.Request(tag, action, id)
 	})

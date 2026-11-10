@@ -8,6 +8,10 @@ export type { AuthSettings };
 import type { VersionInfo, UpdateJob, UpdateAction, UpdateSettings } from '../../../packages/shared/src/server-update';
 export type { VersionInfo, UpdateJob, UpdateAction, UpdateSettings };
 export type Role = 'admin' | 'user';
+export const publishingRequest = (code:string) => request<import('../../../packages/shared/src/publishing').PublishRequest>('/v1/admin/publishing/request?'+new URLSearchParams({code}));
+export const approvePublishing = (code:string,approve:boolean) => request('/v1/admin/publishing/approve','POST',{code,approve});
+export const publishingInfo = () => request<import('../../../packages/shared/src/publishing').PublishingInfo>('/v1/admin/publishing');
+export const revokePublishing = (id:string) => request('/v1/admin/publishing/'+encodeURIComponent(id),'DELETE');
 export type Account = { id: string; name: string; role: Role; created_at: number; revoked_at: number | null; login_enabled: boolean };
 export type Overview = {users: number; enabledUsers: number; admins: number; enabledAdmins: number; onlineDevices: number; onlineClients: number; uptime: number};
 export type ServerResources = {
@@ -33,6 +37,14 @@ async function request<T>(path: string, method = 'GET', body?: unknown, signal?:
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
     if (response.status === 401) clearSession();
+    const publishingErrors: Record<string,string> = {
+      'publishing-requires-https':'发布授权需要 HTTPS，请先配置 HTTPS 或使用 SSH 回环隧道。',
+      'authorization-request-expired':'授权请求已过期，请在本机工具重新运行 login。',
+      'authorization-request-unavailable':'请求已处理或过期，请在本机工具重新申请。',
+      'invalid-authorization-code':'验证码格式不正确，请核对工具输出。',
+      'authorization-not-found':'该授权不存在或已撤销，请刷新列表。',
+    };
+    if (publishingErrors[result.error]) throw new ApiError(response.status,publishingErrors[result.error]!);
     const codes: Record<string,string> = {'admin-disable-protected':'不能禁用当前账号或最后一位管理员', 'update-in-progress':'已有更新正在进行', 'update-not-current':'版本已变化，请重新检查更新', 'updater-not-installed':'请先用安装器启用服务器更新服务', 'git-updater-not-installed':'请运行新版安装器，启用 Git 构建更新服务', 'git-requires-manual-steps':'Git 更新需要手动确认构建和重启', 'tag-not-available':'该 tag 不可用或不高于当前版本，请重新检查', 'update-step-not-ready':'更新步骤已变化，请刷新后重试', 'account-name-taken':'该类账号的名称已存在', 'client-upload-in-progress':'已有安装包上传或删除操作，请稍后重试', 'client-release-in-use':'安装包正在下载，请下载完成后再删除', 'client-release-storage-error':'服务器保存失败，请刷新后重试', 'client-release-delete-error':'安装包文件删除失败，请检查服务器存储权限后重试'};
     codes['client-release-changed'] = '版本信息已变化，请关闭后刷新列表再修改';
     codes['client-upload-in-progress'] = '已有安装包正在上传、修改或删除，请稍后重试';

@@ -115,7 +115,7 @@ func (u *Updates) Upload(name, expected string, length int64, reader io.Reader, 
 }
 
 func (s *Server) serverUpdateUploadRoute() {
-	s.route("PUT /v1/admin/system/update-package", "admin", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
+	s.route("PUT /v1/admin/system/update-package", "publish:server:write", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
 		if !s.beginJob() {
 			fail(503, "relay-closing")
 		}
@@ -133,7 +133,7 @@ func (s *Server) serverUpdateUploadRoute() {
 					s.exclusive.RUnlock()
 				}
 			}()
-			s.principal(r, "admin")
+			s.principal(r, "publish:server:write")
 			if r.Context().Err() != nil || s.ctx.Err() != nil {
 				fail(400, "server-update-upload-incomplete")
 			}

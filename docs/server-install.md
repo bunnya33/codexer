@@ -96,4 +96,4 @@ sudo codexer info
 
 安装后的无参管理命令打开菜单；独立执行文件无参启动服务。安装验收检查服务、两个网页入口和管理员登录，既有凭据不匹配按上文提示处理；其他失败恢复程序、配置、主服务和更新器。数据库内容不自动回滚。
 
-systemd 安装器直接提供 HTTP 根地址；公网 HTTPS 可使用现有代理或 [Docker + Caddy](operations.md)。本文是安装流程，生产部署仍需在目标机器验收。
+systemd 安装器直接提供 HTTP 根地址；公网 HTTPS 可使用[现有 systemd 的 Caddy 反代](publishing-https.md)或 [Docker + Caddy](operations.md)。专用发布授权需要 HTTPS，首次可先在后台手动上传服务器更新。本文是安装流程，生产部署仍需在目标机器验收。

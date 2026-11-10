@@ -15,6 +15,7 @@ type Principal struct {
 	Expires int64
 	Device  string
 	Share   string // Public preview capability, independent of account sessions.
+	Grant   string // Restricted publishing authorization; never an admin session.
 }
 
 var passwordSlots = make(chan struct{}, 2)
@@ -116,6 +117,8 @@ func (s *Store) DisableUser(id, role, actor string) bool {
 	return ok
 }
 func (s *Store) RevokeSessions(id string) {
+	s.Q("UPDATE publish_grants SET revoked_at=$2 WHERE user_id=$1 AND revoked_at IS NULL", id, now())
+	s.Q("UPDATE publish_requests SET status='denied' WHERE user_id=$1 AND status='approved'", id)
 	s.Q("DELETE FROM sessions WHERE user_id=$1", id)
 	s.Q("DELETE FROM tickets WHERE owner_user_id=$1", id)
 	s.Q("DELETE FROM weixin_bindings WHERE user_id=$1", id)

@@ -21,6 +21,8 @@ docker compose --env-file infra/.env -f infra/compose.yaml logs --tail=100 relay
 
 如在 systemd 安装前放置自己的反向代理，让代理转发整个站点（含 WebSocket）到本机端口；执行 `sudo codexer origins https://relay.example.com` 加入实际 HTTPS 来源。该命令保持首项 HTTP 运维地址和本机监听端口，不自动申请证书。公网可仅开放代理的 443，限制 Relay 直连端口。代理要允许 WebSocket upgrade 与图片请求大小。
 
+发布工具还需要显式的 HTTPS public URL 和可信反代来源，详见[发布工具 HTTPS 配置](publishing-https.md)。
+
 ## 状态和账号恢复
 
 systemd：`sudo codexer status`、`sudo codexer logs`、`sudo codexer restart`；浏览器账号管理见 [Admin](admin.md)。管理员密码使用 `sudo codexer password`，同时更新数据库与受限配置。若曾在后台改密，CLI 提示时输入当前管理员密码。后台与控制端使用独立账号；现有管理员用于 PC 时需创建控制端账号后重新登录。

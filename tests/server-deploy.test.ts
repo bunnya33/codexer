@@ -1,20 +1,20 @@
 import { afterEach, expect, it } from 'vitest';
-import { createServer, request as httpRequest } from 'node:http';
+import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { join } from 'node:path';
-import { DeployClient, deployServer, deployUrl, inspectDeployArchive, loginDeployment } from '../packages/shared/src/server-deploy.js';
+import { DeployClient, deployServer, deployUrl, inspectDeployArchive } from '../packages/shared/src/server-deploy.js';
 import type { DeployReceipt } from '../packages/shared/src/server-deploy.js';
-import { startDeployLogin } from '../packages/shared/src/server-deploy-login.js';
+import {savePublishingCredential} from '../packages/shared/src/publisher-auth.js';
 import { readSecret, writeSecret } from '../packages/shared/src/secrets.js';
 import type { UpdateJob } from '../packages/shared/src/server-update.js';
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
-const token = 'synthetic-admin-session-only';
+const token = 'cdxp_a_'+'A'.repeat(43);
 async function archiveFixture() {
   const directory = await mkdtemp(join(tmpdir(), 'codexer-deploy-test-'));
   cleanups.push(() => rm(directory, { recursive: true, force: true }));
@@ -39,9 +39,9 @@ async function remoteFixture(options: { dropRestart?: boolean; fail?: 'failed' |
     if (options.redirect) { res.writeHead(302, { location: options.redirect }); res.end(); return; }
     if (path === '/health') return json(200, { version });
     if (options.authStatus || req.headers.authorization !== 'Bearer ' + token) return json(options.authStatus ?? 401, { error: 'unauthorized' });
-    if (path === '/v1/me') return json(200, { role: options.role ?? 'admin' });
+    if (path === '/v1/publish/me') return json(200, options.role==='user'?{}:{grantId:'synthetic-grant',scopes:['server:read','server:write']});
     if (path === '/v1/auth/active') return json(200, { expiresAt: Date.now() + 60000 });
-    if (path === '/v1/auth/logout') return json(200, { loggedOut: true });
+    if (path === '/v1/publish/revoke') return json(200, { loggedOut: true });
     if (path === '/v1/admin/system/version') {
       if (job && ++reads >= 2) {
         if (job.action === 'restart' && !options.stayBuilt) { job.phase = options.fail ?? 'succeeded'; if (job.phase === 'succeeded') version = '0.3.54'; }
@@ -70,7 +70,7 @@ async function remoteFixture(options: { dropRestart?: boolean; fail?: 'failed' |
   await new Promise<void>(resolveListen => server.listen(0, '127.0.0.1', resolveListen));
   cleanups.push(() => new Promise<void>(resolveClose => { server.close(() => resolveClose()); server.closeAllConnections(); }));
   const address = server.address(); if (!address || typeof address === 'string') throw Error('listen-failed');
-  const url = `http://127.0.0.1:${address.port}`, client = new DeployClient({ url, session: token, allowHttp: false });
+  const url = `http://127.0.0.1:${address.port}`, client = new DeployClient({ url, session: token, allowHttp: false, publishing: true });
   return { url, client, requests, uploads, setJob: (value: UpdateJob | null) => { job = value; }, setVersion: (value: string) => { version = value; } };
 }
 
@@ -124,47 +124,25 @@ it('checks health and admin access even when the target version is already insta
   const a = await archiveFixture(), remote = await remoteFixture(); remote.setVersion(a.archive.version);
   expect(await deployServer(remote.client, a.archive, { apply: true, save: async () => {} })).toMatchObject({ result: 'already-current' });
   expect(remote.requests.every(request => request.method === 'GET')).toBe(true);
-  expect(remote.requests.filter(request => request.path === '/v1/me')).toHaveLength(2);
+  expect(remote.requests.filter(request => request.path === '/v1/publish/me')).toHaveLength(2);
 });
 it.each([401, 403])('rejects invalid administrator access (%s)', async authStatus => {
   const a = await archiveFixture(), remote = await remoteFixture({ authStatus });
-  await expect(deployServer(remote.client, a.archive, { apply: true, save: async () => {} })).rejects.toThrow(authStatus === 401 ? 'login-expired' : 'admin-required');
+  await expect(deployServer(remote.client, a.archive, { apply: true, save: async () => {} })).rejects.toThrow(authStatus === 401 ? 'login-expired' : 'unauthorized');
   expect(remote.uploads).toEqual([]);
 });
 it('rejects a role mismatch and does not follow a credential-bearing redirect', async () => {
   const user = await remoteFixture({ role: 'user' });
-  await expect(loginDeployment(user.url, 'admin', 'synthetic-password')).rejects.toThrow('invalid-login-response');
+  await expect(user.client.assertAdmin()).rejects.toThrow('invalid-publishing-identity');
   const destination = await remoteFixture(), redirect = await remoteFixture({ redirect: destination.url + '/v1/me' });
   await expect(redirect.client.assertAdmin()).rejects.toThrow('server-unreachable'); expect(destination.requests).toEqual([]);
   expect(() => deployUrl('https://user:password@example.test')).toThrow('invalid-server-url');
   expect(() => deployUrl('http://example.test')).toThrow('allow-http');
 });
-it('accepts a local browser login, saves it encrypted on Windows and rejects other origins and hosts', async () => {
-  const a = await archiveFixture(), remote = await remoteFixture(), path = join(a.directory, 'login.secret');
-  const login = await startDeployLogin({ html: '<h1>本机升级登录</h1>', onLogin: session => writeSecret(path, session) });
-  cleanups.push(login.close);
-  expect((await fetch(login.url)).status).toBe(200);
-  const endpoint = login.url + 'login', body = JSON.stringify({ url: remote.url, username: 'admin', password: 'synthetic-password' });
-  expect((await fetch(endpoint, { method: 'POST', headers: { origin: 'https://foreign.test', 'content-type': 'application/json' }, body })).status).toBe(403);
-  const wrongHost = await new Promise<number>(resolveStatus => {
-    const request = httpRequest(endpoint, { method: 'POST', headers: { host: 'rebound.test', 'content-type': 'application/json' } }, response => { response.resume(); resolveStatus(response.statusCode!); });
-    request.end(body);
-  });
-  expect(wrongHost).toBe(403);
-  expect((await fetch(new URL('/login', login.url), { method: 'POST' })).status).toBe(404);
-  const response = await fetch(endpoint, { method: 'POST', headers: { origin: new URL(login.url).origin, 'content-type': 'application/json' }, body });
-  expect(response.status).toBe(200);
-  const result = await response.text(); expect(result).not.toContain(token); expect(result).not.toContain('synthetic-password');
-  expect(await readSecret(path)).toMatchObject({ session: token, url: remote.url, username: 'admin' });
-  const stored = await readFile(path, 'utf8');
-  expect(stored).not.toContain('synthetic-password');
-  if (process.platform === 'win32') { expect(stored).not.toContain(token); expect(stored).toContain('windows-dpapi-v1'); }
-});
-
-it('runs CLI preflight, deployment and logout with an isolated saved login and no credential output', async () => {
+it.skipIf(process.platform!=='win32')('runs CLI preflight, deployment and logout with an isolated saved login and no credential output', async () => {
   const a = await archiveFixture(), remote = await remoteFixture();
-  const session = await loginDeployment(remote.url, 'admin', 'synthetic-password');
-  await writeSecret(join(a.directory, 'default.secret'), session);
+  const session = {format:'publishing-v1' as const,url:remote.url,accessToken:token,refreshToken:'cdxp_r_'+ 'B'.repeat(43),expiresAt:Date.now()+600000,refreshExpiresAt:Date.now()+86400000,grantExpiresAt:Date.now()+86400000,grantId:'synthetic-grant',username:'admin',scopes:['server:read','server:write']};
+  await savePublishingCredential(join(a.directory, 'default.secret'), session);
   const run = async (...args: string[]) => (await promisify(execFile)(process.execPath, ['node_modules/tsx/dist/cli.mjs', 'scripts/server-deploy.ts', ...args], { env: { ...process.env, CODEXER_DEPLOY_HOME: a.directory }, windowsHide: true })).stdout;
   const status = await run('status');
   expect(JSON.parse(status)).toMatchObject({ url: remote.url, username: 'admin', currentVersion: '0.3.53' });

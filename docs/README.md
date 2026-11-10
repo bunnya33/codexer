@@ -15,10 +15,12 @@
 | [对话内预览](previews.md) | HTML 原型、本地开发网页、全屏、Tweak、元素标注与反馈 |
 | [管理后台](admin.md) | 创建账号、密码重置、禁用、管理与控制会话隔离 |
 | [服务器更新](server-update.md) | Release/Git tag 切换、分步构建、手动重启、校验、回退与部署要求 |
-| [让 Codex 更新服务器](server-deploy.md) | 本地管理员登录、升级工具与 Skill、上传安装、结果核验 |
+| [让 Codex 更新服务器](server-deploy.md) | 专用网页授权、多端安装包发布、服务器安装及核验 |
 | [客户端更新与设置](client-updates.md) | Relay 上传客户端、版本检查、托盘/设置红点、校验下载和响应式设置 |
 | [Relay](relay.md) | Go 服务职责、配置、存储、连接和错误处理 |
 | [微信 ClawBot](weixin.md) | 每账号独立扫码绑定、多 PC 完成通知、微信回复续做 |
+| [发布授权协议](publishing-auth.md) | 权限边界、凭据轮换、撤销与审计 |
+| [发布工具 HTTPS](publishing-https.md) | 现有 systemd 反代配置与 SSH 隧道 |
 | [运维与故障排查](operations.md) | HTTPS、备份、账号恢复、服务状态、常见问题 |
 
 ## 开发与交付

@@ -172,7 +172,7 @@ func validClientPackage(file *os.File, target string, size int64) bool {
 	return err == nil && string(footer) == "koly"
 }
 func (s *Server) clientReleaseRoutes() {
-	s.route("GET /v1/admin/client-releases", "admin", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
+	s.route("GET /v1/admin/client-releases", "publish:clients:read", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
 		u := s.clientReleases
 		u.mu.RLock()
 		defer u.mu.RUnlock()
@@ -305,7 +305,7 @@ func (s *Server) clientReleaseRoutes() {
 		w.Header().Set("Cache-Control", "no-store")
 		return M{"release": s.clientReleases.current(target)}
 	})
-	s.route("PUT /v1/admin/client-releases/{target}", "admin", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
+	s.route("PUT /v1/admin/client-releases/{target}", "publish:clients:write", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
 		q := r.URL.Query()
 		build, _ := strconv.ParseInt(q.Get("buildNumber"), 10, 64)
 		if q.Get("buildNumber") != "" {
@@ -359,14 +359,26 @@ func (s *Server) clientReleaseRoutes() {
 		}
 		release.Size = size
 		release.SHA256 = hex.EncodeToString(digest.Sum(nil))
+		if expected := q.Get("sha256"); expected != "" && expected != release.SHA256 {
+			fail(400, "checksum-mismatch")
+		}
 		s.exclusive.RLock()
 		defer s.exclusive.RUnlock()
-		s.principal(r, "admin")
+		s.principal(r, "publish:clients:write")
 		if r.Context().Err() != nil || s.ctx.Err() != nil {
 			fail(400, "client-upload-incomplete")
 		}
 		u.mu.Lock()
 		defer u.mu.Unlock()
+		if p.Grant != "" {
+			if current := u.latest[release.Target]; current != nil {
+				same := current.Version == release.Version && current.BuildNumber == release.BuildNumber && current.SHA256 == release.SHA256
+				newer := Newer(release.Version, current.Version) || release.Target == "control-android" && release.Version == current.Version && release.BuildNumber > current.BuildNumber
+				if !same && (!newer || release.Target == "control-android" && release.BuildNumber <= current.BuildNumber) {
+					fail(409, "client-version-not-newer")
+				}
+			}
+		}
 		next := make(map[string]*clientRelease, len(u.latest)+1)
 		for target, value := range u.latest {
 			next[target] = value

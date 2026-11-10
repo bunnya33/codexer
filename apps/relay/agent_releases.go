@@ -96,13 +96,13 @@ func (u *agentReleaseStore) current() *agentRelease {
 	return &value
 }
 func (s *Server) agentReleaseRoutes() {
-	for path, role := range map[string]string{"/v1/pc-agent/release": "user", "/v1/admin/pc-agent/release": "admin"} {
+	for path, role := range map[string]string{"/v1/pc-agent/release": "user", "/v1/admin/pc-agent/release": "publish:clients:read"} {
 		s.route("GET "+path, role, func(w http.ResponseWriter, r *http.Request, p *Principal) any {
 			w.Header().Set("Cache-Control", "no-store")
 			return M{"release": s.agentReleases.current()}
 		})
 	}
-	s.route("PUT /v1/admin/pc-agent/release", "admin", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
+	s.route("PUT /v1/admin/pc-agent/release", "publish:clients:write", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
 		name, version := r.URL.Query().Get("name"), r.URL.Query().Get("version")
 		if !validAgentInstallerName(name) || len(version) > 80 || !agentReleaseVersion.MatchString(version) {
 			fail(400, "invalid-agent-release")
@@ -155,15 +155,23 @@ func (s *Server) agentReleaseRoutes() {
 			fail(500, "agent-release-storage-error")
 		}
 		release := &agentRelease{ID: uuid(), Name: name, Version: version, Size: size, SHA256: hex.EncodeToString(hash.Sum(nil)), UploadedAt: now()}
+		if expected := r.URL.Query().Get("sha256"); expected != "" && expected != release.SHA256 {
+			fail(400, "checksum-mismatch")
+		}
 		// Recheck the login at publication time; account changes cannot race this step.
 		s.exclusive.RLock()
 		defer s.exclusive.RUnlock()
-		s.principal(r, "admin")
+		s.principal(r, "publish:clients:write")
 		if r.Context().Err() != nil || s.ctx.Err() != nil {
 			fail(400, "agent-upload-incomplete")
 		}
 		u.mu.Lock()
 		defer u.mu.Unlock()
+		if p.Grant != "" && u.latest != nil && !(u.latest.Version == release.Version && u.latest.SHA256 == release.SHA256) {
+			if !stableTag.MatchString("v"+u.latest.Version) || !Newer(release.Version, u.latest.Version) {
+				fail(409, "legacy-agent-version-not-newer")
+			}
+		}
 		target := filepath.Join(u.directory, release.ID+".exe")
 		if os.Rename(file.Name(), target) != nil {
 			fail(500, "agent-release-storage-error")
