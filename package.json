@@ -34,6 +34,8 @@
     "typecheck:windows-native": "node apps/control-native/check-types.cjs",
     "typecheck:control-desktop": "npm run typecheck --workspace @codexer/control-desktop",
     "package:server": "node scripts/package-server.mjs",
+    "server:deploy": "tsx scripts/server-deploy.ts",
+    "skill:install-deploy": "node scripts/install-deploy-skill.mjs",
     "export:source": "node scripts/export-source.mjs",
     "check:docs": "node scripts/check-docs.mjs",
     "check:preview-runtime": "node scripts/build-preview-runtime.mjs --check",
