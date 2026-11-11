@@ -76,6 +76,7 @@ it('forwards creation through Go Relay, enforces local roots, deduplicates and k
     const updated = (await app.inject({ url: `/v1/devices/${credentials.deviceId}/catalog`, headers: account.headers })).json().catalog;
     expect(updated.projects).toHaveLength(2);
     agent.disconnect();
+    await waitFor(async () => (await app.inject({ url: '/v1/devices', headers: account.headers })).json().devices.find((device: { id: string }) => device.id === credentials.deviceId)?.online === false);
     expect((await app.inject({ method: 'POST', url: `/v1/devices/${credentials.deviceId}/commands`, headers: account.headers, payload: command({ ...payload, relativePath: 'paused' }, agent.snapshot()) })).statusCode).toBe(409);
   } finally { finishRead?.(); await peer?.close(); await agent?.stop(); await app.close(); await rm(directory, { recursive: true, force: true }); }
 });
