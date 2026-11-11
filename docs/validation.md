@@ -1,5 +1,13 @@
 # 当前 Go 迁移验证
 
+## 2026-11-11 Android 0.1.18 / versionCode 19
+
+在主目录 main 核对 origin/main 后，递增 Mobile package、Expo 版本、Android versionCode 和锁文件，保留原有 AGENTS、Qt 指南及 HTML 改动。构建源码提交 `a0ff9a4`，已提交的同步入口将 1,184 个文件复制到现有短路径副本 `F:/ca20` 并逐文件核对，依赖及版本外原生配置未变；原生 Gradle 版本同步为 0.1.18／19。签名仍来自稳定的 AndroidSigning 目录，由已有脚本在内存解密 DPAPI 密码，不生成替代证书或输出密码，签名文档已更新当前版本。
+
+Mobile 类型与 12 项用量专项通过，Gradle 原生 `:app:assembleRelease` 成功，597 项任务中 72 项执行／525 项无需重跑。实际 APK 包名 `com.bunnya33.codexer.remote`、0.1.18／19、非 debuggable、原发布证书及 v2 签名、16 KiB ZIP 对齐通过。包内 Hermes 字节码与本次 Gradle 产物逐字节一致，source map 中全部 132 份已打入的应用及共享源码与主目录一致，特别核对子 Agent 用量／计价、模型文字入口、原生模型面板、附件菜单动画和原生媒体选择链路。APK 支持 arm64-v8a、armeabi-v7a、x86、x86_64，minSdk 24／targetSdk 36。
+
+APK 与完整构建、签名、清单、对齐、源码同步和校验记录保存在 `release/android-0.1.18/`。APK 93,241,390 字节，SHA-256 为 `b802c8f3088c19f31093b5e43798958cf8432dcdf90f2f6c25703a7f5f01e66c`；原证书 SHA-256 为 `5e8f351666c250682effb88a1ebec7ca4d13196e9f272e054f5881eaa393a211`。本轮未做模拟器或真实手机安装、生产账号远程任务验收，未上传客户端更新目录或商店；服务器、Agent 和 Control 未因本次安卓打包重新构建或安装。
+
 ## 2026-11-11 Windows Qt Agent 0.2.34 打包
 
 主目录 main 与 origin/main 核对一致后，从 `apps/desktop/package.json` 提升 Agent 版本为 0.2.34，锁文件同步，服务器根版本保持 0.3.56；保留原有 AGENTS、Qt 指南及 HTML 改动。应用源码提交为 `75d4661066d3b5de52bfd2569fc06f59eb3f2147`，包含已验证的子 Agent 只读独立统计。使用本机 `F:/toolchains/Qt/6.8.3/msvc2022_64` 和 MSVC 完成原生编译及 NSIS 安装版／便携版生成，应用和两个包的 Windows 资源均为 Codexer Agent 0.2.34。
