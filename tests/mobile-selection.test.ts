@@ -273,8 +273,8 @@ async function fixture(options: FixtureOptions = {}) {
   return { dom, current, historyRequests, uploadRequests, imageUploads, earlierRequests, commands, errors, app, header, click, closeDialog, close, deviceGate, catalogGate, historyGate, refresh };
 }
 
-async function pagingFixture(paging: NonNullable<FixtureOptions['paging']>) {
-  const test = await fixture({ paging });
+async function pagingFixture(paging: NonNullable<FixtureOptions['paging']>, options: FixtureOptions = {}) {
+  const test = await fixture({ ...options, paging });
   await vi.waitFor(() => expect(test.header()).toContain('recent-pc-a'));
   await vi.waitFor(() => expect(test.historyRequests.length).toBeGreaterThan(0));
   await new Promise(resolve => test.dom.window.requestAnimationFrame(() => test.dom.window.requestAnimationFrame(resolve)));
@@ -296,6 +296,46 @@ async function pagingFixture(paging: NonNullable<FixtureOptions['paging']>) {
   const wheel = (deltaY: number) => stream.dispatchEvent(new test.dom.window.WheelEvent('wheel', { bubbles: true, deltaY }));
   return { ...test, stream, scroll, wheel };
 }
+
+it.each(['start', 'steer', 'continue'] as const)('restores bottom following on %s, then lets the reader pause during the pending request', async action => {
+  const submission = gate();
+  const test = await pagingFixture({ exhausted: true }, {
+    controls: { active: action === 'steer', interrupted: action === 'continue', text: '', images: [] },
+    submission: { wait: submission.promise },
+  });
+  try {
+    let height = 2000;
+    Object.defineProperty(test.stream, 'scrollHeight', { configurable: true, get: () => height });
+    const scrollToEnd = vi.fn(({ top }: { top: number }) => { test.stream.scrollTop = Math.max(0, Math.min(top, height - 500)); });
+    Object.defineProperty(test.stream, 'scroll', { configurable: true, value: scrollToEnd });
+    await test.scroll(1500);
+    test.wheel(-40);
+    await test.scroll(1460);
+    scrollToEnd.mockClear();
+    if (action !== 'continue') writeDraft(test, '发送后继续跟随新回复');
+    const label = action === 'start' ? '发送消息' : action === 'steer' ? '发送引导消息' : '继续任务';
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector(`[aria-label="${label}"]`)?.getAttribute('aria-disabled')).not.toBe('true'));
+    await test.click(label);
+    await vi.waitFor(() => expect(test.commands.some(command => command.payload.type === `turn.${action}`)).toBe(true));
+    await vi.waitFor(() => expect(test.stream.scrollTop).toBe(1500));
+    height = 2600;
+    test.stream.dispatchEvent(new test.dom.window.Event('scroll'));
+    await vi.waitFor(() => expect(test.stream.scrollTop).toBe(2100));
+    // Sending restores follow once. A later response must not undo the user's
+    // decision to read earlier output while the command is still pending.
+    test.wheel(-120);
+    await test.scroll(1900);
+    scrollToEnd.mockClear();
+    submission.release();
+    await vi.waitFor(() => expect(composer(test).value).toBe(''));
+    height = 3000;
+    test.stream.dispatchEvent(new test.dom.window.Event('scroll'));
+    await new Promise(resolve => test.dom.window.setTimeout(resolve, 180));
+    expect(scrollToEnd).not.toHaveBeenCalled();
+    expect(test.stream.scrollTop).toBe(1900);
+    expect(test.errors).toEqual([]);
+  } finally { submission.release(); test.close(); }
+});
 
 it.each(['completed', 'inProgress'] as const)('preserves selected reply text through background sync and timer updates (%s)', async status => {
   const turn: HistoryTurn = { id: 'active-turn', status, truncated: false, startedAtMs: Date.now() - 10000,

@@ -116,6 +116,7 @@ function AppContent() {
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
   const scrollFrame = useRef<number | null>(null);
   const scrollToBottom = useCallback(() => {
+    olderAnchor.current = null;
     scrollPosition.current.requestBottom();
     setShowJumpToBottom(false);
     if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current);
@@ -254,6 +255,10 @@ function AppContent() {
   const send = async (payload: RemoteCommand['payload'], clearDraft = false) => {
     if (commandLock.current) return false;
     commandLock.current = true; setBusy(true);
+    // Sending is a new request to follow, even after reading earlier messages.
+    // Do this before awaiting the command: output may arrive before its result,
+    // and later user scrolling must still be allowed to pause following.
+    if (['turn.start', 'turn.steer', 'turn.continue', 'turn.queue.steer'].includes(payload.type)) scrollToBottom();
     try {
       const result = await relay.sendCommand(deviceId, payload);
       if (result.status !== 'succeeded') throw new Error(result.code);
@@ -385,6 +390,7 @@ function AppContent() {
         switched = true;
       }
       if (current().target.settings?.collaborationMode !== 'default') throw new Error('模式尚未同步，请等待同步后重试。');
+      scrollToBottom();
       const result = await relay.sendCommand(deviceId, input);
       if (result.status !== 'succeeded') throw new Error(result.code);
       clearSubmitted(composerDraft);
