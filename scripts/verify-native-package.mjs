@@ -1,12 +1,17 @@
 import {execFileSync} from 'node:child_process';
-import {readFile,mkdir,readdir,writeFile} from 'node:fs/promises';
+import {readFile,mkdir,readdir,writeFile,cp} from 'node:fs/promises';
 import {join,resolve,relative} from 'node:path';
 import {createHash} from 'node:crypto';
 import assert from 'node:assert/strict';
 const root=resolve(import.meta.dirname,'..');
 const {version}=JSON.parse(await readFile(join(root,'apps/desktop/package.json'),'utf8'));
 const directory=join(root,'.local/native-package-verification',version,Date.now().toString());await mkdir(directory,{recursive:true});
-const seven=join(root,'node_modules/electron-winstaller/vendor/7z-x64.exe');
+// The vendored binary loads 7z.dll, while its paired DLL is named 7z-x64.dll.
+// Stage a matching pair without changing the dependency installation.
+const tools=join(directory,'tools');await mkdir(tools,{recursive:true});
+const seven=join(tools,'7z.exe');
+await cp(join(root,'node_modules/electron-winstaller/vendor/7z-x64.exe'),seven);
+await cp(join(root,'node_modules/electron-winstaller/vendor/7z-x64.dll'),join(tools,'7z.dll'));
 async function walk(path) {const files=[];for(const item of await readdir(path,{withFileTypes:true})){const target=join(path,item.name);files.push(...(item.isDirectory()?await walk(target):[target]));}return files;}
 const installer=join(root,`apps/agent-qt/release/Codexer-Agent-Qt-Setup-${version}-x64.exe`);
 const portable=join(root,`apps/agent-qt/release/Codexer-Agent-Qt-Portable-${version}-x64.exe`);
