@@ -294,6 +294,7 @@ void Service::refreshProjectUsage(bool notify) {
     }
     QSqlDatabase::removeDatabase(connection);
   }
+  refreshSubAgentUsage(indexPath);
   QHash<QString, QHash<QString, Object>> groups, threadGroups;
   QSet<QString> partial, partialThreads;
   const auto watchedThreads = snapshot["threads"].toObject();

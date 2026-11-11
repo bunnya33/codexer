@@ -618,6 +618,33 @@ void Service::updateThread(const QString &id) {
   thread["queuedMessages"] = queue;
   if (old["usage"].isObject())
     thread["usage"] = old["usage"];
+  // Metadata/activity refreshes can omit usage. Keep the independent child
+  // accounting until the next read-only usage scan replaces it.
+  QHash<QString, Object> priorAgentUsage;
+  for (const auto &v : old["subAgents"].toArray()) {
+    const auto a = v.toObject();
+    if (a["usage"].isObject()) priorAgentUsage[a["threadId"].toString()] = a["usage"].toObject();
+  }
+  auto agents = thread["subAgents"].toArray();
+  QSet<QString> agentIds;
+  for (const auto &v : agents) agentIds.insert(v.toObject()["threadId"].toString());
+  for (const auto &v : old["subAgents"].toArray()) {
+    const auto a = v.toObject();
+    const auto child = a["threadId"].toString();
+    if (child != id && !agentIds.contains(child) && agents.size() < 32) {
+      agents.append(a);
+      agentIds.insert(child);
+    }
+  }
+  if (old["subAgentsTruncated"].toBool()) thread["subAgentsTruncated"] = true;
+  for (int i = 0; i < agents.size(); ++i) {
+    auto a = agents[i].toObject();
+    if (priorAgentUsage.contains(a["threadId"].toString())) {
+      a["usage"] = priorAgentUsage.value(a["threadId"].toString());
+      agents[i] = a;
+    }
+  }
+  thread["subAgents"] = agents;
   thread = boundTurns(thread);
   auto comparable = old;
   comparable["revision"] = thread["revision"];

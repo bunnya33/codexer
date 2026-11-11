@@ -1662,6 +1662,153 @@ private slots:
     QCOMPARE(agent->usageRecord("thread-test", "new"), saved);
     QVERIFY(agent->usageRecord("thread-test", "other").isEmpty());
   }
+  void subAgentUsageCountsDeltasByModelAndIgnoresInheritedHistory() {
+    QTemporaryDir home;
+    QDir().mkpath(home.filePath("sessions"));
+    const auto path = home.filePath("sessions/child.jsonl");
+    auto line = [](const QString &type, const Object &payload, int ordinal) {
+      return json(Object{{"type", type}, {"payload", payload}, {"ordinal", ordinal}}) + '\n';
+    };
+    auto tokens = [&](int input, int output, int cached, int ordinal) {
+      return line("event_msg", {{"type", "token_count"},
+          {"info", Object{{"total_token_usage", Object{{"total_tokens", input + output},
+             {"input_tokens", input}, {"output_tokens", output}, {"cached_input_tokens", cached}}}}}}, ordinal);
+    };
+    auto body = line("session_meta", {{"id", "child"}, {"parent_thread_id", "parent"},
+        {"subagent_history_start_ordinal", 10}}, 0) +
+        line("turn_context", {{"model", "inherited-model"}}, 1) + tokens(9000, 1000, 0, 2) +
+        line("turn_context", {{"model", "gpt-5.3-codex"}}, 10) + tokens(1000, 200, 500, 12) +
+        tokens(1000, 200, 500, 13) + // Repeated cumulative notification.
+        line("turn_context", {{"model", "gpt-5.4"}}, 14) + tokens(1800, 300, 900, 15);
+    save(path, body);
+    SubAgentUsageReader reader;
+    qint64 budget = 4 * 1024 * 1024;
+    auto usage = reader.readUsage(home.path(), "child", "parent", path, 2100, budget);
+    QCOMPARE(usage["totalTokens"], QJsonValue(2100));
+    QCOMPARE(usage["recordedTokens"], QJsonValue(2100));
+    QCOMPARE(usage["partial"], QJsonValue(false));
+    const auto models = usage["models"].toArray();
+    QCOMPARE(models.size(), 2);
+    QCOMPARE(models[0].toObject()["totalTokens"], QJsonValue(1200));
+    QCOMPARE(models[1].toObject()["inputTokens"], QJsonValue(800));
+    QCOMPARE(models[1].toObject()["cachedInputTokens"], QJsonValue(400));
+    QCOMPARE(reader.readUsage(home.path(), "child", "parent", path, 2100, budget), usage);
+    auto missing = reader.readUsage(home.path(), "child", "parent", path, 2500, budget);
+    QCOMPARE(missing["totalTokens"], QJsonValue(2500));
+    QCOMPARE(missing["partial"], QJsonValue(true));
+    // Appending an unfinished final line must not lose or count it early.
+    auto next = tokens(2000, 350, 1000, 16);
+    save(path, body + next.left(next.size() - 1));
+    QCOMPARE(reader.readUsage(home.path(), "child", "parent", path, -1, budget)["recordedTokens"], QJsonValue(2100));
+    save(path, body + next);
+    usage = reader.readUsage(home.path(), "child", "parent", path, -1, budget);
+    QCOMPARE(usage["recordedTokens"], QJsonValue(2350));
+    QCOMPARE(usage["totalKnown"], QJsonValue(true));
+    QCOMPARE(read(path), body + next);
+    const auto explicitUsage = line("token_usage_record", {{"thread_id", "child"},
+        {"thread_token_usage", Object{{"total_tokens", 3000}, {"input_tokens", 2600},
+          {"output_tokens", 400}, {"cached_input_tokens", 1500}}}}, 17);
+    const auto otherThread = line("token_usage_record", {{"thread_id", "parent"},
+        {"thread_token_usage", Object{{"total_tokens", 90000}, {"input_tokens", 80000},
+          {"output_tokens", 10000}, {"cached_input_tokens", 0}}}}, 18);
+    save(path, body + next + explicitUsage + otherThread + tokens(80000, 10000, 0, 19));
+    usage = reader.readUsage(home.path(), "child", "parent", path, -1, budget);
+    QCOMPARE(usage["totalTokens"], QJsonValue(3000));
+    QCOMPARE(usage["recordedTokens"], QJsonValue(3000));
+    QCOMPARE(usage["partial"], QJsonValue(false));
+  }
+  void subAgentUsageIsBoundedAndRejectsWrongChildAndEscapedPaths() {
+    QTemporaryDir home;
+    QDir().mkpath(home.filePath("archived_sessions"));
+    const auto path = home.filePath("archived_sessions/child.jsonl");
+    const auto meta = json(Object{{"type", "session_meta"},
+        {"payload", Object{{"id", "child"}, {"parent_thread_id", "parent"}}}}) + '\n';
+    QByteArray padding;
+    for (int i = 0; i < 12000; ++i)
+      padding += "{\"type\":\"response_item\",\"payload\":{\"type\":\"encrypted\"}}\n";
+    const auto token = json(Object{{"type", "event_msg"}, {"payload", Object{{"type", "token_count"},
+        {"info", Object{{"total_token_usage", Object{{"total_tokens", 1200}, {"input_tokens", 1000},
+          {"cached_input_tokens", 500}, {"output_tokens", 200}}}}}}}}) + '\n';
+    save(path, meta + padding + token);
+    SubAgentUsageReader reader;
+    qint64 budget = 4 * 1024 * 1024;
+    auto usage = reader.readUsage(home.path(), "child", "parent", path, 1200, budget);
+    QCOMPARE(usage["partial"], QJsonValue(true));
+    QCOMPARE(usage["recordedTokens"], QJsonValue(0));
+    QVERIFY(budget >= 4 * 1024 * 1024 - 512 * 1024);
+    usage = reader.readUsage(home.path(), "child", "parent", path, 1200, budget);
+    QCOMPARE(usage["recordedTokens"], QJsonValue(1200));
+    QVERIFY(usage["models"].toArray()[0].toObject()["model"].isNull());
+    QVERIFY(reader.readUsage(home.path(), "child", "wrong-parent", path, 1200, budget).isEmpty());
+    // A path outside sessions can provide only the trusted index total.
+    const auto outside = home.filePath("outside.jsonl");
+    save(outside, meta + token);
+    usage = reader.readUsage(home.path(), "child", "parent", outside, 1200, budget);
+    QCOMPARE(usage["recordedTokens"], QJsonValue(0));
+    QCOMPARE(usage["partial"], QJsonValue(true));
+    // Rotation/truncation invalidates previously attributed models and totals.
+    save(path, meta);
+    usage = reader.readUsage(home.path(), "child", "parent", path, 0, budget);
+    QCOMPARE(usage["totalTokens"], QJsonValue(0));
+    QCOMPARE(usage["models"].toArray().size(), 0);
+  }
+  void subAgentUsageDiscoversNestedClosedChildrenWithoutTakingWriter() {
+    QTemporaryDir home;
+    agent->settings["codexHome"] = home.path();
+    const auto index = home.filePath("state_5.sqlite");
+    const auto connection = uuid();
+    {
+      auto db = QSqlDatabase::addDatabase("QSQLITE", connection);
+      db.setDatabaseName(index);
+      QVERIFY(db.open());
+      sql(db, "CREATE TABLE threads(id TEXT PRIMARY KEY,source TEXT,rollout_path TEXT,tokens_used INTEGER)");
+      sql(db, "INSERT INTO threads VALUES('parent','cli','',100)");
+      for (const auto &pair : QList<QPair<QString, QString>>{{"child", "parent"}, {"nested", "child"}, {"unrelated", "other"}}) {
+        auto source = Object{{"subagent", Object{{"thread_spawn", Object{{"parent_thread_id", pair.second}, {"agent_nickname", pair.first}}}}}};
+        sql(db, "INSERT INTO threads VALUES(?,?,?,?)", {pair.first, json(source), QString{}, 1200});
+      }
+      db.close();
+    }
+    QSqlDatabase::removeDatabase(connection);
+    const auto before = read(index);
+    agent->catalog = {{"projects", Array{Object{{"id", "p"}}}},
+        {"threads", Array{Object{{"id", "parent"}, {"projectId", "p"}}}}};
+    agent->snapshot["threads"] = Object{{"parent", Object{{"id", "parent"},
+        {"subAgents", Array{Object{{"threadId", "child"}, {"parentThreadId", "parent"},
+          {"status", "shutdown"}, {"statusSource", "reported"}}}}}}};
+    agent->refreshProjectUsage(false);
+    const auto thread = agent->snapshot["threads"].toObject()["parent"].toObject();
+    QCOMPARE(thread["usage"].toObject()["totalTokens"], QJsonValue(100));
+    const auto agents = thread["subAgents"].toArray();
+    QCOMPARE(agents.size(), 2);
+    QCOMPARE(agents[0].toObject()["status"], QJsonValue("shutdown"));
+    for (const auto &v : agents)
+      QCOMPARE(v.toObject()["usage"].toObject()["totalTokens"], QJsonValue(1200));
+    auto stale = thread;
+    stale["subAgents"] = Array{};
+    agent->rawThreads["parent"] = {{"_normalized", stale}};
+    agent->updateThread("parent");
+    QCOMPARE(agent->snapshot["threads"].toObject()["parent"].toObject()["subAgents"], thread["subAgents"]);
+    const auto first = agent->snapshot["threads"];
+    agent->refreshProjectUsage(false);
+    QCOMPARE(agent->snapshot["threads"], first);
+    QCOMPARE(read(index), before);
+    QVERIFY(!agent->rpc);
+  }
+  void subAgentUsageMetadataCannotExceedThreadWireLimit() {
+    Array agents;
+    const auto longText = QString(2000, QChar(0x6d4b));
+    for (int i = 0; i < 32; ++i)
+      agents.append(Object{{"threadId", QString::number(i)}, {"task", longText},
+        {"message", longText}, {"status", "completed"}, {"statusSource", "activity"},
+        {"usage", Object{{"totalTokens", 1200}, {"recordedTokens", 0},
+          {"totalKnown", true}, {"partial", true}, {"models", Array{}}}}});
+    const auto bounded = boundTurns({{"subAgents", agents}, {"turns", Array{}}, {"requests", Array{}}});
+    QVERIFY(json(bounded).size() <= 256 * 1024);
+    QCOMPARE(bounded["subAgents"].toArray().size(), 32);
+    for (const auto &a : bounded["subAgents"].toArray())
+      QCOMPARE(a.toObject()["usage"].toObject()["totalTokens"], QJsonValue(1200));
+  }
   void projectUsageIncludesArchivedUnloadedAndIsReadOnly() {
     QTemporaryDir index;
     QVERIFY(index.isValid());
@@ -2397,6 +2544,18 @@ int main(int argc, char **argv) {
       else if (job["kind"] == "history")
         results.append(Native::normalizeTurn(job["value"].toObject(), true,
                                              "thread-test"));
+      else if (job["kind"] == "subAgentUsage") {
+        const auto value = job["value"].toObject();
+        Native::SubAgentUsageReader reader;
+        Native::Object usage;
+        for (int i = 0; i < value["iterations"].toInt(1); ++i) {
+          qint64 budget = 4 * 1024 * 1024;
+          usage = reader.readUsage(value["home"].toString(), value["id"].toString(),
+              value["parent"].toString(), value["path"].toString(),
+              value["indexedTotal"].toDouble(-1), budget);
+        }
+        results.append(usage);
+      }
       else if (job["kind"] == "approval")
         results.append(Native::approval(job["value"].toObject()));
       else if (job["kind"] == "localFilePath") {

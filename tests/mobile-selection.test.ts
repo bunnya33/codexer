@@ -807,6 +807,33 @@ it('keeps sub-agents at the header and puts deletion below archive with an expli
   } finally { test.close(); }
 });
 
+it('shows each child usage, a distinct-child total and live updates in the sub-agent panel', async () => {
+  const usage = { totalTokens: 1200, recordedTokens: 1200, totalKnown: true, partial: false,
+    models: [{ model: 'gpt-5.3-codex', totalTokens: 1200, inputTokens: 1000, cachedInputTokens: 500, outputTokens: 200 }] };
+  const children: RemoteSubAgent[] = [
+    { threadId: 'child-1', parentThreadId: 'recent-pc-a', name: 'Hume', task: '检查用量', status: 'completed', statusSource: 'activity', usage },
+    { threadId: 'child-2', parentThreadId: 'child-1', name: 'Nested', status: 'running', statusSource: 'thread', usage: { ...usage, models: [{ ...usage.models[0]!, model: 'gpt-5.4' }] } },
+    { threadId: 'missing', parentThreadId: 'recent-pc-a', name: 'Pending', status: 'shutdown', statusSource: 'reported' },
+  ];
+  const test = await fixture({ controls: { active: false, text: '', images: [] }, subAgents: children });
+  const doc = test.dom.window.document;
+  try {
+    await vi.waitFor(() => expect(doc.querySelector('[aria-label="子 Agent，共 3 个，1 个运行中，0 个等待启动"]')).not.toBeNull(), { timeout: 5000 });
+    test.click('子 Agent，共 3 个，1 个运行中，0 个等待启动');
+    await vi.waitFor(() => expect(doc.querySelector('[data-testid="sub-agents-usage-total"]')?.textContent).toContain('子 Agent 合计 ≥2,400 Token · 部分预估 $0.0081'), { timeout: 5000 });
+    expect(doc.querySelector('[data-testid="sub-agents-usage-total"]')?.textContent).toContain('2/3 个有累计计数');
+    expect(doc.querySelector('[data-testid="sub-agent-usage-child-1"]')?.textContent).toContain('$0.0038');
+    expect(doc.querySelector('[data-testid="sub-agent-usage-missing"]')?.textContent).toContain('待同步');
+    test.click('Hume，已完成，展开详情');
+    await vi.waitFor(() => expect(doc.body.textContent).toContain('gpt-5.3-codex · 输入 1,000 · 缓存命中 500 · 输出 200'), { timeout: 5000 });
+    children[0]!.usage = { ...usage, totalTokens: 2400, recordedTokens: 2400,
+      models: [{ model: 'gpt-5.3-codex', totalTokens: 2400, inputTokens: 2000, cachedInputTokens: 1000, outputTokens: 400 }] };
+    test.refresh();
+    await vi.waitFor(() => expect(doc.querySelector('[data-testid="sub-agents-usage-total"]')?.textContent).toContain('≥3,600 Token'), { timeout: 5000 });
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
 it('saves the inline notification switch for the current chat and keeps it unchanged on failure', async () => {
   const wait = gate(), notification = { enabled: false, updates: [] as { path: string; enabled: boolean }[], wait: wait.promise, fail: false };
   const test = await fixture({ notification, controls: { active: false, text: '', images: [] } });

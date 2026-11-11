@@ -118,6 +118,26 @@ signals:
   void threadChanged(QString id);
 };
 
+// Read-only, incremental accounting. Retains counters and file offsets, never
+// conversation bodies. Inherited fork history is not billed to the child.
+class SubAgentUsageReader {
+  struct Entry {
+    QString path, identity, parent, model;
+    qint64 offset = 0, size = 0, modified = 0, startOrdinal = 0;
+    bool header = false, skipping = false, partial = false, seen = false,
+         explicitRecords = false;
+    Object previous;
+    QHash<QString, Object> models;
+  };
+  QHash<QString, Entry> entries;
+
+public:
+  Object readUsage(const QString &home, const QString &id,
+                   const QString &parent, const QString &path,
+                   double indexedTotal, qint64 &budget);
+  void retain(const QSet<QString> &ids);
+};
+
 // All network, process, SQL, filesystem and scheduling work is native Qt/C++.
 // The object lives on one worker thread; nested transport waits only enqueue
 // commands.
@@ -136,6 +156,8 @@ class Service : public QObject {
   QHash<QString, Object> usageObservations;
   QHash<QString, Object> agentDetails;
   QHash<QString, qint64> agentDetailsAt;
+  SubAgentUsageReader subAgentUsage;
+  int subAgentUsageCursor = 0;
   QSet<QString> answeredRequests;
   QSet<QString> owned, newThreads, busyTurns, completedTurns, dirtyThreads,
       desktopThreads, awaitingQueue;
@@ -232,6 +254,7 @@ class Service : public QObject {
                  const Object &value);
   void enrichUsage(const QString &threadId, Object &turn);
   void refreshProjectUsage(bool notify = true);
+  void refreshSubAgentUsage(const QString &indexPath);
   void processCommand(const Object &command);
   Object dispatch(const QString &method, Object value);
   void checkUpdate();

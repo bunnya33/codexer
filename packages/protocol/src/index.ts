@@ -110,6 +110,7 @@ export const subAgentSchema = z.object({
   status: z.enum(["pendingInit", "running", "idle", "interrupted", "completed", "errored", "shutdown", "notFound", "unknown"]),
   statusSource: z.enum(["reported", "activity", "thread"]),
   message: z.string().max(2000).optional(),
+  usage: threadUsageSchema.optional(),
   truncated: z.boolean().optional(),
 });
 export type RemoteSubAgent = z.infer<typeof subAgentSchema>;

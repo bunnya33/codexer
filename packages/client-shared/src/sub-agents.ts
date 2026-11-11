@@ -1,5 +1,6 @@
 import { MAX_SUB_AGENTS } from "../../protocol/src/index.js";
-import type { HistoryTurn, RemoteSubAgent, RemoteThread } from "../../protocol/src/index.js";
+import type { HistoryTurn, RemoteSubAgent, RemoteThread, ThreadUsage } from "../../protocol/src/index.js";
+import { compactTokens, estimateProjectCost, usdLabel } from './project-usage.js';
 
 /** Updates can omit metadata. A missing status must not erase the last known state. */
 export function mergeSubAgents(
@@ -69,4 +70,38 @@ export function subAgentCounts(agents: RemoteSubAgent[]) {
     errors: agents.filter((agent) => agent.status === "errored" || agent.status === "notFound")
       .length,
   };
+}
+
+/** Child sessions only. Never add the parent's potentially overlapping counter. */
+export function subAgentUsageTotal(agents: RemoteSubAgent[], truncated = false) {
+  const unique = [...new Map(agents.map(agent => [agent.threadId, agent])).values()];
+  const models = new Map<string, ThreadUsage['models'][number]>();
+  let totalTokens = 0, recordedTokens = 0, known = 0, partial = truncated;
+  for (const agent of unique) {
+    const usage = agent.usage;
+    if (!usage || !usage.totalKnown && !usage.recordedTokens) { partial = true; continue; }
+    if (usage.totalKnown) known++;
+    totalTokens += usage.totalTokens;
+    recordedTokens += usage.recordedTokens;
+    partial ||= usage.partial;
+    for (const value of usage.models) {
+      // Unknown cache-write pricing for one child must not hide another child's
+      // otherwise priceable usage of the same model.
+      const key = JSON.stringify([value.model, !!value.cacheWriteInputTokens]);
+      const group = models.get(key) ?? { model: value.model, totalTokens: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 };
+      for (const key of ['totalTokens', 'inputTokens', 'cachedInputTokens', 'outputTokens', 'cacheWriteInputTokens', 'reasoningOutputTokens'] as const)
+        group[key] = (group[key] ?? 0) + (value[key] ?? 0);
+      models.set(key, group);
+    }
+  }
+  const usage: ThreadUsage = { totalTokens, recordedTokens, totalKnown: !truncated && known === unique.length, partial, models: [...models.values()] };
+  return { usage, known, total: unique.length };
+}
+
+export function subAgentUsageLabel(usage: ThreadUsage | undefined, prefix = '会话累计'): string {
+  if (!usage || !usage.totalKnown && !usage.recordedTokens) return `${prefix}用量待同步`;
+  const cost = estimateProjectCost(usage);
+  const tokens = `${prefix} ${usage.totalKnown ? '' : '≥'}${compactTokens(usage.totalTokens)} Token`;
+  if (!cost.pricedTokens && usage.totalTokens > 0) return `${tokens} · 费用待统计`;
+  return `${tokens} · ${cost.partial ? '部分预估 ' : ''}${usdLabel(cost.usd, 4)}`;
 }

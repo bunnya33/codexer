@@ -14,6 +14,8 @@ import {
   subAgentCounts,
   subAgentName,
   subAgentStatusLabel,
+  subAgentUsageLabel,
+  subAgentUsageTotal,
 } from "../../../packages/client-shared/src/sub-agents";
 import { ThreadNotificationToggle, useThreadNotification } from "./thread-notification";
 import { useTheme } from "./styles";
@@ -24,10 +26,12 @@ import { ThreadUsage } from './project-usage';
 import type { ThreadUsage as Usage } from '../../../packages/protocol/src/index';
 import { InteractionSurface } from './interaction/surface';
 import { ContextMenuGroup, ContextMenuRow } from './interaction/context-menu';
+import { estimateProjectCost } from '../../../packages/client-shared/src/project-usage';
 
 function AgentCard({ agent }: { agent: RemoteSubAgent }) {
   const { c, s } = useTheme();
   const hs = useHsStyles();
+  const cost = agent.usage ? estimateProjectCost(agent.usage) : undefined;
   function statusColor(agent: RemoteSubAgent) {
     return agent.status === "errored" || agent.status === "notFound"
       ? c.danger
@@ -62,8 +66,19 @@ function AgentCard({ agent }: { agent: RemoteSubAgent }) {
         {agent.task || "当前 Codex 记录未提供任务正文"}
       </Text>
       <Text style={hs.source}>{agent.statusSource === "thread" ? "会话状态" : "最近活动记录"}</Text>
+      <Text selectable testID={`sub-agent-usage-${agent.threadId}`} style={hs.usage}>
+        {subAgentUsageLabel(agent.usage)}
+      </Text>
       {expanded && (
         <View style={hs.details}>
+          {!!agent.usage && <>
+            {agent.usage.models.map((model, index) => <Text key={`${model.model}:${index}`} selectable style={hs.source}>
+              {model.model ?? '模型未知'} · 输入 {model.inputTokens.toLocaleString()} · 缓存命中 {model.cachedInputTokens.toLocaleString()} · 输出 {model.outputTokens.toLocaleString()}
+            </Text>)}
+            {!!cost?.unpricedTokens && <Text style={hs.source}>
+              {cost.unpricedTokens.toLocaleString()} Token 缺少计价明细。
+            </Text>}
+          </>}
           {!!(agent.role || agent.model) && (
             <Text selectable style={hs.source}>
               {[agent.role, agent.model].filter(Boolean).join(" · ")}
@@ -130,6 +145,7 @@ export function ConversationHeader({
   const [panelOpen, setPanelOpen] = useState(false);
   const host = useRef<View>(null), optionsAnchor = useRef<View>(null);
   const notification = useThreadNotification({ deviceId, threadId });
+  const agentUsage = subAgentUsageTotal(agents, truncated);
   const counts = subAgentCounts(agents);
   const notifying = notification.notification?.allEnabled || notification.notification?.enabled;
   const active = counts.running + counts.pending;
@@ -242,6 +258,10 @@ export function ConversationHeader({
                       ? `共 ${counts.total} 个 · ${counts.running} 个运行中${counts.pending ? ` · ${counts.pending} 个等待启动` : ""}`
                       : "连接恢复后更新状态，以下为最后同步记录"}
                   </Text>
+                  {!!agents.length && <View testID="sub-agents-usage-total" style={hs.usageTotal}>
+                    <Text selectable style={hs.usage}>{subAgentUsageLabel(agentUsage.usage, '子 Agent 合计')}</Text>
+                    <Text style={hs.source}>仅合计这些子 Agent 的独立会话，不含主会话 · {agentUsage.known}/{agentUsage.total} 个有累计计数</Text>
+                  </View>}
                   {agents.map((agent) => (
                     <AgentCard key={agent.threadId} agent={agent} />
                   ))}
@@ -259,7 +279,7 @@ export function ConversationHeader({
                   )}
                   {!!agents.length && (
                     <Text style={hs.footnote}>
-                      状态随 PC 同步更新；「最近活动记录」表示最近已知状态。
+                      状态与用量随 PC 同步更新；费用按各模型 API 单价估算。缺少用量时显示待同步，部分记录显示已知下限。
                     </Text>
                   )}
                 </>
@@ -306,6 +326,8 @@ const useHsStyles = themedStyles(c => StyleSheet.create({
   status: { fontSize: 12 },
   task: { fontSize: 13, lineHeight: 20, color: c.text },
   source: { fontSize: 11, lineHeight: 17, color: c.muted },
+  usage: { fontSize: 12, lineHeight: 19, color: c.text },
+  usageTotal: { borderRadius: 10, backgroundColor: c.soft, padding: 12, gap: 4 },
   details: { borderTopWidth: 1, borderTopColor: c.line, paddingTop: 8, gap: 6 },
   resultLabel: { fontSize: 12, color: c.muted },
   empty: { fontSize: 14, color: c.muted, lineHeight: 22, paddingVertical: 25, textAlign: "center" },

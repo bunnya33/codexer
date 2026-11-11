@@ -951,10 +951,33 @@ Object boundTurns(Object result, qint64 limit) {
       result["truncated"] = true;
     if (!removed) {
       auto rs = result["requests"].toArray();
-      if (rs.isEmpty())
-        break;
-      rs.removeLast();
-      result["requests"] = rs;
+      if (!rs.isEmpty()) {
+        rs.removeLast();
+        result["requests"] = rs;
+      } else {
+        // Child accounting adds metadata outside turns. Bound it as well so
+        // a large agent tree cannot cause a protocol rejection/disconnection.
+        auto agents = result["subAgents"].toArray();
+        for (int i = 0; i < agents.size() && !removed; ++i) {
+          auto a = agents[i].toObject();
+          for (const auto &key : {"task", "message", "path"}) {
+            const auto text = a[key].toString();
+            if (text.size() > 256) {
+              a[key] = text.left(256);
+              a["truncated"] = true;
+              removed = true;
+            }
+          }
+          agents[i] = a;
+        }
+        if (!removed && !agents.isEmpty()) {
+          agents.removeLast();
+          result["subAgentsTruncated"] = true;
+          removed = true;
+        }
+        result["subAgents"] = agents;
+        if (!removed) break;
+      }
     }
   }
   return result;
