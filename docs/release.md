@@ -8,6 +8,8 @@ Android 原发布密钥和密码的稳定保存位置、证书指纹及自动读
 
 发送后仍可主动上滑阅读，等待中的命令结果返回不会再次强制跳到底部。网页随服务器升级生效，本次无需更新 PC Agent，无协议、数据库或更新器变更。Android 和原生 Control 需另行原生打包；此前 APK 0.1.18 不包含本次修复。本次仅发布服务器更新包，生产安装由用户在后台执行。
 
+稳定版 [v0.3.57](https://github.com/bunnya33/codexer/releases/tag/v0.3.57) 已正式发布，源码为 `b638e80`；[发布流程](https://github.com/bunnya33/codexer/actions/runs/43041839592)通过类型、完整 Go／TypeScript 回归、PostgreSQL、文档检查、Go race、生产构建和 Linux 独立程序验收。四个平台更新包及同名 SHA-256 共 8 个附件齐全，Linux amd64 正式包已下载并核对摘要、manifest、版本、架构、归档边界和执行权限，文件及证据保存在 `release/server-0.3.57/`。管理员可在后台检查安装，或手动上传匹配平台的更新包和校验文件。
+
 ## Android 0.1.18：最新共享界面与子 Agent 用量
 
 Android 版本为 `0.1.18`，`versionCode 19`。包含子 Agent 各自 Token／费用和合计、模型名称与强度文字入口、加号菜单展开动画、图片与视频合并入口，以及精简后的设备／会话目录。完整子 Agent 数据需配套 Qt Agent 0.2.34 与服务器 0.3.56，主会话用量独立保留。
