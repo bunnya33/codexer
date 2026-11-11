@@ -10,6 +10,8 @@ Qt 后台从只读 Codex 索引和已验证的 JSONL 读取各子会话用量，
 
 本次仅发布服务器协议与 Web 界面；完整数据需要另行更新 Qt Agent，现有 0.2.33 未替换。未生成或安装新的 Agent、Android 或原生 Control 安装包，未上传或重启生产服务器。原生编译和本机只读探针不代表真实多端任务端到端验收。
 
+正式发布：[v0.3.56](https://github.com/bunnya33/codexer/releases/tag/v0.3.56)，源码 `5563230161646b513d7c8210a7f0443f76c12cca`，远程标签的 peeled commit 与流水线 head SHA 一致。[流水线 42979065397](https://github.com/bunnya33/codexer/actions/runs/42979065397)全部成功，完整 Go／TypeScript、真实 PostgreSQL、Go race、类型、文档、生产构建和 Linux 独立程序验收通过。四平台更新包及同名 SHA-256 共 8 个正式附件，Linux amd64 包 8,213,212 字节，摘要 `e271d69c6e3391662982bce68dcd94fca98c3e0453c1ddf6278ff0213736b829`。本机经系统网络设置下载正式包及校验文件，文件摘要与 GitHub 资产 digest、同名 SHA-256 一致；归档 49 个成员、manifest、VERSION、ELF64 x86-64 和执行权限检查通过。仅 Linux amd64 包实际下载验包，其余平台核对正式附件存在；本机记录在 `release/server-0.3.56/`，未安装生产更新。
+
 ## 2026-11-10 服务器 0.3.55 专用发布授权
 
 发布前补查发现旧 DPAPI 桥接对表情符号账号名存在控制台编码损坏；已固定 stdin/stdout 为 UTF-8，真实 Windows 中文与 emoji 加密往返、轮换后重载均通过。0.3.54 候选未发布，正式版本使用 0.3.55。

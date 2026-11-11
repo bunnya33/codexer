@@ -8,6 +8,8 @@ Android 原发布密钥和密码的稳定保存位置、证书指纹及自动读
 
 服务器包含可选 `subAgents[].usage` 协议和 Web 展示；完整统计还需要更新 Qt PC Agent，服务器升级不会自动替换电脑上的连接器。旧 Agent 保持兼容并显示用量待同步。Android 和原生 Control 需另行原生打包。本次只发布服务器，不安装或重启生产服务器、不发布新的客户端安装包。统计来源、计价和验证范围见[项目与会话用量](project-usage.md)。
 
+稳定版 [v0.3.56](https://github.com/bunnya33/codexer/releases/tag/v0.3.56) 已正式发布，源码为 `5563230`；[发布流程](https://github.com/bunnya33/codexer/actions/runs/42979065397)通过类型、完整 Go／TypeScript 回归、PostgreSQL、文档检查、Go race、生产构建及 Linux 独立程序验收。四个平台归档及配套校验文件共 8 个附件齐全，Linux amd64 正式包已下载核对大小、SHA-256、manifest、版本、架构、归档边界和执行权限，文件及证据保存在 `release/server-0.3.56/`。管理员可在后台检查安装，或手动上传匹配平台的更新包和同名校验文件；生产安装由用户执行。
+
 ## 服务器 0.3.55：专用网页授权与多端发布工具
 
 服务器新增真实管理网页批准的独立发布授权，提供电脑名称、验证码、权限核对、到期/撤销和审计界面。访问令牌十分钟、刷新凭据轮换、授权九十天上限；撤销、密码重置和刷新重放立即失效，工具不能访问账号管理或控制会话。公网发布必须 HTTPS，现有 systemd 反代与 SSH 隧道配置见[HTTPS 配置](publishing-https.md)。
