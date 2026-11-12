@@ -1,4 +1,4 @@
-import type { HistoryTurn, RemoteItem } from "../../protocol/src/index.js";
+import type { HistoryTurn, RemoteItem, RemoteSubAgent } from "../../protocol/src/index.js";
 import { subAgentName, subAgentStatusLabel } from './sub-agents.js';
 
 export type ActivityBlock = {
@@ -11,7 +11,13 @@ export type ActivityBlock = {
 };
 export type ConversationBlock = { kind: "message"; item: RemoteItem } | ActivityBlock;
 export type ExecutionSection = { kind: "execution"; id: string; items: RemoteItem[]; running: boolean };
-export type ActivitySection = { kind: "message"; item: RemoteItem } | ExecutionSection;
+export type ImageActivitySection = { kind: 'images'; id: string; items: RemoteItem[] };
+export type ActivitySection = { kind: "message"; item: RemoteItem } | ExecutionSection
+  | { kind: 'collaboration'; item: RemoteItem; running: boolean } | ImageActivitySection;
+
+export function isCollaborationItem(item: RemoteItem) {
+  return item.type === 'collabAgentToolCall' || item.type === 'subAgentActivity';
+}
 
 function toolName(item: RemoteItem) {
   return (item.tool ?? '').replace(/^mcp__.+?__/, '');
@@ -50,7 +56,7 @@ export function executionItemIcon(item: RemoteItem | undefined): 'agent' | 'reas
   if (item.type === 'contextCompaction') return 'compaction';
   return 'tool';
 }
-function itemActive(item: RemoteItem, running: boolean) {
+export function executionItemActive(item: RemoteItem, running: boolean) {
   if (item.status === 'inProgress' || item.status === 'running') return running && item.completedAtMs === undefined;
   return running && item.completedAtMs === undefined && item.durationMs === undefined && !['completed', 'failed', 'interrupted', 'cancelled', 'declined'].includes(item.status ?? '');
 }
@@ -62,8 +68,19 @@ export function activitySections(block: ActivityBlock): ActivitySection[] {
   const sections: ActivitySection[] = [];
   let boundary = 'start', group: ExecutionSection | undefined;
   for (const item of block.items) {
+    const previous = sections.at(-1);
+    // A placeholder emitted during wait has no new public activity to show.
+    if (item.type === 'reasoning' && !oneLine(item.text) && previous?.kind === 'collaboration' && previous.item.tool === 'wait') continue;
     if (messageRole(item) || item.type === 'plan') {
       sections.push({kind: 'message', item}); boundary = item.id; group = undefined;
+    } else if (isCollaborationItem(item)) {
+      sections.push({kind: 'collaboration', item, running: block.state === 'running'});
+      boundary = item.id; group = undefined;
+    } else if (item.type === 'imageView') {
+      const last = sections.at(-1);
+      if (last?.kind === 'images') last.items.push(item);
+      else sections.push({kind: 'images', id: `${block.id}:images:${item.id}`, items: [item]});
+      boundary = item.id; group = undefined;
     } else {
       if (!group) { group = {kind: 'execution', id: `${block.id}:after:${boundary}`, items: [], running: false}; sections.push(group); }
       group.items.push(item);
@@ -72,19 +89,22 @@ export function activitySections(block: ActivityBlock): ActivitySection[] {
   if (block.state === 'running') {
     const last = sections.at(-1);
     if (last?.kind === 'execution') last.running = true;
-    else if (!last || last.item.phase !== 'final_answer') sections.push({kind: 'execution', id: `${block.id}:after:${boundary}`, items: [], running: true});
+    else if ((!last || last.kind !== 'message' || last.item.phase !== 'final_answer') &&
+      !(last?.kind === 'collaboration' && executionItemActive(last.item, true) && last.item.tool === 'wait'))
+      sections.push({kind: 'execution', id: `${block.id}:after:${boundary}`, items: [], running: true});
   }
   return sections;
 }
 
 export function executionItemLabel(item: RemoteItem | undefined, running: boolean): string {
   if (!item) return '正在思考';
+  if (isCollaborationItem(item)) return collaborationSummary(item, running);
   if (item.subAgents?.length) {
     if (item.type === 'subAgentActivity') return `子 Agent · ${subAgentStatusLabel[item.subAgents[0]!.status]}`;
     const action: Record<string, string> = { spawnAgent: '创建子 Agent', wait: '等待子 Agent', closeAgent: '关闭子 Agent', resumeAgent: '恢复子 Agent', interruptAgent: '中断子 Agent', followupTask: '安排子 Agent 任务', sendInput: '向子 Agent 发送指令', sendMessage: '向子 Agent 发送消息', listAgents: '查看子 Agent' };
     return `${running && item.status === 'inProgress' ? '正在' : '已'}${action[item.tool ?? ''] || '协调子 Agent'}`;
   }
-  const active = itemActive(item, running);
+  const active = executionItemActive(item, running);
   if (item.type === 'reasoning') return active ? '正在思考' : '已思考';
   if (item.command || item.type === 'commandExecution') return active ? '正在运行命令' : '已运行命令';
   if (item.files?.length || item.type === 'fileChange') return active ? '正在修改文件' : '已修改文件';
@@ -96,6 +116,38 @@ export function executionItemLabel(item: RemoteItem | undefined, running: boolea
 
 function oneLine(value: string | undefined) {
   return (value ?? '').split(/\r?\n/).map(line => line.trim()).find(Boolean)?.replace(/^#{1,6}\s+/, '').replace(/\*\*|__/g, '').replace(/\s+/g, ' ').slice(0, 220) ?? '';
+}
+
+/** Event labels retain the historical action; newer metadata supplies names only. */
+export function collaborationSummary(item: RemoteItem, running: boolean, knownAgents: RemoteSubAgent[] = []): string {
+  const title = oneLine(item.activityTitle);
+  const prefix = item.status === 'failed' ? '失败：' : item.status === 'declined' ? '已拒绝：'
+    : ['interrupted', 'cancelled'].includes(item.status ?? '') ? '已停止：' : '';
+  if (title) return prefix + title;
+  const agents = item.subAgents ?? [];
+  if (item.type === 'subAgentActivity') {
+    const names = agents.map(agent => subAgentName({...agent, name: agent.name || knownAgents.find(known => known.threadId === agent.threadId)?.name})).join('、');
+    const action = {started: '开始工作', interacted: '收到消息', completed: '已完成工作', interrupted: '已中断'};
+    return item.agentActivity ? `${names || '智能体'}${action[item.agentActivity]}`
+      : `${names || '智能体'} · ${subAgentStatusLabel[agents[0]?.status ?? 'unknown']}`;
+  }
+  const count = new Set(agents.map(agent => agent.threadId)).size;
+  const targets = count ? `${count}个智能体` : '智能体';
+  const active = executionItemActive(item, running);
+  const actions: Record<string, string> = {
+    spawnAgent: '创建', followupTask: '安排任务给', sendInput: '发消息', sendMessage: '发消息',
+    resumeAgent: '恢复', interruptAgent: '中断', closeAgent: '关闭', listAgents: '查看',
+  };
+  if (item.tool === 'wait') return prefix ? `${prefix}等待智能体完成` : active ? '等待智能体完成' : `已等待${targets}`;
+  const action = actions[item.tool ?? ''] ?? '协调';
+  return `${prefix || (active ? '正在' : '已')}${action}${targets}`;
+}
+
+export function imageActivitySummary(section: ImageActivitySection): string {
+  const count = section.items.reduce((total, item) => total + Math.max(1, item.images?.length ?? 0), 0);
+  const failed = section.items.some(item => ['failed', 'declined', 'cancelled', 'interrupted'].includes(item.status ?? ''));
+  const active = section.items.some(item => ['inProgress', 'running'].includes(item.status ?? '') && item.completedAtMs === undefined);
+  return `${failed ? '查看失败 ·' : active ? '正在查看' : '已查看'} ${count} 张图像`;
 }
 /** Unwrap only recognized shell launchers for display. Keep the recorded command intact. */
 export function displayCommand(command: string): string {
@@ -122,6 +174,7 @@ const unsuccessful = (item: RemoteItem) => ['failed', 'interrupted', 'cancelled'
 export function executionItemSummary(item: RemoteItem | undefined, running: boolean): string {
   if (!item) return '正在思考';
   if (item.type === 'reasoning') return oneLine(item.text) || executionItemLabel(item, running);
+  if (isCollaborationItem(item)) return collaborationSummary(item, running);
   const label = executionItemLabel(item, running);
   if (item.subAgents?.length) return `${label} · ${item.subAgents.map(subAgentName).slice(0, 2).join('、')}${item.subAgents.length > 2 ? ` 等 ${item.subAgents.length} 个` : ''}`;
   const active = label.startsWith('正在');

@@ -273,6 +273,62 @@ async function fixture(options: FixtureOptions = {}) {
   return { dom, current, historyRequests, uploadRequests, imageUploads, earlierRequests, commands, errors, app, header, click, closeDialog, close, deviceGate, catalogGate, historyGate, refresh };
 }
 
+it('shows agent messages, historical start events and the actual wait inline before and after completion', async () => {
+  const child: RemoteSubAgent = {threadId:'child', name:'Linnaeus', status:'completed', statusSource:'thread'};
+  const turn: HistoryTurn = {id:'active-turn', status:'inProgress', truncated:false, items:[
+    {id:'command', type:'commandExecution', command:'npm test', status:'completed', truncated:false},
+    {id:'send', type:'collabAgentToolCall', tool:'sendInput', status:'completed', subAgents:[child], truncated:false},
+    {id:'started', type:'subAgentActivity', agentActivity:'started', subAgents:[{...child,name:undefined,status:'running'}], truncated:false},
+    {id:'wait', type:'collabAgentToolCall', tool:'wait', activityTitle:'Waiting for agent completion', status:'inProgress', subAgents:[child], truncated:false},
+    {id:'placeholder', type:'reasoning', truncated:false},
+  ]};
+  const controls = {active:true, text:'', images:[] as string[]};
+  const test = await fixture({controls, review:{turns:[turn]}, subAgents:[child]});
+  try {
+    const doc = test.dom.window.document;
+    await vi.waitFor(() => expect(test.header()).toContain('recent-pc-a'));
+    await vi.waitFor(() => expect(doc.querySelector('[data-testid="agent-activity-started"]')?.textContent, `${doc.body.textContent} ${test.errors}`).toBe('Linnaeus开始工作'));
+    const send = doc.querySelector('[data-testid="agent-activity-send"]')!;
+    const started = doc.querySelector('[data-testid="agent-activity-started"]')!;
+    const wait = doc.querySelector('[data-testid="agent-activity-wait"]')!;
+    expect(send.textContent).toBe('已发消息1个智能体');
+    expect(send.compareDocumentPosition(started) & 4).toBe(4);
+    expect(started.compareDocumentPosition(wait) & 4).toBe(4);
+    expect(wait.querySelector('[data-testid="active-step-shimmer"]')?.textContent).toBe('Waiting for agent completion');
+    expect(test.dom.window.getComputedStyle(wait.querySelector('[data-testid="active-step-shimmer"]')!).fontFamily).toContain('Segoe UI');
+    expect(doc.querySelector('[aria-label^="正在思考，"]')).toBeNull();
+    controls.active = false; turn.status = 'completed'; turn.items.find(item => item.id === 'wait')!.status = 'completed'; test.refresh();
+    await vi.waitFor(() => expect(doc.querySelector('[data-testid="agent-activity-wait"] [data-testid="active-step-shimmer"]')).toBeNull());
+    expect(doc.querySelector('[data-testid="agent-activity-started"]')?.textContent).toBe('Linnaeus开始工作');
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it('groups viewed images inline, expands their thumbnails and opens the original image gallery', async () => {
+  const views = (start: number, count: number) => Array.from({length:count}, (_, index) => ({id:`view-${start+index}`, type:'imageView', images:[{id:(start+index).toString(16).padStart(64,'0'), name:`view-${start+index}.png`}], truncated:false}));
+  const turn: HistoryTurn = {id:'images', status:'completed', truncated:false, items:[...views(1,3), {id:'command',type:'commandExecution',command:'npm test',status:'completed',truncated:false}, ...views(4,4)]};
+  const test = await fixture({review:{turns:[turn]}});
+  try {
+    const doc = test.dom.window.document;
+    await vi.waitFor(() => expect(doc.querySelector('[aria-label="已查看 4 张图像，展开图像"]')).not.toBeNull());
+    expect(doc.querySelector('[aria-label="已查看 3 张图像，展开图像"]')).not.toBeNull();
+    expect(doc.querySelectorAll('[aria-label^="查看图像 view-"]')).toHaveLength(0);
+    await test.click('已查看 4 张图像，展开图像');
+    await vi.waitFor(() => expect(doc.querySelectorAll('[aria-label^="查看图像 view-"]')).toHaveLength(4));
+    expect(doc.querySelector('[aria-label="已查看 4 张图像，收起图像"]')?.getAttribute('aria-expanded')).toBe('true');
+    await test.click('查看图像 view-4.png');
+    await vi.waitFor(() => expect(doc.querySelector('[aria-label="关闭图片"]')).not.toBeNull());
+    expect(doc.body.textContent).toContain('4 / 7');
+    await test.closeDialog('关闭图片');
+    turn.items.push(...views(8,1)); test.refresh();
+    await vi.waitFor(() => expect(doc.querySelector('[aria-label="已查看 5 张图像，收起图像"]')).not.toBeNull());
+    expect(doc.querySelectorAll('[aria-label^="查看图像 view-"]')).toHaveLength(5);
+    await test.click('已查看 5 张图像，收起图像');
+    await vi.waitFor(() => expect(doc.querySelectorAll('[aria-label^="查看图像 view-"]')).toHaveLength(0));
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
 async function pagingFixture(paging: NonNullable<FixtureOptions['paging']>, options: FixtureOptions = {}) {
   const test = await fixture({ ...options, paging });
   await vi.waitFor(() => expect(test.header()).toContain('recent-pc-a'));

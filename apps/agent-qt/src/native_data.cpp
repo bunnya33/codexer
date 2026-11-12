@@ -490,6 +490,10 @@ static Object normalizeItem(
                                    : QJsonValue(), 300).trimmed();
   if (!title.isEmpty())
     out["activityTitle"] = title;
+  if (type == "subAgentActivity" &&
+      QStringList{"started", "interacted", "interrupted", "completed"}
+          .contains(item["kind"].toString()))
+    out["agentActivity"] = item["kind"];
   QStringList commandPreview;
   for (auto action : item["commandActions"].toArray())
     if (action.toObject()["command"].isString() &&
@@ -742,7 +746,13 @@ Object normalizeThread(
     for (const auto &iv : turn["items"].toArray())
       for (const auto &a : subAgents(iv.toObject(), raw["id"].toString())) {
         auto id = a.toObject()["threadId"].toString();
-        latestAgents[id] = merged(latestAgents[id], a.toObject());
+        const auto previous = latestAgents.value(id);
+        auto update = merged(previous, a.toObject());
+        if (a.toObject()["status"] == "unknown" && !previous.isEmpty()) {
+          update["status"] = previous["status"];
+          update["statusSource"] = previous["statusSource"];
+        }
+        latestAgents[id] = update;
         if (a.toObject()["status"] == "running")
           latestAgents[id].remove("message");
         agentIds.insert(id);

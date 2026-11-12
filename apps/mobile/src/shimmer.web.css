@@ -4,6 +4,7 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   font-size: 12px;
   line-height: 18px;
   color: var(--control-shimmer, #9aa1a3);

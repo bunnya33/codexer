@@ -134,6 +134,7 @@ const itemSchema = z.object({
   tool: z.string().max(300).optional(),
   toolServer: z.string().max(300).optional(),
   activityTitle: z.string().max(300).optional(),
+  agentActivity: z.enum(['started', 'interacted', 'interrupted', 'completed']).optional(),
   commandPreview: z.string().max(4096).optional(),
   subAgents: subAgentsSchema.optional(),
   files: z.array(z.string().max(1000)).max(40).optional(),

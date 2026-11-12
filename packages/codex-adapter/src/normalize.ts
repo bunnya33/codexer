@@ -167,6 +167,8 @@ function normalizeItem(value: unknown, turn: RecordValue, textLimit = 4096, outp
     ...(typeof item.tool === "string" ? { tool: text(item.tool, 300) } : {}),
     ...(typeof item.server === 'string' ? {toolServer: text(item.server, 300)} : {}),
     ...(activityTitle ? {activityTitle} : {}),
+    ...(item.type === 'subAgentActivity' && ['started', 'interacted', 'interrupted', 'completed'].includes(String(item.kind))
+      ? {agentActivity: item.kind as NonNullable<RemoteItem['agentActivity']>} : {}),
     ...(commandPreview ? {commandPreview: text(commandPreview, 4096)} : {}),
     ...(subAgents.length ? { subAgents } : {}),
     ...(files.length ? { files } : {}),

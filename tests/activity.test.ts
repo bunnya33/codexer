@@ -144,7 +144,7 @@ describe('collapsed execution records', () => {
       item('answer', 'agentMessage', {phase: 'final_answer', text: 'Done'}),
     ]);
     const sections = activitySections(groups(value)[0]!);
-    expect(sections.map(section => section.kind === 'message' ? section.item.id : section.items.map(item => item.id)))
+    expect(sections.map(section => section.kind === 'message' || section.kind === 'collaboration' ? section.item.id : section.items.map(item => item.id)))
       .toEqual(['progress-1', ['reason-1', 'command'], 'progress-2', ['edit', 'reason-2'], 'answer']);
     expect(sections.filter(section => section.kind === 'execution').every(section => !section.running)).toBe(true);
   });
@@ -172,7 +172,7 @@ describe('collapsed execution records', () => {
   it('preserves steering messages and never adds thinking below a final reply or stopped turn', () => {
     const block = groups(turn([item('before', 'reasoning'), item('steer', 'steeringUserMessage'), item('after', 'commandExecution'), item('answer', 'agentMessage', {phase: 'final_answer'})], {status: 'inProgress'}), true)[0]!;
     const sections = activitySections(block);
-    expect(sections.map(section => section.kind === 'message' ? section.item.id : section.items.map(item => item.id))).toEqual([['before'], 'steer', ['after'], 'answer']);
+    expect(sections.map(section => section.kind === 'message' || section.kind === 'collaboration' ? section.item.id : section.items.map(item => item.id))).toEqual([['before'], 'steer', ['after'], 'answer']);
     expect(activitySections({...block, state: 'interrupted'}).some(section => section.kind === 'execution' && section.running)).toBe(false);
   });
 });

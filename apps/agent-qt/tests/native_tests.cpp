@@ -475,6 +475,29 @@ private slots:
     request["_meta"] = meta;
     QVERIFY(approval(request).isEmpty());
   }
+  void publicAgentActivityKinds() {
+    for (const auto &kind : QStringList{"started", "interacted", "interrupted", "completed", "future-kind"}) {
+      Object event{{"id", "agent-event"}, {"type", "subAgentActivity"},
+                   {"agentThreadId", "child"}, {"agentPath", "/root/Linnaeus"},
+                   {"kind", kind}};
+      Object turn{{"id", "turn"}, {"status", "inProgress"}, {"items", Array{event}}};
+      auto thread = raw();
+      thread["turns"] = Array{turn};
+      auto live = normalizeThread(thread, 1)["turns"].toArray()[0].toObject()["items"].toArray()[0].toObject();
+      auto history = normalizeTurn(turn, true, "parent")["items"].toArray()[0].toObject();
+      for (const auto &item : {live, history}) {
+        if (kind == "future-kind") QVERIFY(!item.contains("agentActivity"));
+        else QCOMPARE(item["agentActivity"], QJsonValue(kind));
+        QVERIFY(!item.contains("kind"));
+      }
+    }
+    auto thread = raw();
+    thread["turns"] = Array{Object{{"id", "turn"}, {"items", Array{
+      Object{{"id", "done"}, {"type", "subAgentActivity"}, {"agentThreadId", "child"}, {"kind", "completed"}},
+      Object{{"id", "message"}, {"type", "subAgentActivity"}, {"agentThreadId", "child"}, {"kind", "interacted"}}
+    }}}};
+    QCOMPARE(normalizeThread(thread, 1)["subAgents"].toArray()[0].toObject()["status"], QJsonValue("completed"));
+  }
   void normalizeUserAndTiming() {
     auto thread = raw();
     Object turn{

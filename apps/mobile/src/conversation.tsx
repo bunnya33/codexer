@@ -3,7 +3,7 @@ import { ActivityIndicator, Animated, Easing, Platform, Pressable, ScrollView, T
 import { Bot, Check, ChevronDown, ChevronRight, ChevronUp, Copy, Pencil, Sparkles, SquareTerminal, Globe, MessageCircle, Image, Clock, Search, Layers, Wrench } from 'lucide-react-native';
 import { activityLabel, activitySections, buildActivityBlocks, executionItemIcon, executionItemSummary, executionSectionItem, executionSectionSummary, formatDuration, itemDuration, messageRole } from '../../../packages/client-shared/src/activity';
 import type { ExecutionSection } from '../../../packages/client-shared/src/activity';
-import type { HistoryTurn, RemoteItem } from '../../../packages/protocol/src/index';
+import type { HistoryTurn, RemoteItem, RemoteSubAgent } from '../../../packages/protocol/src/index';
 import { userPresentation } from '../../../packages/protocol/src/user-presentation';
 import { relay } from './relay';
 import { Markdown } from './markdown';
@@ -22,6 +22,7 @@ import { TaskStatusDot } from './task-status-dot';
 import { useInteractionMotion } from './interaction/motion';
 import { PlanCard, ExecutionPlan } from './plan-review';
 import {Disclosure} from './interaction/disclosure';
+import {AgentActivityRecord, ImageActivityRecord} from './activity-records';
 
 type ImageSource = { uri: string; headers?: Record<string, string> };
 type ImageViewer = (source: ImageSource, name: string) => void;
@@ -92,7 +93,7 @@ function ExecutionGroup({ section, deviceId, threadId, onImage }: { section: Exe
 }
 
 type ActivityBlock = Extract<ReturnType<typeof buildActivityBlocks>[number], { kind: 'activity' }>;
-function Activity({ block, turn, deviceId, threadId, onImage, questionRequestIds, steps }: { block: ActivityBlock; turn: HistoryTurn; deviceId: string; threadId: string; onImage: ImageViewer; questionRequestIds: string[]; steps?: {step:string;status:string}[] }) {
+function Activity({ block, turn, deviceId, threadId, onImage, questionRequestIds, steps, agents }: { block: ActivityBlock; turn: HistoryTurn; deviceId: string; threadId: string; onImage: ImageViewer; questionRequestIds: string[]; steps?: {step:string;status:string}[]; agents?: RemoteSubAgent[] }) {
   const { c, s } = useTheme();
   const [now, setNow] = useState(Date.now());
   useEffect(() => { if (block.state !== 'running') return; const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, [block.state]);
@@ -105,6 +106,8 @@ function Activity({ block, turn, deviceId, threadId, onImage, questionRequestIds
     {!!steps?.length && <ExecutionPlan steps={steps} />}
     {activitySections(block).map(section => {
       if (section.kind === 'execution') return <ExecutionGroup key={section.id} section={section} deviceId={deviceId} threadId={threadId} onImage={onImage} />;
+      if (section.kind === 'collaboration') return <AgentActivityRecord key={section.item.id} item={section.item} running={section.running} agents={agents} />;
+      if (section.kind === 'images') return <ImageActivityRecord key={section.id} section={section} deviceId={deviceId} threadId={threadId} onImage={onImage} />;
       const item = section.item;
       if (item.type === 'plan') return <PlanCard key={item.id} item={item} turnId={turn.id} turnStatus={turn.status} deviceId={deviceId} threadId={threadId} />;
       if (item.questionRequestId && questionRequestIds.includes(item.questionRequestId)) return null;
@@ -116,13 +119,13 @@ function Activity({ block, turn, deviceId, threadId, onImage, questionRequestIds
 
 export { FileChangesPanel } from './file-review';
 
-export const TurnView = memo(function TurnView({ turn, active, deviceId, threadId, onImage, questionRequestIds, steps }: { turn: HistoryTurn; active: boolean; deviceId: string; threadId: string; onImage: ImageViewer; questionRequestIds: string[]; steps?: {step: string; status: string}[] }) {
+export const TurnView = memo(function TurnView({ turn, active, deviceId, threadId, onImage, questionRequestIds, steps, agents }: { turn: HistoryTurn; active: boolean; deviceId: string; threadId: string; onImage: ImageViewer; questionRequestIds: string[]; steps?: {step: string; status: string}[]; agents?: RemoteSubAgent[] }) {
   const { s } = useTheme();
   const { end } = recordedTurnTiming(turn, active);
   const running = active || turn.status === 'inProgress';
   const cost = turnCostLabel(turn.tokenUsage);
   return <View style={s.turn}>
-    {buildActivityBlocks(turn, active).map(block => block.kind === 'message' ? <Message key={block.item.id} item={block.item} deviceId={deviceId} threadId={threadId} onImage={onImage} /> : <Activity key={block.id} block={block} turn={turn} deviceId={deviceId} threadId={threadId} onImage={onImage} questionRequestIds={questionRequestIds} steps={steps} />)}
+    {buildActivityBlocks(turn, active).map(block => block.kind === 'message' ? <Message key={block.item.id} item={block.item} deviceId={deviceId} threadId={threadId} onImage={onImage} /> : <Activity key={block.id} block={block} turn={turn} deviceId={deviceId} threadId={threadId} onImage={onImage} questionRequestIds={questionRequestIds} steps={steps} agents={agents} />)}
     {!active && !!turn.fileChanges?.length && <FileChangesPanel changes={turn.fileChanges} compact={false} deviceId={deviceId} threadId={threadId} turnId={turn.id} />}
     {(turn.tokenUsage || running || end) && <View style={s.turnFooter}>
       {(turn.tokenUsage || running) && <View testID="turn-token-usage" style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
