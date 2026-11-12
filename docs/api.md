@@ -1,5 +1,7 @@
 # Relay HTTP / WebSocket API
 
+项目传输 API、设备权限和状态说明见 [发送项目到其他设备](project-transfers.md)。
+
 Base URL 是 Relay 的 HTTP 或 HTTPS 地址；本机开发默认为 `http://127.0.0.1:8787`。Expo Web 开发页直接连接 Relay，跨来源访问需加入 `RELAY_ALLOWED_ORIGINS`；生产网页由 Relay 同源提供。完整数据约束和 TypeScript 类型见 `packages/protocol/src/index.ts`，状态同步时序见 [protocol.md](protocol.md)。
 
 ## 认证和错误

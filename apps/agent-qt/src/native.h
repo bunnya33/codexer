@@ -41,6 +41,7 @@ QString fingerprint(const QString &path);
 QString fileIdentity(const QString &path);
 Object filePayload(const Object &request, const QString &path);
 struct ProjectScan;
+class ProjectTransferTask;
 Object permissionSettings(const Object &settings);
 Object permissionPreset(const QString &mode, const Array &roots);
 Object approval(const Object &params);
@@ -169,6 +170,11 @@ class Service : public QObject {
   QHash<QString, Object> deletionPlans;
   QHash<QString, std::shared_ptr<ProjectScan>> projectScans;
   QSet<QString> cancelledProjectRequests;
+  ProjectTransferTask *projectTransferTask = nullptr;
+  Object projectTransferOutcome;
+  QString snapshottingProject;
+  qint64 lastProjectTransferPoll = 0;
+  qint64 lastProjectTransferCleanup = 0;
   QHash<int, Object> platformResponses;
   QList<Object> uiQueue, commandQueue;
   int nativeSerial = 0, depth = 0, remoteGeneration = 0, reconnectAttempt = 0;
@@ -241,6 +247,8 @@ class Service : public QObject {
   Object readImage(const QString &threadId, const QString &id);
   Object readFile(const Object &request);
   Object browseProject(const Object &request);
+  void pollProjectTransfers();
+  void stopProjectTransfers();
   void observeFiles(const QString &threadId, const Object &turn);
   void observeUsage(const QString &threadId, const QString &turnId,
                     const Object &value, bool notification);

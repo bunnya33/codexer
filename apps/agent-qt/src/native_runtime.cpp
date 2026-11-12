@@ -180,6 +180,7 @@ void Service::refreshCatalog() {
   }
   next["projectCreation"] = Object{{"parents", parents}};
   next["projectDeletion"] = true;
+  next["projectTransfer"] = true;
   if (json(next).size() > 6 * 1024 * 1024 || projects.size() > 1000 ||
       listed.size() > 10000)
     throw Error("catalog-too-large");

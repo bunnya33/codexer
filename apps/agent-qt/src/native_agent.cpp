@@ -133,6 +133,7 @@ void Service::connectAgent() {
   }
 }
 void Service::pause() {
+  stopProjectTransfers();
   paused = true;
   ++remoteGeneration;
   commandQueue.clear();
@@ -659,8 +660,12 @@ void Service::tick() {
         } catch (...) {
         }
       }
-      if (!paused && allowed)
+      if (!paused && allowed && snapshottingProject.isEmpty())
         drainQueues();
+      if (!paused && allowed && now() - lastProjectTransferPoll >= 5000) {
+        lastProjectTransferPoll = now();
+        try { pollProjectTransfers(); } catch (...) {}
+      }
       if (now() - lastStatus >= 2000)
         status();
     }

@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
+import { create as createTar } from "tar";
 const { version } = JSON.parse(await readFile("package.json", "utf8"));
 await readFile("apps/relay/assets/web/index.html");
 await readFile("apps/relay/assets/admin/index.html");
@@ -60,10 +61,16 @@ for (const target of targets) {
     }),
   );
   const archive = resolve(`release/codexer-server-${version}-${os}-${goArch}.tar.gz`);
-  const tar = spawnSync("tar", ["--format=pax", "-czf", archive, "-C", staging, "codexer"], {
-    stdio: "inherit",
-  });
-  if (tar.status !== 0) throw new Error("archive-failed");
+  await createTar({
+    file: archive, cwd: staging, gzip: true, portable: true,
+    onWriteEntry(entry) {
+      // Windows filesystem modes do not retain Unix executable bits.
+      const path = entry.path.replaceAll("\\", "/").replace(/\/$/, "");
+      entry.stat.mode = entry.stat.isDirectory() ||
+        ["codexer/codexer", "codexer/install.sh", "codexer/bootstrap.sh"].includes(path)
+        ? 0o755 : 0o644;
+    },
+  }, ["codexer"]);
   const hash = createHash("sha256")
     .update(await readFile(archive))
     .digest("hex");

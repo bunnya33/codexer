@@ -32,6 +32,9 @@ Object Service::execute(Object command) {
   checkCommand(command, generation);
   auto p = command["payload"].toObject();
   auto type = p["type"].toString(), id = p["threadId"].toString();
+  if (!snapshottingProject.isEmpty() && type != "thread.watch" &&
+      (p["projectId"] == snapshottingProject || findThread(catalog, id)["projectId"] == snapshottingProject))
+    throw Error("project-transfer-snapshot-in-progress");
   if (paused || !allowed || stopping)
     throw Error("remote-disconnected");
   if (type == "runtime.refresh") {

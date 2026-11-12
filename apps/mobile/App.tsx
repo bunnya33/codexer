@@ -29,6 +29,7 @@ import { useTheme } from './src/styles';
 import { Directory } from './src/directory';
 import { ProjectCreate } from './src/project-create';
 import { ProjectActions } from './src/project-actions';
+import { ProjectTransfers } from './src/project-transfers';
 import { ProjectBrowser } from './src/project-browser';
 import { confirmAction, defaultRelayUrl } from './src/runtime';
 import { ConversationControls } from './src/conversation-controls';
@@ -104,6 +105,7 @@ function AppContent() {
   const [managing, setManaging] = useState(false);
   const [projectDeviceId, setProjectDeviceId] = useState('');
   const [actionProject, setActionProject] = useState<{ deviceId: string; id: string; name: string } | null>(null);
+  const [transferSource, setTransferSource] = useState<{ deviceId: string; id: string; name: string } | null>(null);
   const [preview, setPreview] = useState<ImageGallery | null>(null);
   const listRef = useRef<FlatList<HistoryTurn>>(null);
   const streamKey = historyKey(deviceId, threadId);
@@ -550,7 +552,8 @@ function AppContent() {
     {browserProject && view.catalogs[browserProject.deviceId]?.projects.find(p=>p.id===browserProject.id) && <ProjectBrowser key={JSON.stringify([view.url,view.userId,browserProject.deviceId,browserProject.id])} open={browserProject.open} onClose={()=>setBrowserProject(old=>old?{...old,open:false}:undefined)} deviceId={browserProject.deviceId} project={view.catalogs[browserProject.deviceId]!.projects.find(p=>p.id===browserProject.id)!} online={!!view.devices.find(d=>d.id===browserProject.deviceId)?.online} supported={view.snapshots[browserProject.deviceId]?.runtime.capabilities.projectFiles===true} />}
     {editingQueueId && <QueueEditor key={`${deviceId}:${threadId}:${editingQueueId}`} deviceId={deviceId} threadId={threadId} queueId={editingQueueId} onClose={() => setEditingQueueId(null)} />}
     {!!projectDeviceId && <ProjectCreate key={projectDeviceId} catalog={view.catalogs[projectDeviceId]} online={!!view.devices.find(item => item.id === projectDeviceId)?.online} create={createProject} close={() => setProjectDeviceId('')} />}
-    {actionProject && <ProjectActions key={`${actionProject.deviceId}:${actionProject.id}`} projectId={actionProject.id} name={actionProject.name} catalog={view.catalogs[actionProject.deviceId]} online={!!view.devices.find(device => device.id === actionProject.deviceId)?.online} browseFiles={()=>{setBrowserProject({deviceId:actionProject.deviceId,id:actionProject.id,open:true});setActionProject(null);}} close={() => setActionProject(null)} createThread={() => { setActionProject(null); void createThread(actionProject.id, actionProject.deviceId); }} send={async payload => {
+    {transferSource && <ProjectTransfers key={JSON.stringify([view.url, view.userId, transferSource.deviceId, transferSource.id])} source={transferSource} close={() => setTransferSource(null)}/>}
+    {actionProject && <ProjectActions key={`${actionProject.deviceId}:${actionProject.id}`} projectId={actionProject.id} name={actionProject.name} catalog={view.catalogs[actionProject.deviceId]} online={!!view.devices.find(device => device.id === actionProject.deviceId)?.online} transferProject={() => {setTransferSource(actionProject); setActionProject(null);}} browseFiles={()=>{setBrowserProject({deviceId:actionProject.deviceId,id:actionProject.id,open:true});setActionProject(null);}} close={() => setActionProject(null)} createThread={() => { setActionProject(null); void createThread(actionProject.id, actionProject.deviceId); }} send={async payload => {
       const target = actionProject.deviceId;
       const fresh = relay.getSnapshot().catalogs[target];
       if (!fresh?.projects.some(project => project.id === payload.projectId)) throw new Error('project-not-in-catalog');

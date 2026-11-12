@@ -11,6 +11,7 @@
 | [macOS](mac.md) | 安装、菜单栏、Keychain、程序查找、平台验收 |
 | [移动与 Web 客户端](mobile.md) | React Native 共用结构、App 构建、浏览器入口、平台适配 |
 | [控制功能](usage.md) | 设备/项目/会话、发送/队列/引导/停止、模型、审批、图片 |
+| [发送项目到其他设备](project-transfers.md) | 未推送项目的快照、后台接收、续传和稍后继续开发 |
 | [会话界面与交互](conversation.md) | 自动滚动、文件面板、扫光、两种提问格式与回答展示、Plan Mode 和升级要求 |
 | [对话内预览](previews.md) | HTML 原型、本地开发网页、全屏、Tweak、元素标注与反馈 |
 | [管理后台](admin.md) | 创建账号、密码重置、禁用、管理与控制会话隔离 |

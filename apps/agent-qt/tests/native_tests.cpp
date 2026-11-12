@@ -1,4 +1,5 @@
 #include "native.h"
+#include "native_project_transfer.h"
 #include <QtEndian>
 #include <QtTest>
 #include <QtWebSockets/QWebSocketServer>
@@ -376,6 +377,102 @@ private slots:
   void cleanup() {
     agent.reset();
     qunsetenv("CODEX_REMOTE_DESKTOP_ENDPOINT");
+  }
+  void projectSnapshotPreservesGitWorkingStateAndBinaryFiles() {
+    QTemporaryDir files; QVERIFY(files.isValid());
+    auto root = files.path() + "/source", restored = files.path() + "/restored";
+    QVERIFY(QDir().mkpath(root + "/empty")); QVERIFY(QDir().mkpath(restored));
+    const auto git = QStandardPaths::findExecutable("git"); if (git.isEmpty()) QSKIP("Git unavailable");
+    auto runGit = [&](const QString &directory, const QStringList &args) {
+      QProcess p; p.setWorkingDirectory(directory); p.start(git, args);
+      if (!p.waitForFinished(10000) || p.exitCode() != 0) return QByteArray("ERROR:") + p.readAllStandardError();
+      return p.readAllStandardOutput();
+    };
+    runGit(root, {"init", "-q"}); save(root + "/code.txt", "committed\n");
+    runGit(root, {"add", "code.txt"});
+    QVERIFY(!runGit(root, {"-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-qm", "local only"}).startsWith("ERROR:"));
+    runGit(root, {"branch", "build/feature"}); runGit(root, {"branch", "local.db"});
+    save(root + "/code.txt", "staged\n"); runGit(root, {"add", "code.txt"}); save(root + "/code.txt", "unstaged\n");
+    QByteArray binary(700000, '\0'); binary[123] = char(0xff); save(root + "/untracked.bin", binary);
+    save(root + "/.env", "SECRET=local"); save(root + "/.env.example", "SECRET=example");
+    save(root + "/state.sqlite", "local db"); QDir().mkpath(root + "/node_modules/pkg"); save(root + "/node_modules/pkg/index.js", "regenerate");
+    Object options{{"includeGit", true}, {"includeLocalFiles", false}, {"excludedDirectories", Array{"node_modules", "build"}}, {"note", "Continue later"}};
+    const auto archive = files.path() + "/snapshot";
+    auto summary = snapshotProject(Array{root}, options, archive);
+    QCOMPARE(summary["excluded"].toInt(), 3);
+    QCOMPARE(summary["sha256"].toString(), hash(read(archive)));
+    QCOMPARE(extractProjectSnapshot(archive, restored), Array{QString()});
+    QCOMPARE(read(restored + "/code.txt"), QByteArray("unstaged\n"));
+    QCOMPARE(read(restored + "/untracked.bin"), binary);
+    QCOMPARE(read(restored + "/.git/index"), read(root + "/.git/index"));
+    QCOMPARE(runGit(root, {"status", "--porcelain=v1", "--", "code.txt", "untracked.bin"}), runGit(restored, {"status", "--porcelain=v1", "--", "code.txt", "untracked.bin"}));
+    QCOMPARE(runGit(root, {"rev-parse", "HEAD"}), runGit(restored, {"rev-parse", "HEAD"}));
+    QCOMPARE(runGit(root, {"for-each-ref", "--format=%(refname):%(objectname)"}), runGit(restored, {"for-each-ref", "--format=%(refname):%(objectname)"}));
+    QVERIFY(QFileInfo(restored + "/empty").isDir()); QVERIFY(QFileInfo::exists(restored + "/.env.example"));
+    QVERIFY(!QFileInfo::exists(restored + "/.env")); QVERIFY(!QFileInfo::exists(restored + "/state.sqlite")); QVERIFY(!QFileInfo::exists(restored + "/node_modules"));
+    QCOMPARE(QDir(restored).entryList({"CODEXER-HANDOFF-*.md"}, QDir::Files).size(), 1);
+  }
+  void projectSnapshotRejectsChangesAndExternalGit() {
+    QTemporaryDir files; auto root = files.path() + "/source"; QDir().mkpath(root);
+    save(root + "/a.bin", QByteArray(1024 * 1024, 'a'));
+    Object options{{"includeGit", true}, {"includeLocalFiles", true}, {"excludedDirectories", Array{}}, {"note", ""}};
+    int checks = 0; bool failed = false;
+    try {snapshotProject(Array{root}, options, files.path() + "/snapshot", [&] {
+      if (++checks == 6) save(root + "/new.txt", "arrived during capture");
+    });} catch (const Error &e) {failed = e.code == "project-transfer-source-changed";}
+    QVERIFY(failed); QVERIFY(!QFileInfo::exists(files.path() + "/snapshot"));
+    save(root + "/.git", "gitdir: ../external"); failed = false;
+    try {snapshotProject(Array{root}, options, files.path() + "/snapshot");}
+    catch (const Error &e) {failed = e.code == "project-transfer-external-git-unsupported";}
+    QVERIFY(failed);
+    options["includeGit"] = false; snapshotProject(Array{root}, options, files.path() + "/snapshot");
+  }
+  void projectSnapshotRejectsTraversalAndCorruption() {
+    QTemporaryDir files; auto staging = files.path() + "/staging"; QDir().mkpath(staging);
+    auto record = [](Object value) {auto b = json(value); quint32 size = qToBigEndian(quint32(b.size())); return QByteArray(reinterpret_cast<const char *>(&size), 4) + b;};
+    auto header = QByteArray("CODEXER-PROJECT-1\n") + record({{"roots", Array{QString()}}, {"note", ""}});
+    for (const auto &path : {QString("../escape.txt"), QString("C:/escape.txt"), QString("CON"), QString("/absolute")}) {
+      save(files.path() + "/snapshot", header + record({{"path", path}, {"kind", "file"}, {"size", 0}}) + hash({}).toUtf8() + QByteArray(4, '\0'));
+      bool rejected = false; try {extractProjectSnapshot(files.path() + "/snapshot", staging);} catch (const Error &) {rejected = true;}
+      QVERIFY(rejected); QVERIFY(!QFileInfo::exists(files.path() + "/escape.txt"));
+    }
+    save(files.path() + "/snapshot", header + record({{"path", "bad.txt"}, {"kind", "file"}, {"size", 3}}) + "bad" + QByteArray(64, '0') + QByteArray(4, '\0'));
+    bool rejected = false; try {extractProjectSnapshot(files.path() + "/snapshot", staging);} catch (const Error &e) {rejected = e.code == "project-transfer-checksum-mismatch";}
+    QVERIFY(rejected);
+  }
+  void receivedProjectRegistersWithoutStartingConversation() {
+    QTemporaryDir received; QVERIFY(received.isValid());
+    auto path = received.path() + "/received-project"; QVERIFY(QDir().mkpath(path)); save(path + "/code.txt", "received");
+    auto id = uuid(); auto cache = agent->dataDirectory + "/project-transfers/" + id;
+    QVERIFY(QDir().mkpath(cache));
+    save(cache + "/receipt.json", json(Object{{"identity", fileIdentity(path)}, {"parentPins", transferDirectoryChain(received.path())}}));
+    agent->settings["projectParents"] = Array{received.path()};
+    agent->projectTransferOutcome = {{"id", id}, {"savedPath", path}, {"roots", Array{QString()}}};
+    Object job{{"id", id}, {"state", "received"}, {"sourceDeviceId", uuid()}, {"targetDeviceId", agent->credentials["deviceId"]}, {"parentPath", received.path()}, {"parentId", hash(received.path().toUtf8())}, {"name", "Received"}};
+    QTcpServer server; QVERIFY(server.listen(QHostAddress::LocalHost));
+    Object posted;
+    connect(&server, &QTcpServer::newConnection, &server, [&] {
+      auto peer = server.nextPendingConnection(); auto buffer = std::make_shared<QByteArray>();
+      connect(peer, &QTcpSocket::readyRead, peer, [&, peer, buffer] {
+        *buffer += peer->readAll(); int end = buffer->indexOf("\r\n\r\n"); if (end < 0) return;
+        auto header = buffer->left(end); qint64 length = 0;
+        for (auto line : header.split('\n')) if (line.toLower().startsWith("content-length:")) length = line.mid(15).trimmed().toLongLong();
+        if (buffer->size() < end + 4 + length) return;
+        QByteArray body;
+        if (header.startsWith("GET ")) body = json(Object{{"transfers", Array{job}}});
+        else {posted = parse(buffer->mid(end + 4, length)).toObject(); job["state"] = posted["state"]; body = json(job);}
+        peer->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: " + QByteArray::number(body.size()) + "\r\n\r\n" + body); peer->disconnectFromHost();
+      });
+      connect(peer, &QTcpSocket::disconnected, peer, &QObject::deleteLater);
+    });
+    agent->credentials["relayUrl"] = "http://127.0.0.1:" + QString::number(server.serverPort());
+    agent->pollProjectTransfers();
+    QCOMPARE(posted["state"], QJsonValue("completed")); QCOMPARE(posted["targetProjectId"], QJsonValue("created-project"));
+    auto calls = read(temp.path() + "/requests.jsonl");
+    QVERIFY(calls.contains("project/create")); QVERIFY(!calls.contains("thread/start")); QVERIFY(!calls.contains("turn/start"));
+    QVERIFY(QFileInfo::exists(path + "/code.txt"));
+    agent->pollProjectTransfers();
+    QVERIFY(QFileInfo::exists(path + "/code.txt"));
   }
   void projectBrowseSearchAndVersionedDownload() {
     QTemporaryDir files;
@@ -2554,6 +2651,12 @@ int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
   if (app.arguments().contains("app-server"))
     return Native::fixtureServer();
+  if (app.arguments().size() == 4 && app.arguments()[1] == "--project-transfer-worker") {
+    auto config = Native::parse(Native::read(app.arguments()[2])).toObject();
+    Native::ProjectTransferTask task(config["credentials"].toObject(), config["job"].toObject(), config["cache"].toString(), config["roots"].toArray(), nullptr);
+    QObject::connect(&task, &QThread::finished, &app, [&] {Native::save(app.arguments()[3], Native::json(task.outcome)); app.quit();});
+    task.start(); auto result = app.exec(); task.wait(); return result;
+  }
   if (app.arguments().size() == 4 &&
       app.arguments()[1] == "--protocol-fixtures") {
     Native::Array results;

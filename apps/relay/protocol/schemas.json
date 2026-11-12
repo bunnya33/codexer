@@ -4257,6 +4257,10 @@
                 "type": "boolean",
                 "const": true
               },
+              "projectTransfer": {
+                "type": "boolean",
+                "const": true
+              },
               "unassignedUsage": {
                 "type": "object",
                 "properties": {
@@ -6320,6 +6324,84 @@
       "operation",
       "rootIndex",
       "path"
+    ],
+    "additionalProperties": false
+  },
+  "projectTransfer": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "sourceDeviceId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 160
+      },
+      "projectId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 160
+      },
+      "targetDeviceId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 160
+      },
+      "parentId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 160
+      },
+      "relativePath": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "options": {
+        "type": "object",
+        "properties": {
+          "includeGit": {
+            "type": "boolean"
+          },
+          "includeLocalFiles": {
+            "type": "boolean"
+          },
+          "excludedDirectories": {
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "pattern": "^[^/\\\\\\x00-\\x1f:]+$"
+            }
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 20000
+          }
+        },
+        "required": [
+          "includeGit",
+          "includeLocalFiles",
+          "excludedDirectories",
+          "note"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "id",
+      "sourceDeviceId",
+      "projectId",
+      "targetDeviceId",
+      "parentId",
+      "relativePath",
+      "options"
     ],
     "additionalProperties": false
   }

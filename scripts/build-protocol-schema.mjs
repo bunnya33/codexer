@@ -9,7 +9,7 @@ const output = resolve(folder, "protocol.mjs");
 await build({
   stdin: {
     contents:
-      "export * from './packages/protocol/src/index.ts'; export {fileResponseSchema} from './packages/protocol/src/files.ts'; export {previewResponseSchema} from './packages/protocol/src/previews.ts'; export {projectQuerySchema} from './packages/protocol/src/project-files.ts';",
+      "export * from './packages/protocol/src/index.ts'; export {fileResponseSchema} from './packages/protocol/src/files.ts'; export {previewResponseSchema} from './packages/protocol/src/previews.ts'; export {projectQuerySchema} from './packages/protocol/src/project-files.ts'; export {projectTransferCreateSchema} from './packages/protocol/src/project-transfers.ts';",
     resolveDir: process.cwd(),
     loader: "ts",
   },
@@ -28,6 +28,7 @@ const schemas = {
   file: protocol.fileResponseSchema,
   preview: protocol.previewResponseSchema,
   project: protocol.projectQuerySchema,
+  projectTransfer: protocol.projectTransferCreateSchema,
 };
 const content =
   JSON.stringify(

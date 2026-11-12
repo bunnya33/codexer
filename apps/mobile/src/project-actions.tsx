@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
-import { Check, Copy, Folder, SquarePen, Trash2 } from 'lucide-react-native';
+import { Check, Copy, Folder, Send, SquarePen, Trash2 } from 'lucide-react-native';
 import { projectDeletionPlanSchema } from '../../../packages/protocol/src/index';
 import type { CommandResult, DeviceCatalog, ProjectDeletionPlan, RemoteCommand } from '../../../packages/protocol/src/index';
 import { projectDeletionError } from '../../../packages/client-shared/src/project-deletion';
@@ -10,10 +10,11 @@ import { copyText } from './runtime';
 import { ProjectUsage } from './project-usage';
 
 type Payload = Extract<RemoteCommand['payload'], { type: 'project.delete.prepare' | 'project.delete' }>;
-export function ProjectActions({ projectId, name, catalog, online, send, createThread, close, browseFiles }: {
+export function ProjectActions({ projectId, name, catalog, online, send, createThread, close, browseFiles, transferProject }: {
   projectId: string; name: string; catalog?: DeviceCatalog; online: boolean;
   send: (payload: Payload) => Promise<CommandResult>; createThread: () => void; close: () => void;
   browseFiles?: () => void;
+  transferProject?: () => void;
 }) {
   const { c, s } = useTheme();
   const [stage, setStage] = useState<'menu' | 'choose' | 'directory' | 'done'>('menu');
@@ -67,6 +68,7 @@ export function ProjectActions({ projectId, name, catalog, online, send, createT
       </View>
       <Pressable accessibilityRole="button" disabled={busy || !online || !exists} onPress={createThread} style={[s.menuOption, (busy || !online || !exists) && s.disabled]}><SquarePen size={18} color={c.text}/><Text style={s.menuText}>新建会话</Text></Pressable>
       {!!browseFiles&&<Pressable accessibilityRole="button" onPress={browseFiles} style={s.menuOption}><Folder size={18} color={c.text}/><Text style={s.menuText}>浏览文件</Text></Pressable>}
+      {!!transferProject&&<Pressable accessibilityRole="button" onPress={transferProject} style={s.menuOption}><Send size={18} color={c.text}/><Text style={s.menuText}>发送到其他设备</Text></Pressable>}
       <Pressable accessibilityRole="button" disabled={!canDelete} onPress={() => void run()} style={[s.menuOption, !canDelete && s.disabled]}><Trash2 size={18} color={c.danger}/><Text style={s.dangerText}>删除项目</Text></Pressable>
       <Text style={s.sub}>{count ? `项目中有 ${count} 个会话（含归档），仅空项目可删除。` : '只有会话数为 0 的项目可以删除。'}</Text>
       {!online ? <Text style={s.sub}>电脑已离线，请连接后再操作。</Text> : !catalog?.projectDeletion && <Text style={s.sub}>请更新此电脑的 Codexer Agent 以启用项目删除。</Text>}

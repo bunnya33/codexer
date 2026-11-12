@@ -41,37 +41,38 @@ type Server struct {
 	deviceRunning, deviceWaiting, deviceCompleted, exclusiveRunning, exclusiveWaiting, exclusiveCompleted atomic.Int64
 	maintenanceRunning, maintenanceCompleted                                                              atomic.Int64
 
-	Store          *Store
-	Options        Options
-	mux            *http.ServeMux
-	schemas        map[string]*jsonschema.Schema
-	schemaValues   map[string]any
-	mu             sync.Mutex
-	agents         map[string]*Peer
-	clients        map[*Peer]bool
-	pending        map[string]*Pending
-	imageQueue     map[string]*imageAdmission
-	imageQueueRefs int
-	imageSlots     chan struct{}
-	previews       map[string]*Preview
-	shareTimers    map[string]*previewShareTimer
-	audio          map[string]*AudioPlayback
-	lanes          map[string]*deviceLane
-	exclusive      sync.RWMutex
-	auth           sync.Mutex
-	limits         map[string]*rateWindow
-	ctx            context.Context
-	cancel         context.CancelFunc
-	wg             sync.WaitGroup
-	closing        atomic.Bool
-	metrics        *Metrics
-	resources      *resourceMonitor
-	logs           *serverLogs
-	wx             *Weixin
-	updates        *Updates
-	uploads        *uploadStore
-	agentReleases  *agentReleaseStore
-	clientReleases *clientReleaseStore
+	Store            *Store
+	Options          Options
+	mux              *http.ServeMux
+	schemas          map[string]*jsonschema.Schema
+	schemaValues     map[string]any
+	mu               sync.Mutex
+	agents           map[string]*Peer
+	clients          map[*Peer]bool
+	pending          map[string]*Pending
+	imageQueue       map[string]*imageAdmission
+	imageQueueRefs   int
+	imageSlots       chan struct{}
+	previews         map[string]*Preview
+	shareTimers      map[string]*previewShareTimer
+	audio            map[string]*AudioPlayback
+	lanes            map[string]*deviceLane
+	exclusive        sync.RWMutex
+	auth             sync.Mutex
+	limits           map[string]*rateWindow
+	ctx              context.Context
+	cancel           context.CancelFunc
+	wg               sync.WaitGroup
+	closing          atomic.Bool
+	metrics          *Metrics
+	resources        *resourceMonitor
+	logs             *serverLogs
+	wx               *Weixin
+	updates          *Updates
+	uploads          *uploadStore
+	projectTransfers *projectTransferStore
+	agentReleases    *agentReleaseStore
+	clientReleases   *clientReleaseStore
 }
 type deviceLane struct {
 	tail chan struct{}
@@ -138,6 +139,14 @@ func New(store *Store, options Options) (*Server, error) {
 		s.wx = wx
 	}
 	s.logs = newServerLogs(options.DataDir)
+	s.projectTransfers, uploadErr = newProjectTransferStore(options.DataDir)
+	if uploadErr != nil {
+		s.uploads.close()
+		s.agentReleases.close()
+		s.clientReleases.close()
+		cancel()
+		return nil, uploadErr
+	}
 	s.routes()
 	s.background()
 	return s, nil
@@ -186,7 +195,8 @@ func (s *Server) Handler() http.Handler {
 		if strings.HasPrefix(r.URL.Path, "/v1/publish") || strings.HasPrefix(r.URL.Path, "/v1/admin/publishing") {
 			r.Body = http.MaxBytesReader(w, r.Body, 16*1024)
 		}
-		if strings.HasPrefix(r.URL.Path, "/share/") || strings.HasPrefix(r.URL.Path, "/v1/") && !strings.HasPrefix(r.URL.Path, "/v1/previews/") {
+		transferChunk := strings.HasPrefix(r.URL.Path, "/v1/agent/") && strings.Contains(r.URL.Path, "/project-transfers/") && strings.HasSuffix(r.URL.Path, "/chunk")
+		if (strings.HasPrefix(r.URL.Path, "/share/") || strings.HasPrefix(r.URL.Path, "/v1/") && !strings.HasPrefix(r.URL.Path, "/v1/previews/")) && !transferChunk {
 			limit := 120
 			key := r.RemoteAddr
 			host := strings.LastIndex(key, ":")
@@ -464,6 +474,7 @@ func (s *Server) Close() {
 		p.Close(1001, "relay-closing")
 	}
 	s.wg.Wait()
+	s.projectTransfers.close()
 	s.uploads.close()
 	s.agentReleases.close()
 	s.clientReleases.close()
@@ -522,6 +533,7 @@ func (s *Server) background() {
 					s.maintain(func() {
 						capped := s.Store.Cleanup(s.ctx)
 						s.uploads.cleanup()
+						s.projectTransfers.cleanup()
 						if capped {
 							clean.Reset(5 * time.Second)
 						} else {

@@ -11,6 +11,8 @@ import { fileInfoSchema } from '../../../packages/protocol/src/files';
 import type { FileInfo } from '../../../packages/protocol/src/files';
 import { projectPageSchema, projectQuerySchema } from '../../../packages/protocol/src/project-files';
 import type { ProjectQuery, ProjectPage } from '../../../packages/protocol/src/project-files';
+import { projectTransferCreateSchema, projectTransferSchema } from '../../../packages/protocol/src/project-transfers';
+import type { ProjectTransfer, ProjectTransferCreate } from '../../../packages/protocol/src/project-transfers';
 import type { WidgetState } from '../../../packages/client-shared/src/previews';
 import { attachmentSchema, attachmentByteLimit, UPLOAD_CHUNK_BYTES } from '../../../packages/protocol/src/uploads';
 import type { Attachment } from '../../../packages/protocol/src/uploads';
@@ -598,6 +600,16 @@ export class RelayClient {
   async projectFiles(deviceId: string, projectId: string, query: ProjectQuery, signal: AbortSignal): Promise<ProjectPage> {
     const result=await this.api<unknown>(`/v1/devices/${encodeURIComponent(deviceId)}/projects/${encodeURIComponent(projectId)}/files`,projectQuerySchema.parse(query),'POST',false,signal);
     return projectPageSchema.parse(result);
+  }
+  async projectTransfers(signal?: AbortSignal): Promise<ProjectTransfer[]> {
+    const result = await this.api<{transfers: unknown[]}>('/v1/project-transfers', undefined, 'GET', false, signal);
+    return projectTransferSchema.array().max(100).parse(result.transfers);
+  }
+  async prepareProjectTransfer(value: ProjectTransferCreate): Promise<ProjectTransfer> {
+    return projectTransferSchema.parse(await this.api('/v1/project-transfers', projectTransferCreateSchema.parse(value)));
+  }
+  async projectTransferAction(id: string, action: 'start' | 'cancel'): Promise<ProjectTransfer> {
+    return projectTransferSchema.parse(await this.api(`/v1/project-transfers/${encodeURIComponent(id)}/${action}`, {}));
   }
   projectFileSource(deviceId: string,projectId: string,rootIndex: number,path: string,version: string) {
     if(!this.view.url || !this.token)throw new Error('device-offline');

@@ -1,6 +1,6 @@
 {
   "name": "codex-remote",
-  "version": "0.3.58",
+  "version": "0.3.59",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -99,6 +99,7 @@
     "jsdom": "^30.1.2",
     "pngjs": "^7.0.0",
     "prettier": "3.9.9",
+    "tar": "7.5.22",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "8.3.1",

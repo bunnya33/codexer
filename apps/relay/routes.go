@@ -19,6 +19,7 @@ func (s *Server) routes() {
 	s.removeDeviceRoutes()
 	s.logRoutes()
 	s.projectFileRoutes()
+	s.projectTransferRoutes()
 	s.route("GET /health", "", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
 		return M{"ok": true, "protocolVersion": 1, "version": s.Options.Version}
 	})

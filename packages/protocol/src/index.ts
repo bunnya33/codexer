@@ -190,6 +190,7 @@ export const catalogSchema = z.object({
   models: z.array(modelOptionSchema).max(200).optional(),
   projectCreation: z.object({ parents: z.array(z.object({ id: idSchema, path: z.string().min(1).max(4096) })).max(20) }).optional(),
   projectDeletion: z.literal(true).optional(),
+  projectTransfer: z.literal(true).optional(),
   unassignedUsage: projectUsageSchema.optional(),
 }).refine(value => jsonBytes(value) <= MAX_CATALOG_BYTES, "catalog-too-large")
   .refine(value => new Set(value.projects.map(project => project.id)).size === value.projects.length && new Set(value.threads.map(thread => thread.id)).size === value.threads.length, "duplicate-catalog-id");
