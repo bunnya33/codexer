@@ -6,7 +6,11 @@ Android 原发布密钥和密码的稳定保存位置、证书指纹及自动读
 
 协作操作和子智能体的公开状态在会话时间线中独立显示，包括发送消息、开始工作和等待完成；等待行沿用真实公开标题，仅在调用进行时扫光，不再追加重复的“正在思考”。历史动作保留发生时的含义，较新的昵称可补到旧记录中。连续的图像查看按顺序合并为“已查看 N 张图像”，可带动画展开缩略图、点击进入原有大图浏览，新增图片时保持已展开状态。
 
-**先升级服务器 0.3.58，再安装 Qt Agent 0.2.35。** 新 Agent 保留可选的公开协作活动种类，旧服务器可能拒绝这类消息；旧 Agent 可以连接新服务器，但完整活动含义需要新 Agent。Web 界面随服务器升级生效，Windows Agent 继续使用 Qt Widgets 与同进程 C++/Qt 后台，不含 Node；本次不构建 Android、原生 Control 或 macOS。发布与原生验包结果随后记录，生产安装由用户在后台执行。
+**先升级服务器 0.3.58，再安装 Qt Agent 0.2.35。** 新 Agent 保留可选的公开协作活动种类，旧服务器可能拒绝这类消息；旧 Agent 可以连接新服务器，但完整活动含义需要新 Agent。Web 界面随服务器升级生效，Windows Agent 继续使用 Qt Widgets 与同进程 C++/Qt 后台，不含 Node；本次不构建 Android、原生 Control 或 macOS。
+
+稳定版 [v0.3.58](https://github.com/bunnya33/codexer/releases/tag/v0.3.58) 已正式发布，源码为 `d65ef22`；[发布流程](https://github.com/bunnya33/codexer/actions/runs/43160473770)全部成功，包括类型、完整 Go／TypeScript、PostgreSQL、文档、Go race、生产构建和 Linux 独立程序验收。四个平台更新包及同名 SHA-256 共 8 个附件齐全，Linux amd64 正式包已下载并核对摘要、版本、manifest、架构、归档边界和执行权限，文件及回执在 `release/server-0.3.58/`。可在后台检查安装，或手动上传匹配平台的更新包和校验文件；生产安装由用户执行。
+
+Windows x64 Qt Agent 0.2.35 安装版与便携版完成 Qt 6.8.3／MSVC 原生构建，位于 `release/agent-0.2.35/`，随附 SHA-256、版本资源、原生测试和启动验收记录。两个包的 41 个应用文件均与 stage 逐字节一致，不含 Node、JavaScript 或 Electron 运行时；后台 115 项、界面 18 项、协议 338 项通过，保留原有 2／1 项条件跳过。stage 与实际便携 EXE 均通过隔离配置的全新启动、已有原生登录、旧 Electron 加密迁移、身份保留和单实例检查。本次未覆盖安装本机正式 Agent，未上传客户端更新目录；测试过程的超时与复跑边界见[验证记录](validation.md)。
 
 ## 服务器 0.3.57：发送消息恢复底部跟随
 

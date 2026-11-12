@@ -1,5 +1,17 @@
 # 当前 Go 迁移验证
 
+## 2026-11-12 服务器 0.3.58 与 Windows Qt Agent 0.2.35 发布打包
+
+在主目录 main 核对 origin/main 后，递增根工程版本与 Agent 唯一版本来源及锁文件，保留原有 AGENTS、Qt 指南与 HTML 改动。发布源码为 `d65ef22c4f69476610c05fe26c1128d08439bf86`，包含 `4ea1667` 的内联协作事件与图像分组。46 份文档与协议模式检查通过。
+
+正式 [v0.3.58](https://github.com/bunnya33/codexer/releases/tag/v0.3.58) 与[发布流程 43160473770](https://github.com/bunnya33/codexer/actions/runs/43160473770)全部成功；注解标签 `6555a353167cac87cdc0ad4c947c8a852e7c9c3e`、peeled commit 和流水线 head SHA 相符。完整 Go／TypeScript 回归、真实 PostgreSQL、Go race、类型、文档、Web／Admin／Go 生产构建及 Linux 独立程序验收通过，四平台更新包与配套 SHA-256 共 8 个正式附件齐全。Linux amd64 正式包 8,222,094 字节，SHA-256 `a96184e8a65f753742fde3a62f13d4a1c027e31c661acaa295471ca8b9b42dcc`，与 GitHub digest 及同名校验文件一致；49 个归档成员、manifest、VERSION、ELF64 x86-64、执行权限及无越界路径／链接检查通过。只有 Linux amd64 实际下载验包，其余平台核对附件存在，证据在 `release/server-0.3.58/`。
+
+Windows Qt Agent 0.2.35 使用 Qt 6.8.3／MSVC 实际原生编译，NSIS 安装版和便携版均生成。原生后台首次 114 通过／1 失败／2 跳过：创建 Junction 的 PowerShell 命令触及已有 10 秒时限；打包完成后不改代码或断言，完整复跑 115 通过／2 条件跳过，界面 18 通过／1 条件跳过，跨语言协议 338 案例通过。两个包各解出 41 个与 stage 逐字节一致的应用文件，应用 PE 为 x64；主程序及安装／便携启动器资源均为 Codexer Agent 0.2.35。沿用未配置 Authenticode 签名的打包入口，包内不含 Node、JavaScript 或 Electron 运行时。
+
+stage 与实际便携 EXE 分别以隔离合成配置验证全新启动、DPAPI 往返、已有原生凭据、旧 Electron v10 加密迁移、原设备／安装身份保留及第二实例退出。stage 使用 20 秒测试保活通过；便携首轮 20 秒保活在第二次解包启动完成前到期，测试脚本等待退出未完成，仅停止已核对身份的隔离测试进程。使用既有环境参数延长为 60 秒后，三个场景全部通过，未重建安装包或改动产品逻辑。smoke 采样不作为正常窗口／托盘冷启动内存基准，未使用真实生产凭据或发送模型任务。
+
+交付文件及构建／验收证据在 `release/agent-0.2.35/`。安装版 11,179,455 字节，SHA-256 `a2491ba27f5a1a5290877aabe2ce9d1218104b512bfe29e0d91a2a461a6e6b22`；便携版 10,962,954 字节，SHA-256 `05a18abf62647c54065a2613cd252b5cadb3fecf8f60ac3b2a6ae034af9c89ee`。本次未安装或重启生产服务器、未上传客户端更新目录或替换本机正式 Agent，未进行安装器向正式目录升级或生产账号端到端任务验收。应先升级服务器再升级 Agent，避免旧服务器拒绝新增协作活动字段。Android、原生 Control 和 macOS 未重新构建。
+
 ## 2026-11-12 内联协作事件与图像查看分组（本地）
 
 在主目录 main 核对 origin/main，保留已有 AGENTS、Qt 指南及 HTML 改动。协作操作和子智能体公开状态事件在时间线中独立呈现，等待工具使用实际公开标题及运行状态，连续图像查看按发生顺序分组并提供展开动画、78px 缩略图与原有大图浏览。历史动作不随最新子会话状态改写，较新的已知昵称可补到旧记录中。Qt 和 TypeScript 归一化保留可选 `agentActivity`，共享 Go 模式同步；未知事件不覆盖已知子会话状态，不转发任意工具参数／结果。扫光正文与遮罩使用一致的平台字体。
