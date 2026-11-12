@@ -1,5 +1,13 @@
 # 当前 Go 迁移验证
 
+## 2026-11-12 Android 0.1.19 / versionCode 20
+
+主目录 main 与 origin/main 核对一致后，递增 Mobile package、Expo 版本、Android versionCode 与锁文件，并更新原签名打包文档，保留原有 AGENTS、Qt 指南和 HTML 改动。构建源码为 `d9e37031d7c57c95aef609f80d5a01b4820abbff`，包含内联协作活动、等待完成扫光、图像查看分组与发送／追加／继续恢复底部跟随。已提交的同步入口将 1,185 个文件复制到 `F:/ca20` 并逐文件核对，依赖及版本外原生配置未变；原生 Gradle 版本同步为 0.1.19／20。
+
+Mobile 类型检查和 45 项活动专项通过。原签名脚本在内存解密已有 DPAPI 密码，验证原发布证书后执行真正的 Gradle `:app:assembleRelease`，5 分 41 秒构建成功，597 项任务中 72 项执行／525 项无需重跑。实际 APK 为 `com.bunnya33.codexer.remote`、0.1.19／20、非 debuggable，原证书及 v2 签名、16 KiB ZIP 对齐检查通过。包内 Hermes 字节码与本次 Gradle 输出逐字节一致，source map 中全部 133 份已打入的应用／共享源码与主目录相同，特别核对新增 activity-records、conversation、原生 shimmer 和共享 activity 源码。APK 含 arm64-v8a、armeabi-v7a、x86、x86_64，minSdk 24／targetSdk 36。
+
+APK、源码同步、签名、清单、对齐、类型和测试记录在 `release/android-0.1.19/`。APK 93,247,746 字节，SHA-256 `54a06d4af339c17bcf2ff27ee0b95fecbfbc986252192d55eb78fedc71f298ee`；原证书 SHA-256 `5e8f351666c250682effb88a1ebec7ca4d13196e9f272e054f5881eaa393a211`。完整活动数据配套服务器 0.3.58 与 Qt Agent 0.2.35。本轮未进行模拟器或真实手机安装、生产账号远程任务验收，未上传客户端更新目录或商店，未安装或重建服务器、Agent、原生 Control。
+
 ## 2026-11-12 服务器 0.3.58 与 Windows Qt Agent 0.2.35 发布打包
 
 在主目录 main 核对 origin/main 后，递增根工程版本与 Agent 唯一版本来源及锁文件，保留原有 AGENTS、Qt 指南与 HTML 改动。发布源码为 `d65ef22c4f69476610c05fe26c1128d08439bf86`，包含 `4ea1667` 的内联协作事件与图像分组。46 份文档与协议模式检查通过。
