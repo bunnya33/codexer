@@ -62,7 +62,7 @@ function Message({ item, running = false, deviceId, threadId, onImage }: { item:
   </View>;
 }
 
-function ExecutionGroup({ section, deviceId, threadId, onImage }: { section: ExecutionSection; deviceId: string; threadId: string; onImage: ImageViewer }) {
+function ExecutionGroup({ section, turn, deviceId, threadId, onImage }: { section: ExecutionSection; turn: HistoryTurn; deviceId: string; threadId: string; onImage: ImageViewer }) {
   const { c, s } = useTheme();
   const motion = useInteractionMotion();
   const [open, setOpen] = useState(false);
@@ -86,9 +86,11 @@ function ExecutionGroup({ section, deviceId, threadId, onImage }: { section: Exe
   const title = executionSectionSummary(section);
   const iconItem = !section.running && section.items.some(item => item.type === 'reasoning' && item.text?.trim()) ? [...section.items].reverse().find(item => item.type === 'reasoning' && item.text?.trim()) : latest;
   const visibleItems = section.items.filter(item => item.type !== 'reasoning' || item.text?.trim() && executionItemSummary(item, section.running) !== title);
-  return <View style={s.executionGroup}>
+  return <View testID={`execution-group-${section.id}`} style={s.executionGroup}>
     <Pressable accessibilityRole="button" aria-expanded={open} accessibilityLabel={`${title}，${open ? '收起' : '展开'}处理记录`} onPress={() => setOpen(value => !value)} style={s.executionHead}><ExecutionIcon item={iconItem} />{section.running ? <ShimmerLabel text={title} /> : <Text style={s.executionTitle} numberOfLines={1}>{title}</Text>}<Animated.View testID={`execution-arrow-${section.id}`} style={[s.executionArrow, {transform: [{rotate: rotation.interpolate({inputRange: [0, 1], outputRange: ['0deg', '90deg']})}]}]}><ChevronRight size={14} color={c.muted} /></Animated.View></Pressable>
-    {mounted && <Animated.View testID={`execution-body-${section.id}`} pointerEvents={open ? 'auto' : 'none'} aria-hidden={!open} accessibilityElementsHidden={!open} importantForAccessibility={open ? 'auto' : 'no-hide-descendants'} style={[s.executionBody, {height}]}><ScrollView nestedScrollEnabled style={[s.executionList, {height: listHeight}]} contentContainerStyle={s.executionListContent} onContentSizeChange={(_width, measuredHeight) => setContentHeight(Math.ceil(measuredHeight))}>{visibleItems.map(item => <Message key={item.id} item={item} running={section.running} deviceId={deviceId} threadId={threadId} onImage={onImage} />)}{!visibleItems.length && <Text style={s.executionWaiting}>等待新的处理记录…</Text>}</ScrollView></Animated.View>}
+    {mounted && <Animated.View testID={`execution-body-${section.id}`} pointerEvents={open ? 'auto' : 'none'} aria-hidden={!open} accessibilityElementsHidden={!open} importantForAccessibility={open ? 'auto' : 'no-hide-descendants'} style={[s.executionBody, {height}]}><ScrollView nestedScrollEnabled style={[s.executionList, {height: listHeight}]} contentContainerStyle={s.executionListContent} onContentSizeChange={(_width, measuredHeight) => setContentHeight(Math.ceil(measuredHeight))}>{visibleItems.map(item => item.type === 'fileChange'
+      ? <FileActivityRecord key={item.id} item={item} running={section.running} turn={turn} deviceId={deviceId} threadId={threadId}/>
+      : <Message key={item.id} item={item} running={section.running} deviceId={deviceId} threadId={threadId} onImage={onImage} />)}{!visibleItems.length && <Text style={s.executionWaiting}>等待新的处理记录…</Text>}</ScrollView></Animated.View>}
   </View>;
 }
 
@@ -114,10 +116,9 @@ function Activity({ block, turn, deviceId, threadId, onImage, questionRequestIds
     <TurnTiming turn={turn} running={block.state === 'running'} />
     {!!steps?.length && <ExecutionPlan steps={steps} />}
     {activitySections({...block, items:process}).map(section => {
-      if (section.kind === 'execution') return <ExecutionGroup key={section.id} section={section} deviceId={deviceId} threadId={threadId} onImage={onImage} />;
+      if (section.kind === 'execution') return <ExecutionGroup key={section.id} section={section} turn={turn} deviceId={deviceId} threadId={threadId} onImage={onImage} />;
       if (section.kind === 'collaboration') return <AgentActivityRecord key={section.item.id} item={section.item} running={section.running} agents={agents} />;
       if (section.kind === 'images') return <ImageActivityRecord key={section.id} section={section} deviceId={deviceId} threadId={threadId} onImage={onImage} />;
-      if (section.kind === 'files') return <FileActivityRecord key={section.item.id} item={section.item} running={section.running} turn={turn} deviceId={deviceId} threadId={threadId}/>;
       if (section.kind === 'compaction') return <CompactionActivityRecord key={section.item.id} item={section.item}/>;
       const item = section.item;
       if (item.type === 'plan') return <PlanCard key={item.id} item={item} turnId={turn.id} turnStatus={turn.status} deviceId={deviceId} threadId={threadId} />;

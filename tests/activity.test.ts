@@ -145,7 +145,7 @@ describe('collapsed execution records', () => {
     ]);
     const sections = activitySections(groups(value)[0]!);
     expect(sections.map(section => 'item' in section ? section.item.id : section.items.map(item => item.id)))
-      .toEqual(['progress-1', ['reason-1', 'command'], 'progress-2', 'edit', ['reason-2'], 'answer']);
+      .toEqual(['progress-1', ['reason-1', 'command'], 'progress-2', ['edit', 'reason-2'], 'answer']);
     expect(sections.filter(section => section.kind === 'execution').every(section => !section.running)).toBe(true);
   });
 

@@ -8,6 +8,20 @@ const child: RemoteSubAgent = {threadId: 'child', name: 'Linnaeus', status: 'run
 const item = (id: string, type: string, rest: Partial<RemoteItem> = {}): RemoteItem => ({id, type, truncated: false, ...rest});
 
 describe('inline Codex activity records', () => {
+  it('keeps all file operations with adjacent commands and tools while retaining milestone boundaries', () => {
+    const progress=item('progress','agentMessage',{phase:'commentary'});
+    const execution=[item('command','commandExecution'),item('create','fileChange',{fileOperations:[{path:'new.ts',kind:'add'}]}),
+      item('edit','fileChange',{fileOperations:[{path:'edit.ts',kind:'update'}]}),item('delete','fileChange',{fileOperations:[{path:'old.ts',kind:'delete'}]}),
+      item('tool','mcpToolCall'),item('after','commandExecution')];
+    const block={kind:'activity' as const,id:'work',state:'running' as const,items:[progress,...execution]};
+    const initial=activitySections({...block,items:[progress,execution[0]!]});
+    const sections=activitySections(block);
+    expect(sections).toHaveLength(2);
+    expect(sections[1]).toMatchObject({kind:'execution',id:initial[1]!.kind==='execution'?initial[1]!.id:'',items:execution,running:true});
+    const separated=activitySections({...block,items:[...block.items,item('compact','contextCompaction'),item('next','commandExecution'),
+      item('steer','steeringUserMessage'),item('plan','plan'),item('last','commandExecution')]});
+    expect(separated.map(section=>section.kind)).toEqual(['message','execution','compaction','execution','message','message','execution']);
+  });
   it('folds the entire completed process while leaving the initial prompt and trailing final reply outside', () => {
     const process = [item('progress','agentMessage',{phase:'commentary'}),item('old-final','agentMessage',{phase:'final_answer'}),
       item('steering','steeringUserMessage'),item('spawn','subAgentActivity'),item('view','imageView'),item('edit','fileChange'),item('compact','contextCompaction')];
@@ -32,7 +46,7 @@ describe('inline Codex activity records', () => {
     expect(restored.items.map(item=>item.id)).toEqual(records.map(item=>item.id));
     expect(restored).toMatchObject({itemsTruncatedBefore:false,itemsTruncatedAfter:false,truncated:false});
     const sections = activitySections({kind:'activity',id:'work',state:'completed',items:restored.items});
-    expect(sections.slice(0,4).map(section=>section.kind)).toEqual(['collaboration','images','compaction','files']);
+    expect(sections.map(section=>section.kind)).toEqual(['collaboration','images','compaction','execution']);
   });
 
   it('carries per-edit line counts without forwarding private tool arguments', () => {

@@ -342,26 +342,55 @@ it('groups viewed images inline, expands their thumbnails and opens the original
   } finally { test.close(); }
 });
 
-it('shows file edits and compaction inline during work, retains them after refresh and opens the recorded diff', async () => {
+it('keeps edits and created files between commands in one disclosure, retains them after refresh and opens their diffs', async () => {
   const turn: HistoryTurn = {id:'active-turn',status:'inProgress',truncated:false,items:[
     {id:'compact',type:'contextCompaction',truncated:false},
+    {id:'before-edit',type:'commandExecution',command:'npm run build',status:'completed',truncated:false},
     {id:'edit',type:'fileChange',status:'completed',files:['/fixture/example.ts'],fileOperations:[{path:'/fixture/example.ts',kind:'update',additions:2,deletions:1}],truncated:false},
-  ],fileChanges:[{path:'/fixture/example.ts',additions:2,deletions:1,diff:'@@ -1 +1,2 @@\n-old\n+new\n+next',truncated:false}]};
+    {id:'create',type:'fileChange',status:'completed',files:['/fixture/created.ts'],fileOperations:[{path:'/fixture/created.ts',kind:'add',additions:5,deletions:0}],truncated:false},
+    {id:'after-edit',type:'commandExecution',command:'npm test',status:'completed',truncated:false},
+  ],fileChanges:[{path:'/fixture/example.ts',additions:2,deletions:1,diff:'@@ -1 +1,2 @@\n-old\n+new\n+next',truncated:false},
+    {path:'/fixture/created.ts',additions:5,deletions:0,diff:'+created content\n+second\n+third\n+fourth\n+fifth',truncated:false}]};
   const controls={active:true,text:'',images:[] as string[]};
   const test=await fixture({controls,review:{turns:[turn]}});
   try {
     const doc=test.dom.window.document;
     await vi.waitFor(()=>expect(doc.querySelector('[data-testid="compaction-activity-compact"]')?.textContent).toBe('已压缩上下文'));
     const edit=()=>doc.querySelector('[data-testid="file-activity-edit"]');
+    const created=()=>doc.querySelector('[data-testid="file-activity-create"]');
+    const group=()=>doc.querySelector('[data-testid="execution-group-active-turn:work:after:compact"]')!;
+    expect(doc.querySelectorAll('[data-testid^="execution-group-"]')).toHaveLength(1);
+    expect(edit()).toBeNull();
+    await test.click('已运行 npm test，展开处理记录');
+    await vi.waitFor(()=>expect(edit()).not.toBeNull());
+    expect(group().contains(edit())).toBe(true);
+    expect(group().contains(created())).toBe(true);
+    const before=group().querySelector('[aria-label="已运行 npm run build，展开详情"]')!;
+    const after=group().querySelector('[aria-label="已运行 npm test，展开详情"]')!;
+    expect(before.compareDocumentPosition(edit()!) & 4).toBe(4);
+    expect(edit()!.compareDocumentPosition(created()!) & 4).toBe(4);
+    expect(created()!.compareDocumentPosition(after) & 4).toBe(4);
     expect(edit()?.textContent).toContain('已编辑 example.ts');expect(edit()?.textContent).toContain('+2 -1');
+    expect(created()?.textContent).toContain('已创建 created.ts');expect(created()?.textContent).toContain('+5 -0');
+    turn.items.push({id:'later',type:'commandExecution',command:'npm run lint',status:'completed',truncated:false});test.refresh();
+    await vi.waitFor(()=>expect(doc.querySelector('[aria-label="已运行 npm run lint，收起处理记录"]')).not.toBeNull());
+    expect(doc.querySelectorAll('[data-testid^="execution-group-"]')).toHaveLength(1);
+    expect(group().contains(edit())).toBe(true);
     await test.click('已编辑 /fixture/example.ts，查看差异');
     await vi.waitFor(()=>expect(doc.querySelector('[data-testid="expanded-file-diff"]')?.textContent).toContain('next'));
+    await test.closeDialog('关闭面板');
+    await test.click('已创建 /fixture/created.ts，查看差异');
+    await vi.waitFor(()=>expect(doc.querySelector('[data-testid="expanded-file-diff"]')?.textContent).toContain('created content'));
     await test.closeDialog('关闭面板');
     controls.active=false;turn.status='completed';test.refresh();
     await vi.waitFor(()=>expect(doc.querySelector('[aria-label="处理记录，展开思考过程"]')).not.toBeNull());
     await test.click('处理记录，展开思考过程');
+    await vi.waitFor(()=>expect(doc.querySelector('[aria-label="已创建 created.ts，编辑文件并运行命令，展开处理记录"]')).not.toBeNull());
+    expect(edit()).toBeNull();
+    await test.click('已创建 created.ts，编辑文件并运行命令，展开处理记录');
     await vi.waitFor(()=>expect(edit()).not.toBeNull());
-    expect(edit()).not.toBeNull();expect(doc.querySelector('[data-testid="compaction-activity-compact"]')).not.toBeNull();
+    expect(group().contains(edit())).toBe(true);expect(doc.querySelector('[data-testid="compaction-activity-compact"]')).not.toBeNull();
+    expect(group().contains(created())).toBe(true);expect(doc.querySelectorAll('[data-testid^="execution-group-"]')).toHaveLength(1);
     expect(test.errors).toEqual([]);
   } finally {test.close();}
 });

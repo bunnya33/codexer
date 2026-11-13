@@ -13,7 +13,7 @@ export type ConversationBlock = { kind: "message"; item: RemoteItem } | Activity
 export type ExecutionSection = { kind: "execution"; id: string; items: RemoteItem[]; running: boolean };
 export type ImageActivitySection = { kind: 'images'; id: string; items: RemoteItem[] };
 export type ActivitySection = { kind: "message"; item: RemoteItem } | ExecutionSection
-  | { kind: 'collaboration' | 'files' | 'compaction'; item: RemoteItem; running: boolean } | ImageActivitySection;
+  | { kind: 'collaboration' | 'compaction'; item: RemoteItem; running: boolean } | ImageActivitySection;
 
 export function isCollaborationItem(item: RemoteItem) {
   return item.type === 'collabAgentToolCall' || item.type === 'subAgentActivity';
@@ -61,7 +61,8 @@ export function executionItemActive(item: RemoteItem, running: boolean) {
   return running && item.completedAtMs === undefined && item.durationMs === undefined && !['completed', 'failed', 'interrupted', 'cancelled', 'declined'].includes(item.status ?? '');
 }
 
-/** Keep prose visible and collapse consecutive execution records between messages.
+/** Keep prose and milestones independent; group consecutive commands, file
+ * operations and ordinary tools together, preserving their original order.
  * IDs follow the preceding message, so appending streamed steps retains expansion state.
  */
 export function activitySections(block: ActivityBlock): ActivitySection[] {
@@ -81,8 +82,8 @@ export function activitySections(block: ActivityBlock): ActivitySection[] {
       if (last?.kind === 'images') last.items.push(item);
       else sections.push({kind: 'images', id: `${block.id}:images:${item.id}`, items: [item]});
       boundary = item.id; group = undefined;
-    } else if (item.type === 'fileChange' || item.type === 'contextCompaction') {
-      sections.push({kind: item.type === 'fileChange' ? 'files' : 'compaction', item, running: block.state === 'running'});
+    } else if (item.type === 'contextCompaction') {
+      sections.push({kind: 'compaction', item, running: block.state === 'running'});
       boundary = item.id; group = undefined;
     } else {
       if (!group) { group = {kind: 'execution', id: `${block.id}:after:${boundary}`, items: [], running: false}; sections.push(group); }
