@@ -315,15 +315,31 @@ it('shows agent messages, historical start events and the actual wait inline bef
   } finally { test.close(); }
 });
 
-it('groups viewed images inline, expands their thumbnails and opens the original image gallery', async () => {
+it('keeps viewed images outside command disclosures, expands their thumbnails and opens the original image gallery', async () => {
   const views = (start: number, count: number) => Array.from({length:count}, (_, index) => ({id:`view-${start+index}`, type:'imageView', images:[{id:(start+index).toString(16).padStart(64,'0'), name:`view-${start+index}.png`}], truncated:false}));
-  const turn: HistoryTurn = {id:'images', status:'completed', truncated:false, items:[...views(1,3), {id:'command',type:'commandExecution',command:'npm test',status:'completed',truncated:false}, ...views(4,4)]};
-  const test = await fixture({review:{turns:[turn]}});
+  const controls={active:true,text:'',images:[] as string[]};
+  const turn: HistoryTurn = {id:'active-turn', status:'inProgress', truncated:false, items:[
+    {id:'before',type:'commandExecution',command:'npm run build',status:'completed',truncated:false},...views(1,3),
+    {id:'command',type:'commandExecution',command:'npm test',status:'completed',truncated:false}, ...views(4,4),
+    {id:'after',type:'commandExecution',command:'npm run lint',status:'completed',truncated:false},
+  ]};
+  const test = await fixture({controls,review:{turns:[turn]}});
   try {
     const doc = test.dom.window.document;
-    await vi.waitFor(()=>expect(doc.querySelector('[aria-label="处理记录，展开思考过程"]')).not.toBeNull(),{timeout:5000});
-    await test.click('处理记录，展开思考过程');
     await vi.waitFor(() => expect(doc.querySelector('[aria-label="已查看 4 张图像，展开图像"]')).not.toBeNull(),{timeout:5000});
+    const groups=()=>[...doc.querySelectorAll('[data-testid^="execution-group-"]')];
+    const imageGroups=()=>[...doc.querySelectorAll('[data-testid^="image-activity-active-turn:work:images:"]')];
+    expect(groups()).toHaveLength(3);expect(imageGroups()).toHaveLength(2);
+    expect(imageGroups().every(images=>groups().every(group=>!group.contains(images)))).toBe(true);
+    expect(groups()[0]!.compareDocumentPosition(imageGroups()[0]!) & 4).toBe(4);
+    expect(imageGroups()[0]!.compareDocumentPosition(groups()[1]!) & 4).toBe(4);
+    expect(groups()[1]!.compareDocumentPosition(imageGroups()[1]!) & 4).toBe(4);
+    expect(imageGroups()[1]!.compareDocumentPosition(groups()[2]!) & 4).toBe(4);
+    await test.click('已运行 npm test，展开处理记录');
+    await vi.waitFor(()=>expect(doc.querySelector('[aria-label="已运行 npm test，收起处理记录"]')).not.toBeNull());
+    await test.click('已运行 npm test，收起处理记录');
+    await vi.waitFor(()=>expect(doc.querySelector('[data-testid^="execution-body-"]')).toBeNull());
+    expect(imageGroups()).toHaveLength(2);
     expect(doc.querySelector('[aria-label="已查看 3 张图像，展开图像"]')).not.toBeNull();
     expect(doc.querySelectorAll('[aria-label^="查看图像 view-"]')).toHaveLength(0);
     await test.click('已查看 4 张图像，展开图像');
@@ -333,7 +349,7 @@ it('groups viewed images inline, expands their thumbnails and opens the original
     await vi.waitFor(() => expect(doc.querySelector('[aria-label="关闭图片"]')).not.toBeNull());
     expect(doc.body.textContent).toContain('4 / 7');
     await test.closeDialog('关闭图片');
-    turn.items.push(...views(8,1)); test.refresh();
+    turn.items.splice(turn.items.length-1,0,...views(8,1)); test.refresh();
     await vi.waitFor(() => expect(doc.querySelector('[aria-label="已查看 5 张图像，收起图像"]')).not.toBeNull());
     expect(doc.querySelectorAll('[aria-label^="查看图像 view-"]')).toHaveLength(5);
     await test.click('已查看 5 张图像，收起图像');
