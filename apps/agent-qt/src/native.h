@@ -249,6 +249,9 @@ class Service : public QObject {
   Object browseProject(const Object &request);
   void pollProjectTransfers();
   void stopProjectTransfers();
+  bool transferTouchesProject(const QString &id, const QString &project,
+                              const Array &roots) const;
+  Object projectTransferWait(const QString &project, const Array &roots) const;
   void observeFiles(const QString &threadId, const Object &turn);
   void observeUsage(const QString &threadId, const QString &turnId,
                     const Object &value, bool notification);

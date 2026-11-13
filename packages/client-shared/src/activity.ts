@@ -13,7 +13,7 @@ export type ConversationBlock = { kind: "message"; item: RemoteItem } | Activity
 export type ExecutionSection = { kind: "execution"; id: string; items: RemoteItem[]; running: boolean };
 export type ImageActivitySection = { kind: 'images'; id: string; items: RemoteItem[] };
 export type ActivitySection = { kind: "message"; item: RemoteItem } | ExecutionSection
-  | { kind: 'collaboration'; item: RemoteItem; running: boolean } | ImageActivitySection;
+  | { kind: 'collaboration' | 'files' | 'compaction'; item: RemoteItem; running: boolean } | ImageActivitySection;
 
 export function isCollaborationItem(item: RemoteItem) {
   return item.type === 'collabAgentToolCall' || item.type === 'subAgentActivity';
@@ -80,6 +80,9 @@ export function activitySections(block: ActivityBlock): ActivitySection[] {
       const last = sections.at(-1);
       if (last?.kind === 'images') last.items.push(item);
       else sections.push({kind: 'images', id: `${block.id}:images:${item.id}`, items: [item]});
+      boundary = item.id; group = undefined;
+    } else if (item.type === 'fileChange' || item.type === 'contextCompaction') {
+      sections.push({kind: item.type === 'fileChange' ? 'files' : 'compaction', item, running: block.state === 'running'});
       boundary = item.id; group = undefined;
     } else {
       if (!group) { group = {kind: 'execution', id: `${block.id}:after:${boundary}`, items: [], running: false}; sections.push(group); }
@@ -259,6 +262,26 @@ export function activityLabel(block: ActivityBlock, nowMs = Date.now()): string 
   return duration === undefined ? "处理记录" : `已处理${elapsed}`;
 }
 
+/** Only the trailing final reply stays outside the completed work disclosure.
+ * Earlier replies in a continued turn and steering messages remain in sequence.
+ */
+export function splitActivityReply(block: ActivityBlock): {process: RemoteItem[]; final: RemoteItem[]} {
+  let boundary = block.items.length;
+  while (boundary > 0) {
+    const item = block.items[boundary - 1]!;
+    if (messageRole(item) !== 'assistant' || !(item.phase === 'final_answer' || block.state === 'completed' && !item.phase)) break;
+    boundary--;
+  }
+  return {process: block.items.slice(0,boundary), final: block.items.slice(boundary)};
+}
+
+export function completedActivityLabel(block: ActivityBlock): string {
+  if (block.durationMs === undefined) return '处理记录';
+  const seconds = Math.max(0, Math.floor(block.durationMs / 1000));
+  const hours = Math.floor(seconds / 3600), minutes = Math.floor(seconds % 3600 / 60), rest = seconds % 60;
+  return `用时 ${hours ? `${hours}h ` : ''}${minutes ? `${minutes}m ` : ''}${rest}s`;
+}
+
 export function buildActivityBlocks(turn: HistoryTurn, isActive: boolean): ConversationBlock[] {
   const first = turn.items[0];
   const initialUser = first && messageRole(first) === "user" && first.type.toLowerCase() !== "steeringusermessage" ? first : undefined;
@@ -290,7 +313,9 @@ export function mergeLiveTurn(history: HistoryTurn, live: HistoryTurn, active = 
     if (!previous || delta > 0 || delta === 0 && change.diff.length > previous.diff.length) changes.set(change.path, change);
   }
   const merged = { ...history, ...live, ...(changes.size ? { fileChanges: [...changes.values()] } : {}) };
-  if (!live.itemsTruncatedBefore) return { ...merged, items, truncated: Boolean(live.itemsTruncatedAfter || items.some(item => item.truncated)) };
+  // A complete authoritative sequence can replace an older one. A bounded
+  // window only contributes its records; it must not erase already seen work.
+  if (!live.itemsTruncatedBefore && !live.itemsTruncatedAfter) return { ...merged, items, truncated: Boolean(items.some(item => item.truncated)) };
   // The desktop's current sequence is authoritative. A historical page may have
   // recorded a steering entry or streamed reply at its former position.
   const combined = [...items];
@@ -301,12 +326,14 @@ export function mergeLiveTurn(history: HistoryTurn, live: HistoryTurn, active = 
     const next = history.items.slice(index + 1).find(candidate => ids.has(candidate.id));
     const previous = [...history.items.slice(0, index)].reverse().find(candidate => ids.has(candidate.id));
     const timed = item.startedAtMs === undefined ? -1 : combined.findIndex(candidate => candidate.startedAtMs !== undefined && candidate.startedAtMs > item.startedAtMs!);
-    const position = timed >= 0 ? timed : next ? combined.findIndex(existing => existing.id === next.id) : previous ? combined.findIndex(existing => existing.id === previous.id) + 1 : 0;
+    const position = timed >= 0 ? timed : next ? combined.findIndex(existing => existing.id === next.id) : previous ? combined.findIndex(existing => existing.id === previous.id) + 1 : live.itemsTruncatedAfter ? combined.length : 0;
     combined.splice(position, 0, item);
     ids.add(item.id);
   }
-  return { ...merged, previousMessage: history.previousMessage ?? live.previousMessage, itemsTruncatedBefore: history.itemsTruncatedBefore ?? false, itemsTruncatedAfter: live.itemsTruncatedAfter ?? false,
-    items: combined, truncated: Boolean(history.truncated || live.truncated || combined.some(item => item.truncated)) };
+  const before = live.itemsTruncatedAfter && !live.itemsTruncatedBefore ? false : history.itemsTruncatedBefore ?? false;
+  const after = live.itemsTruncatedBefore && !live.itemsTruncatedAfter ? false : history.itemsTruncatedAfter ?? false;
+  return { ...merged, previousMessage: history.previousMessage ?? live.previousMessage, itemsTruncatedBefore: before, itemsTruncatedAfter: after,
+    items: combined, truncated: Boolean(before || after || combined.some(item => item.truncated)) };
 }
 
 /** Both inputs are chronological. Insert missing turns beside their shared neighbours,

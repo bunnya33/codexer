@@ -32,6 +32,7 @@ type projectTransfer struct {
 	ParentPath      string   `json:"parentPath"`
 	Relative        string   `json:"relativePath"`
 	Options         M        `json:"options"`
+	Preparation     M        `json:"preparation,omitempty"`
 	State           string   `json:"state"`
 	Size            int64    `json:"size"`
 	Uploaded        int64    `json:"uploaded"`
@@ -347,6 +348,14 @@ func (s *Server) projectTransferRoutes() {
 			return j.view()
 		}
 		switch state {
+		case "preparing":
+			if p.Device != j.Source || j.State != "preparing" {
+				fail(409, "project-transfer-state-changed")
+			}
+			preparation := obj(b["preparation"])
+			s.Validate("projectTransferPreparation", preparation)
+			preparation["updatedAt"] = now()
+			j.Preparation = preparation
 		case "ready":
 			if p.Device != j.Source || j.State != "preparing" {
 				fail(409, "project-transfer-state-changed")

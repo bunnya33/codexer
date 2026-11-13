@@ -877,26 +877,77 @@ void Service::enrichAgents(const QString &id, Object &raw) {
 
 Object Service::history(const QString &id, QJsonValue cursor) {
   ensureRpc();
+  const QString prefix = "codexer-items-v1:";
+  Object window;
+  auto pageCursor = cursor;
+  if (cursor.toString().startsWith(prefix)) {
+    try { window = parse(QByteArray::fromBase64(cursor.toString().mid(prefix.size()).toLatin1(), QByteArray::Base64UrlEncoding)).toObject(); }
+    catch (...) { throw Error("history-cursor-invalid"); }
+    if (window["thread"] != id || !window["turn"].isString() ||
+        !(window["page"].isNull() || window["page"].isString()) || !window["before"].isString())
+      throw Error("history-cursor-invalid");
+    pageCursor = window["page"];
+  }
   auto page = rpc->call("thread/turns/list", {{"threadId", id},
-                                              {"cursor", cursor},
+                                              {"cursor", pageCursor},
                                               {"limit", 5},
                                               {"sortDirection", "desc"},
                                               {"itemsView", "full"}});
   if (!page["data"].isArray() || page["data"].toArray().size() > 5)
     throw Error("history-response-invalid");
   Array turns;
+  QJsonValue nextCursor = page.value("nextCursor");
+  bool found = window.isEmpty();
+  bool full = false;
+  auto continuation = [&](const Object &turn, const QString &before) {
+    auto encoded = prefix + QString::fromLatin1(json(Object{{"thread", id}, {"page", pageCursor},
+      {"turn", turn["id"]}, {"before", before}}).toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals));
+    if (encoded.size() > 2048) throw Error("history-cursor-too-large");
+    return encoded;
+  };
   for (const auto &v : page["data"].toArray()) {
-    auto turn = normalizeTurn(timedTurn(id, v.toObject(), false), true, id,
+    auto source = v.toObject();
+    if (!found && source["id"] != window["turn"]) continue;
+    auto items = source["items"].toArray();
+    int end = items.size();
+    if (!found && !window["before"].toString().isEmpty()) {
+      end = -1;
+      for (int i = 0; i < items.size(); ++i) if (items[i].toObject()["id"] == window["before"]) {end = i; break;}
+      if (end < 0) throw Error("history-cursor-stale");
+    }
+    found = true;
+    int start = qMax(0, end - 80);
+    source = timedTurn(id, source, false);
+    auto turn = normalizeTurn(source, true, id,
                               [this](const QString &t, const Object &item) {
                                 return registerImages(t, item);
                               });
+    const auto allChanges = turn.value("fileChanges");
+    do {
+      Array slice; for (int i = start; i < end; ++i) slice.append(items[i]);
+      auto raw = source; raw["items"] = slice;
+      auto normalized = normalizeTurn(raw, true, id, [this](const QString &t, const Object &item) {return registerImages(t, item);});
+      turn["items"] = normalized["items"];
+      if (!allChanges.isUndefined()) turn["fileChanges"] = allChanges;
+      Array candidate = turns; candidate.append(turn);
+      if (json(Object{{"turns", candidate}}).size() <= 5 * 1024 * 1024) break;
+      if (!turns.isEmpty()) {nextCursor = continuation(source, end < items.size() ? items[end].toObject()["id"].toString() : QString()); full = true; break;}
+      if (end - start <= 1) throw Error("history-too-large");
+      start += qMax(1, (end - start) / 2);
+    } while (true);
+    if (full) break;
+    turn["itemsTruncatedBefore"] = start > 0;
+    turn["itemsTruncatedAfter"] = end < items.size();
+    turn["truncated"] = start > 0 || end < items.size() || turn["truncated"].toBool();
     observeFiles(id, turn);
     enrichUsage(id, turn);
     turns.append(turn);
+    if (start > 0) {nextCursor = continuation(source, items[start].toObject()["id"].toString()); break;}
   }
+  if (!found) throw Error("history-cursor-stale");
   Object result{{"threadId", id},
                 {"turns", turns},
-                {"nextCursor", page["nextCursor"]},
+                {"nextCursor", nextCursor},
                 {"generatedAt", double(now())}};
   result = boundTurns(result, 6 * 1024 * 1024);
   if (json(result).size() > 6 * 1024 * 1024)

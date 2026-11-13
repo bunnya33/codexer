@@ -14,7 +14,7 @@ All authenticated endpoints use the session returned by account login. Health an
 | DELETE | `/v1/devices/:deviceId/data` | Owner-only offline data purge; keep identity/session for automatic Agent reconnect; online returns 409 |
 | GET | `/v1/devices/:deviceId/snapshot` | Cached snapshot plus independently measured presence |
 | GET | `/v1/devices/:deviceId/catalog` | Complete saved project and interactive chat catalog |
-| GET | `/v1/devices/:deviceId/threads/:threadId/turns?cursor=...` | On-demand older history from the PC, five turns per page |
+| GET | `/v1/devices/:deviceId/threads/:threadId/turns?cursor=...` | On-demand older history from the PC, up to five turns per page |
 | POST | `/v1/ws/tickets` | Issue a one-use client ticket, expires in 60 seconds |
 | POST | `/v1/devices/:deviceId/commands` | Submit a validated remote command |
 | GET | `/v1/devices/:deviceId/commands/:commandId` | Query a durable result |
@@ -40,6 +40,8 @@ File-change items may include additive `fileOperations:[{path,kind}]`, with up t
 Relay sends `{type:"command", command}`. Agent responds `{type:"command.result", result}`. A newer connection fences and closes the older one.
 
 ## Client WebSocket
+
+Qt Agent 0.2.38 splits a turn exceeding 80 items or the page byte budget into contiguous windows. An opaque `codexer-items-v1:` continuation scopes the source page, turn and before-item identity to the requested thread. `itemsTruncatedBefore` / `itemsTruncatedAfter` describe the window boundaries. Clients merge both directions by item identity and finish these continuations automatically before requesting older turns; a preview replacement is not a deletion of previously observed activities. A cursor whose thread or item boundary no longer matches is rejected rather than silently skipping records. File operations also carry optional `additions` / `deletions` counts from that edit's public diff, while older records remain valid.
 
 1. Fetch `/v1/ws/tickets` over authenticated HTTPS.
 2. Connect `/v1/ws/client`.

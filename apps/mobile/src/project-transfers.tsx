@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, Switch, Text, TextInput, View } from 'rea
 import { ArrowRight, Check, Send } from 'lucide-react-native';
 import { defaultProjectTransferExclusions } from '../../../packages/protocol/src/project-transfers';
 import type { ProjectTransfer, ProjectTransferCreate } from '../../../packages/protocol/src/project-transfers';
-import { projectTransferError, projectTransferLabels, transferBytes } from '../../../packages/client-shared/src/project-transfers';
+import { projectTransferError, projectTransferLabels, transferBytes, transferPreparationLabel, transferElapsed } from '../../../packages/client-shared/src/project-transfers';
 import { validProjectPath } from '../../../packages/client-shared/src/project-creation';
 import { Dialog } from './dialog';
 import { relay } from './relay';
@@ -21,6 +21,7 @@ export function ProjectTransfers({ source, close }: { source?: Source; close: ()
   const [includeGit, setIncludeGit] = useState(true), [includeLocalFiles, setIncludeLocalFiles] = useState(false);
   const [excluded, setExcluded] = useState(defaultProjectTransferExclusions.join(', ')), [note, setNote] = useState('');
   const [selectedId, setSelectedId] = useState('');
+  const [clock, setClock] = useState(Date.now());
   const request = useRef<ProjectTransferCreate | null>(null), pending = useRef(false), live = useRef(true);
   const deviceName = (id: string) => view.devices.find(d => d.id === id)?.name ?? id.slice(0, 8);
   const selected = jobs.find(j => j.id === selectedId);
@@ -41,7 +42,7 @@ export function ProjectTransfers({ source, close }: { source?: Source; close: ()
     const refresh = async () => {
       try { const value = await relay.projectTransfers(controller.signal); if (!disposed) {setJobs(value); setLoaded(true);} }
       catch (e) { if (!disposed) {setError(projectTransferError(e instanceof Error ? e.message : String(e))); setLoaded(true);} }
-      finally {if (!disposed) timer = setTimeout(() => void refresh(), 5000);}
+      finally {if (!disposed) {setClock(Date.now()); timer = setTimeout(() => void refresh(), 5000);}}
     };
     void refresh();
     return () => {disposed = true; live.current = false; controller.abort(); if (timer) clearTimeout(timer);};
@@ -68,10 +69,27 @@ export function ProjectTransfers({ source, close }: { source?: Source; close: ()
   const renderJob = (job: ProjectTransfer) => {
     const sending = job.state === 'uploading', receiving = job.state === 'downloading';
     const progress = job.size > 0 ? (sending ? job.uploaded : job.downloaded) / job.size : 0;
+    const prep = job.preparation, sourceConnected = !!view.devices.find(d => d.id === job.sourceDeviceId)?.online;
+    const preparingLabel = !sourceConnected ? '等待发送端重新连接' : transferPreparationLabel(job);
     return <View key={job.id} style={{gap: 8, padding: 12, borderWidth: 1, borderColor: c.line, borderRadius: 12}}>
       <Text style={s.menuText}>{job.name}</Text>
       <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap'}}><Text style={s.sub}>{deviceName(job.sourceDeviceId)}</Text><ArrowRight size={14} color={c.muted}/><Text style={s.sub}>{deviceName(job.targetDeviceId)}</Text></View>
-      <Text accessibilityLiveRegion="polite" style={s.menuText}>{projectTransferLabels[job.state]}</Text>
+      <Text accessibilityLiveRegion="polite" style={s.menuText}>{job.state === 'preparing' ? preparingLabel : projectTransferLabels[job.state]}</Text>
+      {job.state === 'preparing' && <>
+        <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}><ActivityIndicator color={c.muted}/><Text style={s.sub}>发送端：{deviceName(job.sourceDeviceId)} · 已用时 {transferElapsed(clock - job.createdAt)}</Text></View>
+        <Text style={s.sub}>接收端 {deviceName(job.targetDeviceId)} 此时无需空闲。快照就绪后还需你确认发送。</Text>
+        {!sourceConnected ? <Text style={s.sub}>发送端重新连接后会自动继续。</Text> : !prep ? <>
+          <Text style={s.sub}>发送端尚未报告是在等待还是正在打包，暂时无法判断具体阶段。</Text>
+          <Text style={s.sub}>旧版 Agent 会等待发送电脑的所有会话空闲。更新发送端 Agent 后，可按项目等待并查看具体进度。</Text>
+        </> : prep.phase === 'waiting' ? <>
+          {prep.blockers.map(blocker => <Text key={blocker.id} style={s.menuText}>{blocker.title || `会话 ${blocker.id.slice(0, 8)}`} · {({running: '任务运行中', approval: '等待确认或回答', subagent: '子 Agent 运行中'})[blocker.reason]}</Text>)}
+          <Text style={s.sub}>{prep.reason === 'runtime-refresh' ? '发送端正在刷新运行时，完成后自动继续。' : prep.reason === 'agent-busy' ? '发送端正在处理其他项目传输，完成后自动继续。' : '该项目及共用目录的会话没有运行任务、待处理确认或运行中的子 Agent 后，自动开始快照。其他项目不影响，每 5 秒检查一次。'}</Text>
+        </> : <>
+          <Text style={s.sub}>{prep.phase === 'scanning' ? `已发现 ${prep.files.toLocaleString()} 个文件、${prep.directories.toLocaleString()} 个目录 · ${transferBytes(prep.totalBytes)}` : prep.phase === 'packing' ? `已打包 ${prep.processedFiles.toLocaleString()} / ${prep.files.toLocaleString()} 个文件 · ${transferBytes(prep.processedBytes)} / ${transferBytes(prep.totalBytes)}` : prep.phase === 'verifying' ? `已复核 ${prep.processedFiles.toLocaleString()} / ${prep.files.toLocaleString()} 个文件` : `正在校验 ${transferBytes(prep.totalBytes)} 的快照，请等待校验完成。`}</Text>
+          {prep.phase === 'packing' && prep.totalBytes > 0 && <View accessibilityLabel="快照打包进度" accessibilityRole="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(prep.processedBytes / prep.totalBytes * 100)} style={{height: 5, borderRadius: 3, backgroundColor: c.line, overflow: 'hidden'}}><View style={{height: 5, width: `${Math.min(100, prep.processedBytes / prep.totalBytes * 100)}%`, backgroundColor: c.accent}}/></View>}
+        </>}
+        {sourceConnected && !!prep?.updatedAt && <Text style={s.sub}>发送端 {transferElapsed(clock - prep.updatedAt)}前报告{clock - prep.updatedAt > 30000 ? '，暂未收到新的进度，正在继续查询。' : '，状态自动更新。'}</Text>}
+      </>}
       {job.state === 'ready' && <>
         <Text style={s.sub}>{job.files.toLocaleString()} 个文件 · {job.directories.toLocaleString()} 个目录 · {transferBytes(job.size)}</Text>
         <Text selectable style={s.sub}>保存到：{job.parentPath.replace(/[\\/]$/, '')}/{job.relativePath}</Text>

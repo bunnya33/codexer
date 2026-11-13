@@ -126,7 +126,7 @@ describe('collapsed execution records', () => {
     const rawItem = {id: 'change', type: 'fileChange', status: 'completed', changes};
     const raw = {id: 'turn', status: 'completed', items: [rawItem]};
     const history = normalizeHistoryTurn(raw);
-    expect(historyTurnSchema.parse(history).items[0]?.fileOperations).toEqual([{path: 'new.ts', kind: 'add'}, {path: 'edit.ts', kind: 'update'}, {path: 'old.ts', kind: 'delete'}, {path: 'legacy.ts', kind: 'unknown'}]);
+    expect(historyTurnSchema.parse(history).items[0]?.fileOperations).toEqual([{path: 'new.ts', kind: 'add', additions:1, deletions:0}, {path: 'edit.ts', kind: 'update', additions:1, deletions:0}, {path: 'old.ts', kind: 'delete', additions:0, deletions:1}, {path: 'legacy.ts', kind: 'unknown', additions:0, deletions:0}]);
     const state = rawThread('idle'); desktopTurns(state)[0]!.items = [rawItem];
     expect(threadSchema.parse(normalizeThread(state, 1)).turns[0]?.items[0]?.fileOperations).toEqual(history.items[0]?.fileOperations);
     const huge = normalizeHistoryTurn({...raw, items: [{...rawItem, changes: Array.from({length: 50}, (_, i) => ({path: 'x'.repeat(1100) + i, kind: {type: 'add'}}))}]});
@@ -144,8 +144,8 @@ describe('collapsed execution records', () => {
       item('answer', 'agentMessage', {phase: 'final_answer', text: 'Done'}),
     ]);
     const sections = activitySections(groups(value)[0]!);
-    expect(sections.map(section => section.kind === 'message' || section.kind === 'collaboration' ? section.item.id : section.items.map(item => item.id)))
-      .toEqual(['progress-1', ['reason-1', 'command'], 'progress-2', ['edit', 'reason-2'], 'answer']);
+    expect(sections.map(section => 'item' in section ? section.item.id : section.items.map(item => item.id)))
+      .toEqual(['progress-1', ['reason-1', 'command'], 'progress-2', 'edit', ['reason-2'], 'answer']);
     expect(sections.filter(section => section.kind === 'execution').every(section => !section.running)).toBe(true);
   });
 
@@ -172,7 +172,7 @@ describe('collapsed execution records', () => {
   it('preserves steering messages and never adds thinking below a final reply or stopped turn', () => {
     const block = groups(turn([item('before', 'reasoning'), item('steer', 'steeringUserMessage'), item('after', 'commandExecution'), item('answer', 'agentMessage', {phase: 'final_answer'})], {status: 'inProgress'}), true)[0]!;
     const sections = activitySections(block);
-    expect(sections.map(section => section.kind === 'message' || section.kind === 'collaboration' ? section.item.id : section.items.map(item => item.id))).toEqual([['before'], 'steer', ['after'], 'answer']);
+    expect(sections.map(section => 'item' in section ? section.item.id : section.items.map(item => item.id))).toEqual([['before'], 'steer', ['after'], 'answer']);
     expect(activitySections({...block, state: 'interrupted'}).some(section => section.kind === 'execution' && section.running)).toBe(false);
   });
 });

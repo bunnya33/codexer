@@ -32,9 +32,18 @@ Object Service::execute(Object command) {
   checkCommand(command, generation);
   auto p = command["payload"].toObject();
   auto type = p["type"].toString(), id = p["threadId"].toString();
-  if (!snapshottingProject.isEmpty() && type != "thread.watch" &&
-      (p["projectId"] == snapshottingProject || findThread(catalog, id)["projectId"] == snapshottingProject))
-    throw Error("project-transfer-snapshot-in-progress");
+  if (!snapshottingProject.isEmpty() && type != "thread.watch") {
+    Array roots;
+    for (const auto &v : catalog["projects"].toArray())
+      if (v.toObject()["id"] == snapshottingProject) roots = v.toObject()["roots"].toArray();
+    bool affected = p["projectId"] == snapshottingProject || transferTouchesProject(id, snapshottingProject, roots);
+    for (const auto &v : catalog["projects"].toArray()) {
+      auto project = v.toObject(); if (project["id"] != p["projectId"]) continue;
+      for (const auto &root : roots) for (const auto &other : project["roots"].toArray())
+        affected |= within(root.toString(), other.toString()) || within(other.toString(), root.toString());
+    }
+    if (affected) throw Error("project-transfer-snapshot-in-progress");
+  }
   if (paused || !allowed || stopping)
     throw Error("remote-disconnected");
   if (type == "runtime.refresh") {

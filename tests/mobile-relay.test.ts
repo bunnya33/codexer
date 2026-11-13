@@ -193,6 +193,37 @@ it('keeps overlapping refresh and earlier history pages chronological without du
   expect(ids()).toEqual(['older', 'a', 'b', 'c']);
 });
 
+it('keeps activities after live preview eviction and reconstructs a long turn after a fresh client load', async () => {
+  const socket = await connectedSocket();
+  const original = vi.mocked(fetch).getMockImplementation()!;
+  const records = [{id:'spawn',type:'subAgentActivity',truncated:false},{id:'view',type:'imageView',truncated:false},
+    {id:'compact',type:'contextCompaction',truncated:false},{id:'edit',type:'fileChange',truncated:false},
+    ...Array.from({length:176},(_,i)=>({id:`cmd-${i}`,type:'commandExecution',truncated:false}))];
+  const pages = [records.slice(100),records.slice(20,100),records.slice(0,20)];
+  const cursors: (string|null)[] = ['codexer-items-v1:second','codexer-items-v1:third',null];
+  let calls = 0;
+  vi.mocked(fetch).mockImplementation(async(input,options)=>{
+    const url=new URL(String(input));if(!url.pathname.endsWith('/turns'))return original(input,options);
+    const index=url.searchParams.get('cursor')===cursors[0]?1:url.searchParams.get('cursor')===cursors[1]?2:0;calls++;
+    return response({threadId:'thread-test',generatedAt:1,nextCursor:cursors[index],turns:[{id:'long',status:'inProgress',items:pages[index],itemsTruncatedBefore:index<2,itemsTruncatedAfter:index>0,truncated:true}]});
+  });
+  await client.loadHistory('device-test','thread-test');
+  const history=()=>client.getSnapshot().histories[historyKey('device-test','thread-test')]!;
+  const restored=()=>history().turns.find(turn=>turn.id==='long')!;
+  expect(calls).toBe(3);expect(restored().items.map(item=>item.id)).toEqual(records.map(item=>item.id));
+  const current=client.getSnapshot().snapshots['device-test']!;
+  const thread={...current.threads['thread-test']!,activeTurnId:'long',status:'active' as const,turns:[{id:'long',status:'inProgress',plan:[],diff:'',truncated:true,itemsTruncatedBefore:true,items:records.slice(-20)}]};
+  socket.message({type:'device.event',event:{...event(current),change:{type:'thread.updated',thread}}});
+  expect(restored().items.map(item=>item.id)).toEqual(records.map(item=>item.id));
+  const refreshed=client.getSnapshot().snapshots['device-test']!;
+  socket.message({type:'device.snapshot',snapshot:{...refreshed,lastSeq:refreshed.lastSeq+1,threads:{'thread-test':thread}}});
+  expect(restored().items.map(item=>item.id)).toEqual(records.map(item=>item.id));
+  // A brand-new history cache reads the same durable pages, not the previous UI.
+  client.disconnect();await connectedSocket();calls=0;
+  await client.loadHistory('device-test','thread-test');
+  expect(calls).toBe(3);expect(restored().items.map(item=>item.id)).toEqual(records.map(item=>item.id));
+});
+
 it('accepts only a relay root URL', () => {
   expect(normalizeRelayUrl('http://192.0.2.10:8899/')).toBe('http://192.0.2.10:8899');
   expect(() => normalizeRelayUrl('http://user:secret@192.0.2.10:8899/')).toThrow();

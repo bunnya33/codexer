@@ -138,7 +138,7 @@ const itemSchema = z.object({
   commandPreview: z.string().max(4096).optional(),
   subAgents: subAgentsSchema.optional(),
   files: z.array(z.string().max(1000)).max(40).optional(),
-  fileOperations: z.array(z.object({ path: z.string().max(1000), kind: z.enum(['add', 'update', 'delete', 'unknown']) })).max(40).optional(),
+  fileOperations: z.array(z.object({ path: z.string().max(1000), kind: z.enum(['add', 'update', 'delete', 'unknown']), additions: seqSchema.optional(), deletions: seqSchema.optional() })).max(40).optional(),
   images: z.array(imageRefSchema).max(MAX_IMAGES).optional(),
   truncated: z.boolean(),
 });

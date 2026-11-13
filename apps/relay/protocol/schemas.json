@@ -2293,6 +2293,16 @@
                                           "delete",
                                           "unknown"
                                         ]
+                                      },
+                                      "additions": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "deletions": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 9007199254740991
                                       }
                                     },
                                     "required": [
@@ -3503,6 +3513,16 @@
                                                 "delete",
                                                 "unknown"
                                               ]
+                                            },
+                                            "additions": {
+                                              "type": "integer",
+                                              "minimum": 0,
+                                              "maximum": 9007199254740991
+                                            },
+                                            "deletions": {
+                                              "type": "integer",
+                                              "minimum": 0,
+                                              "maximum": 9007199254740991
                                             }
                                           },
                                           "required": [
@@ -4863,6 +4883,16 @@
                                         "delete",
                                         "unknown"
                                       ]
+                                    },
+                                    "additions": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "deletions": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 9007199254740991
                                     }
                                   },
                                   "required": [
@@ -6402,6 +6432,103 @@
       "parentId",
       "relativePath",
       "options"
+    ],
+    "additionalProperties": false
+  },
+  "projectTransferPreparation": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "phase": {
+        "type": "string",
+        "enum": [
+          "waiting",
+          "scanning",
+          "packing",
+          "verifying",
+          "checksumming"
+        ]
+      },
+      "reason": {
+        "type": "string",
+        "enum": [
+          "",
+          "project-active",
+          "runtime-refresh",
+          "agent-busy"
+        ]
+      },
+      "blockers": {
+        "maxItems": 5,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            "title": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "running",
+                "approval",
+                "subagent"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "files": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100000
+      },
+      "directories": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100000
+      },
+      "processedFiles": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100000
+      },
+      "processedBytes": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 4294967296
+      },
+      "totalBytes": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 4294967296
+      },
+      "updatedAt": {
+        "type": "number",
+        "minimum": 0
+      }
+    },
+    "required": [
+      "phase",
+      "reason",
+      "blockers",
+      "files",
+      "directories",
+      "processedFiles",
+      "processedBytes",
+      "totalBytes"
     ],
     "additionalProperties": false
   }

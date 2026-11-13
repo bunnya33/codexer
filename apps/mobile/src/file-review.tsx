@@ -1,4 +1,5 @@
 import { useContext, useEffect, useRef, useState } from 'react';
+import type {ReactNode} from 'react';
 import {ProjectBrowseContext} from './project-browser-context';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { ChevronLeft, ChevronRight, Copy, Download, FileCode2, Folder, Search } from 'lucide-react-native';
@@ -18,7 +19,7 @@ import { exportText } from './export-text';
 
 type Changes = NonNullable<HistoryTurn['fileChanges']>;
 type Source = { phase: 'loading' | 'ready' | 'error' | 'download'; path: string; info?: FileInfo; text?: string; error?: string };
-export function FileChangesPanel({ changes, compact = true, deviceId = '', threadId = '', turnId }: { changes: Changes; compact?: boolean; deviceId?: string; threadId?: string; turnId?: string }) {
+export function FileChangesPanel({ changes, compact = true, deviceId = '', threadId = '', turnId, renderTrigger }: { changes: Changes; compact?: boolean; deviceId?: string; threadId?: string; turnId?: string; renderTrigger?: (openFile: (path: string) => void) => ReactNode }) {
   const { c, s } = useTheme();
   const browse=useContext(ProjectBrowseContext),pendingBrowse=useRef(false);
   const [open, setOpen] = useState(false), [path, setPath] = useState<string>(), [query, setQuery] = useState(''), [tab, setTab] = useState<'diff' | 'source'>('diff');
@@ -70,8 +71,8 @@ export function FileChangesPanel({ changes, compact = true, deviceId = '', threa
     finally { downloadLock.current = false; setDownloading(false); }
   };
   if (!changes.length) return null;
-  return <View style={compact ? s.changes : s.completedChanges}>
-    <Pressable accessibilityRole="button" accessibilityLabel={`${changes.length} 个文件已更改，${open ? '收起' : '查看'}差异`} aria-expanded={open} onPress={() => { setOpen(true); setPath(undefined); }} style={compact ? s.changeHead : s.completedChangeHead}>{!compact && <Folder size={15} color={c.muted} />}<Text style={compact ? s.changeTitle : s.completedChangeTitle}>{compact ? `${changes.length} 个文件已更改` : `已编辑 ${changes.length} 个文件`}</Text><Text style={s.additions}>+{changes.reduce((sum, change) => sum + change.additions, 0)}</Text><Text style={s.deletions}>-{changes.reduce((sum, change) => sum + change.deletions, 0)}</Text><ChevronRight size={15} color={c.muted} /></Pressable>
+  return <View style={renderTrigger ? undefined : compact ? s.changes : s.completedChanges}>
+    {renderTrigger ? renderTrigger(file => {setPath(file); setTab('diff'); setFeedback(''); setOpen(true);}) : <Pressable accessibilityRole="button" accessibilityLabel={`${changes.length} 个文件已更改，${open ? '收起' : '查看'}差异`} aria-expanded={open} onPress={() => { setOpen(true); setPath(undefined); }} style={compact ? s.changeHead : s.completedChangeHead}>{!compact && <Folder size={15} color={c.muted} />}<Text style={compact ? s.changeTitle : s.completedChangeTitle}>{compact ? `${changes.length} 个文件已更改` : `已编辑 ${changes.length} 个文件`}</Text><Text style={s.additions}>+{changes.reduce((sum, change) => sum + change.additions, 0)}</Text><Text style={s.deletions}>-{changes.reduce((sum, change) => sum + change.deletions, 0)}</Text><ChevronRight size={15} color={c.muted} /></Pressable>}
     <ReviewReader open={open} onClose={close} title="本轮文件更改" onClosed={()=>{if(pendingBrowse.current){pendingBrowse.current=false;browse?.();}}} onBack={path ? () => { operation.current?.abort(); setPath(undefined); setTab('diff'); setFeedback(''); } : undefined}>
       {!!browse&&<Pressable accessibilityRole="button" accessibilityLabel="浏览全部项目文件" onPress={()=>{pendingBrowse.current=true;close();}} style={{padding:16}}><Text style={{color:c.accent,fontSize:13}}>本轮更改 · 浏览全部项目文件 ›</Text></Pressable>}
       <View style={{ padding: 16, gap: 8, flexShrink: 0 }}><Text style={{ color: c.muted, fontSize: 11 }}>仅本轮已观测更改{turnId ? ` · ${turnId}` : ''}，不代表整个仓库状态</Text>

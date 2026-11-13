@@ -412,6 +412,60 @@ private slots:
     QVERIFY(!QFileInfo::exists(restored + "/.env")); QVERIFY(!QFileInfo::exists(restored + "/state.sqlite")); QVERIFY(!QFileInfo::exists(restored + "/node_modules"));
     QCOMPARE(QDir(restored).entryList({"CODEXER-HANDOFF-*.md"}, QDir::Files).size(), 1);
   }
+  void projectTransferOnlyWaitsForItsOwnProjectAndSharedRoots() {
+    auto root = temp.path() + "/source", other = temp.path() + "/other";
+    agent->catalog = {{"projects", Array{Object{{"id", "source"}, {"roots", Array{root}}},
+      Object{{"id", "other"}, {"roots", Array{other}}}, Object{{"id", "shared"}, {"roots", Array{root + "/nested"}}}}},
+      {"threads", Array{Object{{"id", "outside"}, {"projectId", "other"}},
+        Object{{"id", "inside"}, {"projectId", "source"}, {"title", "Source task"}},
+        Object{{"id", "shared-task"}, {"projectId", "shared"}}}}};
+    agent->snapshot["threads"] = Object{{"outside", Object{{"status", "active"}, {"activeTurnId", "outside-turn"}}}};
+    agent->busyTurns.insert("outside-turn"); agent->startUsage("outside", "outside-turn", "test");
+    QVERIFY(agent->active());
+    QVERIFY(agent->projectTransferWait("source", Array{root}).isEmpty());
+    auto threads = agent->snapshot["threads"].toObject();
+    threads["inside"] = Object{{"status", "active"}}; agent->snapshot["threads"] = threads;
+    auto wait = agent->projectTransferWait("source", Array{root});
+    QCOMPARE(wait["reason"], QJsonValue("project-active"));
+    QCOMPARE(wait["blockers"].toArray().size(), 1);
+    QCOMPARE(wait["blockers"].toArray()[0].toObject()["title"], QJsonValue("Source task"));
+    threads["inside"] = Object{{"status", "idle"}, {"requests", Array{Object{{"id", "approval"}}}}}; agent->snapshot["threads"] = threads;
+    QCOMPARE(agent->projectTransferWait("source", Array{root})["blockers"].toArray()[0].toObject()["reason"], QJsonValue("approval"));
+    threads["inside"] = Object{{"status", "idle"}, {"subAgents", Array{Object{{"status", "running"}}}}}; agent->snapshot["threads"] = threads;
+    QCOMPARE(agent->projectTransferWait("source", Array{root})["blockers"].toArray()[0].toObject()["reason"], QJsonValue("subagent"));
+    threads.remove("inside"); threads["shared-task"] = Object{{"status", "active"}}; agent->snapshot["threads"] = threads;
+    QCOMPARE(agent->projectTransferWait("source", Array{root})["blockers"].toArray()[0].toObject()["id"], QJsonValue("shared-task"));
+    threads.remove("shared-task"); threads["unregistered"] = Object{{"cwd", root + "/nested"}, {"status", "active"}}; agent->snapshot["threads"] = threads;
+    QCOMPARE(agent->projectTransferWait("source", Array{root})["blockers"].toArray()[0].toObject()["id"], QJsonValue("unregistered"));
+#ifdef Q_OS_WIN
+    threads["unregistered"] = Object{{"cwd", "\\\\?\\" + QDir::toNativeSeparators(root + "/nested")}, {"status", "active"}}; agent->snapshot["threads"] = threads;
+    QCOMPARE(agent->projectTransferWait("source", Array{root})["blockers"].toArray()[0].toObject()["id"], QJsonValue("unregistered"));
+#endif
+    threads.remove("unregistered"); agent->snapshot["threads"] = threads;
+    agent->pendingRequests["pending"] = Object{{"params", Object{{"threadId", "inside"}}}};
+    QCOMPARE(agent->projectTransferWait("source", Array{root})["blockers"].toArray()[0].toObject()["reason"], QJsonValue("approval"));
+    agent->pendingRequests.clear();
+    QVERIFY(agent->projectTransferWait("source", Array{root}).isEmpty());
+    agent->refreshing = true;
+    QCOMPARE(agent->projectTransferWait("source", Array{root})["reason"], QJsonValue("runtime-refresh"));
+    agent->refreshing = false;
+  }
+  void projectSnapshotReportsRealStagesAndByteCounts() {
+    QTemporaryDir files; auto root = files.path() + "/source"; QVERIFY(QDir().mkpath(root + "/empty"));
+    save(root + "/binary", QByteArray(700001, 'a')); save(root + "/zero", {}); save(root + "/.env", "excluded");
+    Object options{{"includeGit", false}, {"includeLocalFiles", false}, {"excludedDirectories", Array{}}, {"note", ""}};
+    QSet<QString> phases; Object lastPacking, lastVerifying;
+    auto summary = snapshotProject(Array{root}, options, files.path() + "/snapshot", [] {}, [&](Object value) {
+      auto phase = value["phase"].toString(); phases.insert(phase);
+      if (phase == "packing") lastPacking = value;
+      if (phase == "verifying") lastVerifying = value;
+    });
+    QCOMPARE(phases, QSet<QString>({"scanning", "packing", "verifying", "checksumming"}));
+    QCOMPARE(lastPacking["files"], QJsonValue(2)); QCOMPARE(lastPacking["directories"], QJsonValue(1));
+    QCOMPARE(lastPacking["processedFiles"], QJsonValue(2)); QCOMPARE(lastPacking["processedBytes"], QJsonValue(700001));
+    QCOMPARE(lastPacking["totalBytes"], QJsonValue(700001)); QCOMPARE(lastVerifying["processedFiles"], QJsonValue(2));
+    QCOMPARE(summary["files"], lastPacking["files"]);
+  }
   void projectSnapshotRejectsChangesAndExternalGit() {
     QTemporaryDir files; auto root = files.path() + "/source"; QDir().mkpath(root);
     save(root + "/a.bin", QByteArray(1024 * 1024, 'a'));
@@ -1532,6 +1586,43 @@ private slots:
         turn["itemTimingsById"].toObject()["a"].toObject()["completedAtMs"],
         QJsonValue(150));
   }
+  void historyPagesEveryItemInLongTurnsAndRejectsCrossThreadCursors() {
+    Array items;
+    for (int i = 0; i < 179; ++i) items.append(Object{{"id", "item-" + QString::number(i)},
+      {"type", i == 1 ? "subAgentActivity" : i == 2 ? "imageView" : i == 3 ? "contextCompaction" : "commandExecution"}});
+    auto changed = Object{{"id", "edit"}, {"type", "fileChange"}, {"status", "completed"},
+      {"changes", Array{Object{{"path", "/synthetic/test.ts"}, {"kind", Object{{"type", "update"}}}, {"diff", "--- a\n+++ b\n@@ -1 +1,2 @@\n-old\n+new\n+second\n"}}}}};
+    items.append(changed);
+    setFixture({{"turns", Array{Object{{"id", "long"}, {"status", "completed"}, {"items", items}},
+      Object{{"id", "older"}, {"status", "completed"}, {"items", Array{}}}}}});
+    const auto first = agent->history("thread-test", QJsonValue::Null);
+    QJsonValue cursor = first["nextCursor"];
+    QVERIFY(cursor.toString().startsWith("codexer-items-v1:"));
+    QCOMPARE(first["turns"].toArray().size(), 1);
+    auto recent = first["turns"].toArray()[0].toObject();
+    QVERIFY(recent["itemsTruncatedBefore"].toBool());
+    QVERIFY(!recent["itemsTruncatedAfter"].toBool());
+    QCOMPARE(recent["items"].toArray().last().toObject()["fileOperations"].toArray()[0].toObject()["additions"], QJsonValue(2));
+    QCOMPARE(recent["items"].toArray().last().toObject()["fileOperations"].toArray()[0].toObject()["deletions"], QJsonValue(1));
+    QVERIFY_EXCEPTION_THROWN(agent->history("another-thread", cursor), Error);
+    Array all = recent["items"].toArray();
+    int pages = 1;
+    while (cursor.isString()) {
+      auto page = agent->history("thread-test", cursor);
+      auto turn = page["turns"].toArray()[0].toObject();
+      QVERIFY(turn["itemsTruncatedAfter"].toBool());
+      Array combined = turn["items"].toArray(); for (const auto &v : all) combined.append(v); all = combined;
+      cursor = page["nextCursor"]; QVERIFY(++pages <= 3);
+      if (!cursor.isString()) QVERIFY(!page["turns"].toArray().last().toObject().contains("fileChanges"));
+    }
+    QCOMPARE(all.size(), items.size());
+    for (int i = 0; i < all.size(); ++i) QCOMPARE(all[i].toObject()["id"], items[i].toObject()["id"]);
+    QCOMPARE(all[3].toObject()["type"], QJsonValue("contextCompaction"));
+    // The first page can be reconstructed after restarting the Agent; cursors
+    // contain item identity and thread scope rather than an in-memory offset.
+    auto again = agent->history("thread-test", QJsonValue::Null);
+    QCOMPARE(again["nextCursor"], first["nextCursor"]);
+  }
   void legacyCommandsNeverExecuteAgain() {
     auto cmd = command();
     auto key =
@@ -2129,7 +2220,11 @@ private slots:
     QVERIFY(json(page).size() <= 6 * 1024 * 1024);
     const auto historyTurn = page["turns"].toArray()[0].toObject();
     QCOMPARE(historyTurn["tokenUsage"].toObject()["state"], QJsonValue("complete"));
-    QVERIFY(historyTurn["items"].toArray().size() < 40);
+    QCOMPARE(historyTurn["items"].toArray().size(), 40);
+    QVERIFY(page["nextCursor"].toString().startsWith("codexer-items-v1:"));
+    auto next = agent->history("thread-test", page["nextCursor"]);
+    QVERIFY(json(next).size() <= 6 * 1024 * 1024);
+    QCOMPARE(page["turns"].toArray().size() + next["turns"].toArray().size(), 3);
   }
   void desktopContinueRequiresLatestInterruptedTurn_data() {
     QTest::addColumn<QString>("status");

@@ -242,6 +242,15 @@ async function fixture(options: FixtureOptions = {}) {
   const app = () => (dom.window as unknown as { selectionApp: { relay: TestRelay; close(): void } }).selectionApp;
   await vi.waitFor(() => expect(app()).toBeDefined());
   const header = () => dom.window.document.querySelector('[data-testid="conversation-header"]')?.textContent;
+  // App bootstrap uses several passive effects and WebSocket frames. Wait for
+  // authentication before exposing the fixture, including on a busy build host.
+  try {
+    await vi.waitFor(() => expect(app().relay.getSnapshot().userId).toBe(current.userId), {timeout:10000});
+    if (!options.delayDevices && !options.delayCatalog) await vi.waitFor(() => expect(header()).toBeDefined(), {timeout:10000});
+  } catch (error) {
+    deviceGate.release(); catalogGate.release(); historyGate.release(); app().close(); dom.window.close();
+    throw error;
+  }
   const click = async (label: string) => {
     // RN Web refreshes press handlers in passive effects after the DOM changes.
     // Let the browser finish the frame before starting the next interaction.
@@ -286,7 +295,7 @@ it('shows agent messages, historical start events and the actual wait inline bef
   const test = await fixture({controls, review:{turns:[turn]}, subAgents:[child]});
   try {
     const doc = test.dom.window.document;
-    await vi.waitFor(() => expect(test.header()).toContain('recent-pc-a'));
+    await vi.waitFor(() => expect(test.header()).toContain('recent-pc-a'), {timeout:5000});
     await vi.waitFor(() => expect(doc.querySelector('[data-testid="agent-activity-started"]')?.textContent, `${doc.body.textContent} ${test.errors}`).toBe('Linnaeus开始工作'));
     const send = doc.querySelector('[data-testid="agent-activity-send"]')!;
     const started = doc.querySelector('[data-testid="agent-activity-started"]')!;
@@ -298,8 +307,10 @@ it('shows agent messages, historical start events and the actual wait inline bef
     expect(test.dom.window.getComputedStyle(wait.querySelector('[data-testid="active-step-shimmer"]')!).fontFamily).toContain('Segoe UI');
     expect(doc.querySelector('[aria-label^="正在思考，"]')).toBeNull();
     controls.active = false; turn.status = 'completed'; turn.items.find(item => item.id === 'wait')!.status = 'completed'; test.refresh();
+    await vi.waitFor(()=>expect(doc.querySelector('[aria-label="处理记录，展开思考过程"]')).not.toBeNull());
+    await test.click('处理记录，展开思考过程');
     await vi.waitFor(() => expect(doc.querySelector('[data-testid="agent-activity-wait"] [data-testid="active-step-shimmer"]')).toBeNull());
-    expect(doc.querySelector('[data-testid="agent-activity-started"]')?.textContent).toBe('Linnaeus开始工作');
+    await vi.waitFor(()=>expect(doc.querySelector('[data-testid="agent-activity-started"]')?.textContent).toBe('Linnaeus开始工作'));
     expect(test.errors).toEqual([]);
   } finally { test.close(); }
 });
@@ -310,7 +321,9 @@ it('groups viewed images inline, expands their thumbnails and opens the original
   const test = await fixture({review:{turns:[turn]}});
   try {
     const doc = test.dom.window.document;
-    await vi.waitFor(() => expect(doc.querySelector('[aria-label="已查看 4 张图像，展开图像"]')).not.toBeNull());
+    await vi.waitFor(()=>expect(doc.querySelector('[aria-label="处理记录，展开思考过程"]')).not.toBeNull(),{timeout:5000});
+    await test.click('处理记录，展开思考过程');
+    await vi.waitFor(() => expect(doc.querySelector('[aria-label="已查看 4 张图像，展开图像"]')).not.toBeNull(),{timeout:5000});
     expect(doc.querySelector('[aria-label="已查看 3 张图像，展开图像"]')).not.toBeNull();
     expect(doc.querySelectorAll('[aria-label^="查看图像 view-"]')).toHaveLength(0);
     await test.click('已查看 4 张图像，展开图像');
@@ -327,6 +340,62 @@ it('groups viewed images inline, expands their thumbnails and opens the original
     await vi.waitFor(() => expect(doc.querySelectorAll('[aria-label^="查看图像 view-"]')).toHaveLength(0));
     expect(test.errors).toEqual([]);
   } finally { test.close(); }
+});
+
+it('shows file edits and compaction inline during work, retains them after refresh and opens the recorded diff', async () => {
+  const turn: HistoryTurn = {id:'active-turn',status:'inProgress',truncated:false,items:[
+    {id:'compact',type:'contextCompaction',truncated:false},
+    {id:'edit',type:'fileChange',status:'completed',files:['/fixture/example.ts'],fileOperations:[{path:'/fixture/example.ts',kind:'update',additions:2,deletions:1}],truncated:false},
+  ],fileChanges:[{path:'/fixture/example.ts',additions:2,deletions:1,diff:'@@ -1 +1,2 @@\n-old\n+new\n+next',truncated:false}]};
+  const controls={active:true,text:'',images:[] as string[]};
+  const test=await fixture({controls,review:{turns:[turn]}});
+  try {
+    const doc=test.dom.window.document;
+    await vi.waitFor(()=>expect(doc.querySelector('[data-testid="compaction-activity-compact"]')?.textContent).toBe('已压缩上下文'));
+    const edit=()=>doc.querySelector('[data-testid="file-activity-edit"]');
+    expect(edit()?.textContent).toContain('已编辑 example.ts');expect(edit()?.textContent).toContain('+2 -1');
+    await test.click('已编辑 /fixture/example.ts，查看差异');
+    await vi.waitFor(()=>expect(doc.querySelector('[data-testid="expanded-file-diff"]')?.textContent).toContain('next'));
+    await test.closeDialog('关闭面板');
+    controls.active=false;turn.status='completed';test.refresh();
+    await vi.waitFor(()=>expect(doc.querySelector('[aria-label="处理记录，展开思考过程"]')).not.toBeNull());
+    await test.click('处理记录，展开思考过程');
+    await vi.waitFor(()=>expect(edit()).not.toBeNull());
+    expect(edit()).not.toBeNull();expect(doc.querySelector('[data-testid="compaction-activity-compact"]')).not.toBeNull();
+    expect(test.errors).toEqual([]);
+  } finally {test.close();}
+});
+
+it('automatically folds completed work, keeps the final reply visible and expands the original process in order', async () => {
+  const turn: HistoryTurn={id:'active-turn',status:'inProgress',startedAtMs:1000,durationMs:3052000,truncated:false,items:[
+    {id:'prompt',type:'userMessage',text:'最初的问题',truncated:false},
+    {id:'progress',type:'agentMessage',phase:'commentary',text:'过程中的进度说明',truncated:false},
+    {id:'steer',type:'steeringUserMessage',text:'中途追加的要求',truncated:false},
+    {id:'compact',type:'contextCompaction',truncated:false},
+    {id:'final',type:'agentMessage',phase:'final_answer',text:'最终交付的结果',truncated:false},
+  ]};
+  const controls={active:true,text:'',images:[] as string[]};
+  const test=await fixture({controls,review:{turns:[turn]}});
+  try {
+    const doc=test.dom.window.document;
+    await vi.waitFor(()=>expect(doc.body.textContent).toContain('过程中的进度说明'),{timeout:5000});
+    expect(doc.querySelector('[data-testid="work-disclosure-active-turn"]')).toBeNull();
+    expect(doc.body.textContent).toContain('最终交付的结果');
+    controls.active=false;turn.status='completed';test.refresh();
+    await vi.waitFor(()=>expect(doc.querySelector('[aria-label="用时 50m 52s，展开思考过程"]')).not.toBeNull());
+    await vi.waitFor(()=>expect(doc.body.textContent).not.toContain('过程中的进度说明'));
+    expect(doc.body.textContent).toContain('最初的问题');expect(doc.body.textContent).toContain('最终交付的结果');expect(doc.body.textContent).not.toContain('中途追加的要求');
+    await test.click('用时 50m 52s，展开思考过程');
+    await vi.waitFor(()=>expect(doc.body.textContent).toContain('过程中的进度说明'));
+    expect(doc.body.textContent).toContain('中途追加的要求');expect(doc.body.textContent).toContain('已压缩上下文');
+    test.refresh();expect(doc.querySelector('[aria-label="用时 50m 52s，收起思考过程"]')).not.toBeNull();
+    await test.click('用时 50m 52s，收起思考过程');
+    await vi.waitFor(()=>expect(doc.body.textContent).not.toContain('过程中的进度说明'));
+    expect(doc.body.textContent).toContain('最终交付的结果');expect(test.errors).toEqual([]);
+    controls.active=true;turn.status='inProgress';test.refresh();
+    await vi.waitFor(()=>expect(doc.body.textContent).toContain('过程中的进度说明'));
+    expect(doc.querySelector('[data-testid="work-disclosure-active-turn"]')).toBeNull();
+  } finally {test.close();}
 });
 
 async function pagingFixture(paging: NonNullable<FixtureOptions['paging']>, options: FixtureOptions = {}) {
@@ -845,6 +914,7 @@ it('opens a compact title menu and performs rename/archive on the current chat w
   const doc = test.dom.window.document;
   try {
     await vi.waitFor(() => expect(test.header()).toContain('recent-pc-a'));
+    await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-a']).toBe(false), {timeout:5000});
     const input = doc.querySelector<HTMLTextAreaElement>('[aria-label="给 Codex 发送消息"]')!;
     Object.getOwnPropertyDescriptor(test.dom.window.HTMLTextAreaElement.prototype, 'value')!.set!.call(input, '尚未发送的草稿');
     input.dispatchEvent(new test.dom.window.Event('input', { bubbles: true }));
@@ -1557,6 +1627,8 @@ const reviewTurn = (truncated = false, type = 'plan'): HistoryTurn => ({ id:'rev
 async function reviewReady(test: Awaited<ReturnType<typeof fixture>>) {
   await vi.waitFor(() => expect(test.header()).toContain('recent-pc-a'));
   await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing['pc-a']).toBe(false));
+  const completed = test.dom.window.document.querySelector('[data-testid^="work-disclosure-"][aria-expanded="false"]');
+  if (completed) await test.click(completed.getAttribute('aria-label')!);
 }
 function answerInput(test: Awaited<ReturnType<typeof fixture>>, label: string, value: string) {
   const input = test.dom.window.document.querySelector(`[aria-label="${label}"]`) as HTMLTextAreaElement | HTMLInputElement;

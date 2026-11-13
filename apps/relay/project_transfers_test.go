@@ -184,6 +184,30 @@ func TestProjectTransferOwnershipCancellationExpiryAndHash(t *testing.T) {
 		f.call(t, "POST", "/v1/project-transfers/"+id+"/start", f.user, "", M{}, 409)
 	})
 }
+func TestProjectTransferPreparationProgressIsScopedDurableAndValidated(t *testing.T) {
+	f := transferTest(t)
+	id := f.create(t)
+	preparation := M{"phase": "waiting", "reason": "project-active", "blockers": []any{M{"id": "source-thread", "title": "Source task", "reason": "running"}}, "files": 0, "directories": 0, "processedFiles": 0, "processedBytes": 0, "totalBytes": 0}
+	payload := M{"state": "preparing", "preparation": preparation}
+	f.call(t, "POST", f.base(f.target, id)+"/status", f.targetToken, f.target, payload, 409)
+	result := f.call(t, "POST", f.base(f.source, id)+"/status", f.sourceToken, f.source, payload, 200)
+	if result["state"] != "preparing" || num(obj(result["preparation"])["updatedAt"]) <= 0 {
+		t.Fatal(result)
+	}
+	var stored projectTransfer
+	b, readErr := os.ReadFile(f.server.projectTransfers.path(id, ".json"))
+	if readErr != nil || json.Unmarshal(b, &stored) != nil || str(stored.Preparation["reason"]) != "project-active" {
+		t.Fatal("preparation status not persisted", readErr)
+	}
+	preparation["phase"] = "packing"
+	preparation["processedBytes"] = -1
+	f.call(t, "POST", f.base(f.source, id)+"/status", f.sourceToken, f.source, payload, 400)
+	preparation["processedBytes"] = 10
+	preparation["totalBytes"] = 100
+	f.call(t, "POST", f.base(f.source, id)+"/status", f.sourceToken, f.source, payload, 200)
+	f.ready(t, id, []byte("test"))
+	f.call(t, "POST", f.base(f.source, id)+"/status", f.sourceToken, f.source, payload, 409)
+}
 func TestProjectTransferStoreSurvivesRestartAndEnforcesCapacity(t *testing.T) {
 	directory := t.TempDir()
 	store, err := newProjectTransferStore(directory)

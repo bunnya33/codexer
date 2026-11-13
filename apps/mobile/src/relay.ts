@@ -355,7 +355,18 @@ export class RelayClient {
     if (this.removedDevices.has(snapshot.deviceId)) return;
     const current = this.view.snapshots[snapshot.deviceId];
     if (current && (current.epoch === snapshot.epoch ? current.lastSeq > snapshot.lastSeq : current.generatedAt > snapshot.generatedAt)) return;
-    this.set({ snapshots: { ...this.view.snapshots, [snapshot.deviceId]: snapshot } });
+    this.set({ snapshots: { ...this.view.snapshots, [snapshot.deviceId]: snapshot }, histories: this.retainActivity(snapshot) });
+  }
+
+  private retainActivity(snapshot: DeviceSnapshot, threadId?: string): RelayView['histories'] {
+    const histories = {...this.view.histories};
+    for (const thread of Object.values(snapshot.threads)) {
+      if (threadId && thread.id !== threadId) continue;
+      const key = historyKey(snapshot.deviceId, thread.id), prior = histories[key];
+      if (!prior) continue;
+      histories[key] = {...prior, turns: mergeTurnHistory(prior?.turns ?? [], thread.turns, 'latest', thread.activeTurnId), nextCursor: prior?.nextCursor ?? null, loading: prior?.loading ?? false};
+    }
+    return histories;
   }
 
   private reconcile(deviceId: string): void {
@@ -469,7 +480,7 @@ export class RelayClient {
       if (!previous) { this.reconcile(event.deviceId); return; }
       try {
         const snapshot = reduceEvent(previous, event);
-        this.set({ snapshots: { ...this.view.snapshots, [event.deviceId]: snapshot } });
+        this.set({ snapshots: { ...this.view.snapshots, [event.deviceId]: snapshot }, ...(event.change.type === 'thread.updated' ? {histories: this.retainActivity(snapshot, event.change.thread.id)} : {}) });
         if (event.change.type === 'thread.updated' && previous.threads[event.change.thread.id]?.status === 'active' && event.change.thread.status === 'idle') void this.loadHistory(event.deviceId, event.change.thread.id);
       } catch { this.reconcile(event.deviceId); }
     } else if (message.type === 'command.result') {
@@ -493,6 +504,7 @@ export class RelayClient {
     const version = this.deviceVersions.get(deviceId) ?? 0;
     this.historyLoading.set(key, version);
     const prior = this.view.histories[key];
+    let continueItems = false;
     this.set({ histories: { ...this.view.histories, [key]: { turns: prior?.turns ?? [], nextCursor: prior?.nextCursor ?? null, loading: true } } });
     try {
       const cursor = earlier && prior?.nextCursor ? `?cursor=${encodeURIComponent(prior.nextCursor)}` : '';
@@ -502,13 +514,18 @@ export class RelayClient {
       const incoming = [...page.turns].reverse();
       const current = this.view.histories[key];
       const old = current?.turns ?? [];
-      const turns = mergeTurnHistory(old, incoming, earlier ? 'earlier' : 'latest');
-      this.set({ histories: { ...this.view.histories, [key]: { turns, nextCursor: !earlier && old.length > incoming.length ? current?.nextCursor ?? null : page.nextCursor, loading: false } } });
+      const active = this.view.snapshots[deviceId]?.threads[threadId]?.activeTurnId;
+      const turns = mergeTurnHistory(old, incoming, earlier ? 'earlier' : 'latest', active);
+      continueItems = !!page.nextCursor?.startsWith('codexer-items-v1:') && page.nextCursor !== (earlier ? prior?.nextCursor : null);
+      this.set({ histories: { ...this.view.histories, [key]: { turns, nextCursor: continueItems || earlier || old.length <= incoming.length ? page.nextCursor : current?.nextCursor ?? page.nextCursor, loading: false } } });
     } catch (error) {
       if (generation !== this.generation || version !== (this.deviceVersions.get(deviceId) ?? 0) || this.removedDevices.has(deviceId)) return;
       const current = this.view.histories[key];
       this.set({ histories: { ...this.view.histories, [key]: { turns: current?.turns ?? [], nextCursor: current?.nextCursor ?? null, loading: false, error: error instanceof Error ? error.message : '历史读取失败' } } });
     } finally { if (generation === this.generation && this.historyLoading.get(key) === version) this.historyLoading.delete(key); }
+    // Finish a split turn from its durable history before paging older turns.
+    // Each request remains bounded; a failure leaves the existing records visible.
+    if (continueItems && generation === this.generation && version === (this.deviceVersions.get(deviceId) ?? 0)) await this.loadHistory(deviceId, threadId, true);
   }
 
   watchThread(deviceId: string, threadId: string, force = false): void {

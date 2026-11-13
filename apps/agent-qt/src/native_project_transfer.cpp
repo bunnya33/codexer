@@ -3,6 +3,15 @@
 #include <algorithm>
 namespace Native {
 static const QByteArray snapshotMagic("CODEXER-PROJECT-1\n");
+static bool transferWithin(QString root, QString path) {
+#ifdef Q_OS_WIN
+  root.replace('\\', '/'); path.replace('\\', '/');
+  const QRegularExpression extendedDrive("^//\\?/[a-zA-Z]:/");
+  if (extendedDrive.match(root).hasMatch()) root.remove(0, 4);
+  if (extendedDrive.match(path).hasMatch()) path.remove(0, 4);
+#endif
+  return within(root, path);
+}
 static void interrupted() {
   if (QThread::currentThread()->isInterruptionRequested())
     throw Error("project-transfer-interrupted");
@@ -84,13 +93,17 @@ struct SnapshotEntry {
   qint64 size = 0;
 };
 Object snapshotProject(const Array &roots, const Object &options, const QString &archive,
-                       const std::function<void()> &check) {
+                       const std::function<void()> &check, const std::function<void(Object)> &progress) {
   if (roots.isEmpty() || roots.size() > 20) throw Error("project-root-unavailable");
   Array chains, outputRoots; QList<SnapshotEntry> entries;
   QHash<QString, QString> rootFingerprints;
   QSet<QString> paths, excludedNames;
   for (const auto &v : options["excludedDirectories"].toArray()) excludedNames.insert(v.toString().toCaseFolded());
   int excluded = 0; Array excludedSamples;
+  Object preparation{{"phase", "scanning"}, {"reason", ""}, {"blockers", Array{}},
+    {"files", 0}, {"directories", 0}, {"processedFiles", 0}, {"processedBytes", 0}, {"totalBytes", 0}};
+  qint64 discoveredBytes = 0;
+  progress(preparation);
   auto localFile = [](const QString &name) {
     auto n = name.toLower();
     if ((n == ".env" || n.startsWith(".env.")) && !n.endsWith(".example") && !n.endsWith(".sample") && !n.endsWith(".template")) return true;
@@ -117,6 +130,11 @@ Object snapshotProject(const Array &roots, const Object &options, const QString 
     if (entries.size() >= 100000) throw Error("project-transfer-too-many-files");
     entries.append({source, path, fileIdentity(source), fingerprint(source), {}, info.isDir(),
                     bool(info.permissions() & QFileDevice::ExeOwner), info.isDir() ? 0 : info.size()});
+    auto key = info.isDir() ? "directories" : "files";
+    preparation[key] = preparation[key].toInt() + 1;
+    discoveredBytes += info.isDir() ? 0 : info.size();
+    if (discoveredBytes > MaxProjectTransferBytes) throw Error("project-transfer-too-large");
+    preparation["totalBytes"] = double(discoveredBytes); progress(preparation);
     if (info.isDir()) for (const auto &child : QDir(source).entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System, QDir::Name))
       scan(child.absoluteFilePath(), path + '/' + child.fileName());
   };
@@ -144,6 +162,7 @@ Object snapshotProject(const Array &roots, const Object &options, const QString 
   if (!output.open(QIODevice::WriteOnly)) throw Error("project-transfer-disk-full");
   writeBytes(output, snapshotMagic);
   writeRecord(output, {{"roots", outputRoots}, {"note", options["note"]}});
+  preparation["phase"] = "packing"; progress(preparation);
   int files = 0, directories = 0;
   for (auto &e : entries) {
     check();
@@ -158,12 +177,15 @@ Object snapshotProject(const Array &roots, const Object &options, const QString 
       if (bytes.isEmpty() && input.error() != QFileDevice::NoError) throw Error("project-file-unavailable");
       copied += bytes.size(); if (copied > e.size) throw Error("project-transfer-source-changed");
       digest.addData(bytes); writeBytes(output, bytes);
+      preparation["processedBytes"] = preparation["processedBytes"].toDouble() + bytes.size(); progress(preparation);
     }
     if (copied != e.size) throw Error("project-transfer-source-changed");
     e.digest = QString::fromLatin1(digest.result().toHex()); writeBytes(output, e.digest.toLatin1());
+    preparation["processedFiles"] = files; progress(preparation);
   }
   // Recheck source contents and directory listings before publishing the snapshot.
   // This also detects new/deleted files during packing, including empty folders.
+  preparation["phase"] = "verifying"; preparation["processedFiles"] = 0; progress(preparation);
   for (const auto &chain : chains) verifyTransferDirectoryChain(chain.toArray());
   QSet<QString> verifiedPaths;
   std::function<void(QString, QString)> inventory = [&](QString source, QString path) {
@@ -187,10 +209,12 @@ Object snapshotProject(const Array &roots, const Object &options, const QString 
     if (fileIdentity(e.source) != e.identity || fingerprint(e.source) != e.fingerprint ||
         (!e.directory && QString::fromLatin1(digestFile(e.source, check)) != e.digest))
       throw Error("project-transfer-source-changed");
+    if (!e.directory) {preparation["processedFiles"] = preparation["processedFiles"].toInt() + 1; progress(preparation);}
   }
   writeBytes(output, QByteArray(4, '\0'));
   if (output.size() > MaxProjectTransferBytes) throw Error("project-transfer-too-large");
   if (!output.commit()) throw Error("project-transfer-disk-full");
+  preparation["phase"] = "checksumming"; progress(preparation);
   return {{"size", double(QFileInfo(archive).size())}, {"sha256", QString::fromLatin1(digestFile(archive, check))},
           {"files", files}, {"directories", directories}, {"excluded", excluded}, {"excludedSamples", excludedSamples}, {"roots", outputRoots}};
 }
@@ -342,9 +366,19 @@ void ProjectTransferTask::perform() {
         if (summary["size"].toDouble() != QFileInfo(archive).size() || summary["sha256"].toString() != QString::fromLatin1(digestFile(archive, interrupted))) throw Error("project-transfer-checksum-mismatch");
       } else {
         QElapsedTimer elapsed; elapsed.start();
+        QElapsedTimer reporting; reporting.start(); QString reportedPhase; Object latestPreparation;
+        auto report = [&](Object preparation) {
+          if (preparation.isEmpty()) return;
+          latestPreparation = preparation;
+          if (preparation["phase"] == reportedPhase && reporting.elapsed() < 3000) return;
+          reportedPhase = preparation["phase"].toString(); reporting.restart();
+          // Progress is optional on older Relays and never decides snapshot validity.
+          try {status({{"state", "preparing"}, {"preparation", preparation}});} catch (const Error &) {}
+        };
         summary = snapshotProject(sourceRoots, job["options"].toObject(), archive, [&] {
-          interrupted(); if (elapsed.elapsed() > 3000) {elapsed.restart(); if (current()["state"] != "preparing") throw Error("project-transfer-state-changed");}
-        });
+          interrupted(); report(latestPreparation);
+          if (elapsed.elapsed() > 3000) {elapsed.restart(); if (current()["state"] != "preparing") throw Error("project-transfer-state-changed");}
+        }, report);
         save(cache + "/out.json", json(summary));
       }
       summary["state"] = "ready"; status(summary);
@@ -381,8 +415,62 @@ void Service::stopProjectTransfers() {
   }
   snapshottingProject.clear(); projectTransferOutcome = {};
 }
+bool Service::transferTouchesProject(const QString &id, const QString &project, const Array &roots) const {
+  Object thread = snapshot["threads"].toObject()[id].toObject();
+  auto raw = rawThreads.value(id);
+  QString linked = thread["projectId"].toString(raw["projectId"].toString());
+  QString cwd = thread["cwd"].toString(raw["cwd"].toString());
+  for (const auto &v : catalog["threads"].toArray()) {
+    auto listed = v.toObject(); if (listed["id"] != id) continue;
+    if (linked.isEmpty()) linked = listed["projectId"].toString();
+    if (cwd.isEmpty()) cwd = listed["cwd"].toString();
+    break;
+  }
+  if (linked == project) return true;
+  for (const auto &r : roots) {
+    auto root = r.toString();
+    if (!cwd.isEmpty() && transferWithin(root, cwd)) return true;
+    for (const auto &p : catalog["projects"].toArray()) {
+      auto other = p.toObject(); if (other["id"] != linked) continue;
+      for (const auto &v : other["roots"].toArray())
+        if (transferWithin(root, v.toString()) || transferWithin(v.toString(), root)) return true;
+    }
+  }
+  return false;
+}
+Object Service::projectTransferWait(const QString &project, const Array &roots) const {
+  Object preparation{{"phase", "waiting"}, {"reason", ""}, {"blockers", Array{}},
+    {"files", 0}, {"directories", 0}, {"processedFiles", 0}, {"processedBytes", 0}, {"totalBytes", 0}};
+  if (refreshing) {preparation["reason"] = "runtime-refresh"; return preparation;}
+  auto threads = snapshot["threads"].toObject(); QSet<QString> ids;
+  for (const auto &id : threads.keys()) ids.insert(id);
+  for (const auto &id : rawThreads.keys()) ids.insert(id);
+  for (const auto &id : usageObservations.keys()) ids.insert(id);
+  for (const auto &v : pendingRequests) ids.insert(v["params"].toObject()["threadId"].toString());
+  auto sorted = ids.values(); std::sort(sorted.begin(), sorted.end()); Array blockers;
+  for (const auto &id : sorted) {
+    if (id.isEmpty() || !transferTouchesProject(id, project, roots)) continue;
+    auto thread = threads[id].toObject(); QString reason;
+    if (thread["status"] == "active" || !thread["activeTurnId"].toString().isEmpty() ||
+        busyTurns.contains(usageObservations.value(id)["turnId"].toString())) reason = "running";
+    for (const auto &v : rawThreads.value(id)["turns"].toArray())
+      if (busyTurns.contains(v.toObject()["id"].toString())) reason = "running";
+    for (const auto &v : thread["subAgents"].toArray())
+      if (QStringList{"running", "pendingInit"}.contains(v.toObject()["status"].toString())) reason = "subagent";
+    if (!thread["requests"].toArray().isEmpty()) reason = "approval";
+    for (const auto &v : pendingRequests)
+      if (v["params"].toObject()["threadId"] == id) reason = "approval";
+    if (reason.isEmpty()) continue;
+    auto title = thread["title"].toString(rawThreads.value(id)["title"].toString());
+    if (title.isEmpty()) for (const auto &v : catalog["threads"].toArray())
+      if (v.toObject()["id"] == id) {title = v.toObject()["title"].toString(); break;}
+    if (blockers.size() < 5) blockers.append(Object{{"id", id}, {"title", title.left(200)}, {"reason", reason}});
+  }
+  if (blockers.isEmpty()) return {};
+  preparation["reason"] = "project-active"; preparation["blockers"] = blockers; return preparation;
+}
 void Service::pollProjectTransfers() {
-  if (projectTransferTask || paused || !allowed || stopping || credentials.isEmpty()) return;
+  if (paused || !allowed || stopping || credentials.isEmpty()) return;
   auto cleanup = [&](const QString &cache, const QString &id, bool expired) {
     try {
       auto cachePins = transferDirectoryChain(cache);
@@ -433,6 +521,14 @@ void Service::pollProjectTransfers() {
       continue;
     }
     const bool source = credentials["deviceId"] == job["sourceDeviceId"];
+    if (projectTransferTask) {
+      if (source && state == "preparing" && projectTransferTask->transferId() != id) {
+        Object waiting{{"phase", "waiting"}, {"reason", "agent-busy"}, {"blockers", Array{}},
+          {"files", 0}, {"directories", 0}, {"processedFiles", 0}, {"processedBytes", 0}, {"totalBytes", 0}};
+        try {http("POST", base + '/' + id + "/status", json(Object{{"state", "preparing"}, {"preparation", waiting}}));} catch (const Error &) {}
+      }
+      continue;
+    }
     if (!source) {
       bool authorized = false;
       for (const auto &p : settings["projectParents"].toArray()) {
@@ -473,9 +569,13 @@ void Service::pollProjectTransfers() {
     if (source && state == "preparing") {
       // Snapshot capture runs on its own native thread. New remote writes to
       // this project and automatic queue starts wait until capture finishes.
-      if (active()) continue;
       for (const auto &p : catalog["projects"].toArray()) if (p.toObject()["id"] == job["projectId"]) roots = p.toObject()["roots"].toArray();
       if (roots.isEmpty()) {http("POST", base + '/' + id + "/status", json(Object{{"state", "failed"}, {"code", "project-not-in-catalog"}})); continue;}
+      auto waiting = projectTransferWait(job["projectId"].toString(), roots);
+      if (!waiting.isEmpty()) {
+        try {http("POST", base + '/' + id + "/status", json(Object{{"state", "preparing"}, {"preparation", waiting}}));} catch (const Error &) {}
+        continue;
+      }
       snapshottingProject = job["projectId"].toString();
     } else if (!(source && state == "uploading") && !(!source && (state == "downloading" || state == "installing" || state == "received"))) continue;
     projectTransferOutcome = {};

@@ -1,13 +1,50 @@
 import {describe, expect, it} from 'vitest';
-import {activitySections, collaborationSummary, executionItemActive, imageActivitySummary} from '../packages/client-shared/src/activity.js';
+import {activitySections, collaborationSummary, completedActivityLabel, executionItemActive, imageActivitySummary, mergeLiveTurn, splitActivityReply} from '../packages/client-shared/src/activity.js';
 import {normalizeHistoryTurn, normalizeThread} from '../packages/codex-adapter/src/normalize.js';
 import {historyTurnSchema, threadSchema} from '../packages/protocol/src/index.js';
-import type {RemoteItem, RemoteSubAgent} from '../packages/protocol/src/index.js';
+import type {HistoryTurn, RemoteItem, RemoteSubAgent} from '../packages/protocol/src/index.js';
 
 const child: RemoteSubAgent = {threadId: 'child', name: 'Linnaeus', status: 'running', statusSource: 'activity'};
 const item = (id: string, type: string, rest: Partial<RemoteItem> = {}): RemoteItem => ({id, type, truncated: false, ...rest});
 
 describe('inline Codex activity records', () => {
+  it('folds the entire completed process while leaving the initial prompt and trailing final reply outside', () => {
+    const process = [item('progress','agentMessage',{phase:'commentary'}),item('old-final','agentMessage',{phase:'final_answer'}),
+      item('steering','steeringUserMessage'),item('spawn','subAgentActivity'),item('view','imageView'),item('edit','fileChange'),item('compact','contextCompaction')];
+    const final = item('final','agentMessage',{phase:'final_answer'});
+    const block = {kind:'activity' as const,id:'work',state:'completed' as const,durationMs:3052000,items:[...process,final]};
+    expect(splitActivityReply(block)).toEqual({process,final:[final]});
+    expect(completedActivityLabel(block)).toBe('用时 50m 52s');
+    expect(splitActivityReply({...block,state:'running',items:process})).toEqual({process,final:[]});
+    expect(splitActivityReply({...block,items:[item('legacy','agentMessage')]}).final).toHaveLength(1);
+    expect(splitActivityReply({...block,items:[item('commentary','agentMessage',{phase:'commentary'})]}).final).toHaveLength(0);
+  });
+  it('retains long-turn activities through successive windows, then restores every split history page', () => {
+    const records = [item('start','subAgentActivity'), item('image','imageView'), item('compact','contextCompaction'), item('edit','fileChange'),
+      ...Array.from({length:180}, (_, i) => item(`command-${i}`, 'commandExecution'))];
+    const turn = (items: RemoteItem[], before: boolean, after = false): HistoryTurn => ({id:'turn',status:'inProgress',items,truncated:before||after,itemsTruncatedBefore:before,itemsTruncatedAfter:after});
+    let seen = turn(records.slice(0,20),false);
+    for (let i=20;i<records.length;i+=20) seen = mergeLiveTurn(seen, turn(records.slice(i,i+20),true),true);
+    expect(seen.items.map(item=>item.id)).toEqual(records.map(item=>item.id));
+    let restored = turn(records.slice(-80),true);
+    restored = mergeLiveTurn(restored,turn(records.slice(24,104),true,true),true);
+    restored = mergeLiveTurn(restored,turn(records.slice(0,24),false,true),true);
+    expect(restored.items.map(item=>item.id)).toEqual(records.map(item=>item.id));
+    expect(restored).toMatchObject({itemsTruncatedBefore:false,itemsTruncatedAfter:false,truncated:false});
+    const sections = activitySections({kind:'activity',id:'work',state:'completed',items:restored.items});
+    expect(sections.slice(0,4).map(section=>section.kind)).toEqual(['collaboration','images','compaction','files']);
+  });
+
+  it('carries per-edit line counts without forwarding private tool arguments', () => {
+    const turn = normalizeHistoryTurn({id:'turn',items:[{id:'edit',type:'fileChange',status:'completed',changes:[
+      {path:'test.ts',kind:{type:'update'},diff:'--- a\n+++ b\n@@ -1 +1,2 @@\n-old\n+new\n+next\n'},
+      {path:'new.txt',kind:'add',diff:'first\nsecond\n'},
+    ],arguments:{secret:'private'}}]});
+    expect(historyTurnSchema.parse(turn).items[0]!.fileOperations).toEqual([
+      {path:'test.ts',kind:'update',additions:2,deletions:1}, {path:'new.txt',kind:'add',additions:2,deletions:0},
+    ]);
+    expect(JSON.stringify(turn)).not.toContain('private');
+  });
   it.each(['started', 'interacted', 'interrupted', 'completed'] as const)('preserves the public %s event through live and history transport', kind => {
     const raw = {id: 'turn', status: 'inProgress', items: [{id:'event', type:'subAgentActivity', kind, agentThreadId:'child', agentPath:'/root/Linnaeus', arguments:{secret:'never forward'}}]};
     const live = threadSchema.parse(normalizeThread({id:'parent', threadRuntimeStatus:{type:'active'}, turns:[raw]}, 1));

@@ -49,6 +49,7 @@ it.skipIf(!existsSync(native))('transfers an unpushed project through the real R
     };
     await runWorker(source, await get());
     let job = await get(); expect(job.state).toBe('ready'); expect(job.excludedSamples).toContain('.env');
+    expect(job.preparation?.phase).toBe('checksumming');
     expect(existsSync(join(parent, 'received'))).toBe(false);
     await app.inject({method: 'POST', url: `/v1/project-transfers/${create.id}/start`, headers: account.headers, payload: {}});
     await runWorker(source, await get()); job = await get(); expect(job.state).toBe('downloading');

@@ -1,7 +1,7 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Easing, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { Bot, Check, ChevronDown, ChevronRight, ChevronUp, Copy, Pencil, Sparkles, SquareTerminal, Globe, MessageCircle, Image, Clock, Search, Layers, Wrench } from 'lucide-react-native';
-import { activityLabel, activitySections, buildActivityBlocks, executionItemIcon, executionItemSummary, executionSectionItem, executionSectionSummary, formatDuration, itemDuration, messageRole } from '../../../packages/client-shared/src/activity';
+import { activityLabel, activitySections, buildActivityBlocks, completedActivityLabel, splitActivityReply, executionItemIcon, executionItemSummary, executionSectionItem, executionSectionSummary, formatDuration, itemDuration, messageRole } from '../../../packages/client-shared/src/activity';
 import type { ExecutionSection } from '../../../packages/client-shared/src/activity';
 import type { HistoryTurn, RemoteItem, RemoteSubAgent } from '../../../packages/protocol/src/index';
 import { userPresentation } from '../../../packages/protocol/src/user-presentation';
@@ -22,7 +22,7 @@ import { TaskStatusDot } from './task-status-dot';
 import { useInteractionMotion } from './interaction/motion';
 import { PlanCard, ExecutionPlan } from './plan-review';
 import {Disclosure} from './interaction/disclosure';
-import {AgentActivityRecord, ImageActivityRecord} from './activity-records';
+import {AgentActivityRecord, CompactionActivityRecord, FileActivityRecord, ImageActivityRecord} from './activity-records';
 
 type ImageSource = { uri: string; headers?: Record<string, string> };
 type ImageViewer = (source: ImageSource, name: string) => void;
@@ -96,24 +96,44 @@ type ActivityBlock = Extract<ReturnType<typeof buildActivityBlocks>[number], { k
 function Activity({ block, turn, deviceId, threadId, onImage, questionRequestIds, steps, agents }: { block: ActivityBlock; turn: HistoryTurn; deviceId: string; threadId: string; onImage: ImageViewer; questionRequestIds: string[]; steps?: {step:string;status:string}[]; agents?: RemoteSubAgent[] }) {
   const { c, s } = useTheme();
   const [now, setNow] = useState(Date.now());
+  const ended = ['completed', 'interrupted', 'failed'].includes(block.state);
+  const [open, setOpen] = useState(!ended);
+  const previousState = useRef(block.state);
+  const completed = block.state === 'completed';
+  useEffect(() => {
+    if (block.state !== previousState.current) {
+      if (block.state === 'running') setOpen(true);
+      if (['completed', 'interrupted', 'failed'].includes(block.state)) setOpen(false);
+      previousState.current = block.state;
+    }
+  }, [block.state]);
   useEffect(() => { if (block.state !== 'running') return; const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, [block.state]);
-  return <View style={s.activity}>
-    <View>
-      <TurnTiming turn={turn} running={block.state === 'running'} />
-      <View style={s.activityHead}>{block.state === 'running' ? <ActivityIndicator testID="processing-spinner" size="small" color={c.muted} accessibilityLabel="正在处理" /> : <View testID="activity-ended-check" accessible accessibilityLabel="任务已结束" style={{ width: 16, height: 16, alignItems: 'center', justifyContent: 'center' }}><Check size={16} strokeWidth={2.5} color={c.success} /></View>}<Text style={s.activityText}>{activityLabel(block, now)}</Text></View>
-    </View>
-    <View style={s.line} />
+  const {process, final} = splitActivityReply(block);
+  const ToggleIcon = open ? ChevronDown : ChevronRight;
+  const contents = <View style={{gap:8}}>
+    <TurnTiming turn={turn} running={block.state === 'running'} />
     {!!steps?.length && <ExecutionPlan steps={steps} />}
-    {activitySections(block).map(section => {
+    {activitySections({...block, items:process}).map(section => {
       if (section.kind === 'execution') return <ExecutionGroup key={section.id} section={section} deviceId={deviceId} threadId={threadId} onImage={onImage} />;
       if (section.kind === 'collaboration') return <AgentActivityRecord key={section.item.id} item={section.item} running={section.running} agents={agents} />;
       if (section.kind === 'images') return <ImageActivityRecord key={section.id} section={section} deviceId={deviceId} threadId={threadId} onImage={onImage} />;
+      if (section.kind === 'files') return <FileActivityRecord key={section.item.id} item={section.item} running={section.running} turn={turn} deviceId={deviceId} threadId={threadId}/>;
+      if (section.kind === 'compaction') return <CompactionActivityRecord key={section.item.id} item={section.item}/>;
       const item = section.item;
       if (item.type === 'plan') return <PlanCard key={item.id} item={item} turnId={turn.id} turnStatus={turn.status} deviceId={deviceId} threadId={threadId} />;
       if (item.questionRequestId && questionRequestIds.includes(item.questionRequestId)) return null;
       if (messageRole(item) === 'assistant' && item.phase !== 'final_answer') return <View key={item.id} style={s.commentary}><Markdown>{item.text ?? ''}</Markdown></View>;
       return <Message key={item.id} item={item} deviceId={deviceId} threadId={threadId} onImage={onImage} />;
     })}
+    {completed && !!turn.fileChanges?.length && <FileChangesPanel changes={turn.fileChanges} compact={false} deviceId={deviceId} threadId={threadId} turnId={turn.id}/>}
+  </View>;
+  return <View style={s.activity}>
+    {ended ? <Pressable testID={`work-disclosure-${turn.id}`} accessibilityRole="button" accessibilityLabel={`${completedActivityLabel(block)}，${open ? '收起' : '展开'}思考过程`} accessibilityState={{expanded:open}} aria-expanded={open} onPress={() => setOpen(value=>!value)} style={{flexDirection:'row',alignItems:'center',gap:4,minHeight:28}}><Text style={{color:c.muted,fontSize:12}}>{completedActivityLabel(block)}</Text><ToggleIcon size={13} color={c.muted}/></Pressable> : <View>
+      <View style={s.activityHead}>{block.state === 'running' ? <ActivityIndicator testID="processing-spinner" size="small" color={c.muted} accessibilityLabel="正在处理" /> : <View testID="activity-ended-check" accessible accessibilityLabel="任务已结束" style={{ width: 16, height: 16, alignItems: 'center', justifyContent: 'center' }}><Check size={16} strokeWidth={2.5} color={c.success} /></View>}<Text style={s.activityText}>{activityLabel(block, now)}</Text></View>
+    </View>}
+    <View style={s.line} />
+    {ended ? <Disclosure open={open}>{contents}</Disclosure> : contents}
+    {final.map(item=><Message key={item.id} item={item} deviceId={deviceId} threadId={threadId} onImage={onImage}/>)}
   </View>;
 }
 
@@ -126,7 +146,6 @@ export const TurnView = memo(function TurnView({ turn, active, deviceId, threadI
   const cost = turnCostLabel(turn.tokenUsage);
   return <View style={s.turn}>
     {buildActivityBlocks(turn, active).map(block => block.kind === 'message' ? <Message key={block.item.id} item={block.item} deviceId={deviceId} threadId={threadId} onImage={onImage} /> : <Activity key={block.id} block={block} turn={turn} deviceId={deviceId} threadId={threadId} onImage={onImage} questionRequestIds={questionRequestIds} steps={steps} agents={agents} />)}
-    {!active && !!turn.fileChanges?.length && <FileChangesPanel changes={turn.fileChanges} compact={false} deviceId={deviceId} threadId={threadId} turnId={turn.id} />}
     {(turn.tokenUsage || running || end) && <View style={s.turnFooter}>
       {(turn.tokenUsage || running) && <View testID="turn-token-usage" style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
         {running && <TaskStatusDot running label="任务进行中" />}

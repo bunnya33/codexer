@@ -1,9 +1,19 @@
 import type { ProjectTransfer } from '../../protocol/src/project-transfers';
 export const projectTransferLabels: Record<ProjectTransfer['state'], string> = {
-  preparing: '等待源设备空闲并生成快照', ready: '快照已就绪，等待确认发送', uploading: '正在发送到服务器',
+  preparing: '等待发送端报告进度', ready: '快照已就绪，等待确认发送', uploading: '正在发送到服务器',
   downloading: '目标设备正在接收', installing: '正在校验并保存项目', received: '项目已保存，正在登记项目列表',
   completed: '项目已接收', failed: '传输失败', cancelled: '已取消',
 };
+export function transferPreparationLabel(job: ProjectTransfer): string {
+  const prep = job.preparation;
+  if (!prep) return projectTransferLabels.preparing;
+  if (prep.phase === 'waiting') return prep.reason === 'runtime-refresh' ? '等待发送端运行时刷新完成' : prep.reason === 'agent-busy' ? '等待发送端处理前一项传输' : '等待源项目空闲';
+  return {scanning: '正在扫描项目文件', packing: '正在生成项目快照', verifying: '正在复核源文件', checksumming: '正在校验快照'}[prep.phase];
+}
+export function transferElapsed(milliseconds: number): string {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
+  return seconds < 60 ? `${seconds} 秒` : seconds < 3600 ? `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒` : `${Math.floor(seconds / 3600)} 小时 ${Math.floor(seconds / 60) % 60} 分`;
+}
 export function projectTransferError(code: string): string {
   const errors: Record<string, string> = {
     'project-transfer-update-required': '请更新两台电脑的 Codexer Agent 后再发送项目。',

@@ -521,7 +521,7 @@ static Object normalizeItem(
   for (const auto &name : presentedFiles)
     files.append(name.left(1000));
   for (const auto &v : fileEntries(item)) {
-    auto change = v.toObject();
+    const auto change = v.toObject();
     auto path = text(change["path"], 1000);
     if (path.isEmpty() || files.size() >= 40)
       continue;
@@ -530,11 +530,29 @@ static Object normalizeItem(
                     ? change["kind"].toString()
                     : change["kind"].toObject()["type"].toString(
                           change["type"].toString());
-    operations.append(
-        Object{{"path", path},
+    auto diff = change["diff"].toString(change["unifiedDiff"].toString(change["unified_diff"].toString(change["content"].toString())));
+    int additions = 0, deletions = 0;
+    if (kind == "add" || kind == "delete") {
+      auto lines = diff.split('\n'); if (!lines.isEmpty() && lines.last().isEmpty()) lines.removeLast();
+      if (kind == "add") additions = lines.size(); else deletions = lines.size();
+    } else {
+      bool hunk = false;
+      for (const auto &line : diff.split('\n')) {
+        if (line.startsWith("@@ ")) {hunk = true; continue;}
+        if (line.startsWith("diff --git ")) {hunk = false; continue;}
+        if (!hunk && (line.startsWith("+++ ") || line.startsWith("--- "))) continue;
+        if (line.startsWith('+')) ++additions;
+        if (line.startsWith('-')) ++deletions;
+      }
+    }
+    Object operation{{"path", path},
                {"kind", QStringList{"add", "update", "delete"}.contains(kind)
                             ? kind
-                            : "unknown"}});
+                            : "unknown"}};
+    if (change["diff"].isString() || change["unifiedDiff"].isString() || change["unified_diff"].isString() || change["content"].isString()) {
+      operation["additions"] = additions; operation["deletions"] = deletions;
+    }
+    operations.append(operation);
   }
   if (!files.isEmpty())
     out["files"] = files;
@@ -640,7 +658,7 @@ Object normalizeTurn(
       auto old = changes[path].toObject();
       auto diff = c["diff"].toString(c["unifiedDiff"].toString(
           c["unified_diff"].toString(c["content"].toString())));
-      auto kind = c["kind"].toObject()["type"].toString(c["type"].toString());
+      auto kind = c["kind"].isString() ? c["kind"].toString() : c["kind"].toObject()["type"].toString(c["type"].toString());
       if (kind == "add" || kind == "delete") {
         auto lines = diff.split('\n');
         if (!lines.isEmpty() && lines.last().isEmpty())

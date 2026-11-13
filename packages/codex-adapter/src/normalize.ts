@@ -121,6 +121,22 @@ export function desktopTurns(state: RecordValue): RecordValue[] {
 function itemFileEntries(item: RecordValue): RecordValue[] {
   return Array.isArray(item.changes) ? item.changes.map(record) : Object.entries(record(item.changes)).map(([path, change]) => ({ ...record(change), path }));
 }
+function changeCounts(change: RecordValue) {
+  const source = [change.diff, change.unifiedDiff, change.unified_diff, change.content].find((value): value is string => typeof value === 'string');
+  if (source === undefined) return {};
+  const kind = typeof change.kind === 'string' ? change.kind : record(change.kind).type ?? change.type;
+  const lines = source ? source.replace(/\n$/, '').split('\n') : [];
+  if (kind === 'add' || kind === 'delete') return {additions: kind === 'add' ? lines.length : 0, deletions: kind === 'delete' ? lines.length : 0};
+  let additions = 0, deletions = 0, hunk = false;
+  for (const line of lines) {
+    if (line.startsWith('@@ ')) {hunk = true; continue;}
+    if (line.startsWith('diff --git ')) {hunk = false; continue;}
+    if (!hunk && (line.startsWith('+++ ') || line.startsWith('--- '))) continue;
+    if (line.startsWith('+')) additions++;
+    if (line.startsWith('-')) deletions++;
+  }
+  return {additions, deletions};
+}
 function normalizeItem(value: unknown, turn: RecordValue, textLimit = 4096, outputLimit = 8192, images?: ImageRegistry, threadId = ""): RemoteItem {
   const item = record(value);
   const parts = array(item.content ?? item.input).map(record);
@@ -136,7 +152,7 @@ function normalizeItem(value: unknown, turn: RecordValue, textLimit = 4096, outp
   const files = [...paths, ...presentation.files.filter(file => !imageRefs.some(ref => ref.name === file))].slice(0, 40).map(path => path.slice(0, 1000));
   const fileOperations: NonNullable<RemoteItem['fileOperations']> = item.type === 'fileChange' ? itemFileEntries(item).filter(change => typeof change.path === 'string' && change.path).slice(0, 40).map(change => {
     const kind = typeof change.kind === 'string' ? change.kind : record(change.kind).type ?? change.type;
-    return { path: text(change.path, 1000), kind: kind === 'add' || kind === 'update' || kind === 'delete' ? kind : 'unknown' };
+    return { path: text(change.path, 1000), kind: kind === 'add' || kind === 'update' || kind === 'delete' ? kind : 'unknown', ...changeCounts(change) };
   }) : [];
   const timing = record(record(turn.itemTimingsById)[String(item.id)] ?? record(turn.itemTimingsById)[String(item.originalItemId)]);
   const startedAtMs = milliseconds(timing.startedAtMs) ?? milliseconds(item.startedAtMs)
@@ -187,7 +203,7 @@ function fileChanges(items: unknown[]): HistoryTurn["fileChanges"] {
       const path = text(change.path, 1000);
       if (!path || !changes.has(path) && changes.size >= 40) continue;
       const source = [change.diff, change.unifiedDiff, change.unified_diff, change.content].find((value): value is string => typeof value === "string") ?? "";
-      const kind = record(change.kind).type ?? change.type;
+      const kind = typeof change.kind === 'string' ? change.kind : record(change.kind).type ?? change.type;
       const contentLines = source ? source.replace(/\n$/, "").split("\n") : [];
       // Official add/delete changes carry file content rather than a unified diff.
       const diff = kind === "add" || kind === "delete" ? contentLines.map(line => `${kind === "add" ? "+" : "-"}${line}`).join("\n") : source;

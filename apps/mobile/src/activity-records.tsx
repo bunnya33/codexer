@@ -1,9 +1,10 @@
 import {useEffect, useRef, useState} from 'react';
 import {Animated, Easing, Platform, Pressable, StyleSheet, Text, View} from 'react-native';
-import {Bot, ChevronRight, Images} from 'lucide-react-native';
+import {Bot, ChevronRight, Images, Layers, Pencil} from 'lucide-react-native';
 import {collaborationSummary, executionItemActive, imageActivitySummary} from '../../../packages/client-shared/src/activity';
 import type {ImageActivitySection} from '../../../packages/client-shared/src/activity';
-import type {RemoteItem, RemoteSubAgent} from '../../../packages/protocol/src/index';
+import type {HistoryTurn, RemoteItem, RemoteSubAgent} from '../../../packages/protocol/src/index';
+import {FileChangesPanel} from './file-review';
 import {useTheme} from './styles';
 import {relay} from './relay';
 import {RelayImage} from './relay-image';
@@ -22,6 +23,30 @@ export function AgentActivityRecord({item, running, agents = []}: {item: RemoteI
     {!waiting && (event ? <View testID="agent-activity-avatar" style={styles.avatar}><Bot size={11} color="#10a37f" /></View> : <Bot size={14} color={c.muted} />)}
     {active ? <ShimmerLabel text={label} /> : <Text selectable style={[styles.label, {color: item.status === 'failed' ? c.danger : c.muted}]}>{label}</Text>}
   </View>;
+}
+
+export function CompactionActivityRecord({item}: {item: RemoteItem}) {
+  const {c} = useTheme();
+  const label = ['running', 'inProgress'].includes(item.status ?? '') ? '正在压缩上下文' : item.status === 'failed' ? '上下文压缩失败' : '已压缩上下文';
+  return <View testID={`compaction-activity-${item.id}`} style={styles.row}><Layers size={14} color={c.muted}/><Text style={[styles.label, {color: c.muted}]}>{label}</Text></View>;
+}
+
+export function FileActivityRecord({item, running, turn, deviceId, threadId}: {item: RemoteItem; running: boolean; turn: HistoryTurn; deviceId: string; threadId: string}) {
+  const {c} = useTheme();
+  const operations = item.fileOperations?.length ? item.fileOperations : (item.files ?? []).map(path => ({path, kind: 'unknown' as const}));
+  const active = executionItemActive(item, running);
+  const prefix = item.status === 'failed' ? '编辑失败' : item.status === 'declined' ? '已拒绝编辑' : ['interrupted', 'cancelled'].includes(item.status ?? '') ? '已停止编辑' : active ? '正在' : '已';
+  const row = (operation: NonNullable<RemoteItem['fileOperations']>[number], openFile?: (path: string) => void) => {
+    const verb = {add:'创建', update:'编辑', delete:'删除', unknown:'修改'}[operation.kind];
+    const label = prefix === '已' || prefix === '正在' ? prefix + verb : prefix;
+    const name = operation.path.split(/[\\/]/).at(-1) || operation.path;
+    const body = <><Pencil size={14} color={c.muted}/><Text style={[styles.label, {color: c.muted}]}>{label} <Text style={openFile ? {textDecorationLine:'underline'} : undefined}>{name}</Text></Text>{operation.additions !== undefined && <Text style={[styles.label, {color:c.muted}]}>+{operation.additions} -{operation.deletions ?? 0}</Text>}</>;
+    return openFile ? <Pressable accessibilityRole="button" accessibilityLabel={`${label} ${operation.path}，查看差异`} onPress={() => openFile(operation.path)} style={styles.row}>{body}</Pressable> : <View style={styles.row}>{body}</View>;
+  };
+  return <View testID={`file-activity-${item.id}`} style={{gap:2}}>{operations.map(operation => {
+    const changes = (turn.fileChanges ?? []).filter(change => change.path === operation.path);
+    return changes.length ? <FileChangesPanel key={operation.path} changes={changes} deviceId={deviceId} threadId={threadId} turnId={turn.id} renderTrigger={openFile => row(operation, openFile)}/> : <View key={operation.path}>{row(operation)}</View>;
+  })}{!operations.length && <View style={styles.row}><Pencil size={14} color={c.muted}/><Text style={[styles.label, {color:c.muted}]}>{active ? '正在修改文件' : '文件修改记录'}</Text></View>}</View>;
 }
 
 export function ImageActivityRecord({section, deviceId, threadId, onImage}: {
