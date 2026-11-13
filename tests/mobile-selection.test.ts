@@ -997,6 +997,35 @@ it('opens a compact title menu and performs rename/archive on the current chat w
   } finally { test.close(); }
 });
 
+it('keeps the options icon visible and dismisses its menu from outside without choosing an action', async () => {
+  const test = await fixture();
+  const doc = test.dom.window.document;
+  try {
+    await vi.waitFor(() => expect(test.header()).toContain('recent-pc-a'));
+    const trigger = () => doc.querySelector('[data-testid="conversation-header"] [aria-label="会话选项"]')!;
+    await test.click('会话选项');
+    await vi.waitFor(() => expect(doc.querySelector('[data-testid="conversation-options-menu"]')).not.toBeNull());
+    expect(trigger().getAttribute('aria-expanded')).toBe('true');
+    expect(Number(test.dom.window.getComputedStyle(trigger().querySelector('svg')!).opacity || 1)).toBe(1);
+    const outside = doc.querySelector('[aria-label="关闭面板"]')!;
+    // The dismissal target must remain hit-testable on iOS when the menu backdrop is transparent.
+    await vi.waitFor(() => {
+      for (let node: Element | null = outside; node; node = node.parentElement) {
+        const opacity = test.dom.window.getComputedStyle(node).opacity;
+        expect(opacity === '' || Number(opacity) > 0, node.outerHTML.slice(0, 250)).toBe(true);
+      }
+    });
+    await test.closeDialog('关闭面板');
+    await vi.waitFor(() => expect(doc.querySelector('[data-testid="conversation-options-menu"]')).toBeNull());
+    expect(test.commands).toEqual([]);
+    expect(trigger().getAttribute('aria-expanded')).toBe('false');
+    await test.click('会话选项');
+    await vi.waitFor(() => expect(doc.querySelector('[data-testid="conversation-options-menu"]')).not.toBeNull());
+    await test.closeDialog('关闭面板');
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
 it('keeps sub-agents at the header and puts deletion below archive with an explicit permanent-delete confirmation', async () => {
   const test = await fixture({ controls: { active: false, text: '', images: [] }, subAgents: [{ threadId: 'child-1', parentThreadId: 'recent-pc-a', name: '排版检查', task: '核对移动端布局', status: 'running', statusSource: 'thread' }] });
   const doc = test.dom.window.document;

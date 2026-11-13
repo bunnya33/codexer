@@ -29,7 +29,8 @@ export function Disclosure({ open, children }: { open: boolean; children: ReactN
       importantForAccessibility={open ? "auto" : "no-hide-descendants"}
       style={{ height, overflow: "hidden" }}
     >
-      <View onLayout={(e) => setMeasured(Math.ceil(e.nativeEvent.layout.height))}>{children}</View>
+      {/* Measure at the available width without the animated viewport's height constraint. */}
+      <View style={{ position: "absolute", top: 0, left: 0, right: 0 }} onLayout={(e) => setMeasured(Math.ceil(e.nativeEvent.layout.height))}>{children}</View>
     </Animated.View>
   );
 }

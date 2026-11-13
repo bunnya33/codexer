@@ -215,12 +215,13 @@ export function ConversationHeader({
           accessibilityRole="button"
           accessibilityLabel={`会话选项${notifying ? "，微信通知已开启" : ""}`}
           accessibilityState={{ expanded: panelOpen && panel === 'options', disabled: !threadId }}
+          aria-expanded={panelOpen && panel === 'options'}
           disabled={!threadId}
           onPress={() => openPanel("options")}
           style={({ pressed }) => [s.iconButton, pressed && s.pressed, !threadId && s.disabled]}
         >
-          <MoreHorizontal size={21} color={c.text} style={{ opacity: panelOpen && panel === 'options' ? .15 : 1 }} />
-          {notifying && <View style={[hs.notifyDot, panelOpen && panel === 'options' && { opacity: .15 }]} />}
+          <MoreHorizontal size={21} color={c.text} />
+          {notifying && <View style={hs.notifyDot} />}
         </Pressable>
       </View>
       <Modal

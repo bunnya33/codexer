@@ -95,9 +95,9 @@ export function InteractionSurface({ open, onClose, onBack, onClosed, title, kin
   const finalReaderHeight = desktopReader ? bounds.height - 48 : bounds.height * .96;
   const readerTop = desktopReader ? 24 : bounds.height * .04;
   return <View style={StyleSheet.absoluteFill} pointerEvents={open ? 'auto' : 'none'} accessibilityViewIsModal onAccessibilityEscape={back}>
-    <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: c.overlay, opacity: Animated.multiply(progress, sheet || drawer ? 1 : menu ? 0 : 0.18) }]}>
-      <Pressable style={StyleSheet.absoluteFill} accessibilityRole="button" accessibilityLabel="关闭面板" onPress={close} />
-    </Animated.View>
+    <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: c.overlay, opacity: Animated.multiply(progress, sheet || drawer ? 1 : menu ? 0 : 0.18) }]} />
+    {/* iOS skips hit testing descendants of a fully transparent view. */}
+    <Pressable style={StyleSheet.absoluteFill} accessibilityRole="button" accessibilityLabel="关闭面板" onPress={close} />
     <Animated.View ref={panel} testID="interaction-surface" accessibilityLabel={title} onLayout={event => setPanelHeight(event.nativeEvent.layout.height)}
       style={[styles.panel, variant === 'settings' && { height: bounds.height * .52, overflow: 'visible' }, variant === 'menu' && { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, overflow: 'visible' }, { backgroundColor: morph?c.bg:variant === 'settings' ? c.sidebar : variant === 'permissions' ? c.surface : c.glass, borderColor: c.glassBorder,
         // RN Web compiles each shadow object to one box-shadow declaration.
