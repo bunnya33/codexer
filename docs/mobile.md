@@ -77,6 +77,8 @@ Android `0.1.7`（versionCode 8）将应用图标替换为兔子图案，包含�
 
 Android `0.1.8`（versionCode 9）打入最新共享会话界面，结束时间在任务完成后固定显示于 Token 下方并靠左，开始时间不再点击切换。包名、图标与发布签名延续 `0.1.7`，可覆盖安装；APK 位于 `release/android-0.1.8/Codexer-Control-0.1.8.apk`。已验证独立 Android 15 模拟器覆盖安装和冷启动，未验收真实手机或登录后的远程任务。每轮 Token 的后台采集修复需配合 PC Agent `0.2.22`。
 
+Android `0.1.20`（versionCode 21）包含完整活动历史、结束后自动折叠及文件分组：运行中不显示整轮收起按钮，结束后保留最初请求与最终答复，展开恢复过程顺序；创建／编辑／删除显示在连续执行栏内，图像查看、智能体活动与上下文压缩保留各自展示规则。Android 直接使用 `apps/mobile/src/conversation.tsx`、`activity-records.tsx` 与共享活动逻辑，不需要另行移植。也包含项目发送／接收及准备进度界面，配合服务器 `0.3.62`、Qt Agent `0.2.38` 使用。APK 位于 `release/android-0.1.20/Codexer-Control-0.1.20.apk`，沿用原应用 ID 和发布证书；构建、验包和安装验证范围见 [验证记录](validation.md)。
+
 ## 网络和平台范围
 
 当前 App 配置允许用户指定 HTTP 地址以兼容内网部署；公网使用 HTTPS。Web 登录会话使用站点 localStorage（自动迁移旧 sessionStorage），原生使用 SecureStore。前台续期、离开前台停止周期续期，回到前台重新检查登录并重连。有效时长由管理员在后台设置，网络错误保留登录并重试。图片上传/查看、历史分页、队列/引导/停止、模型修改、审批、账号改密失效及系统后台/前台切换均需按 [验证范围](validation.md) 做真实 iOS/Android 设备验收。Windows 开发机上的 JS 导出不代替手势、系统后台和安装包测试。
