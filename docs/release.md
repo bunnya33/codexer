@@ -6,7 +6,7 @@
 
 桌面原生预览改用小型可信外壳和分块 HTML 载入，保留沙盒、交互反馈与取消，避免单次原生桥及 WebView2 载入大小限制。Agent 文件协议无需为预览设置变更；Windows Agent 本轮按最新源码 0.2.39 重新原生构建，包含之前的文件读取调度提速，本机由 0.2.38 覆盖升级。
 
-服务器正式包通过 tag 发布流程生成；本次只发布服务器更新包，生产安装由管理员在后台执行。Windows Agent 安装包和便携包、本机覆盖安装及身份保留的实际结果见[验证记录](validation.md)。
+正式稳定版 [v0.3.65](https://github.com/bunnya33/codexer/releases/tag/v0.3.65) 已发布，源码 `b886df5`，[发布流程](https://github.com/bunnya33/codexer/actions/runs/43650847521)全部成功，四个平台更新包及同名 SHA-256 共 8 个附件齐全。Linux amd64 正式包已下载并核对摘要、manifest、架构、归档边界和执行权限，产物及回执在 `release/server-0.3.65/`。本次发布更新包，生产安装由管理员在后台执行。Windows Agent 安装包和便携包、本机覆盖安装及身份保留的实际结果见[验证记录](validation.md)。
 
 Android 原发布密钥和密码的稳定保存位置、证书指纹及自动读取打包入口见 [Android 发布签名](android-signing.md)。后续 AI 打包先查该文档；不要重新生成签名。
 
