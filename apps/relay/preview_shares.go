@@ -180,7 +180,7 @@ func (s *Server) checkShareSource(r *http.Request, p *Principal, kind, source, o
 		if kind == "audio" && audioMIME(str(info["name"])) == "" {
 			fail(400, "unsupported-audio")
 		}
-		if kind == "html" && num(info["size"]) > 2*1024*1024 {
+		if kind == "html" && num(info["size"]) > s.previewMaxBytes() {
 			fail(413, "preview-html-too-large")
 		}
 		return
@@ -387,7 +387,7 @@ func (s *Server) sharedHTML(w http.ResponseWriter, r *http.Request, p *Preview) 
 	r.SetPathValue("threadId", p.Thread)
 	info := s.requestTransfer(r, p.Principal, "file", M{"path": p.FilePath})
 	size := num(info["size"])
-	if size > 2*1024*1024 {
+	if size > s.previewMaxBytes() {
 		fail(413, "preview-html-too-large")
 	}
 	content := make([]byte, 0, size)

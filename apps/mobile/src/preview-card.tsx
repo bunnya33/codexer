@@ -4,7 +4,8 @@ import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, Te
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Crosshair, Maximize2, MessageSquare, Minimize2, RefreshCw, Share2, SlidersHorizontal, X } from 'lucide-react-native';
 import { buildPreviewDocument } from '../../../packages/client-shared/src/preview-runtime';
-import { MAX_PREVIEW_HTML_BYTES, previewControls, previewFeedback, restoredControlValue, widgetState } from '../../../packages/client-shared/src/previews';
+import { previewControls, previewFeedback, restoredControlValue, widgetState } from '../../../packages/client-shared/src/previews';
+import { filePreviewLimit, filePreviewLimitMessage } from '../../../packages/client-shared/src/file-preview';
 import type { PreviewReference, TweakControl, WidgetState } from '../../../packages/client-shared/src/previews';
 import { previewFile, fileError } from './file-transfer';
 import { relay } from './relay';
@@ -59,7 +60,7 @@ export function PreviewCard({ reference, deviceId, threadId }: { reference: Prev
         state.current = widgetState(saved?.state); tweaks.current = saved?.tweaks ?? {};
         if (reference.kind === 'html') {
           const info = await relay.fileInfo(deviceId, threadId, reference.source, abort.signal);
-          if (info.size > MAX_PREVIEW_HTML_BYTES) throw new Error('预览超过 2 MB，请精简内容后重试');
+          if (info.size > filePreviewLimit(info)) throw new Error(filePreviewLimitMessage(info));
           const html = await previewFile(relay.fileSource(deviceId, threadId, reference.source, info.version), info, abort.signal);
           if (!abort.signal.aborted) setDocument(buildPreviewDocument(html, nextChannel, state.current));
         } else {

@@ -5,7 +5,7 @@ import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, Vi
 import { ChevronLeft, ChevronRight, Copy, Download, FileCode2, Folder, Search } from 'lucide-react-native';
 import type { HistoryTurn } from '../../../packages/protocol/src/index';
 import type { FileInfo } from '../../../packages/protocol/src/files';
-import { MAX_FILE_PREVIEW_BYTES } from '../../../packages/protocol/src/files';
+import { filePreviewLimit, filePreviewLimitMessage } from '../../../packages/client-shared/src/file-preview';
 import { useTheme } from './styles';
 import { ReviewReader } from './review-reader';
 import { ChromeButton } from './interaction/primitives';
@@ -46,7 +46,7 @@ export function FileChangesPanel({ changes, compact = true, deviceId = '', threa
       try {
         const info = await relay.fileInfo(deviceId, threadId, selected.path, controller.signal);
         if (controller.signal.aborted) return;
-        if (info.size > MAX_FILE_PREVIEW_BYTES) { setSource({ path: selected.path, info, phase: 'download', error: '文件超过 2 MiB 预览上限，请下载原文件查看。' }); return; }
+        if (info.size > filePreviewLimit(info)) { setSource({ path: selected.path, info, phase: 'download', error: filePreviewLimitMessage(info) }); return; }
         try {
           const text = await previewFile(relay.fileSource(deviceId, threadId, selected.path, info.version), info, controller.signal, false);
           if (!controller.signal.aborted) setSource({ path: selected.path, info, text, phase: 'ready' });

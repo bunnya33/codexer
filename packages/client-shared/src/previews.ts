@@ -3,7 +3,6 @@ import { z } from 'zod';
 
 export type PreviewReference = { kind: 'html' | 'server'; source: string; title: string; wide?: boolean };
 export type PreviewPart = { kind: 'text'; text: string } | { kind: 'preview'; preview: PreviewReference };
-export const MAX_PREVIEW_HTML_BYTES = 2 * 1024 * 1024;
 
 /** Only explicit loopback hosts; DNS aliases, credentials and LAN addresses are excluded. */
 export function localPreviewUrl(value: string): string | null {

@@ -1,5 +1,4 @@
-import { MAX_FILE_PREVIEW_BYTES } from "../../../packages/protocol/src/files";
-import type { FileInfo } from "../../../packages/protocol/src/files";
+import { filePreviewLimit, filePreviewLimitMessage, type PreviewFileInfo } from "../../../packages/client-shared/src/file-preview";
 import { readableFileText } from "../../../packages/client-shared/src/file-links";
 
 export type FileSource = { uri: string; headers: Record<string, string> };
@@ -38,7 +37,8 @@ export function fileError(error: unknown): string {
     'preview-shares-busy': '分享数量已达上限',
     'preview-share-disabled': '分享已停用、到期或链接已更新',
     'invalid-preview-share-duration': '有效期需为 1 分钟至 365 天的整数时长',
-    'preview-html-too-large': 'HTML 页面超过 2 MB，暂时无法分享',
+    'preview-html-too-large': 'HTML 页面超过服务器的预览上限，暂时无法分享',
+    'file-preview-too-large': '文件超过服务器当前的预览上限，请重新打开或下载原文件查看',
     'invalid-preview-source': '这个页面暂不支持分享',
     'agent-release-unavailable': '安装包尚未上传或已更新，请刷新后重试',
     unauthorized: "登录已过期，请重新登录",
@@ -62,12 +62,13 @@ export async function fileResponse(source: FileSource, signal: AbortSignal): Pro
 
 export async function previewFile(
   source: FileSource,
-  info: FileInfo,
+  info: PreviewFileInfo,
   signal: AbortSignal,
   formatJson = true,
 ): Promise<string> {
-  if (info.size > MAX_FILE_PREVIEW_BYTES) throw new Error("文件较大，请下载后查看");
-  const response = await fileResponse(source, signal);
+  if (info.size > filePreviewLimit(info)) throw new Error(filePreviewLimitMessage(info));
+  const uri = new URL(source.uri); uri.searchParams.set('preview', '1');
+  const response = await fileResponse({...source, uri: uri.toString()}, signal);
   const bytes = new Uint8Array(await response.arrayBuffer());
   if (signal.aborted) throw new Error("file-cancelled");
   if (bytes.length !== info.size) throw new Error("invalid-file-response");

@@ -144,7 +144,11 @@ func (s *Server) projectFileRoutes() {
 	base := "/v1/devices/{deviceId}/projects/{projectId}/files"
 	s.route("POST "+base, "user", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
 		w.Header().Set("Cache-Control", "no-store")
-		return s.requestProject(r, p, body(r))
+		result := s.requestProject(r, p, body(r))
+		if result["file"] != nil {
+			result["file"] = s.previewFileInfo(obj(result["file"]))
+		}
+		return result
 	})
 	s.route("GET "+base+"/content", "user", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
 		root, err := strconv.Atoi(r.URL.Query().Get("rootIndex"))
@@ -156,6 +160,7 @@ func (s *Server) projectFileRoutes() {
 		s.addPending(lease, 4, 2)
 		defer s.removePending(lease.ID)
 		first := obj(s.requestProject(r, p, q)["file"])
+		s.checkFilePreview(r, first)
 		serveFileDownload(w, r, first, func(ctx context.Context, offset int64) M {
 			query := make(M, len(q))
 			for key, value := range q {

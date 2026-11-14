@@ -44,7 +44,7 @@ Agent 0.2.31 广播 `runtime.capabilities.maxImages:20` 与 `maxVideoBytes:53687
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
-| GET | `/v1/devices/:deviceId/threads/:threadId/files/info?path=...` | 返回 `{name,size,version}`；只读取元数据，不读取内容 |
+| GET | `/v1/devices/:deviceId/threads/:threadId/files/info?path=...` | 返回 `{name,size,version,previewMaxBytes}`；只读取元数据，不读取内容 |
 | GET | `/v1/devices/:deviceId/threads/:threadId/files/content?path=...&version=...` | 经 PC Agent 分块读取并流式返回二进制附件 |
 | POST | `/v1/devices/:deviceId/threads/:threadId/files/audio` | `{path,version}`：验证已引用音频并返回临时 `{path,expiresAt}` 播放地址 |
 | GET/HEAD | `/v1/audio/:token` | 绑定登录会话的音频；支持单个字节 Range、206/416、元数据检查，按需回源、不保存内容 |
@@ -52,9 +52,11 @@ Agent 0.2.31 广播 `runtime.capabilities.maxImages:20` 与 `maxVideoBytes:53687
 
 文件信息、下载以及创建/撤销音频地址需要同账号 Bearer 认证；播放器通过临时 token 读取音频，无需把登录凭据放进 URL。token 只允许读取绑定的文件，30 分钟后失效，关闭播放器或原登录会话失效时撤销，应作为临时访问凭据保管。`path` 为 URL 编码后的 PC 绝对路径；只接受当前会话官方消息里实际观察到的 Markdown 文件链接。支持 Windows/Unix 路径、中文与空格，以及本地 `file:` 链接，不接受网络共享路径。PC 必须在线，服务器与 PC 连接器都需更新到支持文件协议的版本。旧连接器返回 409 `agent-update-required`；文件未引用/不可读返回 404 `file-not-in-thread|file-unavailable`；文件变化返回 409 `file-changed`，应重新获取元数据。
 
+管理员 `GET/PUT /v1/admin/preview-settings` 读取／保存 `{maxPreviewMiB}`，必须为 1–128 的整数，默认 32。设置持久保存；会话文件元数据及项目文件响应中的 `file.previewMaxBytes` 为当前字节上限，由 Relay 填充，Agent 无需更新协议。新客户端打开文本／HTML 时获取元数据，并在内容请求加 `preview=1`；服务器以当前设置再校验，超限返回 413 `file-preview-too-large`。普通下载不加此参数，仍使用文件传输上限。HTML 分享创建和读取也检查当前设置，超限返回 413 `preview-html-too-large`。旧服务器无此字段时回退 2 MiB；已安装的旧客户端需更新一次。本地网页服务响应上限和项目搜索的扫描上限独立。
+
 文件上限 512 MiB，Agent 每块最多 256 KiB，并校验文件版本和读取偏移。Relay 最多同时转发四个内容传输、每设备两个；超出返回 429 `files-busy`。每块回源等待最多 15 秒，返回 504 `file-timeout`。客户端断开会取消待回源请求；设备离线和服务器关闭会及时失败。**Relay 不缓存、不写入磁盘或数据库，也不把文件字节放入快照或历史。** 内容响应为附件、`no-store`、`nosniff`，浏览器不能在服务器来源下执行文件。传输中变化或断线会终止响应，客户端检查完整长度。
 
-客户端自动阅读不超过 2 MiB 的 UTF-8 MD/TXT/JSON 及常见文本文件；JSON 自动格式化。PNG/JPEG/WebP/GIF/BMP/ICO/AVIF/SVG 文件直接弹窗预览，不受文本预览限制，仍受文件传输上限约束。Web 使用带认证的 fetch 和内存 Blob URL，按扩展名设置图片 MIME，并核对传输长度；SVG 只在 img 中显示。原生栅格图片使用带认证的图片源，SVG 获取后在客户端渲染。图片不使用 Relay 图片缓存，也不新增文件存储；解码失败时显示错误并保留下载按钮。其它格式、较大文本和无法按 UTF-8 解码的文件显示下载确认，再请求内容。网页交给浏览器下载，原生端用临时文件交给系统保存/分享并清理临时文件；PC 源文件保留。
+客户端按元数据中的 `previewMaxBytes` 自动阅读 UTF-8 MD/TXT/JSON 及常见文本文件；JSON 自动格式化。PNG/JPEG/WebP/GIF/BMP/ICO/AVIF/SVG 文件直接弹窗预览，不受文本预览限制，仍受文件传输上限约束。Web 使用带认证的 fetch 和内存 Blob URL，按扩展名设置图片 MIME，并核对传输长度；SVG 只在 img 中显示。原生栅格图片使用带认证的图片源，SVG 获取后在客户端渲染。图片不使用 Relay 图片缓存，也不新增文件存储；解码失败时显示错误并保留下载按钮。其它格式、较大文本和无法按 UTF-8 解码的文件显示下载确认，再请求内容。网页交给浏览器下载，原生端用临时文件交给系统保存/分享并清理临时文件；PC 源文件保留。
 
 Web、App 和 PC Agent 均通过控制端账号密码登录；后台管理员使用独立入口 `/v1/admin/auth/login`。两类账号可同名，密码和权限独立。除健康与登录接口外，接口使用 `Authorization: Bearer <session>` 会话凭据。控制端只能访问同账号 PC；管理员不能登录 PC Agent、申请控制 WebSocket ticket 或控制任何设备。跨账号设备请求返回 404。
 
@@ -290,7 +292,7 @@ Agent 在自身 SQLite `usage.sqlite` 中按 `threadId + turnId` 保存逐轮统
 | `GET/HEAD /share/{key}/audio` | 仅限音频分享，读取绑定的单个音频；支持单段字节 Range、206/416、HEAD 与分块转发 |
 | `GET/HEAD /share/{key}/download` | 0.3.22 新增，仅限音频分享，以附件下载同一个绑定音频；保留文件名，支持 HEAD、Range，使用相同的有效期与撤销检查 |
 
-`kind` 为 `server`、`html` 或 `audio`。服务来源仅接受 Agent 已在会话中观察到的 loopback HTTP(S) 地址；同一设备、种类和来源复用固定 key，忽略 fragment、统一 localhost/127.0.0.1 与默认端口，保留页面路径和查询参数。服务分享允许该端口的资源、接口和 WebSocket，不是单个 URL 的路径隔离。HTML 来源必须是该会话引用过的 UTF-8 HTML/HTM 文件，最多 2 MiB，按需读取当前版本，不开放相邻文件。
+`kind` 为 `server`、`html` 或 `audio`。服务来源仅接受 Agent 已在会话中观察到的 loopback HTTP(S) 地址；同一设备、种类和来源复用固定 key，忽略 fragment、统一 localhost/127.0.0.1 与默认端口，保留页面路径和查询参数。服务分享允许该端口的资源、接口和 WebSocket，不是单个 URL 的路径隔离。HTML 来源必须是该会话引用过的 UTF-8 HTML/HTM 文件，使用服务器文件预览上限（默认 32 MiB），按需读取当前版本，不开放相邻文件。
 
 音频 `source` 为已引用音频的 PC 路径，扩展名与实际文件名均需为支持的音频格式。访客页面只包含可信播放器和转义后的文件名，不暴露 PC 路径或登录凭据。每次媒体请求读取当前源文件的元数据，并在该响应内绑定版本；文件中途变化会终止传输。URL 查询参数不能改换来源，不开放相邻文件，不创建私有 `/v1/audio` 登录播放地址，也不保存音频内容。与下载共用全局 4 个/设备 2 个持续传输限额；播放器实际编码支持取决于访客浏览器。停用或到期中断进行中的回源并拒绝后续请求，不能收回访客已取得的字节。
 

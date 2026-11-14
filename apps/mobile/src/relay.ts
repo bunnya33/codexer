@@ -7,7 +7,7 @@ import { threadNotificationSchema } from '../../../packages/protocol/src/weixin'
 import type { ThreadNotification } from '../../../packages/protocol/src/weixin';
 import { mergeTurnHistory } from '../../../packages/client-shared/src/activity';
 import { agentErrorMessage } from '../../../packages/client-shared/src/agent-errors';
-import { fileInfoSchema } from '../../../packages/protocol/src/files';
+import { previewFileInfoSchema, previewFilePayloadSchema } from '../../../packages/client-shared/src/file-preview';
 import type { FileInfo } from '../../../packages/protocol/src/files';
 import { projectPageSchema, projectQuerySchema } from '../../../packages/protocol/src/project-files';
 import type { ProjectQuery, ProjectPage } from '../../../packages/protocol/src/project-files';
@@ -642,12 +642,12 @@ export class RelayClient {
 
   async fileInfo(deviceId: string, threadId: string, path: string, signal: AbortSignal): Promise<FileInfo> {
     const result = await this.api<unknown>(`/v1/devices/${encodeURIComponent(deviceId)}/threads/${encodeURIComponent(threadId)}/files/info?path=${encodeURIComponent(path)}`, undefined, 'GET', false, signal);
-    return fileInfoSchema.parse(result);
+    return previewFileInfoSchema.parse(result);
   }
 
   async projectFiles(deviceId: string, projectId: string, query: ProjectQuery, signal: AbortSignal): Promise<ProjectPage> {
     const result=await this.api<unknown>(`/v1/devices/${encodeURIComponent(deviceId)}/projects/${encodeURIComponent(projectId)}/files`,projectQuerySchema.parse(query),'POST',false,signal);
-    return projectPageSchema.parse(result);
+    return projectPageSchema.extend({file: previewFilePayloadSchema.optional()}).parse(result);
   }
   async projectTransfers(signal?: AbortSignal): Promise<ProjectTransfer[]> {
     const result = await this.api<{transfers: unknown[]}>('/v1/project-transfers', undefined, 'GET', false, signal);

@@ -7,7 +7,7 @@ import { controlTheme } from '../packages/client-shared/src/themes';
 let javascript = '', css = '';
 beforeAll(async () => {
   const result = await build({ entryPoints: ['tests/fixtures/task-status-app.tsx'], outdir: '.local/task-status-tests', bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic',
-    resolveExtensions: ['.web.tsx', '.web.ts', '.web.js', '.tsx', '.ts', '.jsx', '.js', '.json'], nodePaths: [resolve('apps/mobile/node_modules')], alias: { 'react-native': 'react-native-web' },
+    resolveExtensions: ['.web.tsx', '.web.ts', '.web.js', '.tsx', '.ts', '.jsx', '.js', '.json'], nodePaths: [resolve('apps/mobile/node_modules')], alias: { 'react-native': 'react-native-web' }, loader: {'.png':'dataurl'},
     define: { 'process.env.NODE_ENV': '"production"', __DEV__: 'false', global: 'globalThis', 'process.env': '{}' } });
   javascript = result.outputFiles!.find(file => file.path.endsWith('.js'))!.text;
   css = result.outputFiles!.find(file => file.path.endsWith('.css'))?.text ?? '';
@@ -47,15 +47,15 @@ it('places running markers before the title and tokens, with a spinner only at p
   } finally { f.close(); }
 });
 
-it('removes running markers and backgrounds on completion while retaining tokens and a green check', async () => {
+it('collapses completed work while retaining tokens and completion time', async () => {
   const f = await fixture();
   try {
     f.click('切换任务状态');
-    await vi.waitFor(() => expect(f.doc.querySelectorAll('.codexer-task-dot-running').length).toBe(0));
+    await vi.waitFor(() => expect(f.doc.querySelector('[data-testid="turn-end-time"]')?.textContent).toContain('已完成'));
     expect(f.doc.querySelector('[data-testid="processing-spinner"]')).toBeNull();
     expect(f.doc.querySelector('[data-testid="turn-token-usage"]')?.textContent).toContain('输入 1,000');
-    expect(f.doc.querySelector('[data-testid="activity-ended-check"] svg')).not.toBeNull();
-    expect(f.doc.querySelector('[data-testid="activity-ended-check"] [data-testid="task-status-dot"]')).toBeNull();
+    expect(f.doc.querySelector('[data-testid="work-disclosure-turn"]')?.getAttribute('aria-expanded')).toBe('false');
+    expect(f.doc.querySelector('[aria-label="当前会话正在运行"]')).toBeNull();
     expect(f.style(f.doc.querySelector('[data-testid="directory-project-heading-project"]')!).backgroundColor).toBe('rgba(0, 0, 0, 0)');
     expect(f.style(f.doc.querySelector('[data-testid="directory-thread-fixture"]')!).backgroundColor).toBe('rgb(237, 241, 252)');
     expect(f.doc.querySelector('[data-testid="turn-end-time"]')?.textContent).toContain('已完成');

@@ -90,6 +90,7 @@ func Open(databaseURL, directory string) (*Store, error) {
 		schema = sqliteSchema
 	}
 	schema += publishSchema
+	schema += previewSettingsSchema
 	for _, q := range strings.Split(schema, ";\n") {
 		if strings.TrimSpace(q) == "" {
 			continue

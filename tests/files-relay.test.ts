@@ -11,7 +11,7 @@ import { FakeDesktop, snapshot, waitFor, WsPeer } from './helpers.js';
 
 it('retrieves live and historical files through a real PC Agent with account/thread isolation and no Relay persistence', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'codexer-file-relay-'));
-  const desktop = new FakeDesktop(), store = await RelayStore.open(), account = await testAccount(store), other = await testAccount(store,'Other');
+  const desktop = new FakeDesktop(), store = await RelayStore.open(), account = await testAccount(store), other = await testAccount(store,'Other'), admin = await testAccount(store,'Admin','admin');
   const app = await createRelay({store});
   let agent: PcAgent | undefined;
   try {
@@ -56,6 +56,17 @@ it('retrieves live and historical files through a real PC Agent with account/thr
     expect((await app.inject({url:url('info',historical),headers:account.headers})).statusCode).toBe(404);
     expect((await app.inject({url:`/v1/devices/${registered.id}/threads/thread-test/turns`,headers:account.headers})).statusCode).toBe(200);
     expect((await app.inject({url:url('info',historical),headers:account.headers})).statusCode).toBe(200);
+    // Preview limits are current server policy; downloads retain the file transfer limit.
+    await writeFile(path,'x'.repeat(3*1024*1024));
+    const large = (await app.inject({url:url('info'),headers:account.headers})).json();
+    expect(large.previewMaxBytes).toBe(32*1024*1024);
+    expect((await app.inject({url:url('content')+`&version=${large.version}&preview=1`,headers:account.headers})).statusCode).toBe(200);
+    expect((await app.inject({method:'PUT',url:'/v1/admin/preview-settings',headers:admin.headers,payload:{maxPreviewMiB:1}})).statusCode).toBe(200);
+    expect((await app.inject({url:url('info'),headers:account.headers})).json().previewMaxBytes).toBe(1024*1024);
+    const over = await app.inject({url:url('content')+`&version=${large.version}&preview=1`,headers:account.headers});
+    expect(over.statusCode).toBe(413); expect(over.json().error).toBe('file-preview-too-large');
+    const original = await app.inject({url:url('content')+`&version=${large.version}`,headers:account.headers});
+    expect(original.statusCode).toBe(200);expect(original.rawPayload.length).toBe(large.size);
     await writeFile(path,'changed');
     expect((await app.inject({url:url('content')+`&version=${info.json().version}`,headers:account.headers})).json().error).toBe('file-changed');
     expect(JSON.stringify(await store.snapshot(registered.id))).not.toContain(binary.toString('base64'));

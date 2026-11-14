@@ -24,7 +24,7 @@ it('shares live pages and HTML with stable keys, independent guests, revocation,
   await new Promise<void>(done=>upstream.listen(0,'127.0.0.1',done));
   const port=(upstream.address() as {port:number}).port,source=`http://localhost:${port}/demo?x=1`;
   let store=await RelayStore.open(undefined,join(directory,'db'));
-  const account=await testAccount(store),other=await testAccount(store,'Other');
+  const account=await testAccount(store),other=await testAccount(store,'Other'),admin=await testAccount(store,'Admin','admin');
   const registered=await testAgent(store,account.id),desktop=new FakeDesktop();
   const turns=desktop.state.turnHistory as {history:{entitiesByKey:Record<string,{items:unknown[]}>}};
   turns.history.entitiesByKey['turn-key']!.items=[{id:'preview',type:'agentMessage',text:`[端口](${source})\n[页面](<${htmlPath}>)`}];
@@ -80,6 +80,13 @@ it('shares live pages and HTML with stable keys, independent guests, revocation,
     const htmlShare=await create('html',htmlPath);expect(htmlShare.statusCode).toBe(200);const fileFrame=await frame(htmlShare.json().path);
     expect((await app.inject({url:fileFrame})).body).toContain('共享页面第一版');
     await writeFile(htmlPath,'<h1>共享页面第二版</h1>');expect((await app.inject({url:fileFrame})).body).toContain('共享页面第二版');
+    await writeFile(htmlPath,'<h1>大页面</h1>'+' '.repeat(3*1024*1024));
+    expect((await create('html',htmlPath)).statusCode).toBe(200);
+    expect((await app.inject({url:fileFrame})).statusCode).toBe(200);
+    expect((await app.inject({method:'PUT',url:'/v1/admin/preview-settings',headers:admin.headers,payload:{maxPreviewMiB:1}})).statusCode).toBe(200);
+    const oversized=await create('html',htmlPath);expect(oversized.statusCode).toBe(413);expect(oversized.json().error).toBe('preview-html-too-large');
+    expect((await app.inject({url:fileFrame})).statusCode).toBe(413);
+    await writeFile(htmlPath,'<h1>共享页面第二版</h1>');
     expect((await app.inject({url:fileFrame.replace('index.html','private.txt')})).statusCode).toBe(404);
     expect((await create('html',join(directory,'unreferenced.html'))).statusCode).toBe(404);
     const restoredFrame=await frame(rotated.path);

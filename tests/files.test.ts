@@ -80,7 +80,7 @@ it('rejects an incomplete text response and prevents oversized previews before f
     const info = {name:'a.txt',size:10,version:'a'.repeat(64)};
     await expect(previewFile(source,info,new AbortController().signal)).rejects.toThrow('invalid-file-response');
     fetcher.mockClear();
-    await expect(previewFile(source,{...info,size:3*1024*1024},new AbortController().signal)).rejects.toThrow('文件较大');
+    await expect(previewFile(source,{...info,size:3*1024*1024},new AbortController().signal)).rejects.toThrow('2 MiB 预览上限');
     expect(fetcher).not.toHaveBeenCalled();
   } finally { vi.unstubAllGlobals(); }
 });

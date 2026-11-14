@@ -7,7 +7,7 @@ let javascript = '', css = '';
 beforeAll(async () => {
   const result = await build({
     entryPoints: ['tests/fixtures/mobile-scroll.tsx'], outdir: '.local/mobile-scroll', write: false,
-    bundle: true, platform: 'browser', format: 'iife', jsx: 'automatic',
+    bundle: true, platform: 'browser', format: 'iife', jsx: 'automatic', loader: {'.png':'dataurl'},
     resolveExtensions: ['.web.tsx', '.web.ts', '.web.js', '.tsx', '.ts', '.jsx', '.js', '.json'],
     nodePaths: [resolve('apps/mobile/node_modules')], alias: { 'react-native': 'react-native-web' },
     define: { 'process.env.NODE_ENV': '"production"', __DEV__: 'false', global: 'globalThis' },

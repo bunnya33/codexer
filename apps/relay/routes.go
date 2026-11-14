@@ -16,6 +16,7 @@ func (s *Server) routes() {
 	s.agentReleaseRoutes()
 	s.clientReleaseRoutes()
 	s.agentSettingsRoutes()
+	s.previewSettingsRoutes()
 	s.removeDeviceRoutes()
 	s.logRoutes()
 	s.projectFileRoutes()

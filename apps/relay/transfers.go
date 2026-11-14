@@ -352,7 +352,7 @@ func (s *Server) transferRoutes() {
 			fail(400, "invalid-request")
 		}
 		w.Header().Set("Cache-Control", "no-store")
-		return s.requestTransfer(r, p, "file", M{"path": path})
+		return s.previewFileInfo(s.requestTransfer(r, p, "file", M{"path": path}))
 	})
 	s.route("GET "+base+"/files/content", "user", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
 		path, version := r.URL.Query().Get("path"), r.URL.Query().Get("version")
@@ -364,6 +364,7 @@ func (s *Server) transferRoutes() {
 		s.addPending(lease, 4, 2)
 		defer s.removePending(lease.ID)
 		first := s.requestTransfer(r, p, "file", M{"path": path, "offset": int64(0), "version": version})
+		s.checkFilePreview(r, first)
 		serveFileDownload(w, r, first, func(ctx context.Context, offset int64) M {
 			return s.requestTransfer(r.WithContext(ctx), p, "file", M{"path": path, "offset": offset, "version": version})
 		})

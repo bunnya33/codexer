@@ -43,6 +43,17 @@ beforeEach(() => {
 });
 afterEach(() => { client.disconnect(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
+it('preserves the server preview limit on both thread and project metadata, including changes on next open', async () => {
+  await client.connect('https://relay.test', 'user', 'password');
+  const info = {name:'page.html',size:3*1024*1024,version:'a'.repeat(64),previewMaxBytes:32*1024*1024};
+  vi.mocked(fetch).mockResolvedValueOnce(response(info));
+  expect(await client.fileInfo('device-test','thread-test','/page.html',new AbortController().signal)).toMatchObject(info);
+  vi.mocked(fetch).mockResolvedValueOnce(response({kind:'file',file:{...info,previewMaxBytes:1024*1024}}));
+  expect((await client.projectFiles('device-test','p',{operation:'file',rootIndex:0,path:'page.html'},new AbortController().signal)).file).toMatchObject({...info,previewMaxBytes:1024*1024});
+  vi.mocked(fetch).mockResolvedValueOnce(response({...info,previewMaxBytes:undefined}));
+  expect(await client.fileInfo('device-test','thread-test','/page.html',new AbortController().signal)).not.toHaveProperty('previewMaxBytes');
+});
+
 it('renews download authorization only for the original server/account and known download routes', async () => {
   await client.connect('https://relay.test', 'user', 'password');
   const remote = { relayUrl: 'https://relay.test', userId: 'user-test', path: '/v1/devices/device-test/threads/thread-test/files/content?path=test.txt&version=' + 'a'.repeat(64) };

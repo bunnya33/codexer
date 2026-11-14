@@ -25,7 +25,7 @@ import {
 import type { DeviceCatalog } from "../../../packages/protocol/src/index";
 import type { ProjectPage, ProjectQuery } from "../../../packages/protocol/src/project-files";
 import type { FileInfo } from "../../../packages/protocol/src/files";
-import { MAX_FILE_PREVIEW_BYTES } from "../../../packages/protocol/src/files";
+import { filePreviewLimit, filePreviewLimitMessage } from "../../../packages/client-shared/src/file-preview";
 import { ReviewReader } from "./review-reader";
 import { useWideReader } from "./interaction/reader-layout";
 import { SourceCode } from "./source-code";
@@ -244,11 +244,11 @@ export function ProjectBrowser({
         if (controller.signal.aborted || generation !== version.current) return;
         if (!page.file) throw new Error("file-unavailable");
         setInfo(page.file);
-        if (page.file.size > MAX_FILE_PREVIEW_BYTES) {
-          setFeedback("超过 2 MiB 预览上限，请下载原文件。");
+        if (/\.(png|jpe?g|webp|gif)$/i.test(selected.path)) return;
+        if (page.file.size > filePreviewLimit(page.file)) {
+          setFeedback(filePreviewLimitMessage(page.file));
           return;
         }
-        if (/\.(png|jpe?g|webp|gif)$/i.test(selected.path)) return;
         const value = await previewFile(
           relay.projectFileSource(deviceId, project.id, root, selected.path, page.file.version),
           page.file,

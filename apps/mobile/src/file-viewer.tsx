@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import { Copy, Download, X } from "lucide-react-native";
 import { fileName, fileReaderKind, fileSize } from "../../../packages/client-shared/src/file-links";
-import { MAX_FILE_PREVIEW_BYTES } from "../../../packages/protocol/src/files";
+import { filePreviewLimit, filePreviewLimitMessage } from "../../../packages/client-shared/src/file-preview";
 import type { FileInfo } from "../../../packages/protocol/src/files";
 import { FileLinkContext } from "./file-link-context";
 import { fileError, previewFile } from "./file-transfer";
@@ -90,14 +90,14 @@ export function FileViewerProvider({
             setFile({ path, info, phase: "preview" });
             return;
           }
-          if (fileReaderKind(info.name) === "download" || info.size > MAX_FILE_PREVIEW_BYTES) {
+          if (fileReaderKind(info.name) === "download" || info.size > filePreviewLimit(info)) {
             setFile({
               path,
               info,
               phase: "confirm",
               message:
-                info.size > MAX_FILE_PREVIEW_BYTES && fileReaderKind(info.name) !== "download"
-                  ? "文件较大，请下载后查看。是否下载此文件？"
+                info.size > filePreviewLimit(info) && fileReaderKind(info.name) !== "download"
+                  ? `${filePreviewLimitMessage(info)}是否下载此文件？`
                   : "是否下载此文件？",
             });
             return;

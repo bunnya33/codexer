@@ -13,7 +13,7 @@ beforeAll(async () => {
       stdin: { contents: `
         import React from 'react';import {createRoot} from 'react-dom/client';import {flushSync} from 'react-dom';
         import {ScreenAwakeProvider,ScreenAwakeSettings} from './apps/mobile/src/screen-awake';
-        const root=createRoot(document.getElementById('root'));window.stop=()=>flushSync(()=>root.unmount());
+        const root=createRoot(document.getElementById('root'));window.flush=flushSync;window.stop=()=>flushSync(()=>root.unmount());
         flushSync(()=>root.render(<ScreenAwakeProvider><ScreenAwakeSettings/></ScreenAwakeProvider>));
       `, resolveDir: process.cwd(), loader: 'tsx' },
       bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic',
@@ -58,16 +58,17 @@ async function fixture(platform: string, options: { saved?: string; disk?: Map<s
     });
   } });
   dom.window.eval(scripts[platform]!);
-  const app = dom.window as unknown as { changePhase(value: string): void; stop(): void };
+  const app = dom.window as unknown as { changePhase(value: string): void; flush(callback: () => void): void; stop(): void };
   const switchInput = () => dom.window.document.querySelector<HTMLInputElement>('[role="switch"]')!;
   await wait(() => expect(switchInput()).not.toBeNull());
   const click = async (label: string) => {
+    app.flush(() => {});
     const target = [...dom.window.document.querySelectorAll<HTMLElement>('button,input')].find(el => el.getAttribute('aria-label') === label || el.textContent === label);
-    expect(target, label).toBeDefined(); target!.click();
+    expect(target, label).toBeDefined(); app.flush(() => target!.click());
     await new Promise(resolve => setTimeout(resolve, 10));
   };
   return { dom, disk, read, write, nativeCalls, awake: () => awake, timers, click, switchInput,
-    async phase(value: string) { app.changePhase(value); await new Promise(resolve => setTimeout(resolve, 10)); },
+    async phase(value: string) { app.flush(() => app.changePhase(value)); await new Promise(resolve => setTimeout(resolve, 10)); },
     async advance(ms: number) {
       const until = now + ms;
       for (;;) { const next = [...timers].filter(([, t]) => t.at <= until).sort((a, b) => a[1].at - b[1].at)[0]; if (!next) break; now = next[1].at; timers.delete(next[0]); next[1].run(); }
@@ -150,9 +151,10 @@ describe.each(['ios', 'android'])('%s screen wake preference', platform => {
     const f = await fixture(platform, { saved: '{"enabled":true,"minutes":30}' });
     try {
       await wait(() => expect(f.awake()).toBe(true));
+      const range = f.dom.window.document.querySelector<HTMLInputElement>('input[type="range"]')!;
+      await wait(() => expect(range.value).toBe('30'));
       await f.click('增加常亮时间'); expect(JSON.parse(f.disk.get(uri)!).minutes).toBe(30);
       await f.click('减少常亮时间'); await wait(() => expect(JSON.parse(f.disk.get(uri)!).minutes).toBe(29));
-      const range = f.dom.window.document.querySelector<HTMLInputElement>('input[type="range"]')!;
       expect([range.min, range.max, range.step]).toEqual(['1', '30', '1']);
     } finally { await f.close(); }
   });

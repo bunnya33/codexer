@@ -75,6 +75,10 @@ it("authorizes project browsing, versions streamed downloads and cancels abandon
       entries: [{ name: "escape", path: "../escape", kind: "file", size: 0 }],
     });
     expect((await bad).json().error).toBe("invalid-file-response");
+    const metadata = post({operation:'file',rootIndex:0,path:'page.html'});
+    m = await next();
+    reply(m,{kind:'file',file:{name:'page.html',size:3*1024*1024,version:'a'.repeat(64)}});
+    expect((await metadata).json().file.previewMaxBytes).toBe(32*1024*1024);
     const version = "a".repeat(64),
       bytes = Buffer.alloc(256 * 1024 + 17, 89);
     const download = app.inject({
