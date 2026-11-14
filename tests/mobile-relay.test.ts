@@ -500,6 +500,67 @@ it('retries a socket error without waiting for the browser close event', async (
   expect(FakeSocket.last).not.toBe(failed);
 });
 
+it('replays missing events through an idle connection probe without disconnecting a healthy socket', async () => {
+  vi.useFakeTimers();
+  const started = Date.now();
+  const socket = await connectedSocket();
+  const sent = socket.sent.length;
+  await vi.advanceTimersByTimeAsync(45000 - (Date.now() - started));
+  expect(socket.sent.slice(sent)).toEqual([{ type: 'client.subscribe', deviceId: 'device-test', epoch: 'epoch-test', lastSeq: 0 }]);
+  socket.message({ type: 'sync.begin', deviceId: 'device-test' });
+  socket.message({ type: 'device.event', event: event(snapshot()) });
+  socket.message({ type: 'sync.ready', deviceId: 'device-test', epoch: 'epoch-test', lastSeq: 1 });
+  await vi.advanceTimersByTimeAsync(15000);
+  expect(FakeSocket.last).toBe(socket);
+  expect(client.getSnapshot()).toMatchObject({ phase: 'connected', syncing: { 'device-test': false }, snapshots: { 'device-test': { lastSeq: 1 } } });
+  client.disconnect();
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it('recovers an authenticated socket that silently stops receiving while HTTP requests still work', async () => {
+  vi.useFakeTimers();
+  const started = Date.now();
+  const socket = await connectedSocket();
+  const close = vi.spyOn(socket, 'close').mockImplementation(() => { socket.readyState = 2; });
+  await vi.advanceTimersByTimeAsync(45000 - (Date.now() - started));
+  await client.refreshDevices();
+  await vi.advanceTimersByTimeAsync(11999);
+  expect(client.getSnapshot().phase).toBe('connected');
+  await vi.advanceTimersByTimeAsync(1);
+  expect(close).toHaveBeenCalledOnce();
+  expect(client.getSnapshot()).toMatchObject({ phase: 'reconnecting', devices: [{ online: true }] });
+  expect(client.getSnapshot().notice).toContain('实时连接无响应');
+  await vi.advanceTimersByTimeAsync(3000);
+  const recovered = FakeSocket.last;
+  expect(recovered).not.toBe(socket);
+  recovered.open();
+  recovered.message({ type: 'client.authenticated' });
+  recovered.message({ type: 'sync.ready', deviceId: 'device-test', epoch: 'epoch-test', lastSeq: 0 });
+  recovered.message({ type: 'device.event', event: event(snapshot()) });
+  socket.message({ type: 'device.presence', deviceId: 'device-test', online: false });
+  expect(client.getSnapshot()).toMatchObject({ phase: 'connected', devices: [{ online: true }], snapshots: { 'device-test': { lastSeq: 1 } } });
+});
+
+it('refreshes the selected conversation history after reconnecting even when live preview has not changed', async () => {
+  const socket = await connectedSocket();
+  const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+  const makeTurn = (id: string) => ({ id, status: 'completed', truncated: false, items: [] });
+  let turns = [makeTurn('before-sleep')];
+  vi.mocked(fetch).mockImplementation(async (input, options) => new URL(String(input)).pathname.endsWith('/turns')
+    ? response({ threadId: 'thread-test', turns, nextCursor: null, generatedAt: 1 }) : originalFetch(input, options));
+  client.watchThread('device-test', 'thread-test');
+  await client.loadHistory('device-test', 'thread-test');
+  vi.useFakeTimers();
+  socket.close();
+  turns = [makeTurn('after-sleep'), makeTurn('missed-turn'), makeTurn('before-sleep')];
+  await vi.advanceTimersByTimeAsync(3000);
+  const recovered = FakeSocket.last;
+  recovered.open();
+  recovered.message({ type: 'client.authenticated' });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(client.getSnapshot().histories[historyKey('device-test', 'thread-test')]?.turns.map(turn => turn.id)).toEqual(['before-sleep', 'missed-turn', 'after-sleep']);
+});
+
 it.each(['success', 'failure'] as const)('ignores a late ticket %s from a reconnect superseded by foreground return', async outcome => {
   await connectedSocket();
   vi.useFakeTimers();

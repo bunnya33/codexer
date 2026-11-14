@@ -11,6 +11,7 @@ import { mergeTurnHistory } from '../../packages/client-shared/src/activity';
 import {JumpToBottom} from './src/interaction/jump-to-bottom';
 import { currentThreadUsage } from '../../packages/client-shared/src/project-usage';
 import { conversationImages } from '../../packages/client-shared/src/images';
+import { imageBase64Mime } from '../../packages/client-shared/src/image-upload';
 import type { ImageDirection, ImageGallery, ImagePreview } from '../../packages/client-shared/src/images';
 import { buildDirectoryRows } from '../../packages/client-shared/src/directory';
 import { MAX_IMAGES, MAX_IMAGE_BYTES } from '../../packages/protocol/src/index';
@@ -275,13 +276,16 @@ function AppContent() {
     if (!asset || !draftIsCurrent()) return;
     setImages(current => current.map(item => item.key === image.key ? { ...item, loading: true, error: undefined } : item));
     try {
-      const supported = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(asset.mimeType ?? '');
       let base64 = asset.base64?.replace(/\s/g, '');
-      let mimeType = asset.mimeType ?? '';
+      let mimeType = base64 ? imageBase64Mime(base64) ?? '' : '';
       let name = image.name;
+      if (mimeType && mimeType !== asset.mimeType) {
+        const extension = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp' }[mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'];
+        name = `${name.replace(/\.[^.]+$/, '')}.${extension}`;
+      }
       // Keep the JSON request under the common 1 MB reverse-proxy limit.
       const uploadLimit = Math.min(MAX_IMAGE_BYTES, 700 * 1024);
-      if (!supported || !base64 || Math.ceil(base64.length * 3 / 4) > uploadLimit) {
+      if (!mimeType || !base64 || Math.ceil(base64.length * 3 / 4) > uploadLimit) {
         for (const [edge, quality] of [[1600, 0.65], [1200, 0.5], [900, 0.4]] as const) {
           const scale = Math.min(1, edge / Math.max(asset.width, asset.height));
           const actions = scale < 1 ? [{ resize: { width: Math.max(1, Math.round(asset.width * scale)) } }] : [];

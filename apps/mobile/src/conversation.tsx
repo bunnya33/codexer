@@ -85,12 +85,12 @@ function ExecutionGroup({ section, turn, deviceId, threadId, onImage }: { sectio
   const latest = executionSectionItem(section);
   const title = executionSectionSummary(section);
   const iconItem = !section.running && section.items.some(item => item.type === 'reasoning' && item.text?.trim()) ? [...section.items].reverse().find(item => item.type === 'reasoning' && item.text?.trim()) : latest;
-  const visibleItems = section.items.filter(item => item.type !== 'reasoning' || item.text?.trim() && executionItemSummary(item, section.running) !== title);
+  const visibleItems = section.items.filter(item => item.type !== 'reasoning' || item.text?.trim());
   return <View testID={`execution-group-${section.id}`} style={s.executionGroup}>
     <Pressable accessibilityRole="button" aria-expanded={open} accessibilityLabel={`${title}，${open ? '收起' : '展开'}处理记录`} onPress={() => setOpen(value => !value)} style={s.executionHead}><ExecutionIcon item={iconItem} />{section.running ? <ShimmerLabel text={title} /> : <Text style={s.executionTitle} numberOfLines={1}>{title}</Text>}<Animated.View testID={`execution-arrow-${section.id}`} style={[s.executionArrow, {transform: [{rotate: rotation.interpolate({inputRange: [0, 1], outputRange: ['0deg', '90deg']})}]}]}><ChevronRight size={14} color={c.muted} /></Animated.View></Pressable>
     {mounted && <Animated.View testID={`execution-body-${section.id}`} pointerEvents={open ? 'auto' : 'none'} aria-hidden={!open} accessibilityElementsHidden={!open} importantForAccessibility={open ? 'auto' : 'no-hide-descendants'} style={[s.executionBody, {height}]}><ScrollView nestedScrollEnabled style={[s.executionList, {height: listHeight}]} contentContainerStyle={s.executionListContent} onContentSizeChange={(_width, measuredHeight) => setContentHeight(Math.ceil(measuredHeight))}>{visibleItems.map(item => item.type === 'fileChange'
       ? <FileActivityRecord key={item.id} item={item} running={section.running} turn={turn} deviceId={deviceId} threadId={threadId}/>
-      : <Message key={item.id} item={item} running={section.running} deviceId={deviceId} threadId={threadId} onImage={onImage} />)}{!visibleItems.length && <Text style={s.executionWaiting}>等待新的处理记录…</Text>}</ScrollView></Animated.View>}
+      : <Message key={item.id} item={item} running={section.running} deviceId={deviceId} threadId={threadId} onImage={onImage} />)}{!visibleItems.length && <Text style={s.executionWaiting}>{section.running ? '等待新的处理记录…' : '没有额外的处理详情。'}</Text>}</ScrollView></Animated.View>}
   </View>;
 }
 
@@ -113,7 +113,6 @@ function Activity({ block, turn, deviceId, threadId, onImage, questionRequestIds
   const {process, final} = splitActivityReply(block);
   const ToggleIcon = open ? ChevronDown : ChevronRight;
   const contents = <View style={{gap:8}}>
-    <TurnTiming turn={turn} running={block.state === 'running'} />
     {!!steps?.length && <ExecutionPlan steps={steps} />}
     {activitySections({...block, items:process}).map(section => {
       if (section.kind === 'execution') return <ExecutionGroup key={section.id} section={section} turn={turn} deviceId={deviceId} threadId={threadId} onImage={onImage} />;
@@ -129,11 +128,12 @@ function Activity({ block, turn, deviceId, threadId, onImage, questionRequestIds
     {completed && !!turn.fileChanges?.length && <FileChangesPanel changes={turn.fileChanges} compact={false} deviceId={deviceId} threadId={threadId} turnId={turn.id}/>}
   </View>;
   return <View style={s.activity}>
+    <TurnTiming turn={turn} running={block.state === 'running'} />
     {ended ? <Pressable testID={`work-disclosure-${turn.id}`} accessibilityRole="button" accessibilityLabel={`${completedActivityLabel(block)}，${open ? '收起' : '展开'}思考过程`} accessibilityState={{expanded:open}} aria-expanded={open} onPress={() => setOpen(value=>!value)} style={{flexDirection:'row',alignItems:'center',gap:4,minHeight:28}}><Text style={{color:c.muted,fontSize:12}}>{completedActivityLabel(block)}</Text><ToggleIcon size={13} color={c.muted}/></Pressable> : <View>
       <View style={s.activityHead}>{block.state === 'running' ? <ActivityIndicator testID="processing-spinner" size="small" color={c.muted} accessibilityLabel="正在处理" /> : <View testID="activity-ended-check" accessible accessibilityLabel="任务已结束" style={{ width: 16, height: 16, alignItems: 'center', justifyContent: 'center' }}><Check size={16} strokeWidth={2.5} color={c.success} /></View>}<Text style={s.activityText}>{activityLabel(block, now)}</Text></View>
     </View>}
     <View style={s.line} />
-    {ended ? <Disclosure open={open}>{contents}</Disclosure> : contents}
+    {ended ? <Disclosure open={open}>{contents}{!process.length && !steps?.length && !turn.fileChanges?.length && <Text style={s.executionWaiting}>本轮没有额外的处理记录。</Text>}</Disclosure> : contents}
     {final.map(item=><Message key={item.id} item={item} deviceId={deviceId} threadId={threadId} onImage={onImage}/>)}
   </View>;
 }

@@ -14,15 +14,35 @@ export function ComposerInput({ onImages, imagesEnabled, onImageError, imageSlot
   const measure = useCallback(() => {
     const element = input.current as unknown as HTMLTextAreaElement | null;
     if (!element) return;
-    const scrollTop = element.scrollTop;
-    // Measure the natural content height so deleting text can shrink the field too.
-    element.style.height = '0px';
-    const contentHeight = element.scrollHeight;
+    // Do not collapse the focused editor: WebKit can lose caret scrolling while
+    // wrapping. A hidden clone shares its typography and measures independently.
+    const measuring = element.cloneNode(false) as HTMLTextAreaElement;
+    measuring.removeAttribute('id');
+    measuring.removeAttribute('aria-label');
+    measuring.removeAttribute('data-testid');
+    measuring.setAttribute('aria-hidden', 'true');
+    measuring.tabIndex = -1;
+    measuring.readOnly = true;
+    Object.assign(measuring.style, { position: 'fixed', left: '-10000px', top: '0', height: '0', minHeight: '0', maxHeight: 'none', width: `${element.getBoundingClientRect().width}px`, visibility: 'hidden', overflow: 'hidden', pointerEvents: 'none' });
+    measuring.value = element.value;
+    element.parentElement?.appendChild(measuring);
+    const computed = getComputedStyle(element);
+    const contentHeight = measuring.scrollHeight + (parseFloat(computed.borderTopWidth) || 0) + (parseFloat(computed.borderBottomWidth) || 0);
+    measuring.remove();
     element.style.height = `${Math.min(Math.max(minHeight, contentHeight), maxHeight)}px`;
     element.style.overflowY = contentHeight > maxHeight ? 'auto' : 'hidden';
-    element.scrollTop = contentHeight > maxHeight ? scrollTop : 0;
+    if (contentHeight > maxHeight && element.ownerDocument.activeElement === element && element.selectionStart === element.value.length && element.selectionEnd === element.value.length) element.scrollTop = element.scrollHeight;
   }, [minHeight, maxHeight]);
   useLayoutEffect(measure, [measure, props.value]);
+  useLayoutEffect(() => {
+    const element = input.current as unknown as HTMLTextAreaElement | null;
+    if (!element) return;
+    let frame = 0;
+    const changed = () => { measure(); cancelAnimationFrame(frame); frame = requestAnimationFrame(measure); };
+    element.addEventListener('input', changed);
+    element.addEventListener('compositionend', changed);
+    return () => { cancelAnimationFrame(frame); element.removeEventListener('input', changed); element.removeEventListener('compositionend', changed); };
+  }, [measure]);
   useLayoutEffect(() => {
     const element = input.current as unknown as HTMLTextAreaElement | null;
     if (!element) return;

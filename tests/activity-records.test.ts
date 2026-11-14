@@ -31,7 +31,18 @@ describe('inline Codex activity records', () => {
     expect(completedActivityLabel(block)).toBe('用时 50m 52s');
     expect(splitActivityReply({...block,state:'running',items:process})).toEqual({process,final:[]});
     expect(splitActivityReply({...block,items:[item('legacy','agentMessage')]}).final).toHaveLength(1);
-    expect(splitActivityReply({...block,items:[item('commentary','agentMessage',{phase:'commentary'})]}).final).toHaveLength(0);
+    const commentary = item('commentary','agentMessage',{phase:'commentary',text:'已完成处理'});
+    expect(splitActivityReply({...block,items:[commentary]})).toEqual({process:[],final:[commentary]});
+  });
+  it('keeps a final reply visible when a tool finishes after it and does not expose an earlier reply before steering', () => {
+    const final = item('final','agentMessage',{phase:'final_answer',text:'交付结果'});
+    const tool = item('late-tool','mcpToolCall',{status:'completed'});
+    const block = {kind:'activity' as const,id:'work',state:'completed' as const,items:[final,tool]};
+    expect(splitActivityReply(block)).toEqual({process:[tool],final:[final]});
+    const steer = item('steer','steeringUserMessage',{text:'追加要求'});
+    expect(splitActivityReply({...block,items:[final,steer,tool]})).toEqual({process:[final,steer,tool],final:[]});
+    const progress = item('progress','agentMessage',{phase:'commentary',text:'Mac 上记录的回复'});
+    expect(splitActivityReply({...block,items:[final,steer,progress,tool]})).toEqual({process:[final,steer,tool],final:[progress]});
   });
   it('retains long-turn activities through successive windows, then restores every split history page', () => {
     const records = [item('start','subAgentActivity'), item('image','imageView'), item('compact','contextCompaction'), item('edit','fileChange'),

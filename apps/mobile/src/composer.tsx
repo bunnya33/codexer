@@ -11,7 +11,12 @@ export function ComposerInput({ onImages: _onImages, imagesEnabled: _imagesEnabl
   const minHeight = Math.min(42, maxHeight);
   const [contentHeight, setContentHeight] = useState(42);
   useEffect(() => { if (!props.value) setContentHeight(42); }, [props.value]);
-  return <TextInput {...props} {...(Platform.OS === 'windows' ? {submitKeyEvents: [{code: 'Enter'}], blurOnSubmit: false} : {})} underlineColorAndroid="transparent" style={[style, {height: Math.min(Math.max(minHeight, contentHeight), maxHeight), minHeight, maxHeight}]} scrollEnabled={contentHeight > maxHeight} onContentSizeChange={event => {
+  // Fabric on iOS reports content size during layout. A fixed height can prevent
+  // that layout from changing when text wraps, leaving the field stuck on one line.
+  // Let iOS size the multiline input intrinsically within these bounds and keep
+  // native caret scrolling available when the content reaches the height limit.
+  const intrinsicHeight = Platform.OS === 'ios';
+  return <TextInput {...props} {...(Platform.OS === 'windows' ? {submitKeyEvents: [{code: 'Enter'}], blurOnSubmit: false} : {})} underlineColorAndroid="transparent" style={[style, {height: intrinsicHeight ? undefined : Math.min(Math.max(minHeight, contentHeight), maxHeight), minHeight, maxHeight}]} scrollEnabled={intrinsicHeight || contentHeight > maxHeight} onContentSizeChange={event => {
     setContentHeight(Math.ceil(event.nativeEvent.contentSize.height));
     onContentSizeChange?.(event);
   }} />;

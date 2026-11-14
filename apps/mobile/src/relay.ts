@@ -41,6 +41,8 @@ export type RelayView = {
 
 const emptyView = (): RelayView => ({ phase: 'locked', url: '', role: null, userId: null, devicesReady: false, devices: [], catalogs: {}, snapshots: {}, histories: {}, syncing: {}, notice: '', weixin: null, threadNotifications: {} });
 const SOCKET_AUTH_TIMEOUT_MS = 12000;
+const SOCKET_HEALTH_INTERVAL_MS = 15000;
+const SOCKET_IDLE_PROBE_MS = 30000;
 class ApiError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 export const historyKey = (deviceId: string, threadId: string) => `${deviceId}:${threadId}`;
 
@@ -67,6 +69,7 @@ export class RelayClient {
   private connectionRevision = 0;
   private socketAttempt = 0;
   private socketTimeout?: ReturnType<typeof setTimeout>;
+  private socketHealthTimer?: ReturnType<typeof setInterval>;
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   private refreshTimer?: ReturnType<typeof setInterval>;
   private foreground = true;
@@ -75,6 +78,7 @@ export class RelayClient {
   private catalogLoading = new Map<string, number>();
   private catalogReloads = new Set<string>();
   private watched = new Map<string, number>();
+  private activeThread?: { deviceId: string; threadId: string };
   private subscribed = new Set<string>();
   private resyncing = new Set<string>();
   private presenceVersions = new Map<string, number>();
@@ -197,6 +201,7 @@ export class RelayClient {
     this.connectionRevision++;
     this.socketAttempt++;
     if (this.socketTimeout) clearTimeout(this.socketTimeout);
+    if (this.socketHealthTimer) clearInterval(this.socketHealthTimer);
     const oldSocket = this.socket;
     this.socket = null;
     oldSocket?.close();
@@ -253,9 +258,11 @@ export class RelayClient {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     if (this.refreshTimer) clearInterval(this.refreshTimer);
     if (this.socketTimeout) clearTimeout(this.socketTimeout);
+    if (this.socketHealthTimer) clearInterval(this.socketHealthTimer);
     this.socket?.close();
     this.socket = null;
     this.historyLoading.clear(); this.catalogLoading.clear(); this.catalogReloads.clear(); this.watched.clear(); this.subscribed.clear(); this.resyncing.clear(); this.presenceVersions.clear();
+    this.activeThread = undefined;
     this.notificationVersions.clear();
     this.deviceVersions.clear(); this.removedDevices.clear(); this.devicesRequest++;
     this.weixinVersion++;
@@ -393,11 +400,14 @@ export class RelayClient {
       this.socket = ws;
       if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
       const currentSocket = () => currentAttempt() && this.socket === ws;
+      let lastMessageAt = Date.now();
+      let probeDevice: string | undefined;
       const recover = (notice: string) => {
         if (!currentSocket()) return;
         // Detach first: close/error callbacks can be delayed or never arrive through a proxy.
         this.socket = null;
         if (this.socketTimeout) clearTimeout(this.socketTimeout);
+        if (this.socketHealthTimer) clearInterval(this.socketHealthTimer);
         this.subscribed.clear(); this.resyncing.clear();
         this.set({ phase: 'reconnecting', notice });
         retry(3000);
@@ -406,6 +416,20 @@ export class RelayClient {
       this.socketTimeout = setTimeout(() => {
         recover('实时连接超时，正在重试；请检查 VPN 或代理设置');
       }, SOCKET_AUTH_TIMEOUT_MS);
+      this.socketHealthTimer = setInterval(() => {
+        if (!currentSocket() || !this.foreground || this.view.phase !== 'connected' || probeDevice || Date.now() - lastMessageAt < SOCKET_IDLE_PROBE_MS) return;
+        const device = this.view.devices.find(value => this.subscribed.has(value.id) && this.view.snapshots[value.id]);
+        if (!device) return;
+        // Browser/RN sockets expose no ping/pong. Resume the existing subscription
+        // to request a bounded replay and an application-level acknowledgement.
+        probeDevice = device.id;
+        this.socketTimeout = setTimeout(() => {
+          probeDevice = undefined;
+          if (this.foreground) recover('实时连接无响应，正在恢复同步');
+        }, SOCKET_AUTH_TIMEOUT_MS);
+        try { this.subscribeDevice(device.id); }
+        catch { recover('实时连接失败，正在恢复同步'); }
+      }, SOCKET_HEALTH_INTERVAL_MS);
       ws.onopen = () => {
         if (!currentSocket()) return;
         try { ws.send(JSON.stringify({ type: 'client.authenticate', ticket })); }
@@ -415,10 +439,15 @@ export class RelayClient {
         if (!currentSocket()) return;
         try {
           const message = JSON.parse(String(event.data)) as Record<string, unknown>;
+          lastMessageAt = Date.now();
           if (message.type === 'client.authenticated') {
             if (this.socketTimeout) clearTimeout(this.socketTimeout);
           }
           this.handle(message);
+          if (probeDevice && message.type === 'sync.ready' && message.deviceId === probeDevice && !this.view.syncing[probeDevice]) {
+            if (this.socketTimeout) clearTimeout(this.socketTimeout);
+            probeDevice = undefined;
+          }
         } catch { this.notice('收到无法解析的服务器消息'); }
       };
       ws.onerror = () => recover('实时连接失败，正在重试；请检查 VPN 或代理设置');
@@ -440,6 +469,7 @@ export class RelayClient {
       this.set({ phase: 'connected', notice: '' });
       if (this.view.role === 'user') void this.weixinStatus().catch(() => undefined);
       for (const device of this.view.devices) { if (this.view.snapshots[device.id] && !this.subscribed.has(device.id)) this.subscribeDevice(device.id); void this.loadCatalog(device.id); }
+      if (this.activeThread) void this.loadHistory(this.activeThread.deviceId, this.activeThread.threadId);
       for (const [id, pending] of this.pending) void this.api<{ result: CommandResult | null }>(`/v1/devices/${encodeURIComponent(pending.deviceId)}/commands/${encodeURIComponent(id)}`).then(response => { if (response.result) this.finishCommand(response.result); }).catch(() => undefined);
     } else if (message.type === 'device.removed' && deviceId) {
       this.forgetDevice(deviceId);
@@ -529,6 +559,7 @@ export class RelayClient {
   }
 
   watchThread(deviceId: string, threadId: string, force = false): void {
+    this.activeThread = { deviceId, threadId };
     const snapshot = this.view.snapshots[deviceId];
     if (this.view.phase !== 'connected' || this.view.syncing[deviceId] || !snapshot || !this.view.devices.find(device => device.id === deviceId)?.online || !force && snapshot.threads[threadId]?.ownerAvailable) return;
     const key = historyKey(deviceId, threadId);

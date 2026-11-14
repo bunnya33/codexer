@@ -27,10 +27,15 @@ export function Disclosure({ open, children }: { open: boolean; children: ReactN
       pointerEvents={open ? "auto" : "none"}
       accessibilityElementsHidden={!open}
       importantForAccessibility={open ? "auto" : "no-hide-descendants"}
-      style={{ height, overflow: "hidden" }}
+      style={{ maxHeight: measured ? height : undefined, overflow: "hidden" }}
     >
-      {/* Measure at the available width without the animated viewport's height constraint. */}
-      <View style={{ position: "absolute", top: 0, left: 0, right: 0 }} onLayout={(e) => setMeasured(Math.ceil(e.nativeEvent.layout.height))}>{children}</View>
+      {/* Keep content in normal flow until its first layout is available. A zero
+          height viewport can otherwise prevent native children from measuring. */}
+      <View style={{ flexShrink: 0 }} onLayout={(e) => {
+        const next = Math.ceil(e.nativeEvent.layout.height);
+        if (!measured && open) height.setValue(next);
+        setMeasured(next);
+      }}>{children}</View>
     </Animated.View>
   );
 }

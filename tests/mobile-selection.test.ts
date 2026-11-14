@@ -68,7 +68,7 @@ async function fixture(options: FixtureOptions = {}) {
   const sockets: { onmessage?: (event: { data: string }) => void }[] = [];
   const deviceGate = gate(), catalogGate = gate(), historyGate = gate();
   const uploadRequests: string[] = []; let uploadedFile: { name: string; size: number; mimeType: string };
-  const imageUploads: { path: string; name: string; id: string }[] = [];
+  const imageUploads: { path: string; name: string; id: string; mimeType: string }[] = [];
   const earlierRequests: string[] = [];
   const historyRequests: string[] = [], commands: RemoteCommand[] = [], errors: unknown[] = [];
   let refresh!: () => void;
@@ -90,8 +90,8 @@ async function fixture(options: FixtureOptions = {}) {
         const response = (value: unknown) => new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json' } });
         if (path === '/health') return response({ version: '8.7.6' });
         if (path.endsWith('/images') && init?.method === 'POST') {
-          const { name } = JSON.parse(String(init.body)), id = (imageUploads.length + 1).toString(16).padStart(64, '0');
-          imageUploads.push({ path, name, id });
+          const { name, mimeType } = JSON.parse(String(init.body)), id = (imageUploads.length + 1).toString(16).padStart(64, '0');
+          imageUploads.push({ path, name, id, mimeType });
           await options.imageUpload?.wait;
           if (options.imageUpload?.fail) return new Response(JSON.stringify({ error: 'image-upload-failed' }), { status: 503 });
           return response({ id, name });
@@ -441,6 +441,32 @@ it('automatically folds completed work, keeps the final reply visible and expand
     await vi.waitFor(()=>expect(doc.body.textContent).toContain('过程中的进度说明'));
     expect(doc.querySelector('[data-testid="work-disclosure-active-turn"]')).toBeNull();
   } finally {test.close();}
+});
+
+it.each(['final_answer', 'commentary'] as const)('keeps %s replies outside the fold despite a later tool record and shows time above duration', async phase => {
+  const turn: HistoryTurn = {id:'mac-turn',status:'completed',startedAtMs:1000,completedAtMs:8000,durationMs:7000,truncated:false,items:[
+    {id:'prompt',type:'userMessage',text:'来自 Mac 设备的会话',truncated:false},
+    {id:'progress',type:'agentMessage',phase:'commentary',text:'可展开查看的处理说明',truncated:false},
+    {id:'reply',type:'agentMessage',phase,text:'应一直可见的回复正文',truncated:false},
+    {id:'late-tool',type:'commandExecution',command:'echo done',status:'completed',truncated:false},
+  ]};
+  const test = await fixture({controls:{active:false,text:'',images:[]},review:{turns:[turn]}});
+  try {
+    const doc = test.dom.window.document;
+    await vi.waitFor(() => expect(doc.querySelector('[data-testid="work-disclosure-mac-turn"]')).not.toBeNull());
+    const toggle = doc.querySelector('[data-testid="work-disclosure-mac-turn"]')!;
+    const timing = toggle.parentElement!.querySelector('[data-testid="turn-timing"]')!;
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(doc.body.textContent).toContain('应一直可见的回复正文');
+    expect(doc.body.textContent).not.toContain('可展开查看的处理说明');
+    expect(timing).not.toBeNull();
+    expect(timing.compareDocumentPosition(toggle) & 4).toBe(4);
+    await test.click(toggle.getAttribute('aria-label')!);
+    await vi.waitFor(() => expect(doc.body.textContent).toContain('可展开查看的处理说明'));
+    expect(doc.body.textContent).toContain('应一直可见的回复正文');
+    expect(toggle.parentElement!.querySelectorAll('[data-testid="turn-timing"]')).toHaveLength(1);
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
 });
 
 async function pagingFixture(paging: NonNullable<FixtureOptions['paging']>, options: FixtureOptions = {}) {
@@ -1372,13 +1398,26 @@ async function selectDraftDevice(test: Awaited<ReturnType<typeof fixture>>, from
   await test.click(`选择设备 ${to}，在线`);
   await vi.waitFor(() => expect(test.app().relay.getSnapshot().syncing[to]).toBe(false));
 }
-const draftImage = (name = '草稿 截图.png') => ({ uri: 'data:image/png;base64,ZmFrZQ==', fileName: name, width: 1, height: 1, mimeType: 'image/png', base64: 'ZmFrZQ==' });
+const draftImage = (name = '草稿 截图.png') => ({ uri: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB', fileName: name, width: 1, height: 1, mimeType: 'image/png', base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB' });
 async function addDraftImage(test: Awaited<ReturnType<typeof fixture>>) {
   await test.click('添加附件');
   await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="添加图片与视频"]')).not.toBeNull());
   await test.click('添加图片与视频');
   await vi.waitFor(() => expect(test.imageUploads.length).toBeGreaterThan(0));
 }
+
+it('uploads iOS picker JPEG bytes with matching MIME and filename despite original PNG metadata', async () => {
+  const asset = {...draftImage(),base64:'/9j/4AAQSkZJRgAB'};
+  const test = await fixture({controls:{active:false,text:'',images:[]},imagePicker:async () => ({canceled:false,assets:[asset]})});
+  try {
+    await vi.waitFor(() => { const button=test.dom.window.document.querySelector('[aria-label="添加附件"]'); expect(button).not.toBeNull(); expect(button?.getAttribute('aria-disabled')).not.toBe('true'); });
+    await addDraftImage(test);
+    expect(test.imageUploads[0]).toMatchObject({name:'草稿 截图.jpg',mimeType:'image/jpeg'});
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[aria-label="预览 草稿 截图.jpg"]')).not.toBeNull());
+    expect(test.dom.window.document.body.textContent).not.toContain('图片格式无效');
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
 
 it('restores independent multiline drafts after immediate conversation switches and repeated selection', async () => {
   const test = await fixture({ controls: { active: false, text: '', images: [] } });

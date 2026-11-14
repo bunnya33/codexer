@@ -263,17 +263,21 @@ export function activityLabel(block: ActivityBlock, nowMs = Date.now()): string 
   return duration === undefined ? "处理记录" : `已处理${elapsed}`;
 }
 
-/** Only the trailing final reply stays outside the completed work disclosure.
- * Earlier replies in a continued turn and steering messages remain in sequence.
+/** Keep the latest reply visible even when tools or metadata follow it, or an
+ * older runtime records the completed reply as commentary. Earlier replies in a
+ * continued turn and steering messages remain in sequence.
  */
 export function splitActivityReply(block: ActivityBlock): {process: RemoteItem[]; final: RemoteItem[]} {
-  let boundary = block.items.length;
-  while (boundary > 0) {
-    const item = block.items[boundary - 1]!;
-    if (messageRole(item) !== 'assistant' || !(item.phase === 'final_answer' || block.state === 'completed' && !item.phase)) break;
-    boundary--;
+  const lastUser = block.items.findLastIndex(item => messageRole(item) === 'user');
+  const reply = (item: RemoteItem) => messageRole(item) === 'assistant' && (item.phase === 'final_answer' || block.state === 'completed' && !item.phase);
+  let end = block.items.findLastIndex((item, index) => index > lastUser && reply(item));
+  if (end < 0 && ['completed', 'interrupted', 'failed'].includes(block.state)) {
+    end = block.items.findLastIndex((item, index) => index > lastUser && messageRole(item) === 'assistant' && !!(item.text?.trim() || item.images?.length || item.files?.length));
   }
-  return {process: block.items.slice(0,boundary), final: block.items.slice(boundary)};
+  if (end < 0) return {process: block.items, final: []};
+  let start = end;
+  if (reply(block.items[end]!)) while (start > lastUser + 1 && reply(block.items[start - 1]!)) start--;
+  return {process: [...block.items.slice(0, start), ...block.items.slice(end + 1)], final: block.items.slice(start, end + 1)};
 }
 
 export function completedActivityLabel(block: ActivityBlock): string {
