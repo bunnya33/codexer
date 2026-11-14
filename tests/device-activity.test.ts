@@ -1,9 +1,24 @@
 import { expect, it } from 'vitest';
-import { deviceHasRunningTasks, deviceRunningTaskCount } from '../packages/client-shared/src/device-activity.js';
+import { deviceHasRunningTasks, deviceRunningTaskCount, devicesActivityStatus } from '../packages/client-shared/src/device-activity.js';
 import { reduceEvent } from '../packages/protocol/src/index.js';
 import { event, snapshot } from './helpers.js';
 
 const device = { id: 'device-test', online: true };
+
+it('aggregates activity across every online device and ignores stale offline work', () => {
+  const running = snapshot();
+  const idle = { ...snapshot(), deviceId: 'idle-device', threads: {} };
+  const devices = [{ id: 'idle-device', online: true }, device];
+  const snapshots = { [running.deviceId]: running, [idle.deviceId]: idle };
+  expect(devicesActivityStatus([], snapshots)).toBe('offline');
+  expect(devicesActivityStatus(devices, snapshots)).toBe('running');
+  expect(devicesActivityStatus([...devices].reverse(), snapshots)).toBe('running');
+  expect(devicesActivityStatus([devices[0]!, { ...device, online: false }], snapshots)).toBe('idle');
+  expect(devicesActivityStatus(devices.map(value => ({ ...value, online: false })), snapshots)).toBe('offline');
+  expect(devicesActivityStatus(devices, {})).toBe('idle');
+  running.runtime.connected = false;
+  expect(devicesActivityStatus(devices, snapshots)).toBe('idle');
+});
 
 it('keeps the device active until every running conversation has finished', () => {
   let state = snapshot();

@@ -1,7 +1,7 @@
 // Cross-language contract checks: the shipped C++ backend must obey the shared Zod protocol.
 import {execFileSync} from 'node:child_process';
 import {mkdir, readFile, writeFile} from 'node:fs/promises';
-import {resolve, join} from 'node:path';
+import {resolve, join, delimiter} from 'node:path';
 import assert from 'node:assert/strict';
 import {commandSchema, threadSchema, historyPageSchema} from '../packages/protocol/src/index.js';
 import {normalizeThread, normalizeHistoryTurn} from '../packages/codex-adapter/src/normalize.js';
@@ -92,8 +92,9 @@ for(const value of [
  {mode:'form',serverName:'browser',requestedSchema:{type:'object',properties:{password:{type:'string'}}},_meta:{origin:'https://example.test'}},
 ]) add('approval',value);
 await writeFile(join(dir,'input.json'),JSON.stringify(jobs));
-const sdk=process.env.CODEXER_QT_ROOT || process.env.QT_ROOT_DIR || join(root,'.local/qt/6.8.3/msvc2022_64');
-execFileSync(join(root,'apps/agent-qt/build/Release/CodexerNativeTests.exe'),['--protocol-fixtures',join(dir,'input.json'),join(dir,'output.json')],{env:{...process.env,PATH:join(sdk,'bin')+';'+process.env.PATH},windowsHide:true});
+const sdk=process.env.CODEXER_QT_ROOT || process.env.QT_ROOT_DIR || join(root,'.local/qt/6.8.3',process.platform==='win32'?'msvc2022_64':'macos');
+const nativeTests=join(root,'apps/agent-qt/build',process.platform==='win32'?'Release/CodexerNativeTests.exe':'CodexerNativeTests');
+execFileSync(nativeTests,['--protocol-fixtures',join(dir,'input.json'),join(dir,'output.json')],{env:{...process.env,PATH:join(sdk,'bin')+delimiter+process.env.PATH},windowsHide:true});
 const results=JSON.parse(await readFile(join(dir,'output.json'),'utf8'));
 assert.equal(results.length,jobs.length);
 for(let i=0;i<jobs.length;i++) {

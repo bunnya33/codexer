@@ -18,6 +18,7 @@
 | [服务器更新](server-update.md) | Release/Git tag 切换、分步构建、手动重启、校验、回退与部署要求 |
 | [让 Codex 更新服务器](server-deploy.md) | 专用网页授权、多端安装包发布、服务器安装及核验 |
 | [客户端更新与设置](client-updates.md) | Relay 上传客户端、版本检查、托盘/设置红点、校验下载和响应式设置 |
+| [文件下载性能](file-download-performance.md) | Agent 调度、Relay 预取、版本兼容、实测数据与分段定位 |
 | [Relay](relay.md) | Go 服务职责、配置、存储、连接和错误处理 |
 | [微信 ClawBot](weixin.md) | 每账号独立扫码绑定、多 PC 完成通知、微信回复续做 |
 | [发布授权协议](publishing-auth.md) | 权限边界、凭据轮换、撤销与审计 |
@@ -35,6 +36,7 @@
 | [安全与配置](security.md) | 会话、凭据、日志、示例地址、公开文件边界 |
 | [发布与打包](release.md) | Windows/macOS、服务器包、App、签名与升级 |
 | [Android 发布签名](android-signing.md) | 原密钥与加密密码位置、证书核验、自动签名打包、迁移保管 |
+| [iOS 真机安装](ios-device.md) | 免费 Apple ID、Xcode Personal Team、Release 构建与本机安装 |
 | [干净源码导出](new-repository.md) | 无历史源码导出、检查、仓库初始化与当前地址 |
 | [目录清理与保留说明](cleanup.md) | 废弃入口、历史资料、构建范围、仍需保留的文件 |
 | [验证范围](validation.md) | 本次检查结果及实机/生产验收范围 |

@@ -3,6 +3,7 @@ import { ActivityIndicator, Platform, Pressable, Text, View } from "react-native
 import { useClientUpdates } from "./client-updates";
 import { useTheme } from "./styles";
 import type { ClientUpdatePhase } from "./client-update-state";
+import { DownloadLibraryButton } from './download-library';
 export function ClientUpdatePanel() {
   const { c } = useTheme(),
     updates = useClientUpdates(),
@@ -122,9 +123,10 @@ export function ClientUpdatePanel() {
           onPress={() => task.current?.abort()}
           style={{ padding: 12, alignSelf: "center" }}
         >
-          <Text style={{ color: c.accent }}>取消更新</Text>
+          <Text style={{ color: c.accent }}>暂停下载</Text>
         </Pressable>
       )}
+      <DownloadLibraryButton />
       {!!note && (
         <Text accessibilityLiveRegion="polite" style={{ color: c.muted, lineHeight: 22 }}>
           {note}

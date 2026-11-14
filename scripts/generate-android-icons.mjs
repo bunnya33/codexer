@@ -38,32 +38,21 @@ export function generateAndroidIcons() {
   const foreground = new PNG({ width: source.width, height: source.height });
   const monochrome = new PNG({ width: source.width, height: source.height });
   const background = new PNG({ width: 1024, height: 1024 });
-  // The supplied artwork has a blue backdrop and cream/navy subject. Estimate
-  // each row's backdrop from its unobstructed left edge and remove only blue.
+  // Keep the supplied black-and-white frog artwork intact. White stays in the
+  // foreground so the subject remains legible against the white adaptive layer.
   for (let y = 0; y < source.height; y++) {
-    const edge = (y * source.width + 20) * 4;
-    const blue = [...source.data.subarray(edge, edge + 3)];
     for (let x = 0; x < source.width; x++) {
       const index = (y * source.width + x) * 4;
-      let alpha = clamp(Math.max((source.data[index] - blue[0]) / (253 - blue[0]), (blue[2] - source.data[index + 2]) / (blue[2] - 80)));
-      if (alpha < 0.12) alpha = 0;
-      if (alpha > 0.92) alpha = 1;
+      foreground.data.set(source.data.subarray(index, index + 4), index);
       for (let channel = 0; channel < 3; channel++) {
-        foreground.data[index + channel] = alpha ? Math.max(0, Math.min(255, Math.round((source.data[index + channel] - blue[channel] * (1 - alpha)) / alpha))) : 0;
         monochrome.data[index + channel] = 255;
       }
-      foreground.data[index + 3] = Math.round(alpha * 255);
-      // Keep both ears; turn the navy eyes and smile into transparent cutouts.
-      const face = y > source.height * 0.6;
-      monochrome.data[index + 3] = Math.round(alpha * (face ? clamp((source.data[index] - 70) / 140) : 1) * 255);
+      const luminance = (source.data[index] + source.data[index + 1] + source.data[index + 2]) / (3 * 255);
+      // A transparent mask of the ink supports Android's themed launcher icons.
+      monochrome.data[index + 3] = Math.round(clamp((1 - luminance - 0.08) / 0.92) * source.data[index + 3]);
     }
   }
-  for (let y = 0; y < background.height; y++) for (let x = 0; x < background.width; x++) {
-    const edge = (Math.min(source.height - 1, Math.floor(y / background.height * source.height)) * source.width + 20) * 4;
-    const index = (y * background.width + x) * 4;
-    background.data.set(source.data.subarray(edge, edge + 3), index);
-    background.data[index + 3] = 255;
-  }
+  background.data.fill(255);
   const save = (name, png) => writeFileSync(join(assets, name), PNG.sync.write(png));
   save('android-icon.png', resize(source, 1024));
   save('android-icon-background.png', background);

@@ -28,11 +28,15 @@ import { ImageViewer } from './src/image-viewer';
 import { historyKey, relay } from './src/relay';
 import { useTheme } from './src/styles';
 import { Directory } from './src/directory';
+import { appDisplayName } from './src/branding';
+import { ScreenAwakeProvider } from './src/screen-awake';
+import { Login } from './src/login';
+import { DownloadLifecycle } from './src/download-library';
 import { ProjectCreate } from './src/project-create';
 import { ProjectActions } from './src/project-actions';
 import { ProjectTransfers } from './src/project-transfers';
 import { ProjectBrowser } from './src/project-browser';
-import { confirmAction, defaultRelayUrl } from './src/runtime';
+import { confirmAction } from './src/runtime';
 import { ConversationControls } from './src/conversation-controls';
 import { ConversationViewport } from './src/conversation-viewport';
 import { ConversationDrawer } from './src/conversation-drawer';
@@ -55,22 +59,6 @@ import { MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES, attachmentByteLimit } from '../.
 import { useConversationDraft } from './src/conversation-drafts';
 import type { DraftImage, DraftAttachment } from './src/conversation-drafts';
 
-function Login({ connect, busy, error }: { connect: (url: string, username: string, password: string) => void; busy: boolean; error: string }) {
-  const { c, s, theme } = useTheme();
-  const [url, setUrl] = useState(defaultRelayUrl);
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const relayUrl = Platform.OS === 'web' ? defaultRelayUrl() : url;
-  return <SafeAreaView style={s.safe}><StatusBar style={theme.dark ? "light" : "dark"} /><View style={s.login}>
-    <View style={s.brandRow}><View style={s.brandMark}><Terminal size={24} color={c.onSolid} /></View><Text style={s.brand}>Codexer</Text></View>
-    <Text style={s.heading}>账号登录</Text><Text style={s.sub}>登录后选择同账号的 PC Agent</Text>
-    {Platform.OS !== 'web' && <><Text style={s.label}>服务器地址</Text><TextInput accessibilityLabel="服务器地址" style={s.field} value={url} onChangeText={setUrl} autoCapitalize="none" autoCorrect={false} keyboardType="url" placeholder="http://服务器地址:端口" placeholderTextColor={c.muted} /></>}
-    <Text style={s.label}>账号</Text><TextInput accessibilityLabel="账号" style={s.field} value={username} onChangeText={setUsername} autoCapitalize="none" autoCorrect={false} autoComplete="username" placeholder="账号名称" placeholderTextColor={c.muted} />
-    <Text style={s.label}>密码</Text><TextInput accessibilityLabel="密码" style={s.field} value={password} onChangeText={setPassword} autoCapitalize="none" autoCorrect={false} autoComplete="current-password" secureTextEntry placeholder="密码" placeholderTextColor={c.muted} />
-    {!!error && <Text style={s.error}>{error}</Text>}
-    <Pressable accessibilityRole="button" onPress={() => connect(relayUrl, username, password)} disabled={busy || !relayUrl.trim() || !username.trim() || !password} style={[s.primary, (busy || !relayUrl.trim() || !username.trim() || !password) && s.disabled]}>{busy ? <ActivityIndicator color={c.onAccent} /> : <Text style={s.primaryText}>登录</Text>}</Pressable>
-  </View></SafeAreaView>;
-}
 
 function AppContent() {
   const { c, s, theme } = useTheme();
@@ -494,7 +482,7 @@ function AppContent() {
         filesEnabled={ready && !busy && !!snapshot?.runtime.capabilities.attachments && files.length < MAX_ATTACHMENTS}
         imagesEnabled={ready && !busy && !!snapshot?.runtime.capabilities.images && images.length < imageLimit} onImageError={message => relay.showNotice(message)}>
       <DrawerSwipeArea>
-      <ConversationHeader title={summary?.title ?? thread?.title ?? 'Codexer'} subtitle={`${project?.name ?? device?.name ?? '选择设备'}${threadId ? ` · ${thread?.status === 'active' ? '进行中' : thread?.status === 'idle' ? '空闲' : '接入中'}` : ''}`}
+      <ConversationHeader title={summary?.title ?? thread?.title ?? appDisplayName} subtitle={`${project?.name ?? device?.name ?? '选择设备'}${threadId ? ` · ${thread?.status === 'active' ? '进行中' : thread?.status === 'idle' ? '空闲' : '接入中'}` : ''}`}
         threadUsage={chatUsage}
         running={thread?.status === 'active'}
         managementDisabled={managing || !device?.online || view.phase !== 'connected' || !!view.syncing[deviceId]}
@@ -586,4 +574,4 @@ function AppContent() {
   </View>;
 }
 
-export default function App() { return <ThemeProvider><SafeAreaProvider><AppContent /></SafeAreaProvider></ThemeProvider>; }
+export default function App() { return <ThemeProvider><ScreenAwakeProvider><DownloadLifecycle /><SafeAreaProvider><AppContent /></SafeAreaProvider></ScreenAwakeProvider></ThemeProvider>; }

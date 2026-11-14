@@ -1,7 +1,7 @@
 import { useContext, useEffect, useRef, useState } from 'react';
 import type {ReactNode} from 'react';
 import {ProjectBrowseContext} from './project-browser-context';
-import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { ChevronLeft, ChevronRight, Copy, Download, FileCode2, Folder, Search } from 'lucide-react-native';
 import type { HistoryTurn } from '../../../packages/protocol/src/index';
 import type { FileInfo } from '../../../packages/protocol/src/files';
@@ -66,7 +66,7 @@ export function FileChangesPanel({ changes, compact = true, deviceId = '', threa
     if (!source?.info || source.path !== path || downloadLock.current) return;
     downloadLock.current = true; setDownloading(true);
     const controller = new AbortController(); operation.current?.abort(); operation.current = controller;
-    try { await downloadFile(relay.fileSource(deviceId, threadId, source.path, source.info.version), source.info, controller.signal, progress => { if (!controller.signal.aborted) setFeedback(`正在下载… ${Math.round(progress * 100)}%`); }); if (!controller.signal.aborted) setFeedback('文件已交给系统保存。'); }
+    try { await downloadFile(relay.fileSource(deviceId, threadId, source.path, source.info.version), source.info, controller.signal, progress => { if (!controller.signal.aborted) setFeedback(`正在下载… ${Math.round(progress * 100)}%`); }); if (!controller.signal.aborted) setFeedback(['ios', 'android'].includes(Platform.OS) ? '文件已保存到下载列表。' : '文件已交给系统保存。'); }
     catch (failure) { if (!controller.signal.aborted) setFeedback(fileError(failure)); }
     finally { downloadLock.current = false; setDownloading(false); }
   };

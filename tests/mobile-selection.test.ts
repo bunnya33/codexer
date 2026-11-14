@@ -17,7 +17,7 @@ const catalog = (deviceId: string): DeviceCatalog => ({
 });
 let javascript = '', css = '';
 beforeAll(async () => {
-  const result = await build({ entryPoints: ['tests/fixtures/selection-app.tsx'], outdir: '.local/selection-tests', bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic',
+  const result = await build({ entryPoints: ['tests/fixtures/selection-app.tsx'], outdir: '.local/selection-tests', bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic', loader: { '.png': 'dataurl' },
     resolveExtensions: ['.web.tsx', '.web.ts', '.web.js', '.tsx', '.ts', '.jsx', '.js', '.json'], nodePaths: [resolve('apps/mobile/node_modules')], alias: { 'react-native': 'react-native-web' },
     plugins: [{ name: 'fixture-pickers', setup(build) {
       build.onResolve({ filter: /^\.\/src\/attachment-picker$/ }, () => ({ path: 'files', namespace: 'fixture' }));

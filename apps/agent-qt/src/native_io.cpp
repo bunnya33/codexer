@@ -106,6 +106,9 @@ QString executable(const Object &settings) {
     candidates << "/Applications/Codex.app/Contents/Resources/codex"
                << QDir::homePath() +
                       "/Applications/Codex.app/Contents/Resources/codex"
+               << "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"
+               << QDir::homePath() +
+                      "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"
                << "/opt/homebrew/bin/codex" << "/usr/local/bin/codex";
 #endif
     candidates << QStandardPaths::findExecutable(

@@ -1,5 +1,97 @@
 # 当前 Go 迁移验证
 
+## 2026-11-14 FrogCoder iOS 0.1.21 / build 6
+
+用户确认下载速度可接受后要求新的 IPA。在 `main` 再次 fetch，`HEAD` 与 `origin/main` 仍为 `2ce9a57`，保留全部已有改动。仅将 iOS buildNumber 从 5 递增到 6，并同步本地生成工程的 Info.plist；共享界面与业务逻辑沿用已验证的 build 5，Android versionCode 仍为 25，没有为本轮再次导出或构建 Android。
+
+Xcode 实际完成 iPhoneOS arm64 Release 原生编译，结果 `BUILD SUCCEEDED`，沿用原 Bundle Identifier 和团队签名。Mobile 类型检查通过；最终 source map 的 147 份应用／共享源码逐一匹配构建时的工作区，包含下载列表、断点继续、关闭文件弹窗后继续下载、完成红点、页脚分组、设备状态青蛙、登录键盘避让与常亮设置。未因本轮仅修改构建元数据而重复运行此前通过的 42 项功能及 103 项界面回归；既有结果及来源单独记录。提交前仅清理登录组件文件末尾多余空行，运行逻辑保持。
+
+IPA 为 `release/ios-0.1.21-build6/FrogCoder-0.1.21-build6-development.ipa`，13,252,837 字节，SHA-256 `1c772e9c816b9a3e5c233b6920aed5e97ae4d13ebe58485092805c8f7ea6d827`。签名 App 与 IPA 解包后均通过深度严格签名检查，71 个文件逐一一致；原生 AppIcon、包内品牌图及三种状态图标与当前资源一致。最低 iOS 16.4，描述文件包含此前登记的手机，实际到期日为 2027-11-13T09:17:34Z。旧包保留；本轮未安装到手机或进行硬件验收，常亮和后台切换行为仍按手机功能原有范围。构建、source map、签名及验包回执在 `.local/ios-builds/20261114-0.1.21-build6` 和 IPA 目录。
+
+## 2026-11-14 文件下载性能 / Qt Agent 0.2.39 / Relay 0.3.64
+
+在 `main` 核对 `HEAD` 与最新 `origin/main` 均为 `2ce9a57`，保留此前全部未提交改动。对同一份 build 3 IPA（13,047,285 字节）完成实际 Qt WebSocket 回环基准：同样 50 块、256 KiB 和 30ms 块间延迟，旧调度 12,481ms，新调度 1,951ms，约 6.4 倍；直接文件读取与 Base64 编码为 39ms／33ms，重组后的 SHA-256 均匹配。真实旧 Agent 下载采样另确认工作线程约 87% 样本停在运行时刷新等待；Mac 浏览器下载 87.98 秒仍未完成、261.34 秒观察时已完成，不能写成精确 261 秒或手机实测。诊断在 `.local/download-diagnostics/20261114-acceleration`，方案与复测方法见 [文件下载性能](file-download-performance.md)。
+
+Agent 文件只读队列不再等待 250ms tick 或运行时调用，维持命令串行、目录与会话授权、取消及连接代次隔离。Relay 下载增加有界两块预取，顺序写出；HTTP 取消／写失败会终止剩余读取，工作协程异常转交 HTTP 中止处理，文件版本及块长度保持验证。项目分块各自复制请求字段，避免并行共享 map。新增 Agent 排队／读取汇总与 Relay 文件回源耗时／错误计数，保留原并发保护及 Base64 协议。Relay 版本来源升至 0.3.64，Agent 版本来源升至 0.2.39；手机无需为此重打包。
+
+Qt 后台最终完整回归 124 项通过、2 项条件跳过（显式启用的文件基准及真实预览夹具），隔离真实 writer 检查通过；UI 18 项通过、1 项截图条件跳过，338 个跨语言协议案例通过。新增调度测试覆盖运行时等待期间的实际 WebSocket 文件回复、项目与会话数据、命令不重入、错误会话、旧代次、取消、断线和 UI 请求顺序；最后仅修正测试观察者的生命周期，再编译并复跑该专项通过。Go 全部测试、Relay race 检查、Go 驱动构建、54 项真实 Relay 集成与根工程类型检查通过。Web／Admin／Go 生产构建通过；随后用户自行更新远程服务器，`/health` 只读核对为 0.3.64，没有代用户执行部署或核对远程二进制摘要。
+
+macOS Qt arm64 实际编译并打包，18 个 Mach-O 均包含 arm64，主程序为 arm64；只引用包内或系统依赖，无 Node／Electron。深度严格 ad-hoc 签名及 ZIP 解包／只读挂载 DMG 核对通过，50 个常规文件和 21 个符号链接与最终 stage 一致。ZIP 为 24,015,285 字节，SHA-256 `60db92155e74ae9013e8e2127101844db8c68cc6a614a4e7151d0e4fc33aa8f4`；DMG 为 27,186,175 字节，SHA-256 `d6670c85555ca76ee4f19e503f9dc063448f2e4bcdfafd79b8f65ee9f7d1e2cc`，产物位于 `apps/agent-qt/release`。未公证、构建 Intel／Windows 或发布客户端更新。
+
+Linux amd64 Relay 包 `release/codexer-server-0.3.64-linux-amd64.tar.gz` 为 9,476,062 字节，SHA-256 `dc9123ff7ff94c6f6569c217362b67bd749e434d0bb71d438c2ea9420137a016`；49 个文件逐字节匹配 staging，目录／入口为 0755，其余为 0644。包内版本与清单为 0.3.64，二进制核对为静态 ELF64 x86-64、CGO 关闭；这是 Mac 上的交叉编译与验包，没有在 Linux 主机执行该归档的程序。归档文档为打包时的快照；验包回执在本轮诊断目录的 `server-verification.json`。
+
+确认无活动任务后通过应用菜单正常退出旧 Agent，备份应用和配置，从验证过的 ZIP 替换 `/Applications/Codexer Agent.app`，71 项安装内容逐项匹配，启动前设置与两份原加密凭据保持。用户完成 macOS 钥匙串授权后，原生窗口确认版本 0.2.39、原账号及已连接；状态文件确认原设备身份、全部设置、有效登录及 Relay／桌面／运行时连接，唯一正式 Agent 进程为 17294。旧凭据文件保持，原生加密凭据在会话验证后重写，未读取或输出凭据明文。回执在 `.local/agent-upgrades/20261114-qt-0.2.39`，`.local/qt-macos-installation-latest.json` 已更新为此次通过的 0.2.39。
+
+更新后的真实链路经同一 Mac 浏览器、同一会话文件链接三次下载同一份 IPA，完成观察上界为 20.43／10.96／4.71 秒；第三次完成区间为 3.30–4.71 秒。前两次观察间隔较长，不报告准确总时长、平均值或手机吞吐。网页已验证完整响应大小后显示交给系统保存，本次未取得保存路径做最终文件 SHA-256。Agent 进程累计（含前置探测）文件排队最大 6ms、单块读取／编码最大 9ms。重启后先重新加载旧文件对应历史；期间一次请求频次保护和一次浏览器事件等待超时的尝试均排除，不改变频次保护。用户随后确认当前速度可接受。
+
+## 2026-11-14 FrogCoder 下载交互及设备状态青蛙 / iOS build 5
+
+继续在 `main` 的 `2ce9a57` 上开发，保留所有已有修改。iOS／Android 文件阅读器关闭只解除进度观察，不暂停下载管理器；列表继续显示正在传输的任务，仍可主动暂停／删除。更新入口的显式取消、App 离开前台和账号／服务器切换保持暂停语义。新增完成项的红点与下载记录分开持久保存，点击下载入口清除当前完成项，保存期间新完成的文件仍提示，同一文件重新下载完成后再次提示。侧栏底部下载、刷新和项目传输在左侧，设置在右侧。
+
+手机任务列表在 FrogCoder 名称前显示青蛙；汇总所有在线设备的实时快照，任意运行中任务为黄、在线但无运行中任务为绿、全部离线为黑白，忽略离线设备的陈旧任务及不匹配的快照。按用户参考对原图的身体和脚着色，保留轮廓、眼睛及腹部图案；三份透明 PNG 按 256px 生成，合计 175,030 字节。桌面品牌入口不显示此手机状态图标。
+
+Mobile 与根工程类型检查通过，42 项下载／设备状态专项和 103 项既有界面回归通过。覆盖弹窗关闭与下载入队的竞态、关闭后完成、显式取消、完成提示持久化和保存竞态、多设备状态及页脚分组；修复测试夹具缺失目录字段后双平台实际组件测试通过。图标缩小后再次通过 3 项组件回归并人工查看三种颜色预览。
+
+Xcode 完成最终 iPhoneOS arm64 Release 原生编译，`BUILD SUCCEEDED`；版本 0.1.21／build 5，最低 iOS 16.4。IPA 为 `release/ios-0.1.21-build5/FrogCoder-0.1.21-build5-development.ipa`，13,252,912 字节，SHA-256 `ff13005c733d30339fc6f477267d1d9ed341644f12d1f56856e538693568a61e`。签名 App 及 IPA 解包后深度严格签名验证通过，71 个文件逐一一致，147 份应用／共享源码与当前工作区一致，三种状态图片在签名 App 中逐字节匹配。Android versionCode 为 25，Hermes 导出的 147 份源码及当前导出清单引用的三份图标核对通过；本机缺少 Android SDK 与原发布签名环境，没有生成 APK。本轮未安装到手机或进行实机验证。构建与验包回执在 `.local/ios-builds/20261114-0.1.21-build5` 及 IPA 目录。
+
+针对用户通过会话文件链接下载 IPA 的慢速问题，使用已登录的 Mac 浏览器检查 build 3 的 13,047,285 字节 IPA：超过 60 秒仍在下载，后来界面确认交给系统保存；浏览器下载事件等待超时，未取得准确时长，不能据此报告完整测速或手机吞吐。直接请求 Relay 静态 JS 的 1 MiB Range，三次分别 0.1236／0.3999／0.1864 秒；经 Mac 本地代理三次为 0.2248／0.1012／0.1145 秒。此组只测 Relay 到 Mac 的静态响应，不包含 Agent，也不代表手机网络。源码确认文件按 256 KiB 串行回源且 Base64 扩大约三分之一，Qt Agent 每 250ms tick 最多处理一个排队请求，随后还执行后台维护；这些是待分段计时的可能开销，尚未量化各自占比。没有固定字节速率限制；并发与请求频次保护不等同于限速。本轮未修改传输性能策略或部署服务器，记录在 `.local/download-diagnostics/20261114-ipa/baseline.json`。
+
+## 2026-11-14 macOS Qt Agent 0.2.38 重新打包及本机更新
+
+用户要求构建 Mac Agent 并更新本机。在 `main` fetch 核对 `HEAD` 与 `origin/main` 均为 `2ce9a57`，保留现有全部未提交改动；Agent 的共享版本来源仍为 `apps/desktop/package.json` 的 0.2.38，没有另写版本常量或迁移 Control 宿主。使用 Qt 6.8.3、CMake 3.31.10、Command Line Tools 与 macOS 15.4 SDK 实际完成 arm64 原生编译。后台 123 项通过、1 项真实预览夹具条件跳过；UI 18 项通过、1 项截图条件跳过；338 个跨语言协议案例通过，启用隔离真实 writer 检查且未发送模型任务。
+
+DMG／ZIP 重新生成并完成深度严格 ad-hoc 签名验证；18 个 Mach-O 均包含 arm64，主程序为 arm64，Qt 中部分库仍为通用架构。验证所有依赖来自包内或系统，包内没有 Node／Electron；ZIP 解包及只读挂载 DMG 的 50 个常规文件和 21 个符号链接与最终 stage 一致。ZIP 为 24,008,762 字节，SHA-256 `824b91fff743354848009caea86b1c11bb685f8c2bdb3cf3216d52bb5d350fe9`；DMG 为 27,175,241 字节，SHA-256 `1dcc526baff2f4e74f854fb33b4f9c7c8c32d36dcc11fb260fa7ad65130c3114`。产物位于 `apps/agent-qt/release`，原同名包已备份。本轮未公证、构建 Intel 主程序或发布远程更新。
+
+替换前确认唯一活动会话为本次官方桌面对话，没有其他活动任务或待确认请求。通过应用菜单正常退出旧 Agent，其自己的 app-server 随之退出；完整备份程序和配置后，从验过的 ZIP 内容替换 `/Applications/Codexer Agent.app`。安装内容逐项匹配，启动后原生窗口显示版本 0.2.38、原账号与 Relay 已连接；状态文件确认设备身份、全部设置、登录有效性以及 Relay／运行时／官方桌面 IPC 连接保持。仅有一个正式 Agent 进程；旧 `session.enc` 字节不变，`session.native.enc` 在正常会话验证后重新加密写入。实际确认启动和连接，不扩大为所有远程任务、菜单和键盘交互的实机验收。
+
+备份、构建／测试／验包与安装回执在 `.local/agent-upgrades/20261114-qt-0.2.38`，最新安装记录为 `.local/qt-macos-installation-latest.json`。用户另问手机文件下载较慢：只读核对当前 Relay 无固定字节速率限制，普通文件按 256 KiB 串行回源、Base64 编码，并有全局 4／每设备 2 路传输及 HTTP 请求频次保护；本轮未实测链路吞吐或修改传输策略，不能把本次重装宣称为下载加速。
+
+## 2026-11-14 FrogCoder 下载列表及登录键盘 / iOS build 4
+
+在 `main` 核对 `origin/main` 为 `2ce9a57`，保留之前的 Qt、品牌及常亮修改。手机新增持久下载列表，入口覆盖登录页、侧栏、设置和客户端更新，支持离线打开本地文件、安装 APK、分享、删除及暂停／继续。2 MiB 分块完成后持久保存检查点，双记录恢复中断写入；App 重启将进行中的项目恢复为暂停，继续时覆盖未提交尾部，不混入忽略 Range 的完整响应。切到后台和账号／服务器变化会暂停，不承诺持续后台下载。旧 APK 缓存迁移后可再次安装，受管理的更新 APK 每次安装前重新验证大小及 SHA-256。下载记录不保存认证令牌，续传使用当前原账号／原服务器授权。
+
+登录页改为可滚动布局，iOS 使用键盘避让，键盘显示、输入框聚焦及布局变化时将当前字段滚动到键盘上方；Android 原生配置使用 resize。内容不随键盘切换丢失。手机版本保持 0.1.21，iOS build 递增为 4，Android versionCode 为 24；应用 ID 与签名身份保持。
+
+Mobile 和根工程类型检查通过。TypeScript 共 175 项相关测试通过：下载核心 12 项，原生存储／更新／列表／登录键盘 18 项，真实 Relay 集成 42 项，原有 UI 回归 103 项。覆盖中断后重建管理器继续、部分记录损坏、旧 APK 迁移及删除不复现、安装校验、授权隔离、暂停／删除竞态、文件变化、206／416／HEAD 和忽略 Range。完整 Go 测试及 `go test -race ./apps/relay` 通过。文件系统、键盘和原生安装接口采用模拟，重启通过持久数据及重新创建管理器模拟，不代替硬件上的强制结束／重新启动、真实键盘和安装程序验收。
+
+Xcode 实际完成 iPhoneOS arm64 Release 原生编译和开发签名，结果 `BUILD SUCCEEDED`。新 IPA 为 `release/ios-0.1.21-build4/FrogCoder-0.1.21-build4-development.ipa`，13,083,328 字节，SHA-256 `fc0ac1c31d5e5cb6d8c35db5f437a329375ee54c372f8c5937d52f20cd32f965`。签名 App 及解包产物通过深度严格签名检查，68 个文件逐一一致；iOS 包内与 Android Hermes 导出各 145 份应用／共享源码匹配工作区，包含实际下载及登录组件。回执和日志保存于 `.local/ios-builds/20261114-0.1.21-build4/`，IPA 目录另存验包回执，旧包保留。本轮未安装到手机，也未完成真实键盘位置、系统文件交互或断点续传实机验收。Android 只完成源码、回归和 JS 导出，因本机缺少 SDK 及原签名环境，未生成新版 APK。
+
+Relay 版本递增为 0.3.63，普通会话／项目文件下载新增授权后的流式 HTTP Range 支持，沿用 Agent 协议，不改变 PC Agent。Web／Admin／Go 生产构建通过，Mac 原生可执行文件输出版本 0.3.63。配套 Linux amd64 更新归档在本机准备并核验，详情记录于构建回执；本轮未部署、上传或发布服务器。普通文件续传需部署此 Relay，原有 APK 更新接口已支持 Range；旧 Relay 仍可完整下载普通文件。
+
+## 2026-11-14 FrogCoder 手机常亮设置 / iOS build 3
+
+在 `main` 再次 fetch 核对 `origin/main` 仍为 `2ce9a57`，保留原有未提交修改。iOS／Android 默认在前台一直常亮，新增「设置 → 屏幕常亮」，支持关闭、一直常亮及 1–30 分钟定时，设置持久保存在本机。切到后台／退出会释放常亮，回前台和实际修改设置后重新计时；到期恢复系统自动锁屏，可手动重新计时。使用已安装并已链接的 ExpoKeepAwake 57.0.2，并声明直接依赖；原生请求串行执行，防止迟到的开启请求覆盖关闭／到期操作，读取旧偏好也不会覆盖较新的手动选择。Web 和桌面使用无常亮入口的适配层。
+
+Android 显示名与登录／侧栏品牌一并改为 FrogCoder，普通、自适应和单色图标均使用同一青蛙图片，白色背景，圆形自适应安全区内没有黑色线条被裁掉。保留原 applicationId、iOS Bundle Identifier 和签名身份；Android versionCode 递增至 23，iOS 版本保持 0.1.21、build 递增至 3。Mobile 与根工程类型检查、双平台 22 项常亮专项回归、104 项现有 App／原生会话选择回归、预览运行时及 Android JS 导出通过。专项覆盖默认行为、前后台／卸载组件释放、1／30 分钟边界、重启保存、延迟读取／原生调用竞态、写入和原生错误。现有 App 测试夹具补上 PNG 资源加载后回归全部通过。Windows 共享原生检查因本机没有 `react-native-windows` 依赖而未运行通过，不将其记为编译成功。
+
+Xcode 实际完成 iPhoneOS arm64 Release 原生编译和开发签名，`BUILD SUCCEEDED`；iOS 包内及 Android 导出 source map 各 140 份应用／共享源码均与当前工作区一致，包含两平台入口和实际常亮组件。新 IPA 为 `release/ios-0.1.21-build3/FrogCoder-0.1.21-build3-development.ipa`，13,047,285 字节，SHA-256 `154f68dd2c2ab4ec79b8558dbeb801341dc39977458230fa1457917d5efc8732`。解包 68 个文件与签名 App 一致，App 与解包后产物通过深度严格签名校验。回执、构建及测试日志保存在 `.local/ios-builds/20261114-0.1.21-build3/`；旧 IPA 保留。
+
+本轮没有手机安装／启动、长时亮屏耗电或真实系统锁屏验收。当前 Mac 没有 Android SDK，原发布密钥与可解密密码仍在原 Windows 环境；因此只完成 Android 源码、图标、专项回归及 JS 导出，没有编译或交付新的 APK。后续沿用 [Android 原签名构建入口](android-signing.md)，不得以 JS 导出或 debug APK 代替原签名原生构建。
+
+## 2026-11-14 FrogCoder iOS 0.1.21 / build 2
+
+主目录 `main` 从 `aa5405e` 快进至 `origin/main` 的 `2ce9a57`，保留已有 Qt、iOS 和文档修改。包含控制端重连与空闲探测、历史刷新、iOS 输入高度、展开测量、最终答复与时间展示及图片 MIME 识别更新。按用户提供的新图片替换 iOS AppIcon 和登录页图标，iOS 桌面、登录页、侧栏与默认标题显示 FrogCoder；保留 Bundle Identifier `com.bunnya33.codexer.remote`、签名团队和内部工程标识，源码改动尚未提交。
+
+Mobile 类型检查、预览运行时检查及 7 个文件的 195 项回归通过。沿用已有 Pods，以 Xcode 27.2 实际完成 iPhoneOS arm64 Release 原生编译及开发签名，结果 `BUILD SUCCEEDED`。Hermes source map 中的 138 份应用／共享源码与当前工作区一致，包括本轮会话修复及品牌修改；包内登录图片与新资源逐字节一致，复核实际编译后的桌面图标为青蛙图案。版本 0.1.21／2，最低 iOS 16.4。
+
+IPA 为 `release/ios-0.1.21-build2/FrogCoder-0.1.21-build2-development.ipa`，13,040,856 字节，SHA-256 `2412e0c05493150805db77d09cb9897551a4f6b70bc875cd616cdc605edbec43`。解包后的 68 个文件与签名 App 一致，App 和解包产物均通过深度严格签名校验。描述文件包含此前配置的手机，实际到期时间为北京时间 2027-11-13 17:17:34；这是既有设备的开发签名包。本轮未安装或启动手机应用，未宣称实机会话、媒体、键盘或网络交互验收通过。构建、回归、source map 与验包回执位于 `.local/ios-builds/20261114-0.1.21-build2/`，验包信息另存于产物目录；旧 IPA 保留。
+
+## 2026-11-13 macOS Qt Agent 0.2.38 本地升级
+
+在主目录 `main` 的 `aa5405e` 再次 fetch 核对 `origin/main`，保留已有 Mac Qt、iOS 和文档修改。Agent 版本读取 `apps/desktop/package.json`，从本机原 0.2.36 更新至 0.2.38，包含完整活动历史分页与项目传输准备进度。使用 Qt 6.8.3、CMake 3.31.10、macOS 15.4 SDK 实际编译 arm64 原生 App。后台 123 项通过、1 项真实预览夹具条件跳过，包含启用的隔离 Codex 运行服务探针；界面 18 项通过、1 项截图条件跳过，338 个跨语言协议案例通过。
+
+本地 ad-hoc 签名的 ZIP 和 DMG 位于 `apps/agent-qt/release`，18 个 Mach-O 的架构及依赖、深度签名和 DMG 校验通过，ZIP 解包 57 个文件与签名 stage 一致。ZIP 为 24,007,786 字节，SHA-256 `5eba6b9ee58e4e0d4a761e86d703a58e848b3343cfab3d11e268b972c86044b6`；DMG 为 27,175,231 字节，SHA-256 `485fd3398e7aee013d97c08f91d1838550979c76eabf25a791904b9af41d7ca0`。仍为 Qt Widgets 与同进程 C++/Qt 后台，不含 Electron 或 Node；未做 Apple 公证或 Intel 构建。
+
+旧程序和完整配置备份在 `.local/agent-upgrades/20261113-qt-0.2.38`，从最终 ZIP 安装到 `/Applications/Codexer Agent.app`，57 个安装文件与验包内容一致。旧窗口自动化未响应，通过核对进程后结束旧 Agent 及其自己的运行服务再替换；停止前唯一活动条目为本次官方桌面对话，没有其他活动任务或待确认请求。启动新版后确认单一正式进程、原设备身份、所有设置及原登录保持，Relay、Codex 运行时及官方桌面 IPC 均已连接，登录有效。旧 `session.enc` 字节保持，`session.native.enc` 在正常启动的会话有效期核验后重新加密写入，未把密文变化误判为登录丢失。窗口自动化仍超时，未据此宣称人工界面操作已验收；本轮 UI 结果来自隔离原生回归。未发送模型任务、更新服务器或改动 Control。构建、测试、包和安装回执见备份目录，最新安装记录为 `.local/qt-macos-installation-latest.json`。
+
+## 2026-11-13 iOS 0.1.21 真机覆盖升级
+
+主目录 `main` 快进到 `origin/main` 的 `aa5405e`，保留已有 Mac Qt 修复、iOS 配置及文档，两侧验证记录合并保留。上游本轮修复原生内容展开的测量循环、会话三个点可见度和透明菜单外部触摸关闭。依赖及 Expo 插件未变，核对已安装依赖与锁文件一致，保留现有 Pods、Bundle Identifier、Personal Team 和证书，仅将本地生成工程的应用版本同步至共享版本来源 0.1.21。
+
+Mobile 类型检查、预览运行时及菜单外部关闭专项回归通过；实际 Xcode Release／iPhone arm64 原生构建及开发签名通过。包内 Hermes source map 的 136 份应用／共享源码与本地最新源码一致，包含本轮三个修改组件；深度签名和描述文件设备、团队、应用身份检查通过。开发签名包为 `release/ios-0.1.21/Codexer-Control-0.1.21-development.ipa`，10,753,290 字节，解包后 67 个文件与签名 App 一致且深度签名校验通过。
+
+通过 `devicectl` 覆盖安装到已连接的 iPhone XS Max，安装后版本为 0.1.21／1，成功启动且稍后查询仍有 Codexer 进程。沿用原应用标识及签名团队，未执行卸载；未读取登录凭据、操作 Relay 登录或发送任务，也未把启动成功等同于菜单、图片和会话交互的完整真机验收。构建、source map、测试、安装与启动回执在 `.local/ios-updates/20261113-0.1.21`，最新安装记录为 `.local/ios-installation-latest.json`。
+
 ## 2026-11-13 Android 0.1.21 / versionCode 22
 
 在主目录 `main` 核对 `origin/main` 后修复原生 Disclosure 的零高度测量循环，图像栏、整轮任务过程和工具详情共用修复。会话菜单不再淡出三个点，外部关闭区域与透明动画背景分离，避免 iOS 跳过透明父视图的触摸命中。Mobile 类型检查、49 项活动逻辑及 4 项会话交互回归通过；构建期间的会话初始化超时在构建结束后复跑通过。
@@ -7,6 +99,28 @@
 1,188 个文件同步至 `F:/ca20` 且逐文件一致，原发布签名的 Gradle Release 原生构建 7 分 55 秒完成（597 项任务，52 执行／545 无需重跑）。APK 为 0.1.21／22、原包名、非 debuggable；证书与既有发行版相同，v2 签名、16 KiB ZIP 对齐通过。包内 Hermes 字节码匹配本轮 Gradle 输出，source map 中全部 136 份应用／共享源码匹配主目录。包含 ARM64、ARMv7、x86、x86_64，minSdk 24／targetSdk 36。产物 `release/android-0.1.21/Codexer-Control-0.1.21.apk`，93,278,338 字节，SHA-256 `94567fd2aaef6c3c557d5396279b59fd37ca78090b3a78f86f77d5f13e9fd0d7`。
 
 隔离 Android 15／API 35 模拟器在旧版复现展开无内容，最终 APK 通过安装、整轮展开、文件／命令详情、图像容器展开及大图窗口打开、图像数量从 3 增至 6 的高度更新、菜单外部关闭／重开、三个点可见度和冷启动恢复检查。模拟器自动输入曾触发 ANR，停用模拟器输入法后登录成功；这些检查使用合成账号与本地 Relay。图像内容仍显示占位／加载错误，尚未完成图片解码显示验收，不把打开预览窗口等同于实际图片加载成功。iOS 使用同一份源码，但本机未执行 Xcode 原生编译或真机验收，需要在 Mac 拉取后重新构建。未上传安装包至发行目录或商店。
+
+## 2026-11-13 iOS 0.1.20 本机真机安装准备
+
+主目录 `main` 快进到 `origin/main` 的 `ac58f9a`，保留先前 macOS Qt Agent 的源码修复与验收记录，文档冲突合并后同时保留上游记录。同步依赖，增加 iOS 本地网络访问用途说明、原生工程生成和 Release 真机运行入口，以及免费 Apple ID／Personal Team 安装文档。未更改应用 Bundle Identifier 或 Android 发布签名。
+
+本机安装完整 Xcode 27.2（27B52），由用户完成首次许可及系统授权，iOS 27.2 SDK 可用。项目本地准备 Ruby 3.4.12、CocoaPods 1.17.0，环境入口 `.local/ios-tools/env.sh`；生成忽略目录中的 `apps/mobile/ios/Codexer.xcworkspace` 并安装 Pods。本机 Node 路径写入忽略的 `.xcode.env.local`，未提交机器路径、账号、证书或签名团队。Mobile 类型检查、iOS JS 导出、预览运行时和文档检查通过。
+
+实际执行 Xcode `Release`、`generic/platform=iOS`、`CODE_SIGNING_ALLOWED=NO` 构建，结果 `BUILD SUCCEEDED`；验证 App 为 iPhoneOS arm64、版本 0.1.20、最低 iOS 16.4，包含 6,928,886 字节 Hermes bundle 和本地网络用途说明。产物位于 `.local/ios-preparation/DerivedData/Build/Products/Release-iphoneos/Codexer.app`，构建日志和哈希回执见同目录树下的 `native-release-build.log` 与 `preparation.json`。
+
+随后用户完成 Xcode 登录并连接手机，在 Xcode 选择 Personal Team，生成 Apple Development 证书及描述文件；用户自行完成钥匙串授权。对连接的 iPhone XS Max／iOS 18.7.10 执行真正的 Release 开发签名构建并通过，深度签名校验通过。设备已配对且开发者模式开启，`devicectl` 实际安装、启动成功，复核安装版本 0.1.20／1，启动后再次查询仍存在 Codexer 进程。未操作 Relay 登录或发送任务，未验收手机上的会话、图片、文件、键盘和网络权限交互。
+
+开发签名 IPA 为 `release/ios-0.1.20/Codexer-Control-0.1.20-development.ipa`，11,240,161 字节，SHA-256 `37633fa3bb44776042c1c12d1429f93508870d0a5857a984b6778aeaf8942fb2`；解包后 67 个文件与安装的签名 App 一致，深度签名校验通过。包内描述文件包含本次手机，标注到期日为北京时间 2027-11-13 17:17:34（TimeToLive 365），具体期限以实际描述文件及设备校验为准，不直接套用常见免费签名的 7 天限制。该包用于已配置设备的本地开发安装，不是 App Store／TestFlight 或任意设备分发包。签名构建、安装及启动回执保存在 `.local/ios-preparation`；未重装既有 Agent 或更新服务器。
+
+## 2026-11-13 macOS Qt Agent 0.2.36 本地升级
+
+主目录 `main` 从旧版本快进到 `origin/main` 的 `14185bd`，Agent 版本读取 `apps/desktop/package.json`。本地补齐 Mac Bundle 完整名称、版本和图标，修复临时 QJsonObject 的悬空引用，以及 Electron 钥匙串账号名的 ` Key` 后缀兼容；Qt 自动发现补上已有 TypeScript 实现支持的 ChatGPT.app 内置 Codex CLI，解决本机 `codex-binary-not-found`。这些 Mac 修复留在工作区，未提交或发布。
+
+使用 Qt 6.8.3、AppleClang 21、CMake 3.31.10 和本机 macOS 15.4 SDK 实际编译 arm64 原生 App。后台最终 119 项通过、2 项条件跳过，界面 18 项通过、1 项截图条件跳过，338 个跨语言协议案例通过。IPC 测试缩短 socket 名称，文件安全测试使用无符号链接别名的 `/private/tmp`；更新下载用例按平台选择安装包目标。另显式启用真实 Codex 隔离运行服务探针，通过自动发现、启动及空闲写入者释放验证；仅使用临时 CODEX_HOME，没有模型请求。初始纯净配置冒烟通过系统加密往返及三页界面；加密登录副本的冒烟曾因等待钥匙串授权超过测试时限而失败，不计为隔离凭据回归通过。
+
+本地 ad-hoc 签名的 DMG 与 ZIP 位于 `apps/agent-qt/release`，包内为 Qt Widgets 与同进程 C++ 后台，不含 Electron 或 Node。保留 SQLite 插件，移除依赖外部数据库客户端且未使用的驱动。18 个 Mach-O 的架构与依赖、Bundle 元数据、深度签名校验通过；ZIP 解包逐文件核对与签名 stage 一致，DMG 的 hdiutil 校验通过。DMG 为 27,159,776 字节，SHA-256 `0c334ae1e2a8813916a587012eb32e7c495f1975d3914e431521d3794b84bb86`；ZIP 为 23,986,799 字节，SHA-256 `07f31c8db2c164f4fcdfefc373950f0a1fa132b5852264ec1310800ee056492d`。
+
+退出旧连接器后，从最终 ZIP 安装到 `/Applications/Codexer Agent.app` 并启动。旧 0.2.10 程序及完整用户配置备份在 `.local/agent-upgrades/20261113-093311`；逐项核对原安装身份、服务器、账号、授权目录、运行方式及启动偏好均保留。正式窗口确认账号已登录、Relay 已连接、本机运行环境可用、官方桌面 IPC 在线，已有会话继续同步；只有一个正式 Agent 主进程。安装记录见 `.local/qt-macos-installation-latest.json`。未发送真实模型任务，未验证跨设备项目传输、Intel Qt 构建、内存基准或 Apple 公证；未改动 Control 宿主或更新服务器。
 
 ## 2026-11-13 Android 0.1.20 / versionCode 21
 

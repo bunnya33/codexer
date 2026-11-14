@@ -11,6 +11,8 @@ import {ClientUpdatePanel} from './client-update-panel';
 import {WindowClosePreference} from './client-platform-settings';
 import type {SettingsSection} from './settings-shell';
 import {RuntimeRefresh, type RuntimeRefreshDevice} from './runtime-refresh';
+import {ScreenAwakeSettings} from './screen-awake';
+import {DownloadList} from './download-library';
 
 export function ControlSettings({ url, device, onWeixin, onLogout,section='all' }: { url: string; device?: RuntimeRefreshDevice; onWeixin: () => void; onLogout: () => void;section?:SettingsSection|'all' }) {
   const { c, s } = useTheme();
@@ -28,6 +30,8 @@ export function ControlSettings({ url, device, onWeixin, onLogout,section='all' 
   const show=(...sections:string[])=>section==='all'||sections.includes(section);
   return <>
     {show('appearance')&&<ThemePicker />}
+    {show('screen')&&<ScreenAwakeSettings />}
+    {show('downloads')&&<DownloadList />}
 
     {show('updates')&&<ClientUpdatePanel/>}
     {show('connection')&&<View style={styles.group}><RuntimeRefresh device={device}/></View>}

@@ -1,6 +1,6 @@
 {
   "name": "codex-remote",
-  "version": "0.3.62",
+  "version": "0.3.64",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -40,6 +40,8 @@
     "check:docs": "node scripts/check-docs.mjs",
     "check:preview-runtime": "node scripts/build-preview-runtime.mjs --check",
     "mobile:start": "npm run start --workspace @codexer/mobile",
+    "mobile:ios:prepare": "npm run check:preview-runtime && npm run ios:prepare --workspace @codexer/mobile",
+    "mobile:ios:device": "npm run check:preview-runtime && npm run ios:device --workspace @codexer/mobile --",
     "mobile:typecheck": "npm run typecheck --workspace @codexer/mobile",
     "mobile:export": "npm run check:preview-runtime && npm run export --workspace @codexer/mobile",
     "icons:mobile": "node scripts/generate-mobile-icons.mjs",

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -147,7 +148,7 @@ export function FileViewerProvider({
           path,
           info,
           phase: "done",
-          message: "文件已交给系统保存，请查看下载或保存位置。",
+          message: ['ios', 'android'].includes(Platform.OS) ? '文件已保存到下载列表，可随时打开或分享。' : '文件已交给系统保存，请查看下载或保存位置。',
         });
     } catch (error) {
       if (current()) setFile({ path, phase: "error", message: fileError(error) });

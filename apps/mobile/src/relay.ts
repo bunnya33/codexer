@@ -669,6 +669,14 @@ export class RelayClient {
     return { uri: `${this.view.url}/v1/devices/${encodeURIComponent(deviceId)}/threads/${encodeURIComponent(threadId)}/files/content?path=${encodeURIComponent(path)}&version=${encodeURIComponent(version)}`, headers: { authorization: `Bearer ${this.token}` } };
   }
 
+  downloadSource(remote: { relayUrl: string; userId: string; path: string }) {
+    if (!this.token || this.view.phase === 'locked' || this.view.url !== remote.relayUrl || this.view.userId !== remote.userId)
+      throw new Error('请登录下载时使用的服务器和账号后继续。');
+    if (!/^\/v1\/(?:devices\/[^?#]+\/files\/content\?|client-releases\/[^/?#]+\/[^/?#]+\/download$)/.test(remote.path) || /[\r\n\\]/.test(remote.path))
+      throw new Error('下载地址无效。');
+    return { uri: remote.relayUrl + remote.path, headers: { Authorization: `Bearer ${this.token}` } };
+  }
+
   async openAudioSource(deviceId: string, threadId: string, path: string, version: string, signal: AbortSignal) {
     if (signal.aborted) throw new Error('file-cancelled');
     const base = this.view.url, session = this.token;

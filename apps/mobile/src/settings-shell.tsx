@@ -25,17 +25,22 @@ import {
   Palette,
   Search,
   Settings2,
+  Sun,
   X,
 } from "lucide-react-native";
 import { useTheme } from "./styles";
+import { screenAwakeAvailable } from './screen-awake';
+import { downloadLibraryAvailable } from './download-library';
 
 export type SettingsSection =
-  "overview" | "appearance" | "connection" | "updates" | "about";
+  "overview" | "appearance" | "screen" | "downloads" | "connection" | "updates" | "about";
 const entries = [
   { id: "appearance", label: "外观", group: "应用设置", Icon: Palette },
+  ...screenAwakeAvailable ? [{ id: 'screen', label: '屏幕常亮', group: '应用设置', Icon: Sun } as const] : [],
   { id: "connection", label: "服务器与设备", group: "连接", Icon: Monitor },
   { id: "weixin", label: "微信 ClawBot", group: "连接", Icon: MessageCircle },
   { id: "updates", label: "更新与下载", group: "应用", Icon: Download },
+  ...downloadLibraryAvailable ? [{ id: 'downloads', label: '下载列表', group: '应用', Icon: Download } as const] : [],
   { id: "about", label: "关于与版本", group: "应用", Icon: Info },
 ] as const;
 // Desktop settings fill the existing native window. Other dialogs may still

@@ -1,8 +1,24 @@
 # macOS Codexer Agent / Codexer Control
 
-2026-10-24 起，**Codexer Agent 恢复 Electron**；**Codexer Control 保留 React Native macOS 原生实现**。两者有不同图标与应用名，在同一 `main` 分支维护，详见 [桌面架构约定](desktop-native.md)。
+2026-10-30 起，**Codexer Agent 优先使用 Qt Widgets 与同进程 C++ 后台**；**Codexer Control 保留 React Native macOS 原生实现**。两者有不同图标与应用名，在同一 `main` 分支维护，详见 [桌面架构约定](desktop-native.md)。
 
 ## Codexer Agent
+
+### Qt macOS arm64
+
+2026-11-13 在本机完成 Qt Agent 0.2.36 的实际原生编译、DMG/ZIP 打包和 Applications 替换验收。安装包为 `apps/agent-qt/release/Codexer-Agent-Qt-0.2.36-mac-arm64.dmg`，包内不包含 Electron、Node 或 JavaScript 运行时。本地使用 ad-hoc 签名，未做 Apple 公证；结果与限制见 [验证记录](validation.md)。
+
+同日已进一步构建并安装 Qt Agent 0.2.38，包为 `apps/agent-qt/release/Codexer-Agent-Qt-0.2.38-mac-arm64.dmg` 和同名 ZIP。后台、界面、协议回归及安装后原身份／登录／设置保留、Relay／桌面／运行时连接核对通过；旧程序和配置保存在 `.local/agent-upgrades/20261113-qt-0.2.38`。仍为本机 arm64 ad-hoc 包，未公证或验证 Intel。
+
+2026-11-14 再次 fetch 核对最新 `main`（`2ce9a57`），Agent 版本仍为 0.2.38；已重新原生编译、打包并替换本机程序。后台 123 项、界面 18 项及协议 338 例通过，DMG／ZIP 与签名 stage 一致。已在原生窗口确认原账号及连接状态，原登录、设备身份和全部设置保持；旧程序、配置、原同名安装包和本轮回执保存在 `.local/agent-upgrades/20261114-qt-0.2.38`。本轮未修改文件传输速度策略，也未发布远程更新。
+
+构建需要 Node 24、Qt 6.8.3 的 qtbase/qtwebsockets、CMake 和 Command Line Tools。`CODEXER_QT_ROOT` 指向 SDK，`CODEXER_CMAKE` 可指定 CMake，`npm run build:qt-agent` 生成带 Qt 库和插件的 `apps/agent-qt/stage/Codexer Agent.app`。本机验证使用 CMake 3.31.10 与 macOS 15.4 SDK；可用 `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk` 指定该 SDK，避免新版 SDK 缺少 Qt 6.8.3 所需的 AGL 链接文件。
+
+Qt 同时自动查找独立 `Codex.app` 和 `ChatGPT.app` 内的 Codex CLI。沿用原配置和安装身份，兼容旧 Electron `session.enc` 及原生 `session.native.enc`；首次钥匙串授权需在系统窗口完成。退出登录清除两种登录文件。替换前退出旧进程，保留程序与配置备份。
+
+2026-11-14 下载性能修复进一步将 Qt Agent 升至 `0.2.39`：文件只读请求独立调度，不再等待后台维护队列。arm64 原生编译、回归、DMG／ZIP 与正式应用替换已完成；用户完成首次钥匙串授权后，原生窗口确认原账号和连接，状态文件确认原设备身份、全部设置及 Relay／桌面／运行时连接保持。新版 Relay 链路的同一份 IPA 已三次下载完成；其中最后一次完成区间为 3.30–4.71 秒，只代表 Mac 浏览器。备份及安装回执在 `.local/agent-upgrades/20261114-qt-0.2.39`，最新完整连接验收记录已更新为 `0.2.39`。基准条件及配套 Relay 版本见 [文件下载性能](file-download-performance.md)。
+
+### 历史 Electron 构建入口
 
 安装 `Codexer-Agent-<版本>-mac-arm64.dmg` 或 ZIP，将 `Codexer Agent.app` 放入 Applications。Intel Mac 使用 x64 包。包内提供 Electron/Node 和 Agent，用户无需安装 Node、npm 或 Xcode。替换旧 `Codexer.app` 前退出旧连接器，保留配置目录。
 

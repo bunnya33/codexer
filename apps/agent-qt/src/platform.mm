@@ -8,7 +8,10 @@ QByteArray platformVault(const QByteArray &bytes, bool encrypt, QString &error) 
     NSData *input = [NSData dataWithBytes:bytes.constData() length:bytes.size()]; NSError *failure = nil; NSData *output = nil;
     if (!encrypt && bytes.startsWith("v10")) {
       for (NSString *product in @[@"@codexer/desktop", @"Codexer", @"Codexer Agent"]) {
-        NSData *password = CXKeychainPassword([product stringByAppendingString:@" Safe Storage"], product, &failure);
+        NSString *service = [product stringByAppendingString:@" Safe Storage"];
+        NSData *password = CXKeychainPassword(service, [product stringByAppendingString:@" Key"], &failure);
+        if (!password && failure.code == errSecItemNotFound)
+          password = CXKeychainPassword(service, product, &failure);
         if (password) {output = CXOpenElectron(input, password, &failure); break;}
         if (failure.code != errSecItemNotFound) break;
       }

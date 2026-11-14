@@ -140,8 +140,8 @@ public:
 };
 
 // All network, process, SQL, filesystem and scheduling work is native Qt/C++.
-// The object lives on one worker thread; nested transport waits only enqueue
-// commands.
+// The object lives on one worker thread. Mutations remain serialized; bounded
+// read-only file requests can run while a runtime transport wait pumps events.
 class Service : public QObject {
   Q_OBJECT
   QString directory, dataDirectory;
@@ -177,6 +177,11 @@ class Service : public QObject {
   qint64 lastProjectTransferCleanup = 0;
   QHash<int, Object> platformResponses;
   QList<Object> uiQueue, commandQueue;
+  struct FileReadRequest { Object message; QElapsedTimer queued; int generation; };
+  QList<FileReadRequest> fileReadQueue;
+  bool fileReadScheduled = false, readingFiles = false;
+  qint64 fileReadCount = 0, fileReadBytes = 0, fileQueueMs = 0,
+         fileQueueMaxMs = 0, fileReadMs = 0, fileReadMaxMs = 0;
   int nativeSerial = 0, depth = 0, remoteGeneration = 0, reconnectAttempt = 0;
   int threadLimit = DefaultSyncedThreads;
   bool initialized = false, paused = true, allowed = true, stopping = false,
@@ -216,6 +221,9 @@ class Service : public QObject {
   void applyThreadLimit(const QJsonValue &value);
   void commit(const Object &change);
   void tick();
+  void queueFileRead(const Object &message);
+  void drainFileReads();
+  void replyFileRead(const Object &message);
   void ensureRpc();
   void attachRpc(Rpc *value);
   void attachDesktop();

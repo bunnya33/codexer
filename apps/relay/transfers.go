@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -130,6 +129,10 @@ func (s *Server) authorizeThread(p *Principal, device, thread string, archived b
 	}
 }
 func (s *Server) requestTransfer(r *http.Request, p *Principal, kind string, fields M) M {
+	started, completed := time.Now(), false
+	if kind == "file" {
+		defer func() { s.metrics.Observe("fileRead", started, !completed) }()
+	}
 	id, thread := r.PathValue("deviceId"), r.PathValue("threadId")
 	if kind == "image" {
 		var cached M
@@ -204,6 +207,7 @@ func (s *Server) requestTransfer(r *http.Request, p *Principal, kind string, fie
 	}
 	v := s.wait(r.Context(), pending, timeout)
 	s.lane(id, func() { s.authorizeThread(p, id, thread, kind != "file") })
+	completed = true
 	return v
 }
 func (s *Server) acceptTransfer(device string, m M) {
@@ -360,32 +364,9 @@ func (s *Server) transferRoutes() {
 		s.addPending(lease, 4, 2)
 		defer s.removePending(lease.ID)
 		first := s.requestTransfer(r, p, "file", M{"path": path, "offset": int64(0), "version": version})
-		downloadHeaders(w)
-		w.Header().Set("Content-Length", str(first["size"]))
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Disposition", "attachment; filename=\"download\"; filename*=UTF-8''"+strings.ReplaceAll(url.PathEscape(str(first["name"])), "'", "%27"))
-		w.WriteHeader(200)
-		file := first
-		for offset := int64(0); offset < num(first["size"]); {
-			if file["size"] != first["size"] || file["name"] != first["name"] {
-				panic(http.ErrAbortHandler)
-			}
-			bytes, _ := base64.StdEncoding.DecodeString(str(file["base64"]))
-			if _, e := w.Write(bytes); e != nil {
-				return nil
-			}
-			offset += int64(len(bytes))
-			if offset < num(first["size"]) {
-				func() {
-					defer func() {
-						if recover() != nil {
-							panic(http.ErrAbortHandler)
-						}
-					}()
-					file = s.requestTransfer(r, p, "file", M{"path": path, "offset": offset, "version": version})
-				}()
-			}
-		}
+		serveFileDownload(w, r, first, func(ctx context.Context, offset int64) M {
+			return s.requestTransfer(r.WithContext(ctx), p, "file", M{"path": path, "offset": offset, "version": version})
+		})
 		return nil
 	})
 }

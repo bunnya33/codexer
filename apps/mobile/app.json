@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Codexer",
+    "name": "FrogCoder",
     "slug": "codexer",
     "scheme": "codexer",
     "version": "0.1.21",
@@ -9,17 +9,26 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
+      "icon": "./assets/frogcoder-icon.png",
       "bundleIdentifier": "com.bunnya33.codexer.remote",
       "infoPlist": {
+        "CFBundleDisplayName": "FrogCoder",
+        "CFBundleName": "FrogCoder",
+        "NSCameraUsageDescription": "Allow FrogCoder to access your camera",
+        "NSPhotoLibraryUsageDescription": "Allow FrogCoder to access your photos",
+        "NSFaceIDUsageDescription": "Allow FrogCoder to access your Face ID biometric data.",
+        "NSLocalNetworkUsageDescription": "连接同一局域网中的 Codexer Relay 服务器。",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
         }
-      }
+      },
+      "buildNumber": "6"
     },
     "android": {
+      "softwareKeyboardLayoutMode": "resize",
       "icon": "./assets/android-icon.png",
       "package": "com.bunnya33.codexer.remote",
-      "versionCode": 22,
+      "versionCode": 25,
       "permissions": [
         "android.permission.REQUEST_INSTALL_PACKAGES"
       ],
@@ -28,7 +37,7 @@
         "android.permission.SYSTEM_ALERT_WINDOW"
       ],
       "adaptiveIcon": {
-        "backgroundColor": "#7297df",
+        "backgroundColor": "#ffffff",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"

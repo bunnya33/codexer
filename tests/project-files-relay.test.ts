@@ -104,6 +104,16 @@ it("authorizes project browsing, versions streamed downloads and cancels abandon
     expect(content.statusCode).toBe(200);
     expect(content.rawPayload).toEqual(bytes);
     expect(content.headers["cache-control"]).toBe("no-store");
+    const start = 256 * 1024 - 3, end = 256 * 1024 + 5;
+    const ranged = app.inject({ url: url + '/content?rootIndex=0&path=test.bin&version=' + version, headers: { ...account.headers, range: `bytes=${start}-${end}` } });
+    for (const offset of [0, start]) {
+      m = await next();
+      expect((m.query as any).offset).toBe(offset);
+      reply(m, { kind: 'file', file: { name: 'test.bin', size: bytes.length, version, offset, base64: bytes.subarray(offset, offset + 256 * 1024).toString('base64') } });
+    }
+    const part = await ranged;
+    expect(part.statusCode).toBe(206); expect(part.rawPayload).toEqual(bytes.subarray(start, end + 1));
+    expect(part.headers['content-range']).toBe(`bytes ${start}-${end}/${bytes.length}`);
     const abort = new AbortController();
     const abandoned = fetch(base + url, {
       method: "POST",

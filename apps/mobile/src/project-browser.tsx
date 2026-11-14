@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   FlatList,
   Image,
+  Platform,
   Pressable,
   ScrollView,
   Switch,
@@ -302,7 +303,7 @@ export function ProjectBrowser({
         controller.signal,
         () => {},
       );
-      if (!controller.signal.aborted) setFeedback("已交给系统保存或分享");
+      if (!controller.signal.aborted) setFeedback(['ios', 'android'].includes(Platform.OS) ? '文件已保存到下载列表' : '已交给系统保存或分享');
     } catch (failure) {
       if (!controller.signal.aborted) setFeedback(fileError(failure));
     } finally {

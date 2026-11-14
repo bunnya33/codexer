@@ -513,7 +513,7 @@ static Object normalizeItem(
     auto key = type == "commandExecution"
                    ? "commandExecutionStartedAtMsById"
                    : "aeonAssistantMessageStartedAtMsById";
-    auto v = turn[key].toObject()[item["id"].toString()];
+    auto v = turn[key].toObject().value(item["id"].toString());
     if (v.isDouble())
       out["startedAtMs"] = v;
   }
@@ -732,7 +732,7 @@ Object usageMetadata(const Object &raw) {
     if (turn["status"] == "inProgress")
       activeId = lastId;
   }
-  const auto status = raw["threadRuntimeStatus"].toObject()["type"];
+  const auto status = raw["threadRuntimeStatus"].toObject().value("type");
   return {{"active", status == "active"},
           {"turnId", status == "active" ? activeId : lastId},
           {"turnIds", ids},
@@ -1239,7 +1239,7 @@ bool validCommand(const Object &command) {
     return false;
   auto answers = p["answers"].toObject();
   for (auto it = answers.begin(); it != answers.end(); ++it) {
-    auto a = it.value().toObject()["answers"];
+    auto a = it.value().toObject().value("answers");
     if (it.key().size() > 200 || !a.isArray() || a.toArray().size() > 20)
       return false;
     for (auto v : a.toArray())

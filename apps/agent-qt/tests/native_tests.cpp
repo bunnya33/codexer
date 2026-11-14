@@ -134,7 +134,8 @@ public:
        rejectStarts = false;
   QString owner = "synthetic-owner";
   std::function<void()> onOwnerLookup;
-  QString endpoint = "codexer-native-test-" + uuid();
+  // macOS Unix-domain sockets have a 104-byte path limit, including TMPDIR.
+  QString endpoint = "cx-test-" + uuid();
   explicit DesktopFixture(Object state) : raw(state) {
     if (!server.listen(endpoint))
       throw Error("fixture-listen-failed");
@@ -377,6 +378,118 @@ private slots:
   void cleanup() {
     agent.reset();
     qunsetenv("CODEX_REMOTE_DESKTOP_ENDPOINT");
+  }
+  void fileDownloadBenchmark() {
+    const auto path = qEnvironmentVariable("CODEXER_FILE_BENCHMARK_PATH");
+    if (path.isEmpty()) QSKIP("Explicit local file required for transfer benchmark");
+    const auto expected = read(path, 512LL * 1024 * 1024);
+    QVERIFY(!expected.isEmpty());
+    agent->fileSources["thread-test"].insert(path);
+    agent->catalog = {{"threads", Array{Object{{"id", "thread-test"}}}}};
+    const auto info = agent->readFile({{"threadId", "thread-test"}, {"path", path}});
+    QElapsedTimer direct; direct.start();
+    for (qint64 offset = 0; offset < expected.size(); offset += 256 * 1024)
+      agent->readFile({{"threadId", "thread-test"}, {"path", path}, {"version", info["version"]}, {"offset", double(offset)}});
+    const auto directMs = direct.elapsed();
+    QWebSocketServer server("File benchmark", QWebSocketServer::NonSecureMode);
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+    QWebSocket *peer = nullptr;
+    QByteArray received;
+    Array samples;
+    QElapsedTimer elapsed, requestTimer;
+    QString failure;
+    const int delay = qEnvironmentVariableIntValue("CODEXER_FILE_BENCHMARK_DELAY_MS");
+    std::function<void()> next = [&] {
+      requestTimer.restart();
+      peer->sendTextMessage(QString::fromUtf8(json(Object{{"type", "file.request"}, {"requestId", uuid()}, {"threadId", "thread-test"}, {"path", path}, {"version", info["version"]}, {"offset", double(received.size())}})));
+    };
+    connect(&server, &QWebSocketServer::newConnection, &server, [&] {
+      peer = server.nextPendingConnection();
+      connect(peer, &QWebSocket::textMessageReceived, &server, [&](const QString &text) {
+        const auto response = parse(text.toUtf8()).toObject();
+        if (response["type"] != "device.file") return;
+        if (!response["file"].isObject()) { failure = response["code"].toString(); return; }
+        const auto file = response["file"].toObject();
+        if (file["offset"].toInteger() != received.size()) { failure = "invalid-offset"; return; }
+        received += QByteArray::fromBase64(file["base64"].toString().toLatin1());
+        samples.append(double(requestTimer.elapsed()));
+        if (received.size() < expected.size()) QTimer::singleShot(delay, &server, next);
+      });
+    });
+    agent->credentials["relayUrl"] = "http://127.0.0.1:" + QString::number(server.serverPort());
+    agent->connectRelay();
+    QVERIFY(waitFor([&] { return peer && agent->relay->state() == QAbstractSocket::ConnectedState; }, 3000));
+    // Isolate transfer scheduling from unrelated runtime maintenance. A fixed
+    // delay between chunks models Relay round trips identically in both runs.
+    agent->snapshot = {};
+    QTimer heartbeat; heartbeat.setInterval(250);
+    connect(&heartbeat, &QTimer::timeout, agent.get(), [&] { agent->tick(); });
+    heartbeat.start();
+    elapsed.start(); next();
+    QVERIFY(waitFor([&] { return received.size() >= expected.size() || !failure.isEmpty(); }, 60000));
+    const auto totalMs = elapsed.elapsed();
+    QVERIFY2(failure.isEmpty(), qPrintable(failure));
+    QCOMPARE(hash(received), hash(expected));
+    const Object result{{"mode", qEnvironmentVariable("CODEXER_FILE_BENCHMARK_LABEL")}, {"bytes", double(received.size())}, {"sha256", hash(received)}, {"directReadAndEncodeMs", double(directMs)}, {"chunkRoundTripMs", samples}, {"interChunkDelayMs", delay}, {"totalMs", double(totalMs)}};
+    const auto report = qEnvironmentVariable("CODEXER_FILE_BENCHMARK_REPORT");
+    if (!report.isEmpty()) save(report, json(result));
+    qInfo().noquote() << json(result);
+  }
+  void fileReadsProgressDuringRuntimeWaitWithoutReenteringCommands() {
+    const auto path = temp.path() + "/download.bin";
+    const QByteArray bytes(256 * 1024, 'x'); save(path, bytes);
+    agent->fileSources["thread-test"].insert(path);
+    agent->catalog = {{"threads", Array{Object{{"id", "thread-test"}}}}, {"projects", Array{Object{{"id", "project-test"}, {"roots", Array{temp.path()}}}}}};
+    const auto info = agent->readFile({{"threadId", "thread-test"}, {"path", path}});
+    QWebSocketServer server("Read-only scheduling", QWebSocketServer::NonSecureMode);
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+    QList<Object> received; QWebSocket *peer = nullptr;
+    connect(&server, &QWebSocketServer::newConnection, &server, [&] {
+      peer = server.nextPendingConnection();
+      connect(peer, &QWebSocket::textMessageReceived, &server, [&](const QString &text) { received.append(parse(text.toUtf8()).toObject()); });
+    });
+    agent->credentials["relayUrl"] = "http://127.0.0.1:" + QString::number(server.serverPort());
+    agent->connectRelay();
+    QVERIFY(waitFor([&] { return peer && !received.isEmpty(); }, 3000));
+    agent->depth = 1; // A runtime call is waiting in its nested event loop.
+    agent->relayMessage({{"type", "command"}, {"command", command()}});
+    QCOMPARE(agent->commandQueue.size(), 1);
+    const auto request = Object{{"type", "file.request"}, {"requestId", uuid()}, {"threadId", "thread-test"}, {"path", path}, {"version", info["version"]}, {"offset", 0}};
+    agent->relayMessage(request);
+    const auto projectId = uuid();
+    agent->relayMessage({{"type", "project.request"}, {"requestId", projectId}, {"projectId", "project-test"}, {"query", Object{{"operation", "file"}, {"rootIndex", 0}, {"path", "download.bin"}, {"version", info["version"]}, {"offset", 0}}}});
+    QVERIFY(waitFor([&] { return std::any_of(received.cbegin(), received.cend(), [&](const Object &m) { return m["requestId"] == projectId; }); }, 1000));
+    auto find = [&](const QJsonValue &id) { for (const auto &m : received) if (m["requestId"] == id) return m; return Object{}; };
+    QCOMPARE(QByteArray::fromBase64(find(request["requestId"])["file"].toObject()["base64"].toString().toLatin1()), bytes);
+    QCOMPARE(find(projectId)["result"].toObject()["file"].toObject()["base64"], find(request["requestId"])["file"].toObject()["base64"]);
+    QCOMPARE(agent->depth, 1);
+    QCOMPARE(agent->commandQueue.size(), 1); // No mutating command ran reentrantly.
+    QCOMPARE(agent->fileReadCount, 2);
+    QCOMPARE(agent->fileReadBytes, bytes.size() * 2);
+    auto denied = request; denied["requestId"] = uuid(); denied["threadId"] = "another-thread";
+    agent->relayMessage(denied);
+    QVERIFY(waitFor([&] { return !find(denied["requestId"]).isEmpty(); }, 1000));
+    QCOMPARE(find(denied["requestId"])["code"], QJsonValue("file-not-in-thread"));
+    auto stale = request; stale["requestId"] = uuid(); agent->relayMessage(stale); ++agent->remoteGeneration;
+    QVERIFY(waitFor([&] { return agent->fileReadQueue.isEmpty(); }, 1000));
+    QVERIFY(find(stale["requestId"]).isEmpty());
+    const auto cancelled = uuid();
+    agent->relayMessage({{"type", "project.request"}, {"requestId", cancelled}, {"query", Object{{"operation", "file"}}}});
+    agent->relayMessage({{"type", "project.cancel"}, {"requestId", cancelled}});
+    QVERIFY(agent->fileReadQueue.isEmpty());
+    agent->depth = 0; agent->commandQueue.clear();
+    QList<int> uiOrder; QObject uiObserver;
+    connect(agent.get(), &Service::message, &uiObserver, [&](const Object &value) { if (value.contains("id")) uiOrder.append(value["id"].toInt()); });
+    for (int id : {21, 22, 23}) agent->uiQueue.append(Object{{"id", id}, {"method", "state"}});
+    agent->relayMessage(request);
+    QVERIFY(waitFor([&] { return uiOrder.size() == 3; }, 1000));
+    QCOMPARE(uiOrder, (QList<int>{21, 22, 23}));
+    agent->depth = 1;
+    auto stopped = request; stopped["requestId"] = uuid(); agent->relayMessage(stopped);
+    agent->submit({{"id", 10}, {"method", "disconnect"}});
+    QVERIFY(agent->paused); QVERIFY(agent->fileReadQueue.isEmpty());
+    QVERIFY(find(stopped["requestId"]).isEmpty());
+    agent->depth = 0;
   }
   void projectSnapshotPreservesGitWorkingStateAndBinaryFiles() {
     QTemporaryDir files; QVERIFY(files.isValid());
@@ -1655,7 +1768,7 @@ private slots:
     auto parent = agent->catalog["projectCreation"]
                       .toObject()["parents"]
                       .toArray()[0]
-                      .toObject()["id"];
+                      .toObject().value("id");
     auto cmd = command("project.create");
     cmd["payload"] = Object{{"type", "project.create"},
                             {"parentId", parent},
@@ -1719,10 +1832,13 @@ private slots:
     QVERIFY(server.listen(QHostAddress::LocalHost, 0));
     QByteArray package = "synthetic installer bytes";
     auto releaseId = uuid();
+    const auto target = platform() == "win32" ? "agent-windows-x64-setup"
+                        : QSysInfo::currentCpuArchitecture() == "arm64" ? "agent-macos-arm64"
+                                                                       : "agent-macos-x64";
     QStringList paths;
     Object release{{"id", releaseId},
-                   {"target", "agent-windows-x64-setup"},
-                   {"name", "Sample.exe"},
+                   {"target", target},
+                   {"name", platform() == "win32" ? "Sample.exe" : "Sample.dmg"},
                    {"version", "99.0.0"},
                    {"buildNumber", 1},
                    {"notes", ""},
@@ -1756,7 +1872,7 @@ private slots:
     QVERIFY(waitFor([&] { return !agent->download; }, 5000));
     QVERIFY(agent->updateState["downloaded"].toBool());
     QCOMPARE(read(agent->downloadedPath), package);
-    QVERIFY(paths.contains("/v1/client-releases/agent-windows-x64-setup/" +
+    QVERIFY(paths.contains("/v1/client-releases/" + QString(target) + '/' +
                            releaseId + "/download"));
     release["sha256"] = QString(64, '0');
     agent->checkUpdate();
@@ -2259,7 +2375,7 @@ private slots:
       for (const auto &req : fixture.requests) {
         if (req["method"] != "thread-follower-start-turn") continue;
         ++starts;
-        const auto input = req["params"].toObject()["turnStart"].toObject()["request"].toObject()["input"];
+        const auto input = req["params"].toObject()["turnStart"].toObject()["request"].toObject().value("input");
         QCOMPARE(input, QJsonValue(Array{}));
       }
       QCOMPARE(starts, valid ? 1 : 0);

@@ -137,6 +137,7 @@ void Service::pause() {
   paused = true;
   ++remoteGeneration;
   commandQueue.clear();
+  fileReadQueue.clear();
   for (const auto &operation : previewOperations)
     if (operation)
       operation->deleteLater();
@@ -194,6 +195,7 @@ void Service::closeAgent() {
   desktopThreads.clear();
   awaitingQueue.clear();
   commandQueue.clear();
+  fileReadQueue.clear();
   usageObservations.clear();
   agentDetails.clear();
   agentDetailsAt.clear();
@@ -246,6 +248,7 @@ void Service::status() {
                 {"threads", threads.size()},
                 {"threadLimit", threadLimit},
                 {"updatedAt", double(now())}};
+  status["fileTransfers"] = Object{{"requests", double(fileReadCount)}, {"bytes", double(fileReadBytes)}, {"queueWaitMsTotal", double(fileQueueMs)}, {"queueWaitMsMax", double(fileQueueMaxMs)}, {"readAndEncodeMsTotal", double(fileReadMs)}, {"readAndEncodeMsMax", double(fileReadMaxMs)}, {"queued", fileReadQueue.size()}};
   view["status"] = status;
   view["phase"] = credentials.isEmpty() ? "signed-out"
                   : paused              ? "disconnected"
@@ -312,6 +315,7 @@ void Service::connectRelay() {
     auto code = int(socket->closeCode());
     ++remoteGeneration;
     commandQueue.clear();
+    fileReadQueue.clear();
     relay = nullptr;
     socket->deleteLater();
     if (code == 4001 || code == 4003) {
@@ -334,6 +338,7 @@ void Service::connectRelay() {
             if (socket->state() == QAbstractSocket::UnconnectedState) {
               ++remoteGeneration;
               commandQueue.clear();
+              fileReadQueue.clear();
               relay = nullptr;
               socket->deleteLater();
               lastRetry =
@@ -432,11 +437,16 @@ void Service::relayMessage(const Object &message) {
       if(cancelledProjectRequests.size()>=64)cancelledProjectRequests.erase(cancelledProjectRequests.begin());
       cancelledProjectRequests.insert(id);
       for(int i=commandQueue.size()-1;i>=0;--i)if(commandQueue[i]["requestId"]==id)commandQueue.removeAt(i);
+      for (int i = fileReadQueue.size() - 1; i >= 0; --i) if (fileReadQueue[i].message["requestId"] == id) fileReadQueue.removeAt(i);
       QTimer::singleShot(15000,this,[this,id]{cancelledProjectRequests.remove(id);});
     }
     return;
   }
   if (type == "project.request") {
+    if (message["query"].toObject()["operation"] == "file") {
+      if (!QUuid(message["requestId"].toString()).isNull()) queueFileRead(message);
+      return;
+    }
     if (!QUuid(message["requestId"].toString()).isNull() && commandQueue.size()<32)commandQueue.append(message);
     return;
   }
@@ -459,9 +469,83 @@ void Service::relayMessage(const Object &message) {
     if (message["requestId"].toString().isEmpty() ||
         message["threadId"].toString().isEmpty())
       throw Error("invalid-request");
-    commandQueue.append(message);
+    if (type == "file.request") queueFileRead(message);
+    else commandQueue.append(message);
     return;
   }
+}
+void Service::queueFileRead(const Object &message) {
+  if (paused || !allowed || stopping || !initialized) return;
+  if (fileReadQueue.size() >= 32) {
+    // Reuse transport backpressure rather than retaining an unbounded queue.
+    if (relay) relay->close(QWebSocketProtocol::CloseCode(1013), "backpressure");
+    return;
+  }
+  FileReadRequest request{message, {}, remoteGeneration};
+  request.queued.start();
+  fileReadQueue.append(std::move(request));
+  if (!fileReadScheduled) {
+    fileReadScheduled = true;
+    QTimer::singleShot(0, this, &Service::drainFileReads);
+  }
+}
+void Service::drainFileReads() {
+  fileReadScheduled = false;
+  if (readingFiles) return;
+  if (paused || !allowed || stopping || !initialized) { fileReadQueue.clear(); return; }
+  {
+    QScopedValueRollback<bool> reading(readingFiles, true);
+    QElapsedTimer budget; budget.start();
+    // File reads neither call the runtime nor mutate its state. This lets them
+    // progress inside a nested RPC wait while commands remain serialized.
+    for (int count = 0; !fileReadQueue.isEmpty() && count < 2 && budget.elapsed() < 8; ++count) {
+      const auto request = fileReadQueue.takeFirst();
+      if (request.generation != remoteGeneration || paused || !allowed || stopping) continue;
+      const auto queued = request.queued.elapsed();
+      fileQueueMs += queued; fileQueueMaxMs = qMax(fileQueueMaxMs, queued);
+      QElapsedTimer elapsed; elapsed.start();
+      ++depth;
+      try { replyFileRead(request.message); }
+      catch (...) { if (relay) relay->close(QWebSocketProtocol::CloseCode(1013), "file-read-failed"); }
+      --depth;
+      ++fileReadCount;
+      const auto readMs = elapsed.elapsed();
+      fileReadMs += readMs; fileReadMaxMs = qMax(fileReadMaxMs, readMs);
+    }
+    if (!fileReadQueue.isEmpty() && !fileReadScheduled) {
+      fileReadScheduled = true;
+      QTimer::singleShot(0, this, &Service::drainFileReads);
+    }
+  }
+  if (!depth && !uiQueue.isEmpty()) submit(uiQueue.takeLast());
+}
+void Service::replyFileRead(const Object &message) {
+  if (message["type"] == "project.request") {
+    Object response{{"type", "device.project"}, {"requestId", message["requestId"]}, {"projectId", message["projectId"]}, {"result", QJsonValue::Null}, {"code", QJsonValue::Null}};
+    try {
+      const auto result = browseProject(message);
+      response["result"] = result;
+      const auto file = result["file"].toObject();
+      if (file.contains("offset")) fileReadBytes += qMin<qint64>(256 * 1024, file["size"].toInteger() - file["offset"].toInteger());
+    }
+    catch (const Error &e) { response["code"] = QStringList{"project-not-in-catalog", "project-path-invalid", "project-path-not-allowed", "project-directory-unavailable", "project-directory-changed", "project-cancelled", "file-unavailable", "file-too-large", "file-changed", "invalid-file-offset"}.contains(e.code) ? e.code : QString("project-directory-unavailable"); }
+    cancelledProjectRequests.remove(message["requestId"].toString());
+    send(response);
+    return;
+  }
+  const auto id = message["threadId"].toString();
+  Object response{{"type", "device.file"}, {"requestId", message["requestId"]}, {"threadId", id}, {"path", message["path"]}, {"file", QJsonValue::Null}, {"code", QJsonValue::Null}};
+  try {
+    bool member = false;
+    for (const auto &entry : catalog["threads"].toArray()) if (entry.toObject()["id"] == id) member = true;
+    if (!member) throw Error("file-not-in-thread");
+    const auto file = readFile(message);
+    response["file"] = file;
+    if (file.contains("offset")) fileReadBytes += qMin<qint64>(256 * 1024, file["size"].toInteger() - file["offset"].toInteger());
+  } catch (const Error &e) {
+    response["code"] = QStringList{"file-not-in-thread", "file-too-large", "file-changed", "invalid-file-offset"}.contains(e.code) ? e.code : QString("file-unavailable");
+  }
+  send(response);
 }
 void Service::processCommand(const Object &command) {
   Object result;
@@ -581,22 +665,7 @@ void Service::tick() {
           }
         send(response);
       } else if (type == "file.request") {
-        Object response{
-            {"type", "device.file"},    {"requestId", message["requestId"]},
-            {"threadId", id},           {"path", message["path"]},
-            {"file", QJsonValue::Null}, {"code", QJsonValue::Null}};
-        try {
-          if (!member)
-            throw Error("file-not-in-thread");
-          response["file"] = readFile(message);
-        } catch (const Error &e) {
-          response["code"] = QStringList{"file-not-in-thread", "file-too-large",
-                                         "file-changed", "invalid-file-offset"}
-                                     .contains(e.code)
-                                 ? e.code
-                                 : "file-unavailable";
-        }
-        send(response);
+        replyFileRead(message);
       }
     }
     if (!snapshot.isEmpty()) {

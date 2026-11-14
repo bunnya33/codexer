@@ -31,6 +31,9 @@ if (process.platform === 'win32') {
 } else {
   await cp(join(output, 'Codexer Agent.app'), join(stage, 'Codexer Agent.app'), {recursive: true});
   await run(join(qt, 'bin/macdeployqt'), [join(stage, 'Codexer Agent.app')]);
+  // The Agent only uses SQLite. Other SDK drivers require external database clients.
+  const drivers = join(stage, 'Codexer Agent.app/Contents/PlugIns/sqldrivers');
+  for (const name of await readdir(drivers)) if (name !== 'libqsqlite.dylib') await rm(join(drivers, name));
   resources = join(stage, 'Codexer Agent.app/Contents/MacOS');
 }
 await cp(join(root, 'apps/desktop/assets/icon.ico'), join(resources, 'icon.ico'));

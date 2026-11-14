@@ -15,6 +15,7 @@
     "expo-image-manipulator": "~57.0.20",
     "expo-image-picker": "~57.0.1",
     "expo-intent-launcher": "~57.0.1",
+    "expo-keep-awake": "~57.0.2",
     "expo-secure-store": "~57.0.1",
     "expo-sharing": "~57.0.22",
     "expo-status-bar": "~57.0.1",
@@ -41,7 +42,9 @@
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
-    "ios": "expo start --ios",
+    "ios": "expo run:ios",
+    "ios:prepare": "expo prebuild --platform ios --no-install --skip-dependency-update react,react-native",
+    "ios:device": "expo run:ios --device --configuration Release",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "export": "expo export --platform ios && expo export --platform android",

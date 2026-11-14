@@ -9,6 +9,10 @@ import { DevicePicker } from './device-picker';
 import { DrawerSwipeBlock } from './drawer-swipe-block';
 import { TaskStatusDot } from './task-status-dot';
 import { RunningTaskCount } from './running-task-count';
+import { appDisplayName } from './branding';
+import { DownloadLibraryButton } from './download-library';
+import { devicesActivityStatus } from '../../../packages/client-shared/src/device-activity';
+import { FrogStatusIcon } from './frog-status-icon';
 type Props = { updateAvailable?:boolean; view: RelayView; deviceId: string; threadId: string; rows: DirectoryRow[]; search: string; wide: boolean; managing: boolean; paddingTop: number; paddingBottom: number; setSearch: (value: string) => void; selectDevice: (id: string) => void; selectThread: (id: string) => void; toggleProject: (id: string) => void; createProject: () => void; projectActions: (project: { id: string; name: string }) => void; threadActions: (thread: { id: string; title: string }) => void; close: () => void; settings: () => void; refresh: () => void };
 
 function ThreadRow({item, props, showActivity = true}: {item: DirectoryThread; props: Props; showActivity?: boolean}) {
@@ -50,11 +54,11 @@ export function Directory(props: Props) {
   const [transfersOpen, setTransfersOpen] = useState(false);
   const { view, deviceId, rows, wide } = props;
   return <View style={[s.drawer, wide && s.sidebar, { paddingTop: props.paddingTop, paddingBottom: props.paddingBottom }]}>
-    <View style={s.drawerHeader}><Text style={s.brand}>Codexer</Text>{!wide && <Pressable accessibilityRole="button" accessibilityLabel="关闭会话列表" onPress={props.close} style={s.iconButton}><X size={20} color={c.text} /></Pressable>}</View>
+    <View style={s.drawerHeader}><View style={s.drawerBrand}>{['ios', 'android'].includes(Platform.OS) && <FrogStatusIcon status={devicesActivityStatus(view.devices, view.snapshots)} />}<Text style={s.brand}>{appDisplayName}</Text></View>{!wide && <Pressable accessibilityRole="button" accessibilityLabel="关闭会话列表" onPress={props.close} style={s.iconButton}><X size={20} color={c.text} /></Pressable>}</View>
     <DrawerSwipeBlock><DevicePicker devices={view.devices} snapshots={view.snapshots} deviceId={deviceId} selectDevice={props.selectDevice} /></DrawerSwipeBlock>
     <DrawerSwipeBlock style={s.search}><Search size={17} color={c.muted} /><TextInput accessibilityLabel="搜索会话" style={s.searchInput} value={props.search} onChangeText={props.setSearch} placeholder="搜索会话" placeholderTextColor={c.muted} /></DrawerSwipeBlock>
     <FlatList data={rows} keyExtractor={row => `${row.type}:${row.id}`} style={s.list} contentContainerStyle={s.listContent} renderItem={({item}) => item.type === 'section' ? <View style={s.directorySectionRow}><Text style={s.directorySectionTitle}>{item.title}</Text>{item.id === 'projects' && <Pressable accessibilityRole="button" accessibilityLabel="新建项目" disabled={props.managing || !deviceId} onPress={props.createProject} style={[s.iconButton, (props.managing || !deviceId) && s.disabled]}><FolderPlus size={18} color={c.muted}/></Pressable>}</View> : item.type === 'project' ? <ProjectRow project={item} props={props} /> : <ThreadRow item={item} props={props} />} ListEmptyComponent={<Text style={s.empty}>{view.catalogs[deviceId] ? '没有匹配的会话' : '正在读取项目与会话'}</Text>} />
-    <View style={s.drawerFooter}><Pressable accessibilityRole="button" accessibilityLabel="刷新设备" onPress={props.refresh} style={s.iconButton}><RefreshCw size={19} color={c.text} /></Pressable><Pressable accessibilityRole="button" accessibilityLabel="项目传输" onPress={() => setTransfersOpen(true)} style={s.iconButton}><ArrowLeftRight size={19} color={c.text}/></Pressable><Pressable accessibilityRole="button" accessibilityLabel="连接设置" onPress={props.settings} style={s.iconButton}><Settings2 size={19} color={c.text} />{props.updateAvailable&&<View accessibilityLabel="控制端有新版本" style={{position:'absolute',right:7,top:6,width:8,height:8,borderRadius:4,backgroundColor:'#eb373a'}}/>}</Pressable></View>
+    <View style={s.drawerFooter}><View testID="directory-footer-actions" style={s.drawerFooterActions}><DownloadLibraryButton compact /><Pressable accessibilityRole="button" accessibilityLabel="刷新设备" onPress={props.refresh} style={s.iconButton}><RefreshCw size={19} color={c.text} /></Pressable><Pressable accessibilityRole="button" accessibilityLabel="项目传输" onPress={() => setTransfersOpen(true)} style={s.iconButton}><ArrowLeftRight size={19} color={c.text}/></Pressable></View><Pressable accessibilityRole="button" accessibilityLabel="连接设置" onPress={props.settings} style={s.iconButton}><Settings2 size={19} color={c.text} />{props.updateAvailable&&<View accessibilityLabel="控制端有新版本" style={{position:'absolute',right:7,top:6,width:8,height:8,borderRadius:4,backgroundColor:'#eb373a'}}/>}</Pressable></View>
     {transfersOpen && <ProjectTransfers key={JSON.stringify([view.url, view.userId])} close={() => setTransfersOpen(false)}/>}
   </View>;
 }

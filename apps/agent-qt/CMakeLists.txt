@@ -48,6 +48,14 @@ if(WIN32)
 elseif(APPLE)
   enable_language(OBJCXX)
   target_sources(CodexerAgent PRIVATE src/platform.mm ../control-native/macos/RelayDeskNative/NativeVault.mm)
+  set(AGENT_MAC_ICON "${CMAKE_CURRENT_SOURCE_DIR}/../desktop/assets/icon.icns")
+  target_sources(CodexerAgent PRIVATE "${AGENT_MAC_ICON}")
+  set_source_files_properties("${AGENT_MAC_ICON}" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+  set_target_properties(CodexerAgent PROPERTIES
+    MACOSX_BUNDLE_BUNDLE_NAME "Codexer Agent"
+    MACOSX_BUNDLE_SHORT_VERSION_STRING "${AGENT_VERSION}"
+    MACOSX_BUNDLE_BUNDLE_VERSION "${AGENT_VERSION}"
+    MACOSX_BUNDLE_ICON_FILE icon.icns)
   target_compile_options(CodexerAgent PRIVATE "$<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>")
   target_link_libraries(CodexerAgent PRIVATE "-framework Security" "-framework ServiceManagement" "-framework Foundation")
 endif()

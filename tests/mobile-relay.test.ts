@@ -43,6 +43,17 @@ beforeEach(() => {
 });
 afterEach(() => { client.disconnect(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
+it('renews download authorization only for the original server/account and known download routes', async () => {
+  await client.connect('https://relay.test', 'user', 'password');
+  const remote = { relayUrl: 'https://relay.test', userId: 'user-test', path: '/v1/devices/device-test/threads/thread-test/files/content?path=test.txt&version=' + 'a'.repeat(64) };
+  expect(client.downloadSource(remote)).toEqual({ uri: remote.relayUrl + remote.path, headers: { Authorization: 'Bearer ' + 'a'.repeat(40) } });
+  expect(() => client.downloadSource({ ...remote, userId: 'other' })).toThrow('账号');
+  expect(() => client.downloadSource({ ...remote, relayUrl: 'https://other.test' })).toThrow('账号');
+  expect(() => client.downloadSource({ ...remote, path: '//evil.test/download' })).toThrow('地址无效');
+  expect(() => client.downloadSource({ ...remote, path: '/v1/auth/logout' })).toThrow('地址无效');
+  await client.logout(); expect(() => client.downloadSource(remote)).toThrow('账号');
+});
+
 it('keeps preview cleanup bound to its original server and credentials after disconnect', async () => {
   await connectedSocket();
   const path='/v1/previews/'+'b'.repeat(64)+'/';

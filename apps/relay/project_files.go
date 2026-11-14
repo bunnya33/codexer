@@ -1,9 +1,9 @@
 package relay
 
 import (
+	"context"
 	"encoding/base64"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -41,6 +41,10 @@ func validProjectPath(path string) bool {
 	return true
 }
 func (s *Server) requestProject(r *http.Request, p *Principal, fields M) M {
+	started, completed := time.Now(), false
+	if fields["operation"] == "file" {
+		defer func() { s.metrics.Observe("fileRead", started, !completed) }()
+	}
 	s.Validate("project", fields)
 	if !validProjectPath(str(fields["path"])) {
 		fail(400, "project-path-invalid")
@@ -74,6 +78,7 @@ func (s *Server) requestProject(r *http.Request, p *Principal, fields M) M {
 	defer agent.Send(M{"type": "project.cancel", "requestId": pending.ID})
 	result := s.wait(r.Context(), pending, 15*time.Second)
 	s.lane(device, func() { s.authorizeProject(p, device, project) })
+	completed = true
 	return result
 }
 func (s *Server) acceptProjectTransfer(device string, m M) {
@@ -151,33 +156,14 @@ func (s *Server) projectFileRoutes() {
 		s.addPending(lease, 4, 2)
 		defer s.removePending(lease.ID)
 		first := obj(s.requestProject(r, p, q)["file"])
-		downloadHeaders(w)
-		w.Header().Set("Content-Length", str(first["size"]))
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Disposition", "attachment; filename=\"download\"; filename*=UTF-8''"+strings.ReplaceAll(url.PathEscape(str(first["name"])), "'", "%27"))
-		w.WriteHeader(200)
-		file := first
-		for offset := int64(0); offset < num(first["size"]); {
-			if file["size"] != first["size"] || file["name"] != first["name"] {
-				panic(http.ErrAbortHandler)
+		serveFileDownload(w, r, first, func(ctx context.Context, offset int64) M {
+			query := make(M, len(q))
+			for key, value := range q {
+				query[key] = value
 			}
-			bytes, _ := base64.StdEncoding.DecodeString(str(file["base64"]))
-			if _, e := w.Write(bytes); e != nil {
-				return nil
-			}
-			offset += int64(len(bytes))
-			if offset < num(first["size"]) {
-				func() {
-					defer func() {
-						if recover() != nil {
-							panic(http.ErrAbortHandler)
-						}
-					}()
-					q["offset"] = offset
-					file = obj(s.requestProject(r, p, q)["file"])
-				}()
-			}
-		}
+			query["offset"] = offset
+			return obj(s.requestProject(r.WithContext(ctx), p, query)["file"])
+		})
 		return nil
 	})
 }

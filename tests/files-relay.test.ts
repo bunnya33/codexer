@@ -42,6 +42,13 @@ it('retrieves live and historical files through a real PC Agent with account/thr
     const zipInfo = await app.inject({url:url('info',archive),headers:account.headers});
     const zip = await app.inject({url:url('content',archive)+`&version=${zipInfo.json().version}`,headers:account.headers});
     expect(zip.statusCode).toBe(200); expect(zip.rawPayload).toEqual(binary);
+    for (const [start, end] of [[0, 0], [FILE_CHUNK_BYTES - 3, FILE_CHUNK_BYTES + 7], [FILE_CHUNK_BYTES + 11, binary.length - 1]]) {
+      const part = await app.inject({url:url('content',archive)+`&version=${zipInfo.json().version}`,headers:{...account.headers,range:`bytes=${start}-${end}`}});
+      expect(part.statusCode).toBe(206); expect(part.rawPayload).toEqual(binary.subarray(start,end!+1));
+      expect(part.headers['content-range']).toBe(`bytes ${start}-${end}/${binary.length}`);
+    }
+    const beyond = await app.inject({url:url('content',archive)+`&version=${zipInfo.json().version}`,headers:{...account.headers,range:`bytes=${binary.length}-`}});
+    expect(beyond.statusCode).toBe(416);
     expect((await app.inject({url:url('info')})).statusCode).toBe(401);
     expect((await app.inject({url:url('info'),headers:other.headers})).statusCode).toBe(404);
     expect((await app.inject({url:url('info',path,'other-thread'),headers:account.headers})).json().error).toBe('file-not-in-thread');
