@@ -194,6 +194,7 @@ void Service::closeAgent() {
   acquired.clear();
   busyTurns.clear();
   dirtyThreads.clear();
+  desktopUpdates.clear();
   desktopThreads.clear();
   awaitingQueue.clear();
   commandQueue.clear();
@@ -263,9 +264,21 @@ void Service::status() {
       Array list;
       for (const auto &v : threads) {
         auto t = v.toObject();
+        Array turns;
+        for (const auto &value : t["turns"].toArray()) {
+          const auto turn = value.toObject();
+          turns.append(Object{{"id", turn["id"]}, {"status", turn["status"]},
+                              {"items", turn["items"].toArray().size()}});
+        }
+        const auto watch = desktop ? desktop->watched.value(t["id"].toString())
+                                   : Desktop::Watch{};
         list.append(Object{{"id", t["id"]},
                            {"status", t["status"]},
                            {"activeTurnId", t["activeTurnId"]},
+                           {"revision", t["revision"]},
+                           {"desktopRevision", double(watch.revision)},
+                           {"desktopReceivedAt", double(watch.receivedAt)},
+                           {"turns", turns},
                            {"requests", t["requests"].toArray().size()}});
       }
       save(dataDirectory + "/status.json",
@@ -711,7 +724,7 @@ void Service::tick() {
           } catch (...) {
           }
         for (const auto &t : snapshot["threads"].toObject())
-          dirtyThreads.insert(t.toObject()["id"].toString());
+          queueThreadUpdate(t.toObject()["id"].toString());
       }
       if (now() - lastCatalog >= 60000) {
         lastCatalog = now();
@@ -722,8 +735,7 @@ void Service::tick() {
         }
       }
       if (!dirtyThreads.isEmpty()) {
-        auto id = *dirtyThreads.begin();
-        dirtyThreads.remove(id);
+        auto id = dirtyThreads.takeFirst();
         try {
           watch(id);
         } catch (...) {

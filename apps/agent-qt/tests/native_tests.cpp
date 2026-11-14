@@ -27,6 +27,8 @@ static int fixtureServer() {
     }
     auto state = fixtureState();
     auto method = request["method"].toString();
+    if (method == state["delayedMethod"].toString())
+      QThread::msleep(state["delayMs"].toInt());
     if (!request.contains("id"))
       continue;
     QFile log(fixtureRoot + "/requests.jsonl");
@@ -137,7 +139,7 @@ public:
   int acceptedStarts = 0;
   int followStarts = 0;
   bool hideFirstOwner = false, disconnectStart = false, hideOwner = false,
-       rejectStarts = false;
+       rejectStarts = false, sendSnapshots = true;
   QString owner = "synthetic-owner";
   std::function<void()> onOwnerLookup;
   // macOS Unix-domain sockets have a 104-byte path limit, including TMPDIR.
@@ -221,6 +223,7 @@ public:
     peer->write(frame + body);
   }
   void snapshot() {
+    if (!sendSnapshots) return;
     send({{"type", "broadcast"},
           {"method", "thread-stream-state-changed"},
           {"sourceClientId", owner},
@@ -313,7 +316,7 @@ class NativeTests : public QObject {
       source["updatedAt"] = i + 1;
       threads[id] = normalizeThread(source, 0);
       agent->rawThreads[id] = source;
-      agent->dirtyThreads.insert(id);
+      agent->queueThreadUpdate(id);
       entries.append(Object{{"id",id},{"projectId","project-test"},{"archived",false}});
     }
     agent->snapshot["threads"] = threads;
@@ -2719,6 +2722,145 @@ private slots:
                                  "rejected-again", "expired", "revoked",
                                  "new-owner-busy"})
       QTest::newRow(scenario) << QString(scenario);
+  }
+  void desktopUpdatesProgressDuringOwnerLookup() {
+    DesktopFixture fixture(raw());
+    qputenv("CODEX_REMOTE_DESKTOP_ENDPOINT", fixture.endpoint.toUtf8());
+    agent->settings["runtime"] = "desktop";
+    agent->desktop->open(agent->settings);
+    agent->watch("thread-test");
+    QVERIFY(waitFor([&] {
+      return agent->desktop->watched["thread-test"].compatible;
+    }, 1000));
+    agent->watch("thread-test");
+    QWebSocketServer server("Live updates", QWebSocketServer::NonSecureMode);
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+    QList<Object> events;
+    QWebSocket *peer = nullptr;
+    connect(&server, &QWebSocketServer::newConnection, &server, [&] {
+      peer = server.nextPendingConnection();
+      connect(peer, &QWebSocket::textMessageReceived, &server,
+              [&](const QString &text) {
+        const auto message = parse(text.toUtf8()).toObject();
+        if (message["type"] == "device.event") events.append(message);
+      });
+    });
+    agent->credentials["relayUrl"] = "http://127.0.0.1:" + QString::number(server.serverPort());
+    agent->connectRelay();
+    QVERIFY(waitFor([&] { return peer && agent->relay->state() == QAbstractSocket::ConnectedState; }, 1000));
+    auto state = [&] { return agent->snapshot["threads"].toObject()["thread-test"].toObject(); };
+    bool runningPublished = false, completedPublished = false;
+    const Object prompt{{"id", "prompt"}, {"type", "userMessage"},
+                        {"content", Array{Object{{"type", "text"}, {"text", "new phone message"}}}}};
+    const Object turn{{"id", "live-turn"}, {"status", "inProgress"}, {"items", Array{prompt}}};
+    fixture.onOwnerLookup = [&] {
+      // A different conversation's discovery wait must not hold back received
+      // messages, final replies, or the active -> idle transition.
+      fixture.patch(Array{
+        Object{{"op", "replace"}, {"path", Array{"threadRuntimeStatus", "type"}}, {"value", "active"}},
+        Object{{"op", "replace"}, {"path", Array{"turns"}},
+               {"value", Array{turn}}}}, 0, 1);
+      runningPublished = waitFor([&] { return state()["status"] == "active"; }, 600);
+      fixture.patch(Array{
+        Object{{"op", "replace"}, {"path", Array{"threadRuntimeStatus", "type"}}, {"value", "idle"}},
+        Object{{"op", "replace"}, {"path", Array{"turns", 0, "status"}}, {"value", "completed"}},
+        Object{{"op", "add"}, {"path", Array{"turns", 0, "items", 1}},
+               {"value", Object{{"id", "reply"}, {"type", "agentMessage"}, {"text", "finished"}}}}}, 1, 2);
+      completedPublished = waitFor([&] {
+        return state()["status"] == "idle" &&
+          state()["turns"].toArray().size() == 1 &&
+          state()["turns"].toArray()[0].toObject()["items"].toArray().size() == 2;
+      }, 600);
+    };
+    agent->depth = 1;
+    agent->relayMessage({{"type", "command"}, {"command", command()}});
+    QVERIFY(agent->desktop->follow("unrelated-thread"));
+    QVERIFY(runningPublished);
+    QVERIFY(completedPublished);
+    QVERIFY(waitFor([&] { return events.size() >= 2; }, 500));
+    const auto live = events[0]["event"].toObject()["change"].toObject()["thread"].toObject();
+    QCOMPARE(live["activeTurnId"], QJsonValue("live-turn"));
+    QCOMPARE(live["turns"].toArray()[0].toObject()["items"].toArray()[0].toObject()["text"], QJsonValue("new phone message"));
+    QCOMPARE(agent->depth, 1);
+    QCOMPARE(agent->commandQueue.size(), 1);
+    QCOMPARE(fixture.acceptedStarts, 0);
+    for (const auto &request : fixture.requests)
+      QVERIFY(!request["method"].toString().startsWith("thread-follower-"));
+    agent->depth = 0;
+  }
+  void desktopSubscriptionRecovery_data() {
+    QTest::addColumn<QString>("scenario");
+    for (const auto &scenario : {"silent", "owner-replaced", "owner-disconnected", "missing-initial-snapshot"})
+      QTest::newRow(scenario) << QString(scenario);
+  }
+  void desktopSubscriptionRecovery() {
+    QFETCH(QString, scenario);
+    DesktopFixture fixture(raw());
+    fixture.sendSnapshots = scenario != "missing-initial-snapshot";
+    qputenv("CODEX_REMOTE_DESKTOP_ENDPOINT", fixture.endpoint.toUtf8());
+    agent->settings["runtime"] = "desktop";
+    agent->desktop->open(agent->settings);
+    agent->watch("thread-test");
+    if (fixture.sendSnapshots) {
+      QVERIFY(waitFor([&] { return agent->desktop->watched["thread-test"].compatible; }, 1000));
+      agent->watch("thread-test");
+    }
+    const auto oldOwner = fixture.owner;
+    auto &watch = agent->desktop->watched["thread-test"];
+    watch.receivedAt = now() - 31000;
+    fixture.raw["threadRuntimeStatus"] = Object{{"type", "active"}};
+    fixture.raw["turns"] = Array{Object{{"id", "recovered-turn"}, {"status", "inProgress"}, {"items", Array{}}}};
+    fixture.sendSnapshots = true;
+    if (scenario.startsWith("owner-")) fixture.owner = "replacement-owner";
+    if (scenario == "owner-disconnected") {
+      fixture.send({{"type", "broadcast"}, {"method", "client-status-changed"},
+                    {"params", Object{{"clientId", oldOwner}, {"status", "disconnected"}}}});
+      QVERIFY(waitFor([&] {
+        return agent->snapshot["threads"].toObject()["thread-test"].toObject()["status"] == "unavailable";
+      }, 1000));
+    }
+    if (scenario == "missing-initial-snapshot") watch.resubscribeAt = now() - 3100;
+    agent->watch("thread-test");
+    if (scenario == "owner-replaced") {
+      QVERIFY(waitFor([&] { return agent->desktop->watched["thread-test"].resubscribeAt > 0; }, 500));
+      agent->desktop->watched["thread-test"].resubscribeAt = now() - 3100;
+      agent->watch("thread-test");
+    }
+    QVERIFY(waitFor([&] {
+      return agent->snapshot["threads"].toObject()["thread-test"].toObject()["activeTurnId"] == "recovered-turn";
+    }, 1000));
+    QCOMPARE(fixture.ownerLookups, scenario == "silent" ? 1 : 2);
+    // Frames from a replaced owner cannot make the recovered task idle again.
+    fixture.send({{"type", "broadcast"}, {"method", "thread-stream-state-changed"},
+                  {"sourceClientId", "obsolete-owner"}, {"version", 11},
+                  {"params", Object{{"conversationId", "thread-test"}, {"hostId", "local"},
+                    {"change", Object{{"type", "snapshot"}, {"revision", 999}, {"conversationState", raw()}}}}}});
+    QTest::qWait(150);
+    QCOMPARE(agent->desktop->watched["thread-test"].raw["threadRuntimeStatus"].toObject()["type"], QJsonValue("active"));
+    for (const auto &request : fixture.requests)
+      QVERIFY(!request["method"].toString().startsWith("thread-follower-"));
+  }
+  void desktopEnrichmentCannotOverwriteNewerMessages() {
+    DesktopFixture fixture(raw());
+    qputenv("CODEX_REMOTE_DESKTOP_ENDPOINT", fixture.endpoint.toUtf8());
+    agent->settings["runtime"] = "desktop";
+    agent->desktop->open(agent->settings);
+    agent->watch("thread-test");
+    QVERIFY(waitFor([&] { return agent->desktop->watched["thread-test"].compatible; }, 1000));
+    agent->watch("thread-test");
+    setFixture({{"delayedMethod", "thread/list"}, {"delayMs", 450}});
+    agent->ensureRpc();
+    QTimer::singleShot(50, &fixture, [&] {
+      fixture.patch(Array{Object{{"op", "replace"},
+        {"path", Array{"threadRuntimeStatus", "type"}}, {"value", "active"}}}, 0, 1);
+    });
+    bool publishedDuringEnrichment = false;
+    QTimer::singleShot(300, &fixture, [&] {
+      publishedDuringEnrichment = agent->snapshot["threads"].toObject()["thread-test"].toObject()["status"] == "active";
+    });
+    agent->updateThread("thread-test");
+    QVERIFY(publishedDuringEnrichment);
+    QCOMPARE(agent->snapshot["threads"].toObject()["thread-test"].toObject()["status"], QJsonValue("active"));
   }
   void desktopOwnerRediscovery() {
     QFETCH(QString, scenario);

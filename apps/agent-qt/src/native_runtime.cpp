@@ -46,7 +46,7 @@ void Service::forgetThreadCache(const QString &id) {
   rawThreads.remove(id);
   effectiveSettings.remove(id);
   tokenUsage.remove(id);
-  dirtyThreads.remove(id);
+  dirtyThreads.removeAll(id);
   gapUsage(id);
   desktop->unfollow(id);
   desktopThreads.remove(id);
@@ -79,7 +79,7 @@ void Service::attachRpc(Rpc *value) {
       return;
     }
     pendingRequests[request["id"].toVariant().toString()] = request;
-    dirtyThreads.insert(p["threadId"].toString());
+    queueThreadUpdate(p["threadId"].toString());
   });
   connect(value, &Rpc::notification, this, [this](QString method, Object p) {
     auto id = p["threadId"].toString(), turnId = p["turnId"].toString();
@@ -124,7 +124,7 @@ void Service::attachRpc(Rpc *value) {
       } catch (...) {
       }
     }
-    dirtyThreads.insert(id);
+    queueThreadUpdate(id);
   });
   connect(value, &Rpc::disconnected, this, [this, value] {
     if (rpc != value || refreshing)
@@ -266,7 +266,7 @@ void Service::refreshCatalog() {
       continue;
     auto id = t["id"].toString();
     if (count++ < threadLimit)
-      dirtyThreads.insert(id);
+      queueThreadUpdate(id);
   }
 }
 static QByteArray rollout(const QString &path,
@@ -654,23 +654,41 @@ void Service::watch(const QString &id, bool forceHeadless) {
   rawThreads[id] = source;
   updateThread(id);
 }
-void Service::updateThread(const QString &id) {
+void Service::queueThreadUpdate(const QString &id) {
+  if (!id.isEmpty() && !dirtyThreads.contains(id))
+    dirtyThreads.append(id);
+}
+void Service::updateThread(const QString &id, bool enrich) {
   auto raw = rawThreads[id];
   if (desktopThreads.contains(id) && !desktop->watched.value(id).raw.isEmpty())
     raw = desktop->watched.value(id).raw;
   if (raw.isEmpty())
     return;
   auto old = snapshot["threads"].toObject()[id].toObject();
-  const auto revision = old["revision"].toInteger(-1) + 1;
+  const auto desktopWatch = desktop->watched.value(id);
   Object thread;
   if (!desktopThreads.contains(id) && raw["_normalized"].isObject()) {
     thread = raw["_normalized"].toObject();
-    thread["revision"] = double(revision);
+    thread["revision"] = double(old["revision"].toInteger(-1) + 1);
   } else {
     raw["codexerSubAgents"] = old["subAgents"].toArray();
     raw["codexerSubAgentsTruncated"] = old["subAgentsTruncated"].toBool();
-    enrichAgents(id, raw);
-    thread = normalizeThread(raw, revision,
+    if (enrich) {
+      enrichAgents(id, raw);
+      // A cached-state flush may have published newer IPC state while metadata
+      // enrichment waited. Never overwrite it with the pre-wait conversation.
+      if (desktopThreads.contains(id) &&
+          (desktop->watched.value(id).revision != desktopWatch.revision ||
+           desktop->watched.value(id).owner != desktopWatch.owner ||
+           desktop->watched.value(id).receivedAt != desktopWatch.receivedAt)) {
+        updateThread(id, false);
+        return;
+      }
+      old = snapshot["threads"].toObject()[id].toObject();
+    }
+    if (snapshot.isEmpty())
+      return;
+    thread = normalizeThread(raw, old["revision"].toInteger(-1) + 1,
                              [this](const QString &t, const Object &item) {
                                return registerImages(t, item);
                              });
@@ -1093,7 +1111,7 @@ QString Service::refresh(bool force) {
   acquired.clear();
   answeredRequests.clear();
   for (const auto &id : rawThreads.keys())
-    dirtyThreads.insert(id);
+    queueThreadUpdate(id);
   refreshRequested = false;
   log("codex-runtime-refreshed");
   return "refreshed";

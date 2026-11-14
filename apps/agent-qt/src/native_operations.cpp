@@ -393,7 +393,7 @@ Object Service::executeTurn(Object command, const Array &prepared,
       answeredRequests.insert(answerKey);
       rpc->respond(request["id"], response);
       pendingRequests.remove(requestId);
-      dirtyThreads.insert(id);
+      queueThreadUpdate(id);
       return {{"acknowledgedByAppServer", true}};
     }
     params = {{"conversationId", id}, {"requestId", request["id"]}};
@@ -497,7 +497,7 @@ Object Service::executeTurn(Object command, const Array &prepared,
     result = merged(result, expected);
   } else if (onDesktop && response["ok"] != true)
     throw Error("incompatible-desktop-response", true);
-  dirtyThreads.insert(id);
+  queueThreadUpdate(id);
   return result;
 }
 Object Service::manage(const Object &command) {
@@ -580,7 +580,7 @@ Object Service::manage(const Object &command) {
       }
     }
     catalog["threads"] = list;
-    dirtyThreads.insert(id);
+    queueThreadUpdate(id);
   } else {
     newThreads.remove(id);
     forgetThreadCache(id);

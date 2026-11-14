@@ -10,6 +10,8 @@
 
 2026-11-14 Qt Agent `0.2.39` 已完成 macOS arm64 原生编译、打包及本机更新，新增独立的有界文件读取调度，避免下载被后台运行时等待阻塞。用户完成钥匙串授权后，原登录、设备身份、设置和连接复核通过，真实会话文件下载完成；范围见 [验证记录](validation.md)。Windows／Intel 尚未为此版本原生编译；Control 宿主保持不变。传输方案见 [文件下载性能](file-download-performance.md)。
 
+2026-11-14 Qt Agent `0.2.40` 已实际原生编译、打包并替换本机程序，修复实时会话更新被后台扫描阻塞；用户完成钥匙串授权后，原登录／身份／设置及真实 Relay 持续同步复核通过，用户反馈手机恢复。详情见 [会话同步](session-sync.md) 与 [验证记录](validation.md)。
+
 | 产品 | 用途 | 实现 | 代码与版本来源 | 图标 |
 | --- | --- | --- | --- | --- |
 | Codexer Agent | 在被控制电脑登录、连接 Relay、执行本机任务 | Qt Widgets + 同进程 C++/Qt 后台（Windows 0.2.17 起） | `apps/agent-qt` / `apps/desktop/package.json` | 蓝色终端与绿色连接点 |

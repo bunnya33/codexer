@@ -114,6 +114,7 @@ public:
     bool compatible = false;
     bool memoryLimited = false;
     qint64 retainedBytes = 0;
+    qint64 receivedAt = 0, resubscribeAt = 0;
   };
   QHash<QString, Watch> watched;
   bool connected = false;
@@ -173,8 +174,10 @@ class Service : public QObject {
   SubAgentUsageReader subAgentUsage;
   int subAgentUsageCursor = 0;
   QSet<QString> answeredRequests;
-  QSet<QString> owned, newThreads, busyTurns, completedTurns, dirtyThreads,
-      desktopThreads, awaitingQueue;
+  QSet<QString> owned, newThreads, busyTurns, completedTurns,
+      desktopThreads, awaitingQueue, desktopUpdates;
+  QStringList dirtyThreads;
+  bool desktopFlushScheduled = false;
   QHash<QString, qint64> acquired;
   QHash<QString, QPair<QString, QString>> imageSources;
   QHash<QString, QSet<QString>> fileSources;
@@ -249,7 +252,9 @@ class Service : public QObject {
   Array pages(const QString &method, Object params = {});
   void refreshCatalog();
   void watch(const QString &id, bool forceHeadless = false);
-  void updateThread(const QString &id);
+  void queueThreadUpdate(const QString &id);
+  void flushDesktopUpdates();
+  void updateThread(const QString &id, bool enrich = true);
   Object history(const QString &id, QJsonValue cursor);
   Object timedTurn(const QString &id, Object turn, bool recent);
   void enrichAgents(const QString &id, Object &raw);

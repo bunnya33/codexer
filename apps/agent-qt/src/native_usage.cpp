@@ -1,4 +1,5 @@
 #include "native.h"
+#include <utility>
 #include <cmath>
 namespace Native {
 namespace {
@@ -128,8 +129,31 @@ void Service::attachDesktop() {
       gapUsage(id);
       log("token-usage-observation-failed");
     }
-    dirtyThreads.insert(id);
+    queueThreadUpdate(id);
+    desktopUpdates.insert(id);
+    if (!desktopFlushScheduled) {
+      desktopFlushScheduled = true;
+      // Transport waits pump the event loop. Publish only cached desktop state
+      // here: no RPC/enrichment and no reentrant mutating command execution.
+      QTimer::singleShot(100, this, &Service::flushDesktopUpdates);
+    }
   });
+}
+void Service::flushDesktopUpdates() {
+  desktopFlushScheduled = false;
+  const auto pending = std::exchange(desktopUpdates, {});
+  if (stopping || snapshot.isEmpty())
+    return;
+  for (const auto &id : pending) {
+    if (!desktopThreads.contains(id))
+      continue;
+    try {
+      updateThread(id, false);
+    } catch (...) {
+      log("desktop-state-publish-failed");
+    }
+  }
+  status();
 }
 void Service::observeDesktopUsage(const QString &id) {
   const auto watch = desktop->watched.constFind(id);

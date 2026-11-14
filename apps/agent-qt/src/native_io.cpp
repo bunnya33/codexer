@@ -388,10 +388,23 @@ Desktop::Desktop(QObject *parent) : QObject(parent) {
               {"response", Object{{"canHandle", false}}}});
         continue;
       }
-      if (type != "broadcast" ||
-          message["method"] != "thread-stream-state-changed")
+      if (type != "broadcast")
         continue;
       auto params = message["params"].toObject();
+      if (message["method"] == "client-status-changed" &&
+          params["status"] == "disconnected") {
+        for (const auto &id : watched.keys()) {
+          auto &watch = watched[id];
+          if (watch.owner != params["clientId"].toString())
+            continue;
+          watch.owner.clear();
+          watch.compatible = false;
+          emit threadChanged(id);
+        }
+        continue;
+      }
+      if (message["method"] != "thread-stream-state-changed")
+        continue;
       auto id = params["conversationId"].toString();
       if (!watched.contains(id))
         continue;
@@ -454,8 +467,11 @@ Desktop::Desktop(QObject *parent) : QObject(parent) {
           watch.revision = change["revision"].toInteger();
         } else
           continue;
+        watch.receivedAt = now();
+        watch.resubscribeAt = 0;
       } catch (...) {
         watch.compatible = false;
+        watch.resubscribeAt = now();
         following(id, false);
         following(id, true);
       }
@@ -533,6 +549,7 @@ Object Desktop::call(const QString &method, Object params, const QString &owner,
       for (const auto &threadId : watched.keys())
         if (!owner.isEmpty() && watched[threadId].owner == owner) {
           watched[threadId].compatible = false;
+          watched[threadId].owner.clear();
           emit threadChanged(threadId);
         }
       throw Error("desktop-owner-unavailable");
@@ -542,7 +559,8 @@ Object Desktop::call(const QString &method, Object params, const QString &owner,
   return result;
 }
 void Desktop::following(const QString &id, bool enabled) {
-  if (socket.state() != QLocalSocket::ConnectedState || !watched.contains(id))
+  if (socket.state() != QLocalSocket::ConnectedState || !watched.contains(id) ||
+      watched[id].owner.isEmpty())
     return;
   send({{"type", "broadcast"},
         {"method", "thread-stream-following-changed"},
@@ -558,8 +576,25 @@ bool Desktop::follow(const QString &id, bool rediscover) {
     return false;
   if (rediscover)
     unfollow(id);
-  if (watched.contains(id))
-    return !watched.value(id).memoryLimited;
+  if (watched.contains(id)) {
+    auto &watch = watched[id];
+    if (watch.memoryLimited)
+      return false;
+    if (watch.owner.isEmpty() ||
+        (watch.resubscribeAt && now() - watch.resubscribeAt >= 3000)) {
+      unfollow(id);
+    } else {
+      // Read-only recovery for a silent/lost subscription. A fresh snapshot
+      // acknowledges it; if none arrives, the next pass rediscovers the owner.
+      if (watch.compatible && !watch.resubscribeAt &&
+          now() - watch.receivedAt >= 30000) {
+        watch.resubscribeAt = now();
+        following(id, false);
+        following(id, true);
+      }
+      return true;
+    }
+  }
   try {
     auto owner = call("thread-owner-discovery",
                       {{"hostId", "local"}, {"conversationId", id}}, {},
@@ -567,7 +602,10 @@ bool Desktop::follow(const QString &id, bool rediscover) {
                      .toString();
     if (owner.isEmpty())
       return false;
-    watched.insert(id, Watch{owner});
+    Watch watch;
+    watch.owner = owner;
+    watch.resubscribeAt = now();
+    watched.insert(id, watch);
     following(id, true);
     return true;
   } catch (...) {
