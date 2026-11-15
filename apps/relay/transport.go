@@ -14,25 +14,25 @@ const messageLimit = 8 * 1024 * 1024
 
 // A bounded writer prevents a slow consumer from retaining an unbounded event history.
 type Peer struct {
-	s                             *Server
-	ws                            *websocket.Conn
-	mu                            sync.Mutex
-	principal                     *Principal
-	devices                       map[string]bool
-	files, previews, projectFiles bool
-	extendedThreads               bool
-	projectedDevices              map[string]bool
-	lastPong                      atomic.Int64
-	queue                         chan []byte
-	done                          chan struct{}
-	once                          sync.Once
-	buffered                      atomic.Int64
-	inbound                       atomic.Int64
-	connectionID                  string
-	connectedAt                   int64
-	source                        string
-	diagnosticMu                  sync.Mutex
-	lastMessage                   logContext
+	s                                        *Server
+	ws                                       *websocket.Conn
+	mu                                       sync.Mutex
+	principal                                *Principal
+	devices                                  map[string]bool
+	files, previews, projectFiles, resources bool
+	extendedThreads                          bool
+	projectedDevices                         map[string]bool
+	lastPong                                 atomic.Int64
+	queue                                    chan []byte
+	done                                     chan struct{}
+	once                                     sync.Once
+	buffered                                 atomic.Int64
+	inbound                                  atomic.Int64
+	connectionID                             string
+	connectedAt                              int64
+	source                                   string
+	diagnosticMu                             sync.Mutex
+	lastMessage                              logContext
 }
 
 func (p *Peer) Principal() *Principal { p.mu.Lock(); defer p.mu.Unlock(); return p.principal }
@@ -390,7 +390,7 @@ func (s *Server) deviceSocket(w http.ResponseWriter, r *http.Request) {
 			}
 			s.Store.Q("UPDATE devices SET last_seen_at=$2 WHERE id=$1", id, now())
 			s.Store.Q("DELETE FROM removed_devices WHERE device_id=$1", id)
-			p.Send(M{"type": "device.welcome", "deviceId": id, "protocolVersion": 1, "threadLimit": s.Store.AgentSettings()["threadLimit"], "features": []string{"catalog", "history", "images", "files", "previews", "attachments", "project-files"}})
+			p.Send(M{"type": "device.welcome", "deviceId": id, "protocolVersion": 1, "threadLimit": s.Store.AgentSettings()["threadLimit"], "features": []string{"catalog", "history", "images", "files", "previews", "attachments", "project-files", "resources"}})
 			s.Broadcast(id, M{"type": "device.presence", "deviceId": id, "online": true})
 		})
 		announceSnapshot, announceCatalog := true, true
@@ -475,9 +475,12 @@ func (s *Server) deviceSocket(w http.ResponseWriter, r *http.Request) {
 						if f == "project-files" {
 							p.projectFiles = true
 						}
+						if f == "resources" {
+							p.resources = true
+						}
 					}
 					p.mu.Unlock()
-				case "device.file", "device.history", "device.image":
+				case "device.file", "device.history", "device.image", "device.resources":
 					s.acceptTransfer(id, m)
 				case "device.project":
 					s.acceptProjectTransfer(id, m)

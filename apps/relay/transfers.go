@@ -224,6 +224,8 @@ func (s *Server) acceptTransfer(device string, m M) {
 		return
 	}
 	switch p.Kind {
+	case "resources":
+		p.Resolve(obj(m["resources"]))
 	case "history":
 		if page := obj(m["page"]); page["threadId"] == p.Thread {
 			p.Resolve(page)

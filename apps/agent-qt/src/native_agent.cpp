@@ -410,6 +410,7 @@ void Service::relayMessage(const Object &message) {
     if (features.contains("previews"))
       supported.append("previews");
     if (features.contains("project-files")) supported.append("project-files");
+    if (features.contains("resources")) supported.append("resources");
     send({{"type", "device.capabilities"}, {"features", supported}});
     auto runtime = snapshot["runtime"].toObject(),
          caps = runtime["capabilities"].toObject();
@@ -428,6 +429,12 @@ void Service::relayMessage(const Object &message) {
   }
   if (type == "device.settings") {
     applyThreadLimit(message["threadLimit"]);
+    return;
+  }
+  if (type == "resources.request") {
+    if (!paused && allowed && !stopping && !QUuid(message["requestId"].toString()).isNull())
+      send({{"type", "device.resources"}, {"requestId", message["requestId"]},
+            {"resources", resources.sample(rpc ? rpc->processId() : 0)}});
     return;
   }
   if (type == "device.resync") {

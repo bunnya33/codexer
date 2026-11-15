@@ -341,6 +341,93 @@ class NativeTests : public QObject {
     emit agent->desktop->threadChanged("thread-test");
   }
 private slots:
+  void processResourceAccounting() {
+    qint64 clock = 0;
+    quint64 used = 1000000000, identity = 7;
+    int reads = 0;
+    ResourceMonitor monitor([&](qint64 pid) {
+      ++reads;
+      ProcessReading value;
+      value.pid = pid; value.identity = identity; value.startedAt = now() - 5000;
+      value.cpuNs = used; value.residentBytes = 128 * 1024 * 1024; value.privateBytes = 96 * 1024 * 1024;
+      return value;
+    }, [&] { return clock; }, 4);
+    auto first = monitor.sample(123);
+    QVERIFY(first["agent"].toObject()["cpuPercent"].isNull());
+    QCOMPARE(first["children"].toArray().size(), 1);
+    QCOMPARE(reads, 2);
+    clock = 500;
+    QCOMPARE(monitor.sample(123), first);
+    QCOMPARE(reads, 2);
+    clock = 2000; used += 2000000000;
+    auto second = monitor.sample(123);
+    QCOMPARE(second["agent"].toObject()["cpuPercent"].toDouble(), 25.0);
+    QCOMPARE(second["agent"].toObject()["residentBytes"].toDouble(), 128.0 * 1024 * 1024);
+    QCOMPARE(second["agent"].toObject()["privateBytes"].toDouble(), 96.0 * 1024 * 1024);
+    QCOMPARE(second["sampleWindowMs"].toDouble(), 2000.0);
+    // A long absence starts a new short CPU sample; it cannot display an hours-long average.
+    clock += 60000;
+    QVERIFY(monitor.sample(123)["agent"].toObject()["cpuPercent"].isNull());
+    clock += 2000; identity++;
+    QVERIFY(monitor.sample(123)["agent"].toObject()["cpuPercent"].isNull());
+    clock += 2000; used--;
+    QVERIFY(monitor.sample(123)["agent"].toObject()["cpuPercent"].isNull());
+    clock += 2000;
+    QVERIFY(monitor.sample()["children"].toArray().isEmpty());
+    clock += 2000;
+    QVERIFY(monitor.sample(456)["children"].toArray()[0].toObject()["cpuPercent"].isNull());
+  }
+  void processResourceLiveRead() {
+    ResourceMonitor monitor;
+    auto value = monitor.sample();
+    auto own = value["agent"].toObject();
+    QCOMPARE(own["pid"].toDouble(), double(QCoreApplication::applicationPid()));
+    QVERIFY(own["residentBytes"].toDouble() > 0);
+    QVERIFY(own["cpuPercent"].isNull());
+    QVERIFY(own["uptimeSeconds"].toDouble(-1) >= 0);
+    QTest::qWait(1100);
+    value = monitor.sample();
+    own = value["agent"].toObject();
+    QVERIFY(own["cpuPercent"].isDouble());
+    QVERIFY(own["cpuPercent"].toDouble() >= 0 && own["cpuPercent"].toDouble() <= 100);
+#ifdef Q_OS_WIN
+    QVERIFY(own["privateBytes"].toDouble() > 0);
+#endif
+  }
+  void processResourcesRelayReadOnly() {
+    QWebSocketServer server("Resource samples", QWebSocketServer::NonSecureMode);
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+    QList<Object> received; QWebSocket *peer = nullptr;
+    connect(&server, &QWebSocketServer::newConnection, &server, [&] {
+      peer = server.nextPendingConnection();
+      connect(peer, &QWebSocket::textMessageReceived, &server, [&](const QString &text) { received.append(parse(text.toUtf8()).toObject()); });
+    });
+    agent->credentials["relayUrl"] = "http://127.0.0.1:" + QString::number(server.serverPort());
+    agent->connectRelay();
+    QVERIFY(waitFor([&] { return peer && !received.isEmpty(); }, 3000));
+    agent->ensureRpc();
+    const auto child = agent->rpc->processId();
+    QVERIFY(child > 0);
+    const auto epoch = agent->snapshot["epoch"], seq = agent->snapshot["lastSeq"];
+    agent->depth = 1; // Sampling cannot wait behind a long model/runtime call.
+    const auto id = uuid();
+    agent->relayMessage({{"type", "resources.request"}, {"requestId", id}});
+    QVERIFY(waitFor([&] { for (const auto &m : received) if(m["requestId"] == id) return true; return false; }, 1000));
+    Object result;
+    for (const auto &m : received) if(m["requestId"] == id) result = m;
+    QCOMPARE(result["type"].toString(), QString("device.resources"));
+    const auto value = result["resources"].toObject();
+    QCOMPARE(value["children"].toArray()[0].toObject()["pid"].toDouble(), double(child));
+    QVERIFY(value["agent"].toObject()["residentBytes"].toDouble() > 0);
+    QCOMPARE(agent->commandQueue.size(), 0);
+    QCOMPARE(agent->snapshot["epoch"], epoch); QCOMPARE(agent->snapshot["lastSeq"], seq);
+    const auto count = received.size();
+    agent->paused = true;
+    agent->relayMessage({{"type", "resources.request"}, {"requestId", uuid()}});
+    QTest::qWait(50);
+    QCOMPARE(received.size(), count);
+    agent->depth = 0;
+  }
   void init() {
     QVERIFY(temp.isValid());
     auto previous = QDir(temp.path()).entryList(QDir::Files);

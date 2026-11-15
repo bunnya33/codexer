@@ -443,7 +443,7 @@ function AppContent() {
   };
   loadEarlierRef.current = loadEarlier;
 
-  const directory = <Directory view={view} deviceId={deviceId} threadId={threadId} rows={rows} search={search} wide={wide} managing={managing} paddingTop={wide ? 0 : insets.top} paddingBottom={wide ? 0 : insets.bottom} setSearch={setSearch}
+  const directory = <Directory visible={wide || drawerOpen} view={view} deviceId={deviceId} threadId={threadId} rows={rows} search={search} wide={wide} managing={managing} paddingTop={wide ? 0 : insets.top} paddingBottom={wide ? 0 : insets.bottom} setSearch={setSearch}
     selectDevice={setDeviceId} selectThread={selectThread}
     toggleProject={id => setExpandedProjects(current => current.includes(`${deviceId}:${id}`) ? current.filter(value => value !== `${deviceId}:${id}`) : [...current, `${deviceId}:${id}`])}
     createProject={() => { setProjectDeviceId(deviceId); setDrawerOpen(false); }} projectActions={project => { setActionProject({ ...project, deviceId }); setDrawerOpen(false); }} threadActions={item => { setDrawerOpen(false); setNewName(item.title); setActionThread({ id: item.id, title: item.title }); }}

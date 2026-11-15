@@ -19,6 +19,7 @@ import type { Attachment } from '../../../packages/protocol/src/uploads';
 import type { AttachmentAsset } from './attachment-picker';
 import {agentReleaseSchema} from '../../../packages/shared/src/agent-release';
 import type {AgentRelease} from '../../../packages/shared/src/agent-release';
+import {agentResourcesSchema, type AgentResources} from '../../../packages/protocol/src/agent-resources';
 export type PreviewShare = { id: string; url: string; enabled: boolean; kind: 'html' | 'server' | 'audio'; expiresAt:number; durationMinutes:number };
 
 export type Device = { id: string; name: string; platform: string; online: boolean; agentVersion?: string; owner_user_id?: string | null; last_seen_at?: number | string | null };
@@ -620,6 +621,10 @@ export class RelayClient {
     const result = await this.api<{ version?: unknown }>('/health', undefined, 'GET', false, signal);
     if (typeof result.version !== 'string' || !result.version || result.version.length > 100) throw new Error('invalid-version');
     return result.version;
+  }
+
+  async agentResources(deviceId: string, signal: AbortSignal): Promise<AgentResources> {
+    return agentResourcesSchema.parse(await this.api(`/v1/devices/${encodeURIComponent(deviceId)}/resources`, undefined, 'GET', false, signal));
   }
 
   async uploadAttachment(deviceId: string, threadId: string, file: AttachmentAsset, signal: AbortSignal): Promise<Attachment> {

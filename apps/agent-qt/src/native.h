@@ -7,6 +7,7 @@
 #include <functional>
 #include <memory>
 #include <stdexcept>
+#include "native_resources.h"
 
 namespace Native {
 using Object = QJsonObject;
@@ -85,6 +86,7 @@ public:
   void start(const Object &settings);
   void stop();
   bool connected() const;
+  qint64 processId() const { return connected() ? process.processId() : 0; }
   Object call(const QString &method, Object params = {}, int timeout = 30000);
   void respond(const QJsonValue &id, const Object &result,
                const QString &error = {});
@@ -156,6 +158,7 @@ class Service : public QObject {
   QNetworkAccessManager *network = nullptr;
   QWebSocket *relay = nullptr;
   Rpc *rpc = nullptr;
+  ResourceMonitor resources;
   Desktop *desktop = nullptr;
   QTimer *maintenance = nullptr;
   QSqlDatabase journal, usage;

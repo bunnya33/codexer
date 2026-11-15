@@ -1,5 +1,11 @@
 # 本地发布与打包
 
+## 服务器 0.3.67 / Agent 0.2.41 / Android 0.1.24：远程资源占用
+
+控制端设备卡片在在线状态下方显示 Agent 的 CPU、常驻内存，点击查看 Agent 与它直接启动的 Codex app-server 各自占用、PID、运行时长及采样时间，Windows 另列私有提交。可见时按需刷新，侧栏关闭或 App 退后台时停止读取；离线及过期读数标注上次采样。CPU 按整机总算力为 100%，统计范围和刷新策略见 [Agent 资源占用](agent-resource-usage.md)。
+
+服务器仅通过既有连接转发临时采样，不保存监控历史、会话事件或命令记录。需配套使用服务器 0.3.67、Agent 0.2.41 及新版控制端；Android 为 FrogCoder 0.1.24 / versionCode 28，沿用原包名、青蛙图标与正式发布签名。Windows Agent 本机替换、原生构建、安装包及正式发布的实际验收结果分别记录在 [验证记录](validation.md)。Mac Agent 与 iOS 的源码变更仍需在对应设备原生构建和验收。
+
 ## Android 0.1.23：文件搜索与 PDF 阅读
 
 FrogCoder 0.1.23、versionCode 27 包含源码高亮、行号、内容搜索、Markdown 排版／源码切换，以及分页、缩放和全文搜索的 PDF 阅读器。PDF.js 从服务器按需加载，服务器需先安装 0.3.66；实时跟进重复气泡修复还需配套更新 Agent。Office 文档保留下载。

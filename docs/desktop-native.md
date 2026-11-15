@@ -1,5 +1,7 @@
 # 桌面架构与产品命名
 
+控制端设备卡片支持按需查看 [Agent CPU 与内存占用](agent-resource-usage.md)，详细统计口径、可见时刷新和服务器转发边界见该文档。
+
 2026-10-30 用户确认：优先将 **Codexer Agent** 连接器改用 Qt，降低桌面常驻内存；**Codexer Control** 暂不改动，保留 React Native 原生宿主。此决定取代 2026-10-24 连接器恢复 Electron 的技术约定。此次 Windows Qt 实际编译与交付，macOS Qt 源码需另行编译和实机验收，既有 Mac 发行版暂保留。
 
 2026-11-13 已补充 macOS arm64 Qt Agent 0.2.36 的实际原生编译、本地 DMG/ZIP 和正式目录升级验收；仅覆盖本机 Apple Silicon Mac，未验证 Intel Qt 包或发布远程更新。详见 [macOS 构建](mac.md) 与 [验证记录](validation.md)。

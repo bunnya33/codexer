@@ -7,6 +7,7 @@ import { confirmAction } from './runtime';
 import { deviceRunningTaskCount } from '../../../packages/client-shared/src/device-activity';
 import { RunningTaskCount } from './running-task-count';
 import { deviceDetails } from '../../../packages/client-shared/src/device-label';
+import {AgentResourceBar} from './agent-resources';
 
 function DeviceIcon({ color, count }: { color: string; count: number }) {
   const { c } = useTheme();
@@ -19,7 +20,7 @@ function DeviceIcon({ color, count }: { color: string; count: number }) {
   </View>;
 }
 
-export function DevicePicker({ devices, snapshots = {}, deviceId, selectDevice }: { devices: RelayView['devices']; snapshots?: RelayView['snapshots']; deviceId: string; selectDevice: (id: string) => void }) {
+export function DevicePicker({ devices, snapshots = {}, deviceId, selectDevice, visible = true, connected = true, resourceScope = '' }: { devices: RelayView['devices']; snapshots?: RelayView['snapshots']; deviceId: string; selectDevice: (id: string) => void; visible?: boolean; connected?: boolean; resourceScope?: string }) {
   const { c, s } = useTheme();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -42,11 +43,14 @@ export function DevicePicker({ devices, snapshots = {}, deviceId, selectDevice }
     finally { pending.current = false; setBusyId(''); }
   };
   return <View style={s.devicePicker}>
+    <View style={s.deviceCard}>
     <Pressable accessibilityRole="button" accessibilityLabel={selected ? `切换 PC Agent，当前：${selected.name}，${selected.online ? '在线' : '离线'}${selectedRunning ? '，有任务正在运行' : ''}` : '暂无 PC Agent'} aria-expanded={open} disabled={!devices.length} onPress={() => { setSearch(''); setError(''); setManaging(false); setOpen(true); }} style={({ pressed }) => [s.deviceTrigger, pressed && s.pressed]}>
       <DeviceIcon color={c.muted} count={selectedCount} />
       <View style={s.deviceLabel}><Text style={s.deviceText} numberOfLines={2}>{selected?.name ?? '等待 PC Agent 登录'}</Text>{selected && <Text style={s.deviceStatus}>{deviceDetails(selected,snapshots[selected.id])}</Text>}{selected && <View style={s.devicePresence}><View style={[s.dot, selected.online && s.dotOnline]} /><Text style={s.deviceStatus}>{selected.online ? '在线' : '离线'}</Text></View>}</View>
       {!!devices.length && <ChevronDown size={16} color={c.muted} />}
     </Pressable>
+    {selected && <AgentResourceBar key={`${resourceScope}:${selected.id}`} device={selected} scope={`${resourceScope}:${selected.id}`} visible={visible && !open} connected={connected}/>}
+    </View>
     <Modal visible={open} transparent animationType="fade" onRequestClose={close}>
       <View style={s.deviceOverlay}>
         <Pressable accessibilityRole="button" accessibilityLabel="关闭设备选择" style={StyleSheet.absoluteFill} onPress={close} />
