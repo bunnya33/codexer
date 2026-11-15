@@ -1,4 +1,5 @@
 import { createRoot } from 'react-dom/client';
+import { flushSync } from 'react-dom';
 import { Pressable, Text, View } from 'react-native';
 import { FileViewerProvider } from '../../apps/mobile/src/file-viewer';
 import { useFileLink } from '../../apps/mobile/src/file-link-context';
@@ -14,4 +15,5 @@ function Links() {
   const open = useFileLink();
   return <View style={{ padding: 24, gap: 16 }}>{Object.keys(window.readerFiles).map(path => <Pressable key={path} accessibilityRole="button" accessibilityLabel={`打开 ${path}`} onPress={() => open?.(path)}><Text>{path}</Text></Pressable>)}</View>;
 }
-createRoot(document.getElementById('root')!).render(<FileViewerProvider deviceId="pc" threadId="thread"><Links /></FileViewerProvider>);
+// Complete the initial commit and mount effects before synthetic test clicks.
+flushSync(() => createRoot(document.getElementById('root')!).render(<FileViewerProvider deviceId="pc" threadId="thread"><Links /></FileViewerProvider>));

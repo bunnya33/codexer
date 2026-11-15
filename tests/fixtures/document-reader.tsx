@@ -1,4 +1,5 @@
 import { createRoot } from 'react-dom/client';
+import { flushSync } from 'react-dom';
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { FileViewerProvider } from '../../apps/mobile/src/file-viewer';
@@ -16,4 +17,5 @@ function Fixture() {
   const [thread, setThread] = useState('thread');
   return <><Pressable accessibilityRole="button" accessibilityLabel="切换会话" onPress={() => setThread(value => value === 'thread' ? 'other' : 'thread')}><Text>切换会话</Text></Pressable><FileViewerProvider deviceId="pc" threadId={thread}><Links /></FileViewerProvider></>;
 }
-createRoot(document.getElementById('root')!).render(<Fixture />);
+// Complete the initial commit and mount effects before synthetic test clicks.
+flushSync(() => createRoot(document.getElementById('root')!).render(<Fixture />));
