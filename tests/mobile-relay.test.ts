@@ -338,6 +338,55 @@ it('only renews while in the foreground and reconnects a suspended socket on ret
   expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith('/v1/auth/active'))).toBe(true);
 });
 
+it('keeps an iOS connection through inactive dialogs and reconnects only after actual backgrounding', async () => {
+  vi.useFakeTimers();
+  const socket = await connectedSocket();
+  const requests = vi.mocked(fetch).mock.calls.length;
+  client.setAppState('inactive'); client.setAppState('active');
+  client.setAppState('inactive'); client.setAppState('active');
+  await vi.advanceTimersByTimeAsync(0);
+  expect(FakeSocket.last).toBe(socket);
+  expect(socket.readyState).toBe(FakeSocket.OPEN);
+  expect(client.getSnapshot().phase).toBe('connected');
+  expect(fetch).toHaveBeenCalledTimes(requests);
+  client.setAppState('background');
+  expect(socket.readyState).toBe(3);
+  await vi.advanceTimersByTimeAsync(0);
+  vi.mocked(fetch).mockClear();
+  socket.onerror?.(); socket.onclose?.();
+  await vi.advanceTimersByTimeAsync(120000);
+  expect(fetch).not.toHaveBeenCalled();
+  client.setAppState('inactive'); client.setAppState('active');
+  await vi.advanceTimersByTimeAsync(0);
+  const resumed = FakeSocket.last;
+  expect(resumed).not.toBe(socket);
+  resumed.open(); resumed.message({type: 'client.authenticated'});
+  resumed.message({type: 'sync.ready', deviceId: 'device-test', epoch: 'epoch-test', lastSeq: 0});
+  expect(client.getSnapshot()).toMatchObject({phase: 'connected', syncing: {'device-test': false}});
+});
+
+it.each(['authentication', 'probe'] as const)('cancels an outstanding %s deadline before iOS suspends timers', async stage => {
+  vi.useFakeTimers();
+  const started = Date.now();
+  const socket = stage === 'probe' ? await connectedSocket() : (await client.connect('https://relay.test', 'user', 'password'), FakeSocket.last);
+  if (stage === 'probe') await vi.advanceTimersByTimeAsync(45000 - (Date.now() - started));
+  client.setForeground(false);
+  await vi.advanceTimersByTimeAsync(0);
+  vi.mocked(fetch).mockClear();
+  await vi.advanceTimersByTimeAsync(120000);
+  expect(FakeSocket.last).toBe(socket);
+  expect(fetch).not.toHaveBeenCalled();
+  expect(client.getSnapshot().notice).not.toContain('超时');
+  client.setForeground(true);
+  await vi.advanceTimersByTimeAsync(0);
+  const resumed = FakeSocket.last;
+  resumed.open(); resumed.message({type: 'client.authenticated'});
+  resumed.message({type: 'sync.ready', deviceId: 'device-test', epoch: 'epoch-test', lastSeq: 0});
+  await vi.advanceTimersByTimeAsync(15000);
+  expect(FakeSocket.last).toBe(resumed);
+  expect(client.getSnapshot().phase).toBe('connected');
+});
+
 it('requires login after the server rejects an expired session on foreground return', async () => {
   await connectedSocket(); client.setForeground(false);
   await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
@@ -537,6 +586,39 @@ it('replays missing events through an idle connection probe without disconnectin
   expect(client.getSnapshot()).toMatchObject({ phase: 'connected', syncing: { 'device-test': false }, snapshots: { 'device-test': { lastSeq: 1 } } });
   client.disconnect();
   expect(vi.getTimerCount()).toBe(0);
+});
+
+it('finishes a slow idle replay without showing repeated syncing or expiring its first-response deadline', async () => {
+  vi.useFakeTimers();
+  const started = Date.now();
+  const socket = await connectedSocket();
+  await vi.advanceTimersByTimeAsync(45000 - (Date.now() - started));
+  expect(client.getSnapshot().syncing['device-test']).toBe(false);
+  socket.message({type: 'sync.begin', deviceId: 'device-test', mode: 'replay'});
+  expect(client.getSnapshot().syncing['device-test']).toBe(false);
+  await vi.advanceTimersByTimeAsync(10000);
+  socket.message({type: 'device.event', event: event(snapshot())});
+  await vi.advanceTimersByTimeAsync(10000);
+  expect(FakeSocket.last).toBe(socket);
+  expect(client.getSnapshot().phase).toBe('connected');
+  socket.message({type: 'sync.ready', deviceId: 'device-test', epoch: 'epoch-test', lastSeq: 1});
+  await vi.advanceTimersByTimeAsync(15000);
+  expect(FakeSocket.last).toBe(socket);
+  expect(client.getSnapshot()).toMatchObject({phase: 'connected', syncing: {'device-test': false}});
+});
+
+it('does not start an idle probe during an existing sync, but recovers a sync with no progress', async () => {
+  vi.useFakeTimers();
+  const started = Date.now();
+  const socket = await connectedSocket();
+  socket.message({type: 'sync.begin', deviceId: 'device-test', mode: 'snapshot'});
+  const sent = socket.sent.length;
+  await vi.advanceTimersByTimeAsync(45000 - (Date.now() - started));
+  expect(socket.sent).toHaveLength(sent);
+  expect(client.getSnapshot().phase).toBe('connected');
+  await vi.advanceTimersByTimeAsync(30000);
+  expect(client.getSnapshot().phase).toBe('reconnecting');
+  expect(client.getSnapshot().notice).toContain('会话同步无响应');
 });
 
 it('recovers an authenticated socket that silently stops receiving while HTTP requests still work', async () => {

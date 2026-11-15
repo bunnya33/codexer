@@ -272,7 +272,83 @@ static int version(const QString &method) {
     return 4;
   return method == "initialize" ? 0 : 1;
 }
+// Estimate retained JSON storage without serializing an entire conversation on
+// every patch. Count strings, keys and container slots, stopping at the budget.
+static qint64 stateFootprint(const QJsonValue &value, qint64 budget,
+                              int depth = 0) {
+  if (value.isUndefined())
+    return 0;
+  if (budget < 32 || depth > 128)
+    return budget + 1;
+  qint64 bytes = 32;
+  if (value.isString())
+    return bytes + 2 * value.toString().size();
+  if (value.isArray()) {
+    const auto array = value.toArray();
+    bytes += 24LL * array.size();
+    for (const auto &entry : array) {
+      if (bytes > budget)
+        break;
+      bytes += stateFootprint(entry, budget - bytes, depth + 1);
+    }
+  } else if (value.isObject()) {
+    const auto object = value.toObject();
+    bytes += 32LL * object.size();
+    for (auto it = object.begin(); it != object.end(); ++it) {
+      if (bytes > budget)
+        break;
+      bytes += 2 * it.key().size();
+      bytes += stateFootprint(it.value(), budget - bytes, depth + 1);
+    }
+  }
+  return bytes;
+}
+static Object patchDesktopState(Object raw, const Array &patches, qint64 &bytes,
+                                 qint64 budget) {
+  if (patches.size() > 100000)
+    throw Error("invalid-desktop-patch");
+  for (const auto &entry : patches) {
+    const auto patch = entry.toObject();
+    const auto path = patch["path"].toArray();
+    const auto op = patch["op"].toString();
+    // Apply/validate first; retain the old path only to account for its delta.
+    const auto next = applyPatch(raw, {patch});
+    QJsonValue previous(raw), parent(raw);
+    qint64 containerBytes = 0;
+    for (int i = 0; i < path.size(); ++i) {
+      parent = previous;
+      const auto key = path[i];
+      if (parent.isArray()) {
+        const auto array = parent.toArray();
+        const auto index = key.isDouble() ? key.toInt() : key.toString().toInt();
+        previous = index < array.size() ? array.at(index)
+                                        : QJsonValue(QJsonValue::Undefined);
+      } else
+        previous = parent.toObject().value(key.toVariant().toString());
+      if (i + 1 == path.size()) {
+        if (parent.isArray()) {
+          if (op == "add") { previous = QJsonValue::Undefined; containerBytes = 24; }
+          else if (op == "remove") containerBytes = -24;
+        } else {
+          const auto name = key.toVariant().toString();
+          const qint64 slot = 32 + 2 * name.size();
+          if (op == "add" && !parent.toObject().contains(name)) containerBytes = slot;
+          else if (op == "remove") containerBytes = -slot;
+        }
+      }
+    }
+    const auto incoming = op == "remove" ? QJsonValue(QJsonValue::Undefined)
+                                          : patch["value"];
+    bytes += containerBytes + stateFootprint(incoming, MaxDesktopThreadBytes, path.size())
+                   - stateFootprint(previous, MaxDesktopThreadBytes, path.size());
+    if (bytes > budget)
+      return {};
+    raw = next;
+  }
+  return raw;
+}
 Desktop::Desktop(QObject *parent) : QObject(parent) {
+  socket.setReadBufferSize(64 * 1024 * 1024 + 4);
   connect(&socket, &QLocalSocket::disconnected, this, [this] {
     connected = false;
     responses.clear();
@@ -320,11 +396,35 @@ Desktop::Desktop(QObject *parent) : QObject(parent) {
       if (!watched.contains(id))
         continue;
       auto &watch = watched[id];
+      if (watch.memoryLimited)
+        continue;
       if (message["sourceClientId"] != watch.owner ||
           params["hostId"] != "local")
         continue;
       auto change = params["change"].toObject();
       try {
+        qint64 available = MaxDesktopStateBytes;
+        for (auto it = watched.cbegin(); it != watched.cend(); ++it)
+          if (it.key() != id)
+            available -= it->retainedBytes;
+        const auto budget = qMin(MaxDesktopThreadBytes, qMax(0LL, available));
+        auto retain = [&](Object raw, qint64 bytes = -1) {
+          if (bytes < 0)
+            bytes = stateFootprint(raw, budget);
+          if (bytes > budget) {
+            // Do not truncate arrays: future official patches use their exact
+            // indices/revisions. Auto mode switches to bounded read-only RPC.
+            following(id, false);
+            watch.raw = {};
+            watch.retainedBytes = 0;
+            watch.compatible = false;
+            watch.memoryLimited = true;
+            return false;
+          }
+          watch.raw = raw;
+          watch.retainedBytes = bytes;
+          return true;
+        };
         if (message["version"] != 11)
           throw Error("unsupported-desktop-ipc-version");
         if (change["type"] == "snapshot") {
@@ -332,7 +432,10 @@ Desktop::Desktop(QObject *parent) : QObject(parent) {
           if (raw["id"] != id || !change["revision"].isDouble() ||
               change["revision"].toInteger() < 0)
             throw Error("invalid-desktop-state");
-          watch.raw = raw;
+          if (!retain(raw)) {
+            emit threadChanged(id);
+            continue;
+          }
           watch.revision = change["revision"].toInteger();
           watch.compatible = true;
         } else if (change["type"] == "patches") {
@@ -340,9 +443,14 @@ Desktop::Desktop(QObject *parent) : QObject(parent) {
               change["baseRevision"].toInteger(-2) != watch.revision ||
               change["revision"].toInteger(-2) <= watch.revision)
             throw Error("invalid-desktop-revision");
-          watch.raw = applyPatch(watch.raw, change["patches"].toArray());
-          if (watch.raw["id"] != id)
+          auto bytes = watch.retainedBytes;
+          auto raw = patchDesktopState(watch.raw, change["patches"].toArray(), bytes, budget);
+          if (bytes <= budget && raw["id"] != id)
             throw Error("invalid-desktop-state");
+          if (!retain(raw, bytes)) {
+            emit threadChanged(id);
+            continue;
+          }
           watch.revision = change["revision"].toInteger();
         } else
           continue;
@@ -380,6 +488,9 @@ void Desktop::stop() {
     following(id, false);
   watched.clear();
   socket.abort();
+  buffer.clear();
+  responses.clear();
+  waiting.clear();
   connected = false;
 }
 void Desktop::send(const Object &value) {
@@ -448,7 +559,7 @@ bool Desktop::follow(const QString &id, bool rediscover) {
   if (rediscover)
     unfollow(id);
   if (watched.contains(id))
-    return true;
+    return !watched.value(id).memoryLimited;
   try {
     auto owner = call("thread-owner-discovery",
                       {{"hostId", "local"}, {"conversationId", id}}, {},

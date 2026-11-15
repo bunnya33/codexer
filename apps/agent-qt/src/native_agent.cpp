@@ -187,6 +187,8 @@ void Service::closeAgent() {
   rawThreads.clear();
   effectiveSettings.clear();
   pendingRequests.clear();
+  clearTurnUpdates();
+  tokenUsage.clear();
   owned.clear();
   newThreads.clear();
   acquired.clear();
@@ -203,6 +205,7 @@ void Service::closeAgent() {
   completedTurns.clear();
   answeredRequests.clear();
   fileSources.clear();
+  previewOrigins.clear();
   deletionPlans.clear();
   if (maintenance && !stopping)
     maintenance->start();

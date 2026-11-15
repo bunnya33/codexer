@@ -2,6 +2,69 @@
 #include <limits>
 #include <zstd.h>
 namespace Native {
+void Service::forgetTurnUpdate(const QString &turnId) {
+  const auto entry = plans.take(turnId);
+  if (!entry.isEmpty())
+    planBytes -= json(entry).size();
+  planThreads.remove(turnId);
+  planOrder.removeAll(turnId);
+}
+void Service::clearTurnUpdates() {
+  plans.clear();
+  planThreads.clear();
+  planOrder.clear();
+  planBytes = 0;
+}
+void Service::cacheTurnUpdate(const QString &threadId, const QString &turnId,
+                              const QString &field, const QJsonValue &value) {
+  if (turnId.isEmpty() || turnId.size() > 160 || threadId.size() > 160 ||
+      (!rawThreads.contains(threadId) && !owned.contains(threadId) &&
+       !newThreads.contains(threadId)))
+    return;
+  // Retain only what the live view can display, including for completed turns.
+  // History is read separately from Codex; it is not an unbounded runtime cache.
+  const auto bounded = normalizeTurn({{"id", turnId}, {field, value}}, false,
+                                     threadId);
+  auto entry = plans.value(turnId);
+  forgetTurnUpdate(turnId);
+  entry[field] = bounded[field];
+  plans.insert(turnId, entry);
+  planThreads.insert(turnId, threadId);
+  planOrder.append(turnId);
+  planBytes += json(entry).size();
+  QStringList threadTurns;
+  for (const auto &key : planOrder)
+    if (planThreads.value(key) == threadId)
+      threadTurns.append(key);
+  while (threadTurns.size() > MaxCachedUpdatesPerThread)
+    forgetTurnUpdate(threadTurns.takeFirst());
+  while (planOrder.size() > MaxCachedTurnUpdates ||
+         planBytes > MaxCachedTurnUpdateBytes)
+    forgetTurnUpdate(planOrder.first());
+}
+void Service::forgetThreadCache(const QString &id) {
+  rawThreads.remove(id);
+  effectiveSettings.remove(id);
+  tokenUsage.remove(id);
+  dirtyThreads.remove(id);
+  gapUsage(id);
+  desktop->unfollow(id);
+  desktopThreads.remove(id);
+  fileSources.remove(id);
+  previewOrigins.remove(id);
+  for (const auto &key : imageSources.keys())
+    if (imageSources.value(key).first == id)
+      imageSources.remove(key);
+  for (const auto &turn : planThreads.keys())
+    if (planThreads.value(turn) == id)
+      forgetTurnUpdate(turn);
+  const auto prefix = id + ':';
+  for (const auto &key : agentDetails.keys())
+    if (key.startsWith(prefix)) {
+      agentDetails.remove(key);
+      agentDetailsAt.remove(key);
+    }
+}
 void Service::attachRpc(Rpc *value) {
   connect(value, &Rpc::serverRequest, this, [this, value](Object request) {
     auto method = request["method"].toString();
@@ -30,7 +93,9 @@ void Service::attachRpc(Rpc *value) {
     if (method == "turn/completed") {
       awaitingQueue.remove(id);
       auto tid = p["turn"].toObject()["id"].toString();
-      if (!busyTurns.remove(tid))
+      busyTurns.remove(tid);
+      // Only retain completions that may race a start acknowledgement.
+      if (pendingStarts > 0)
         completedTurns.insert(tid);
       for (const auto &key : pendingRequests.keys()) {
         auto params = pendingRequests[key]["params"].toObject();
@@ -49,9 +114,9 @@ void Service::attachRpc(Rpc *value) {
       effectiveSettings[id] =
           merged(effectiveSettings[id], p["threadSettings"].toObject());
     if (method == "turn/plan/updated")
-      plans[turnId]["plan"] = p["plan"];
+      cacheTurnUpdate(id, turnId, "plan", p["plan"]);
     if (method == "turn/diff/updated")
-      plans[turnId]["diff"] = p["diff"];
+      cacheTurnUpdate(id, turnId, "diff", p["diff"]);
     if (method == "thread/tokenUsage/updated") {
       tokenUsage[id] = p["tokenUsage"].toObject();
       try {
@@ -70,7 +135,10 @@ void Service::attachRpc(Rpc *value) {
     owned.clear();
     acquired.clear();
     busyTurns.clear();
+    completedTurns.clear();
     pendingRequests.clear();
+    clearTurnUpdates();
+    tokenUsage.clear();
     commit({{"type", "runtime.status"},
             {"connected", desktop && desktop->connected},
             {"kind", desktop && desktop->connected ? "official-desktop-ipc"
@@ -494,11 +562,7 @@ bool Service::trimThreadPreviews(int target) {
     if (removable.isEmpty())
       return false;
     commit({{"type", "thread.removed"}, {"threadId", removable}});
-    rawThreads.remove(removable);
-    dirtyThreads.remove(removable);
-    gapUsage(removable);
-    desktop->unfollow(removable);
-    desktopThreads.remove(removable);
+    forgetThreadCache(removable);
   }
   return true;
 }
@@ -506,6 +570,25 @@ void Service::watch(const QString &id, bool forceHeadless) {
   if (id.isEmpty())
     return;
   ensureThreadSlot(id);
+  if (desktop->watched.value(id).memoryLimited) {
+    if (desktopThreads.remove(id)) {
+      gapUsage(id);
+      rawThreads.remove(id);
+      log("desktop-state-memory-limit");
+    }
+    if (settings["runtime"] == "desktop") {
+      auto thread = snapshot["threads"].toObject()[id].toObject();
+      if (!thread.isEmpty()) {
+        thread["ownerAvailable"] = false;
+        thread["status"] = "unavailable";
+        thread["activeTurnId"] = QJsonValue::Null;
+        thread["requests"] = Array{};
+        thread["revision"] = double(thread["revision"].toInteger() + 1);
+        commit({{"type", "thread.updated"}, {"thread", thread}});
+      }
+      return;
+    }
+  }
   if (!forceHeadless && settings["runtime"] != "headless" &&
       desktop->connected && !owned.contains(id) && desktop->follow(id)) {
     desktopThreads.insert(id);
@@ -547,7 +630,7 @@ void Service::watch(const QString &id, bool forceHeadless) {
   for (auto it = turns.end(); it != turns.begin();) {
     auto turn = timedTurn(id, (--it)->toObject(), true);
     turn["turnId"] = turn["id"];
-    turn = merged(turn, plans[turn["id"].toString()]);
+    turn = merged(turn, plans.value(turn["id"].toString()));
     ordered.append(turn);
   }
   Array requests;

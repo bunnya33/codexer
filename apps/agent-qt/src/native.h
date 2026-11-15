@@ -14,6 +14,11 @@ using Array = QJsonArray;
 inline constexpr int DefaultSyncedThreads = 20;
 inline constexpr int MaxSyncedThreads = 30;
 inline constexpr int MaxInputImages = 20;
+inline constexpr int MaxCachedTurnUpdates = 256;
+inline constexpr int MaxCachedUpdatesPerThread = 2;
+inline constexpr qint64 MaxCachedTurnUpdateBytes = 8 * 1024 * 1024;
+inline constexpr qint64 MaxDesktopThreadBytes = 32 * 1024 * 1024;
+inline constexpr qint64 MaxDesktopStateBytes = 128 * 1024 * 1024;
 inline constexpr qint64 MaxVideoBytes = 512LL * 1024 * 1024;
 struct Error : std::exception {
   QString code;
@@ -105,6 +110,8 @@ public:
     qint64 revision = -1;
     Object raw;
     bool compatible = false;
+    bool memoryLimited = false;
+    qint64 retainedBytes = 0;
   };
   QHash<QString, Watch> watched;
   bool connected = false;
@@ -154,6 +161,9 @@ class Service : public QObject {
   QSqlDatabase journal, usage;
   QHash<QString, Object> rawThreads, effectiveSettings, pendingRequests, plans,
       tokenUsage;
+  QHash<QString, QString> planThreads;
+  QStringList planOrder;
+  qint64 planBytes = 0;
   QHash<QString, Object> usageObservations;
   QHash<QString, Object> agentDetails;
   QHash<QString, qint64> agentDetailsAt;
@@ -183,6 +193,7 @@ class Service : public QObject {
   qint64 fileReadCount = 0, fileReadBytes = 0, fileQueueMs = 0,
          fileQueueMaxMs = 0, fileReadMs = 0, fileReadMaxMs = 0;
   int nativeSerial = 0, depth = 0, remoteGeneration = 0, reconnectAttempt = 0;
+  int pendingStarts = 0;
   int threadLimit = DefaultSyncedThreads;
   bool initialized = false, paused = true, allowed = true, stopping = false,
        refreshing = false, refreshRequested = false;
@@ -226,6 +237,11 @@ class Service : public QObject {
   void replyFileRead(const Object &message);
   void ensureRpc();
   void attachRpc(Rpc *value);
+  void cacheTurnUpdate(const QString &threadId, const QString &turnId,
+                       const QString &field, const QJsonValue &value);
+  void forgetTurnUpdate(const QString &turnId);
+  void clearTurnUpdates();
+  void forgetThreadCache(const QString &id);
   void attachDesktop();
   Array pages(const QString &method, Object params = {});
   void refreshCatalog();

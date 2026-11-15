@@ -148,8 +148,8 @@ function AppContent() {
       window.addEventListener('pagehide', leaving);
       return () => { document.removeEventListener('visibilitychange', visible); window.removeEventListener('pageshow', visible); window.removeEventListener('pagehide', leaving); };
     }
-    relay.setForeground(AppState.currentState === 'active');
-    const listener = AppState.addEventListener('change', state => relay.setForeground(state === 'active'));
+    relay.setAppState(AppState.currentState);
+    const listener = AppState.addEventListener('change', state => relay.setAppState(state));
     return () => listener.remove();
   }, []);
   useEffect(() => { if (view.phase === 'locked') { setDrawerOpen(false); setActionThread(null); setActionProject(null); setProjectDeviceId(''); setPreview(null); setEditingQueueId(null); closeMenu(); } }, [view.phase]);

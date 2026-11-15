@@ -412,6 +412,14 @@ Object Service::executeTurn(Object command, const Array &prepared,
   const auto answerKey = id + ':' + p["requestId"].toString();
   if (answering)
     answeredRequests.insert(answerKey);
+  const bool starting = !onDesktop &&
+                        (type == "turn.start" || type == "turn.continue");
+  if (starting)
+    ++pendingStarts;
+  const auto pendingStart = qScopeGuard([&] {
+    if (starting && --pendingStarts == 0)
+      completedTurns.clear();
+  });
   Object response;
   try {
     response = onDesktop ? desktop->call(method, params, owner)
@@ -575,17 +583,9 @@ Object Service::manage(const Object &command) {
     dirtyThreads.insert(id);
   } else {
     newThreads.remove(id);
-    desktopThreads.remove(id);
-    gapUsage(id);
-    desktop->unfollow(id);
-    rawThreads.remove(id);
+    forgetThreadCache(id);
     owned.remove(id);
     acquired.remove(id);
-    fileSources.remove(id);
-    previewOrigins.remove(id);
-    for (const auto &key : imageSources.keys())
-      if (imageSources[key].first == id)
-        imageSources.remove(key);
     refreshRequested = true;
     commit({{"type", "thread.removed"}, {"threadId", id}});
   }

@@ -43,6 +43,7 @@ const emptyView = (): RelayView => ({ phase: 'locked', url: '', role: null, user
 const SOCKET_AUTH_TIMEOUT_MS = 12000;
 const SOCKET_HEALTH_INTERVAL_MS = 15000;
 const SOCKET_IDLE_PROBE_MS = 30000;
+const SOCKET_SYNC_IDLE_TIMEOUT_MS = 60000;
 class ApiError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 export const historyKey = (deviceId: string, threadId: string) => `${deviceId}:${threadId}`;
 
@@ -69,6 +70,7 @@ export class RelayClient {
   private connectionRevision = 0;
   private socketAttempt = 0;
   private socketTimeout?: ReturnType<typeof setTimeout>;
+  private socketProbeTimeout?: ReturnType<typeof setTimeout>;
   private socketHealthTimer?: ReturnType<typeof setInterval>;
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   private refreshTimer?: ReturnType<typeof setInterval>;
@@ -153,10 +155,10 @@ export class RelayClient {
 
   private async initializeSession(generation: number, remember: boolean): Promise<void> {
     const revision = this.connectionRevision;
-    if (generation !== this.generation || this.initialization?.generation === generation && this.initialization.revision === revision) return;
+    if (!this.foreground || generation !== this.generation || this.initialization?.generation === generation && this.initialization.revision === revision) return;
     const initialization = { generation, revision };
     this.initialization = initialization;
-    const current = () => generation === this.generation && revision === this.connectionRevision;
+    const current = () => this.foreground && generation === this.generation && revision === this.connectionRevision;
     try {
       const me = await this.api<{ role: 'admin' | 'user'; userId: string }>('/v1/me');
       if (!current()) return;
@@ -191,23 +193,31 @@ export class RelayClient {
     catch (error) { if (!(error instanceof ApiError && error.status === 404)) throw error; }
   }
 
+  setAppState(state: string | null): void {
+    // iOS inactive also covers permission dialogs and Control Center.
+    if (state === 'active') this.setForeground(true);
+    else if (state === 'background') this.setForeground(false);
+  }
+
   setForeground(active: boolean): void {
     const previous = this.foreground;
     this.foreground = active;
     if (!this.token || this.view.phase === 'locked' || previous === active) return;
-    if (!active) { void this.touchLogin().catch(() => undefined); return; }
-    // A suspended browser can retain a socket that looks open but no longer receives data.
-    // Invalidate pending ticket/initialization responses as well as the old socket callbacks.
+    // Suspend immediately: iOS may freeze JS timers and deliver expired socket
+    // deadlines before its foreground event. Background callbacks must not retry.
     this.connectionRevision++;
     this.socketAttempt++;
     if (this.socketTimeout) clearTimeout(this.socketTimeout);
+    if (this.socketProbeTimeout) clearTimeout(this.socketProbeTimeout);
     if (this.socketHealthTimer) clearInterval(this.socketHealthTimer);
+    if (this.refreshTimer) clearInterval(this.refreshTimer);
     const oldSocket = this.socket;
     this.socket = null;
     oldSocket?.close();
     this.subscribed.clear(); this.resyncing.clear();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    this.set({phase: 'reconnecting'});
+    if (!active) { void this.touchLogin().catch(() => undefined); return; }
+    this.set({phase: 'reconnecting', syncing: {}});
     void this.initializeSession(this.generation, false).catch(() => undefined);
   }
 
@@ -258,6 +268,7 @@ export class RelayClient {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     if (this.refreshTimer) clearInterval(this.refreshTimer);
     if (this.socketTimeout) clearTimeout(this.socketTimeout);
+    if (this.socketProbeTimeout) clearTimeout(this.socketProbeTimeout);
     if (this.socketHealthTimer) clearInterval(this.socketHealthTimer);
     this.socket?.close();
     this.socket = null;
@@ -350,12 +361,12 @@ export class RelayClient {
     } catch { /* The agent may not have published its first snapshot yet. */ }
   }
 
-  private subscribeDevice(deviceId: string, resume = true): void {
+  private subscribeDevice(deviceId: string, resume = true, quiet = false): void {
     if (this.removedDevices.has(deviceId) || this.view.phase !== 'connected' || this.socket?.readyState !== WebSocket.OPEN) return;
     const snapshot = resume ? this.view.snapshots[deviceId] : undefined;
     this.socket?.send(JSON.stringify({ type: 'client.subscribe', deviceId, ...(snapshot ? { epoch: snapshot.epoch, lastSeq: snapshot.lastSeq } : {}) }));
     this.subscribed.add(deviceId);
-    this.set({ syncing: { ...this.view.syncing, [deviceId]: true } });
+    if (!quiet) this.set({ syncing: { ...this.view.syncing, [deviceId]: true } });
   }
 
   private acceptSnapshot(snapshot: DeviceSnapshot): void {
@@ -383,9 +394,9 @@ export class RelayClient {
   }
 
   private async openSocket(generation: number, revision = this.connectionRevision): Promise<void> {
-    if (generation !== this.generation || revision !== this.connectionRevision || this.socket) return;
+    if (!this.foreground || generation !== this.generation || revision !== this.connectionRevision || this.socket) return;
     const attempt = ++this.socketAttempt;
-    const currentAttempt = () => generation === this.generation && revision === this.connectionRevision && attempt === this.socketAttempt;
+    const currentAttempt = () => this.foreground && generation === this.generation && revision === this.connectionRevision && attempt === this.socketAttempt;
     const retry = (delay: number) => {
       if (!currentAttempt()) return;
       if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
@@ -407,6 +418,7 @@ export class RelayClient {
         // Detach first: close/error callbacks can be delayed or never arrive through a proxy.
         this.socket = null;
         if (this.socketTimeout) clearTimeout(this.socketTimeout);
+        if (this.socketProbeTimeout) clearTimeout(this.socketProbeTimeout);
         if (this.socketHealthTimer) clearInterval(this.socketHealthTimer);
         this.subscribed.clear(); this.resyncing.clear();
         this.set({ phase: 'reconnecting', notice });
@@ -418,16 +430,20 @@ export class RelayClient {
       }, SOCKET_AUTH_TIMEOUT_MS);
       this.socketHealthTimer = setInterval(() => {
         if (!currentSocket() || !this.foreground || this.view.phase !== 'connected' || probeDevice || Date.now() - lastMessageAt < SOCKET_IDLE_PROBE_MS) return;
-        const device = this.view.devices.find(value => this.subscribed.has(value.id) && this.view.snapshots[value.id]);
+        const device = this.view.devices.find(value => this.subscribed.has(value.id) && this.view.snapshots[value.id] && !this.view.syncing[value.id]);
+        if (!device && Date.now() - lastMessageAt >= SOCKET_SYNC_IDLE_TIMEOUT_MS && Object.values(this.view.syncing).some(Boolean)) {
+          recover('会话同步无响应，正在恢复连接');
+          return;
+        }
         if (!device) return;
         // Browser/RN sockets expose no ping/pong. Resume the existing subscription
         // to request a bounded replay and an application-level acknowledgement.
         probeDevice = device.id;
-        this.socketTimeout = setTimeout(() => {
+        this.socketProbeTimeout = setTimeout(() => {
           probeDevice = undefined;
           if (this.foreground) recover('实时连接无响应，正在恢复同步');
         }, SOCKET_AUTH_TIMEOUT_MS);
-        try { this.subscribeDevice(device.id); }
+        try { this.subscribeDevice(device.id, true, true); }
         catch { recover('实时连接失败，正在恢复同步'); }
       }, SOCKET_HEALTH_INTERVAL_MS);
       ws.onopen = () => {
@@ -443,10 +459,15 @@ export class RelayClient {
           if (message.type === 'client.authenticated') {
             if (this.socketTimeout) clearTimeout(this.socketTimeout);
           }
-          this.handle(message);
+          this.handle(message, probeDevice);
           if (probeDevice && message.type === 'sync.ready' && message.deviceId === probeDevice && !this.view.syncing[probeDevice]) {
-            if (this.socketTimeout) clearTimeout(this.socketTimeout);
+            if (this.socketProbeTimeout) clearTimeout(this.socketProbeTimeout);
             probeDevice = undefined;
+          } else if (probeDevice) {
+            // A replay can take longer than the initial response deadline.
+            // Received frames prove progress; allow it to finish before retrying.
+            if (this.socketProbeTimeout) clearTimeout(this.socketProbeTimeout);
+            this.socketProbeTimeout = setTimeout(() => recover('实时连接无响应，正在恢复同步'), SOCKET_SYNC_IDLE_TIMEOUT_MS);
           }
         } catch { this.notice('收到无法解析的服务器消息'); }
       };
@@ -463,7 +484,7 @@ export class RelayClient {
     }
   }
 
-  private handle(message: Record<string, unknown>): void {
+  private handle(message: Record<string, unknown>, probeDevice?: string): void {
     const deviceId = typeof message.deviceId === 'string' ? message.deviceId : '';
     if (message.type === 'client.authenticated') {
       this.set({ phase: 'connected', notice: '' });
@@ -487,7 +508,9 @@ export class RelayClient {
       this.notificationVersions.set(key, (this.notificationVersions.get(key) ?? 0) + 1);
       this.set({ threadNotifications: { ...this.view.threadNotifications, [key]: parsed.data } });
     } else if (message.type === 'catalog.updated' && deviceId) void this.loadCatalog(deviceId);
-    else if (message.type === 'sync.begin' && deviceId) this.set({ syncing: { ...this.view.syncing, [deviceId]: true } });
+    else if (message.type === 'sync.begin' && deviceId) {
+      if (deviceId !== probeDevice || message.mode !== 'replay') this.set({ syncing: { ...this.view.syncing, [deviceId]: true } });
+    }
     else if (message.type === 'sync.ready' && deviceId) {
       const current = this.view.snapshots[deviceId];
       if (!current || current.epoch !== message.epoch || typeof message.lastSeq !== 'number' || current.lastSeq < message.lastSeq) { this.reconcile(deviceId); return; }

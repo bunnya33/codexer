@@ -106,6 +106,11 @@ static int fixtureServer() {
       if (state["disconnectOnStart"].toBool())
         return 0;
       if (state["completeEarly"].toBool()) {
+        if (state["startEarly"].toBool())
+          std::cout << json(Object{{"method", "turn/started"},
+                           {"params", Object{{"threadId", "thread-test"},
+                             {"turn", Object{{"id", "turn-new"}}}}}}).constData()
+                    << '\n' << std::flush;
         Object event{{"method", "turn/completed"},
                      {"params", Object{{"threadId", "thread-test"},
                                        {"turn", Object{{"id", "turn-new"}}}}}};
@@ -130,6 +135,7 @@ public:
   QList<Object> requests;
   int ownerLookups = 0;
   int acceptedStarts = 0;
+  int followStarts = 0;
   bool hideFirstOwner = false, disconnectStart = false, hideOwner = false,
        rejectStarts = false;
   QString owner = "synthetic-owner";
@@ -153,8 +159,10 @@ public:
           auto method = message["method"].toString();
           if (message["type"] == "broadcast") {
             if (message["params"].toObject()["following"].toBool() &&
-                message["targetClientIds"].toArray().contains(owner))
+                message["targetClientIds"].toArray().contains(owner)) {
+              ++followStarts;
               snapshot();
+            }
             continue;
           }
           if (message["type"] != "request")
@@ -715,6 +723,153 @@ private slots:
                                {"value", true}}}),
         Error);
   }
+  void turnUpdateCacheBoundsAndCleanup() {
+    agent->watch("thread-test");
+    Rpc source;
+    agent->attachRpc(&source);
+    for (int i = 0; i < 1024; ++i) {
+      const auto id = QString("turn-%1").arg(i);
+      emit source.notification("turn/diff/updated",
+          {{"threadId", "thread-test"}, {"turnId", id},
+           {"diff", QString(512 * 1024, QChar('a' + i % 26))}});
+      emit source.notification("turn/completed",
+          {{"threadId", "thread-test"}, {"turn", Object{{"id", id}}}});
+    }
+    QVERIFY(agent->plans.size() <= MaxCachedTurnUpdates);
+    QCOMPARE(agent->plans.size(), MaxCachedUpdatesPerThread);
+    QVERIFY(agent->planBytes <= MaxCachedTurnUpdateBytes);
+    QVERIFY(!agent->plans.contains("turn-0"));
+    QCOMPARE(agent->plans.value("turn-1023")["diff"].toString().size(), 16384);
+    QVERIFY(agent->completedTurns.isEmpty());
+    Array plan;
+    for (int i = 0; i < 100; ++i)
+      plan.append(Object{{"step", QString(4000, 'p')}, {"status", "pending"}});
+    for (int i = 0; i < 100; ++i)
+      emit source.notification("turn/plan/updated",
+          {{"threadId", "thread-test"}, {"turnId", QString("plan-%1").arg(i)},
+           {"plan", plan}});
+    const auto latest = agent->plans.value("plan-99")["plan"].toArray();
+    QCOMPARE(latest.size(), 60);
+    QCOMPARE(latest.first().toObject()["step"].toString().size(), 2000);
+    QVERIFY(agent->planBytes <= MaxCachedTurnUpdateBytes);
+    QVERIFY(!agent->plans.contains("plan-0"));
+    emit source.notification("turn/diff/updated",
+        {{"threadId", "thread-test"}, {"turnId", "plan-99"}, {"diff", "latest"}});
+    QCOMPARE(agent->plans.value("plan-99")["plan"].toArray(), latest);
+    QCOMPARE(agent->plans.value("plan-99")["diff"], QJsonValue("latest"));
+    for (int i = 0; i < plan.size(); ++i)
+      plan[i] = Object{{"step", QString(4000, QChar(0x4e2d))}, {"status", "pending"}};
+    fillPreviews(MaxSyncedThreads);
+    for (int i = 0; i < MaxSyncedThreads; ++i)
+      for (int n = 0; n < 2; ++n)
+        agent->cacheTurnUpdate(QString("preview-%1").arg(i, 2, 10, QChar('0')),
+                              QString("budget-%1-%2").arg(i).arg(n), "plan", plan);
+    QVERIFY(agent->planBytes <= MaxCachedTurnUpdateBytes);
+    QVERIFY(!agent->plans.contains("budget-0-0"));
+    agent->tokenUsage["thread-test"] = {{"total", 100}};
+    agent->closeAgent();
+    QVERIFY(agent->plans.isEmpty());
+    QVERIFY(agent->planThreads.isEmpty());
+    QVERIFY(agent->planOrder.isEmpty());
+    QCOMPARE(agent->planBytes, 0);
+    QVERIFY(agent->tokenUsage.isEmpty());
+  }
+  void readingUncachedTurnsDoesNotCreateCacheEntries() {
+    setFixture({{"turns", Array{Object{{"id", "no-update"},
+                                      {"status", "completed"}, {"items", Array{}}}}}});
+    agent->watch("thread-test");
+    agent->watch("thread-test");
+    QVERIFY(agent->plans.isEmpty());
+    Rpc source;
+    agent->attachRpc(&source);
+    emit source.notification("turn/diff/updated",
+        {{"threadId", "unwatched"}, {"turnId", "ignored"}, {"diff", "unused"}});
+    QVERIFY(agent->plans.isEmpty());
+  }
+  void evictedThreadReleasesAssociatedCaches() {
+    fillPreviews();
+    const QString id = "preview-00";
+    agent->cacheTurnUpdate(id, "old-turn", "diff", "old");
+    agent->cacheTurnUpdate("preview-01", "kept-turn", "diff", "kept");
+    agent->effectiveSettings[id] = {{"model", "old"}};
+    agent->tokenUsage[id] = {{"total", 100}};
+    agent->fileSources[id].insert("/old.txt");
+    agent->previewOrigins[id].insert("http://localhost:1234");
+    agent->imageSources["old-image"] = {id, "/old.png"};
+    agent->imageSources["kept-image"] = {"preview-01", "/kept.png"};
+    agent->agentDetails[id + ":child"] = {{"message", "old"}};
+    agent->agentDetailsAt[id + ":child"] = now();
+    agent->answeredRequests.insert(id + ":answered");
+    QVERIFY(agent->trimThreadPreviews(DefaultSyncedThreads - 1));
+    QVERIFY(!agent->rawThreads.contains(id));
+    QVERIFY(!agent->effectiveSettings.contains(id));
+    QVERIFY(!agent->tokenUsage.contains(id));
+    QVERIFY(!agent->fileSources.contains(id));
+    QVERIFY(!agent->previewOrigins.contains(id));
+    QVERIFY(!agent->imageSources.contains("old-image"));
+    QVERIFY(!agent->agentDetails.contains(id + ":child"));
+    QVERIFY(!agent->agentDetailsAt.contains(id + ":child"));
+    // Eviction must not allow an approval with an unknown outcome to be sent twice.
+    QVERIFY(agent->answeredRequests.contains(id + ":answered"));
+    QVERIFY(!agent->plans.contains("old-turn"));
+    QVERIFY(agent->plans.contains("kept-turn"));
+    QVERIFY(agent->imageSources.contains("kept-image"));
+  }
+  void oversizedDesktopHistoryFallsBackWithoutResubscribingOrResuming() {
+    auto state = raw();
+    state["history"] = Array{};
+    DesktopFixture fixture(state);
+    qputenv("CODEX_REMOTE_DESKTOP_ENDPOINT", fixture.endpoint.toUtf8());
+    agent->settings["runtime"] = "auto";
+    agent->desktop->open(agent->settings);
+    QVERIFY(agent->desktop->follow("thread-test"));
+    QTRY_VERIFY(agent->desktop->watched.value("thread-test").compatible);
+    agent->watch("thread-test");
+    for (int i = 0; i < 40; ++i) {
+      fixture.patch({Object{{"op", "add"}, {"path", Array{"history", i}},
+                            {"value", QString(512 * 1024, QChar('a' + i % 26))}}},
+                    i, i + 1);
+      QTRY_VERIFY(agent->desktop->watched.value("thread-test").memoryLimited ||
+                  agent->desktop->watched.value("thread-test").revision == i + 1);
+      if (agent->desktop->watched.value("thread-test").memoryLimited)
+        break;
+    }
+    const auto limited = agent->desktop->watched.value("thread-test");
+    QVERIFY(limited.memoryLimited);
+    QVERIFY(!limited.compatible);
+    QVERIFY(limited.raw.isEmpty());
+    QCOMPARE(limited.retainedBytes, 0);
+    QVERIFY(!agent->desktop->follow("thread-test"));
+    agent->watch("thread-test");
+    agent->watch("thread-test");
+    QVERIFY(!agent->desktopThreads.contains("thread-test"));
+    QVERIFY(!agent->rawThreads.value("thread-test")["_normalized"].toObject().isEmpty());
+    QVERIFY(json(agent->rawThreads.value("thread-test")).size() < 256 * 1024);
+    QCOMPARE(fixture.followStarts, 1);
+    QVERIFY(!read(temp.path() + "/requests.jsonl").contains("thread/resume"));
+    QVERIFY(agent->desktop->connected);
+  }
+  void desktopPatchStorageAccountingReleasesReplacedAndRemovedValues() {
+    DesktopFixture fixture(raw());
+    qputenv("CODEX_REMOTE_DESKTOP_ENDPOINT", fixture.endpoint.toUtf8());
+    agent->desktop->open(agent->settings);
+    QVERIFY(agent->desktop->follow("thread-test"));
+    QTRY_VERIFY(agent->desktop->watched.value("thread-test").compatible);
+    const auto before = agent->desktop->watched.value("thread-test");
+    fixture.patch({Object{{"op", "add"}, {"path", Array{"cache"}},
+                           {"value", Array{"first"}}},
+                   Object{{"op", "add"}, {"path", Array{"cache", 1}},
+                           {"value", QString(4096, QChar(0x4e2d))}},
+                   Object{{"op", "replace"}, {"path", Array{"cache", 0}},
+                           {"value", Object{{"nested", Array{1, 2, 3}}}}}}, 0, 1);
+    QTRY_COMPARE(agent->desktop->watched.value("thread-test").revision, 1);
+    QVERIFY(agent->desktop->watched.value("thread-test").retainedBytes > before.retainedBytes);
+    fixture.patch({Object{{"op", "remove"}, {"path", Array{"cache", 1}}},
+                   Object{{"op", "remove"}, {"path", Array{"cache"}}}}, 1, 2);
+    QTRY_COMPARE(agent->desktop->watched.value("thread-test").revision, 2);
+    QCOMPARE(agent->desktop->watched.value("thread-test").retainedBytes, before.retainedBytes);
+    QCOMPARE(agent->desktop->watched.value("thread-test").raw, before.raw);
+  }
   void permissions() {
     auto preset = permissionPreset("ask", {temp.path()});
     auto permission = permissionSettings(preset);
@@ -943,12 +1098,20 @@ private slots:
     agent->processCommand(cmd);
     QCOMPARE(read(temp.path() + "/requests.jsonl"), before);
   }
+  void completionBeforeAckDoesNotRemainBusy_data() {
+    QTest::addColumn<bool>("startEarly");
+    QTest::newRow("completion-only") << false;
+    QTest::newRow("start-and-completion") << true;
+  }
   void completionBeforeAckDoesNotRemainBusy() {
-    setFixture({{"completeEarly", true}});
+    QFETCH(bool, startEarly);
+    setFixture({{"completeEarly", true}, {"startEarly", startEarly}});
     agent->refreshCatalog();
     auto result = agent->execute(command());
     QCOMPARE(result["turnId"], QJsonValue("turn-new"));
     QVERIFY(!agent->busyTurns.contains("turn-new"));
+    QVERIFY(agent->completedTurns.isEmpty());
+    QCOMPARE(agent->pendingStarts, 0);
   }
   void activeRefreshDeferred() {
     agent->ensureRpc();
