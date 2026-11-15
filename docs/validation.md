@@ -1,5 +1,27 @@
 # 当前 Go 迁移验证
 
+## 2026-11-15 服务器 0.3.67 正式发布
+
+服务器资源接口和共享控制界面随 `17dae04` 推送至 `main`。本地完整 Go 测试与实际 Qt 环境下的 123 个 TypeScript 文件／1124 项测试全部通过，根／移动／Windows 原生共享界面类型、文档、协议及 Web／Admin／Go 生产构建通过。服务器仅转发有界临时请求，资源采样不进入数据库、事件流或命令日志。
+
+首次 Linux 发布检查中，PDF 与 Lua 阅读器的首项测试失败：夹具可在首次 DOM 提交之后、挂载 effect 完成之前合成点击。使用实际共享阅读器复现原顺序为 `open → mount-close`，文件操作被挂载清理取消；同步完成首次渲染后顺序为 `mount-close → open`，预览可见。两个夹具使用 React `flushSync` 完成初始提交及挂载 effect，相关 2 文件／6 项回归通过；修复提交为 `ea5c616`。此提交仅修改测试夹具，现有 Windows／Android 产物的业务源码及摘要不变。首次流程失败且没有生成 Release 后，使用指定旧 SHA 的 lease 将未发布的 v0.3.67 tag 更新到此提交，重新运行完整发布检查。
+
+稳定版 [v0.3.67](https://github.com/bunnya33/codexer/releases/tag/v0.3.67) 已正式发布，源码为 `ea5c616`；[发布流程](https://github.com/bunnya33/codexer/actions/runs/43721712924)全部成功，包含 PostgreSQL、类型、Go／TypeScript、51 份已提交文档、Go race、生产构建及 Linux 独立程序验收。CI 为 122 文件通过、1 文件条件跳过，1121 项通过、3 项条件跳过，共 123 文件／1124 项；没有 Qt 的原生项目传输按条件跳过，本地实际 Qt 环境的完整结果为全部通过。四个平台更新包及同名 SHA-256 共 8 个附件齐全，本次发布更新包，生产安装由管理员在后台执行。
+
+正式 tag 的源码提交和稳定版身份均已核对，四份 SHA-256 文件与 GitHub 归档附件摘要一致。Linux amd64 正式包已下载并通过实际摘要核验，11,819,661 字节、SHA-256 `c5951bff05f174072693d2fd53a0cc89a07329844293e6b8534a350f13655800`；版本 0.3.67、Go manifest、ELF x86_64、55 个归档条目的边界和类型，以及程序／安装脚本的 0755 权限通过。GitHub 下载中出现间歇超时，分块缓存重试后完成；未将不完整下载作为交付包。归档、校验文件、CI 日志和验收回执在 `release/server-0.3.67/`。未安装或重启生产服务器，未上传客户端更新目录。
+
+## 2026-11-15 Agent 0.2.41 与 Android 0.1.24 原生打包、本机替换
+
+本次按用户要求为资源占用功能生成 Windows Agent 与 Android 安装包，服务器版本升为 0.3.67、Agent 升为 0.2.41、Android 升为 0.1.24 / versionCode 28。源码在主目录 `main` 提交并推送为 `17dae04`，保留原有无关改动。完整 Go 回归及本地实际 Qt 环境下的 123 个 TypeScript 测试文件／1124 项测试全部通过；根工程、移动端及 Windows 原生共享界面类型检查、52 份文档、协议与 diff 检查通过，Web／Admin／Go 生产构建完成。
+
+Windows 使用 Qt 6.8.3 / MSVC 实际重新配置和完成 x64 Release 原生编译。后台 133 项通过、3 项显式探针跳过，原生 UI 18 项通过、1 项条件跳过，跨语言协议 338 项通过。Setup 为 `release/agent-0.2.41/Codexer-Agent-Qt-Setup-0.2.41-x64.exe`，11,240,148 字节、SHA-256 `92538890a369946eb7248bd0edfc1d11c342a5bf099fa99bf0bc3bbc87bea2ed`；Portable 为同目录 `Codexer-Agent-Qt-Portable-0.2.41-x64.exe`，11,023,662 字节、SHA-256 `a20d8e1e0b291acf488851b673ec35cae9d0ba3526819371dba62b5f098ddd39`。首次资源写入工具报错后保留失败日志，未修改源码，重跑打包成功。两个 EXE 解包后的 41 个应用文件均与最终 stage 逐字节一致，PE x64 和版本通过，无 Node／Electron 运行时，未增加代码签名。stage 与实际 Portable 均通过全新配置、原生 DPAPI 登录及旧 Electron v10 登录迁移三种隔离验收，包含身份保持及单实例。
+
+完整备份原 0.2.40 程序和配置后，仅停止核对路径的旧 Agent 及其直接启动的 app-server 子进程，在原 `C:/Program Files/Codexer/Codexer Agent` 以 all-users 模式覆盖；安装器退出 0，使用非提权父进程启动新版。正式进程与卸载项均为 0.2.41，41 个安装文件匹配 stage，仅一个正式 Agent 进程；设置、installationId、deviceId 和有效认证会话保留。DPAPI 密文因连接续期重写，仅在内存中比较认证字段一致，未输出凭据。Relay、官方桌面 IPC 与运行时连接恢复。回执在 `release/agent-0.2.41/`，原程序及配置备份在 `.local/agent-upgrade-0.2.41-2026-11-15T13-43-27.859Z`。未将启动连接验收作为长时间内存泄漏复测。
+
+Android 将 1220 个源码文件同步到短路径构建副本 `F:/ca20` 并逐文件核对一致，沿用依赖与原生配置缓存；实际 Gradle Release 原生构建成功，597 项任务，72 项执行、525 项无需重跑。最终 APK 为 `release/android-0.1.24/FrogCoder-0.1.24-build28.apk`，94,484,302 字节，比 0.1.23 增加 10,808 字节；SHA-256 `065b8ae2119a1cb469a2755e2b6c7d68ef1a41ebe836cf1d103597d4322c7b85`。包内清单为 FrogCoder、0.1.24 / 28、原 applicationId、非 debuggable；正式原证书、APK v2 签名和 16 KiB ZIP 对齐通过。Hermes 字节码匹配 Gradle 输出，source map 中全部 154 份业务源码与主目录一致，包含资源占用新模块；27 个启动、自适应及单色图标实际资源与已验收的青蛙包逐字节一致。四种 ABI、minSdk 24 / targetSdk 36 齐全。PDF.js 仍从服务器按需获取，不打入 APK。
+
+本次实际验收 Windows 本机安装与连接，未连接手机或模拟器进行 APK 覆盖安装和交互验收，Mac Qt／iOS 原生编译仍需在相应设备完成；未上传客户端更新目录。服务器发布另列上节验收记录，发布更新包不代表生产服务器已经安装。
+
 ## 2026-11-15 控制端查看远程 Agent CPU 与内存
 
 在主工作目录 `main` fetch 核对 `HEAD` 与 `origin/main` 同为 `16132ac` 后实现，保留原有未提交修改。设备卡片在线状态下方显示 Agent 本身的 CPU 与常驻内存，点击查看 Agent 与直接启动的 Codex app-server 的独立占用、PID、运行时长和更新时间；Windows 另列私有提交。手机侧栏关闭、退后台、设备离线或实时连接断开时取消读取，切换账号／服务器／设备后不接受旧响应；详情复用采样，过期或离线读数标注上次采样。

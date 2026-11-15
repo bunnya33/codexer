@@ -6,6 +6,10 @@
 
 服务器仅通过既有连接转发临时采样，不保存监控历史、会话事件或命令记录。需配套使用服务器 0.3.67、Agent 0.2.41 及新版控制端；Android 为 FrogCoder 0.1.24 / versionCode 28，沿用原包名、青蛙图标与正式发布签名。Windows Agent 本机替换、原生构建、安装包及正式发布的实际验收结果分别记录在 [验证记录](validation.md)。Mac Agent 与 iOS 的源码变更仍需在对应设备原生构建和验收。
 
+稳定版 [v0.3.67](https://github.com/bunnya33/codexer/releases/tag/v0.3.67) 已发布，源码为 `ea5c616`，[发布流程](https://github.com/bunnya33/codexer/actions/runs/43721712924)全部成功，四个平台服务器更新包和校验文件共 8 个附件齐全。Windows Qt Agent 安装版和便携版实际原生打包完成，本机已覆盖升级至 0.2.41，原设备身份及登录保持；Android 原生签名 APK 位于 `release/android-0.1.24/FrogCoder-0.1.24-build28.apk`，手机实装未验收。服务器更新包供管理后台检查或上传安装，本次未安装生产服务器或上传客户端更新目录。
+
+Linux amd64 正式包已下载并核对 SHA-256、版本、manifest、架构、归档边界和执行权限，包与验收回执保存在 `release/server-0.3.67/`。
+
 ## Android 0.1.23：文件搜索与 PDF 阅读
 
 FrogCoder 0.1.23、versionCode 27 包含源码高亮、行号、内容搜索、Markdown 排版／源码切换，以及分页、缩放和全文搜索的 PDF 阅读器。PDF.js 从服务器按需加载，服务器需先安装 0.3.66；实时跟进重复气泡修复还需配套更新 Agent。Office 文档保留下载。
