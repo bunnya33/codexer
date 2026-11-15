@@ -3,7 +3,7 @@
     "name": "FrogCoder",
     "slug": "codexer",
     "scheme": "codexer",
-    "version": "0.1.21",
+    "version": "0.1.23",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -28,7 +28,7 @@
       "softwareKeyboardLayoutMode": "resize",
       "icon": "./assets/android-icon.png",
       "package": "com.bunnya33.codexer.remote",
-      "versionCode": 25,
+      "versionCode": 27,
       "permissions": [
         "android.permission.REQUEST_INSTALL_PACKAGES"
       ],

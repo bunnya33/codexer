@@ -1,5 +1,15 @@
 # 当前 Go 迁移验证
 
+## 2026-11-15 Android FrogCoder 0.1.23 / versionCode 27
+
+主工作目录 `main` fetch 后与 `origin/main` 均为 `5b46056`。Android 显示版本递增到 0.1.23，versionCode 递增到 27；沿用 FrogCoder、青蛙图标、原 applicationId 和正式发布证书。新增源码高亮与搜索、Markdown 排版／源码切换、客户端 PDF 阅读和实时跟进稳定发送标识支持。PDF 阅读器需先安装服务器 0.3.66，完整消息去重还需配套更新 Agent；本轮不打包 Agent 或其他原生端。
+
+1218 个源码文件同步至短路径构建副本并逐文件校验一致；依赖按锁文件重新安装，原生依赖及 Expo 配置未变。实际 Gradle Release 原生构建 `BUILD SUCCESSFUL in 6m 4s`，597 项任务，475 执行、122 无需重跑。移动端及原生共享界面类型检查、预览 runtime 源码一致性、文档与 diff 检查通过。共享功能回归沿用本任务服务器 0.3.66 发布前同一份源码的 122 文件／1115 项全部通过结果；版本元数据变更不重复运行完整功能测试。
+
+最终 APK 为 `release/android-0.1.23/FrogCoder-0.1.23-build27.apk`，94,473,494 字节，SHA-256 `358c0a17e1b26de7bec1467d783fd3656777db87379d4ba49b69e8e72e69f1fe`；比已验收 0.1.22 / 26 增加 106,764 字节。包内实际清单为 FrogCoder、0.1.23 / 27、原包名、非 debuggable；原证书及 APK v2 签名、16 KiB ZIP 对齐通过。Hermes 字节码逐字匹配 Gradle 输出，source map 的全部 152 份业务源码匹配主目录；启动、自适应及单色图标共 27 个实际编译资源与上一正式签名青蛙包逐字节一致。包含 ARM64、ARMv7、x86、x86_64，minSdk 24／targetSdk 36。
+
+PDF.js 及解码／字体资源仍从服务器按需获取，不打进 APK；不加入 Office 转换。构建、签名、源码及验包回执均在同一产物目录。没有连接手机或运行中的模拟器，本轮未进行实机覆盖安装、账号任务及原生 PDF 交互验收。APK 已交付，未上传客户端更新目录：发布工具 status 返回旧管理员凭据需网页重新授权，当前已知服务器仅有 HTTP 地址，等待 HTTPS 发布地址；未读取或迁移旧服务器凭据。
+
 ## 2026-11-15 服务器 0.3.66 正式发布
 
 主工作目录 `main` 再次 fetch 后，`HEAD` 与 `origin/main` 均为 `b54bb4b`；保留已有 Android 版本、签名、构建脚本、AGENTS 约定、Qt 指南和演示文件。本次版本递增至 0.3.66，提交文件阅读器、客户端 PDF 预览和实时跟进稳定发送标识支持，不包含 Android 发行元数据变更。

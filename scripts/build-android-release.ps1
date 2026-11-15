@@ -8,8 +8,8 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot -Parent
-$package = Get-Content (Join-Path $repoRoot 'apps/mobile/package.json') -Raw | ConvertFrom-Json
-$config = Get-Content (Join-Path $repoRoot 'apps/mobile/app.json') -Raw | ConvertFrom-Json
+$package = Get-Content (Join-Path $repoRoot 'apps/mobile/package.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+$config = Get-Content (Join-Path $repoRoot 'apps/mobile/app.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $version = $package.version
 $versionCode = $config.expo.android.versionCode
 if ($version -ne $config.expo.version) { throw 'Android source versions do not match.' }
