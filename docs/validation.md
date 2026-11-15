@@ -1,12 +1,14 @@
 # 当前 Go 迁移验证
 
-## 2026-11-15 服务器 0.3.66 发布准备
+## 2026-11-15 服务器 0.3.66 正式发布
 
 主工作目录 `main` 再次 fetch 后，`HEAD` 与 `origin/main` 均为 `b54bb4b`；保留已有 Android 版本、签名、构建脚本、AGENTS 约定、Qt 指南和演示文件。本次版本递增至 0.3.66，提交文件阅读器、客户端 PDF 预览和实时跟进稳定发送标识支持，不包含 Android 发行元数据变更。
 
 完整本地 Go 回归与 122 个 TypeScript 测试文件／1115 项测试全部通过；Qt SDK 已显式配置，包含真实原生项目传输。根／后台／桌面类型检查、50 份文档、协议、Go 格式及 shell 语法检查通过；Web／Admin／Go 生产构建完成。此前本轮移动及原生共享界面类型检查、Hermes 导出、Qt 原生编译与 124 项后台／338 项协议对照的结果沿用下节记录，不据此宣称生成原生客户端安装包。
 
 本次只发布服务器正式更新包，不上传客户端安装包或安装、重启生产服务器。发布工具 status 返回旧管理员凭据需要新版网页授权；GitHub Release 使用既有 GitHub 授权独立完成，不读取或迁移服务器凭据。
+
+稳定版 [v0.3.66](https://github.com/bunnya33/codexer/releases/tag/v0.3.66) 已正式发布，源码为 `b2018c4`；[发布流程](https://github.com/bunnya33/codexer/actions/runs/43671474742)全部成功，包含 PostgreSQL、类型、Go／TypeScript 回归、文档、Go race、生产构建和 Linux 独立程序验收。CI 的 TypeScript 结果为 121 passed | 1 skipped (122)；1112 passed | 3 skipped (1115)，未配置 Qt 的原生项目传输按条件跳过，本地实际 Qt 环境为 122 文件／1115 项全通过。四个平台更新包及同名 SHA-256 共 8 个正式附件齐全，四份校验文件与 GitHub 附件摘要一致。Linux amd64 正式包已下载，11,803,209 字节、SHA-256 `ae114bfdf758cecb3acf1ca224fcb8f8f11f16373d5723bb6ac7f5ed34cd191e`，版本、manifest、ELF x86_64、归档边界及 0755 执行权限通过；产物和回执在 `release/server-0.3.66/`。本次发布更新包，生产安装由管理员在后台执行。
 
 ## 2026-11-15 轻量 PDF 阅读与实时跟进消息去重
 
