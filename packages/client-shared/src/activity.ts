@@ -304,11 +304,12 @@ export function buildActivityBlocks(turn: HistoryTurn, isActive: boolean): Conve
 export function mergeLiveTurn(history: HistoryTurn, live: HistoryTurn, active = false): HistoryTurn {
   if (!active && history.status === "completed" && live.status !== "completed" && history.items.some(item => item.phase === "final_answer")) return { ...history, ...(live.tokenUsage ? { tokenUsage: live.tokenUsage } : {}) };
   const previous = new Map(history.items.map(item => [item.id, item]));
+  const previousByClient = new Map(history.items.filter(item => messageRole(item) === 'user' && item.clientMessageId).map(item => [item.clientMessageId, item]));
   const items = live.items.map(item => {
-    const recorded = previous.get(item.id);
-    if (recorded && messageRole(item) === "user" && item.truncated && (recorded.text?.length ?? 0) > (item.text?.length ?? 0)) return { ...item, ...recorded };
+    const recorded = previous.get(item.id) ?? (messageRole(item) === 'user' && item.clientMessageId ? previousByClient.get(item.clientMessageId) : undefined);
+    if (recorded && messageRole(item) === "user" && item.truncated && (recorded.text?.length ?? 0) > (item.text?.length ?? 0)) return { ...recorded, ...item, text: recorded.text, ...(recorded.userMessageParts ? {userMessageParts: recorded.userMessageParts} : {}), truncated: recorded.truncated };
     // Completed history has larger text/output limits than a live snapshot.
-    if (history.status === "completed" && live.status === "completed" && recorded && item.truncated) return { ...item, ...recorded };
+    if (history.status === "completed" && live.status === "completed" && recorded && item.truncated) return { ...item, ...recorded, id: item.id };
     return { ...recorded, ...item };
   });
   const changes = new Map((history.fileChanges ?? []).map(change => [change.path, change]));
@@ -325,9 +326,13 @@ export function mergeLiveTurn(history: HistoryTurn, live: HistoryTurn, active = 
   // recorded a steering entry or streamed reply at its former position.
   const combined = [...items];
   const ids = new Set(combined.map(item => item.id));
+  const clients = new Set(combined.filter(item => messageRole(item) === 'user').map(item => item.clientMessageId).filter(Boolean));
   for (let index = 0; index < history.items.length; index++) {
     const item = history.items[index]!;
     if (ids.has(item.id)) continue;
+    // A pending desktop follow-up receives a new item ID after acceptance.
+    // Its explicit client identity survives; equal text alone is never a match.
+    if (messageRole(item) === 'user' && item.clientMessageId && clients.has(item.clientMessageId)) continue;
     const next = history.items.slice(index + 1).find(candidate => ids.has(candidate.id));
     const previous = [...history.items.slice(0, index)].reverse().find(candidate => ids.has(candidate.id));
     const timed = item.startedAtMs === undefined ? -1 : combined.findIndex(candidate => candidate.startedAtMs !== undefined && candidate.startedAtMs > item.startedAtMs!);

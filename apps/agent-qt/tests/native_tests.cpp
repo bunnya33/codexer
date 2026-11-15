@@ -787,6 +787,22 @@ private slots:
     QCOMPARE(t["items"].toArray()[1].toObject()["phase"],
              QJsonValue("final_answer"));
   }
+  void stableFollowUpClientIdentity() {
+    const Array variants{
+      Object{{"id", "temporary"}, {"type", "steeringUserMessage"}, {"status", "pending"}, {"clientUserMessageId", "submission"}},
+      Object{{"id", "temporary"}, {"type", "steeringUserMessage"}, {"status", "accepted"}, {"serverUserMessageId", "server"}, {"serverClientUserMessageId", "submission"}},
+      Object{{"id", "server"}, {"type", "userMessage"}, {"clientId", "submission"}}
+    };
+    for (const auto &variant : variants) {
+      auto entry = variant.toObject(); entry["text"] = "Follow up";
+      Object source{{"id", "turn"}, {"items", Array{entry}}};
+      for (bool history : {false, true}) {
+        auto item = normalizeTurn(source, history, "thread")["items"].toArray()[0].toObject();
+        QCOMPARE(item["clientMessageId"], QJsonValue("submission"));
+        QCOMPARE(item["id"], QJsonValue(entry["status"] == "accepted" ? "server" : entry["id"].toString()));
+      }
+    }
+  }
   void preservesPromptWhenTruncating() {
     auto thread = raw();
     Array items{Object{{"id", "prompt"},

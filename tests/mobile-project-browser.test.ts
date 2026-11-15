@@ -17,22 +17,26 @@ function gate() {
 }
 async function fixture(fileWait?: Promise<void>) {
   let width = 1590, height = 906;
-  const requests: {query: ProjectQuery; signal?: AbortSignal}[] = [];
+  const requests: {query: ProjectQuery; signal?: AbortSignal}[] = [], documentReads: string[] = [];
   const content = (path: string) => `// ${path}\nexport const value = 1;\n`;
   const dom = new JSDOM('<div id="root"></div>', {url: 'https://fixture.test', runScripts: 'dangerously', pretendToBeVisual: true, beforeParse(window) {
     Object.defineProperties(window.HTMLHtmlElement.prototype, {clientWidth: {get: () => width}, clientHeight: {get: () => height}});
     window.HTMLElement.prototype.getBoundingClientRect = () => ({x: 0, y: 0, left: 0, top: 0, right: width, bottom: height, width, height, toJSON() {}});
     window.matchMedia = (() => ({matches: false, addListener() {}, removeListener() {}})) as unknown as typeof window.matchMedia;
     Object.assign(window, {TextDecoder, ResizeObserver: class {observe() {} unobserve() {} disconnect() {}},
-      fetch: async (url: string) => new Response(content(new URL(url).pathname.slice('/files/'.length))),
+      fetch: async (url: string) => {
+        if (url.includes('/content?')) { documentReads.push(url); return new Response('%PDF-1.7\n%%EOF'); }
+        return new Response(content(new URL(url).pathname.slice('/files/'.length)));
+      },
       __projectFiles: async (_device: string, _project: string, query: ProjectQuery, signal?: AbortSignal) => {
         requests.push({query, signal});
         if (query.operation === 'file') {
           if (query.path === 'src/a.ts') await fileWait;
+          if (query.path.endsWith('.pdf')) return {kind:'file',file:{name:query.path.split('/').at(-1),size:query.path.includes('large')?2048:25,version:'b'.repeat(64),previewMaxBytes:1024}};
           return {kind: 'file', file: {name: query.path.split('/').at(-1), size: new TextEncoder().encode(content(query.path)).length, version: 'a'.repeat(64)}};
         }
         if (query.operation === 'search') return {kind: 'search', matches: [{path: 'src/a.ts', line: 2, text: 'export const value = 1;'}], scanned: 2, skipped: 0};
-        return {kind: 'list', entries: query.path === 'src' ? ['a.ts', 'b.ts'].map(name => ({name, path: 'src/' + name, kind: 'file', size: 50})) : [{name: 'src', path: 'src', kind: 'directory', size: 0}]};
+        return {kind: 'list', entries: query.path === 'src' ? ['a.ts', 'b.ts', 'small.pdf', 'large.pdf'].map(name => ({name, path: 'src/' + name, kind: 'file', size: 50})) : [{name: 'src', path: 'src', kind: 'directory', size: 0}]};
       },
     });
   }});
@@ -42,7 +46,7 @@ async function fixture(fileWait?: Promise<void>) {
   const resize = async (w: number, h: number) => {width = w; height = h; dom.window.dispatchEvent(new dom.window.Event('resize')); await new Promise(resolve => setTimeout(resolve, 30));};
   await click('展开目录 src');
   await vi.waitFor(() => expect(element('打开文件 src/a.ts')).toBeTruthy());
-  return {dom, requests, element, click, resize};
+  return {dom, requests, documentReads, element, click, resize};
 }
 it('keeps an in-flight preview alive while refreshing and searching the other pane', async () => {
   const pending = gate(), f = await fixture(pending.promise);
@@ -94,4 +98,18 @@ it('cancels an older selection and ignores its delayed response', async () => {
     expect(f.element('src/b.ts 源码')?.textContent).toContain('src/b.ts');
     expect(f.element('src/a.ts 源码')).toBeNull();
   } finally {pending.release(); f.dom.window.close();}
+});
+it('previews a project PDF with the existing file route and avoids loading oversized selections', async () => {
+  const f = await fixture();
+  try {
+    await f.click('打开文件 src/small.pdf');
+    await vi.waitFor(()=>expect(f.dom.window.document.querySelector('iframe')).toBeTruthy());
+    expect(f.documentReads).toHaveLength(1);
+    expect(new URL(f.documentReads[0]!).searchParams.get('path')).toBe('src/small.pdf');
+    await f.click('打开文件 src/large.pdf');
+    await vi.waitFor(()=>expect(f.dom.window.document.body.textContent).toContain('预览上限'));
+    expect(f.dom.window.document.querySelector('iframe')).toBeNull();
+    expect(f.documentReads).toHaveLength(1);
+    expect(f.element('下载项目文件')).toBeTruthy();
+  } finally {f.dom.window.close();}
 });

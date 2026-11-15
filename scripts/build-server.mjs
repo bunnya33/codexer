@@ -11,6 +11,7 @@ const go =
   process.env.CODEXER_GO ??
   (existsSync(".local/go-tools/go/bin/go") ? resolve(".local/go-tools/go/bin/go") : "go");
 run(process.execPath, ["scripts/build-protocol-schema.mjs"]);
+run(process.execPath, ["scripts/build-document-runtime.mjs"]);
 run(process.execPath, [process.env.npm_execpath, "run", "build:web"]);
 run(process.execPath, [process.env.npm_execpath, "run", "build:admin"]);
 for (const [name, source] of [

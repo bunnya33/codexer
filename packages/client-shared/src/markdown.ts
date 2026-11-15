@@ -1,22 +1,9 @@
 import MarkdownIt from "markdown-it";
 import taskLists from "markdown-it-task-lists";
-import hljs from "highlight.js/lib/core";
-import bash from "highlight.js/lib/languages/bash";
-import css from "highlight.js/lib/languages/css";
-import diff from "highlight.js/lib/languages/diff";
-import go from "highlight.js/lib/languages/go";
-import javascript from "highlight.js/lib/languages/javascript";
-import json from "highlight.js/lib/languages/json";
-import powershell from "highlight.js/lib/languages/powershell";
-import python from "highlight.js/lib/languages/python";
-import rust from "highlight.js/lib/languages/rust";
-import sql from "highlight.js/lib/languages/sql";
-import typescript from "highlight.js/lib/languages/typescript";
-import xml from "highlight.js/lib/languages/xml";
-import yaml from "highlight.js/lib/languages/yaml";
+import { highlightCode } from "./code-highlighting.js";
 import { localFilePath } from "./file-links.js";
 
-for (const [name, language] of Object.entries({ bash, css, diff, go, javascript, json, powershell, python, rust, sql, typescript, xml, yaml })) hljs.registerLanguage(name, language);
+export { highlightCode } from "./code-highlighting.js";
 
 const markdown = new MarkdownIt({ html: false, linkify: true, breaks: true }).use(taskLists, { enabled: false });
 const escape = markdown.utils.escapeHtml;
@@ -26,11 +13,6 @@ markdown.validateLink = value => {
   try { return ["http:", "https:", "mailto:"].includes(new URL(value, "https://markdown.invalid/").protocol); }
   catch { return false; }
 };
-
-export function highlightCode(source: string, info = ""): string {
-  const language = info.trim().split(/\s+/)[0] ?? "";
-  return hljs.getLanguage(language) ? hljs.highlight(source, { language, ignoreIllegals: true }).value : escape(source);
-}
 
 export function renderCodeBlock(source: string, info = ""): string {
   const language = info.trim().split(/\s+/)[0] ?? "";

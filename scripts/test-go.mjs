@@ -9,6 +9,10 @@ const schema = spawnSync(process.execPath, ["scripts/build-protocol-schema.mjs",
   stdio: "inherit",
 });
 if (schema.status !== 0) process.exit(schema.status ?? 1);
+const documents = spawnSync(process.execPath, ["scripts/build-document-runtime.mjs"], {
+  stdio: "inherit",
+});
+if (documents.status !== 0) process.exit(documents.status ?? 1);
 await mkdir(".local", { recursive: true });
 for (const args of [
   ["test", "./..."],

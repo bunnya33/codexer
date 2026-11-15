@@ -131,6 +131,17 @@ func TestStandaloneBinaryWithEmbeddedPages(t *testing.T) {
 	if request("GET", "/health", "", nil)["version"] != releaseVersion {
 		t.Fatal("release version")
 	}
+	for _, path := range []string{"viewer.js", "cmaps/Adobe-Japan1-UCS2.bcmap", "standard_fonts/LiberationSans-Regular.ttf", "wasm/openjpeg.wasm"} {
+		res, err := http.Get(base + "/v1/document-runtime/" + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n, _ := io.Copy(io.Discard, res.Body)
+		res.Body.Close()
+		if res.StatusCode != 200 || n == 0 || res.Header.Get("Access-Control-Allow-Origin") != "*" {
+			t.Fatalf("embedded document resource %s", path)
+		}
+	}
 	for _, path := range []string{"/", "/admin/"} {
 		res, e := http.Get(base + path)
 		if e != nil {

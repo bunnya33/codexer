@@ -1,6 +1,6 @@
 {
   "name": "codex-remote",
-  "version": "0.3.65",
+  "version": "0.3.66",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -13,6 +13,7 @@
     "node": ">=22.13"
   },
   "scripts": {
+    "build:document-runtime": "node scripts/build-document-runtime.mjs",
     "inspect:bundle": "node scripts/query-desktop-bundle.mjs",
     "probe:desktop": "node scripts/probe-desktop-ipc.mjs",
     "build": "npm run build:server",
@@ -86,6 +87,7 @@
     "immer": "^11.1.18",
     "markdown-it": "^15.0.2",
     "markdown-it-task-lists": "^2.1.1",
+    "pdfjs-dist": "6.5.438",
     "ws": "^8.22.0",
     "zod": "^4.6.5"
   },

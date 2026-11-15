@@ -12,6 +12,31 @@ const turn = (items: RemoteItem[], rest: Partial<HistoryTurn> = {}): HistoryTurn
 const groups = (value: HistoryTurn, active = false) => buildActivityBlocks(value, active).filter((block): block is ActivityBlock => block.kind === "activity");
 
 describe('refresh history identity and order', () => {
+  it('replaces a pending follow-up after acceptance in a bounded live window without duplicating its bubble', () => {
+    const raw = rawThread(), initial = {id:'prompt',type:'userMessage',content:[{type:'text',text:'Initial'}]};
+    const pending = {id:'temporary',type:'steeringUserMessage',status:'pending',clientUserMessageId:'submission-one',input:[{type:'text',text:'How large is the client?'}]};
+    const work = Array.from({length:30},(_,index)=>({id:'work-'+index,type:'commandExecution',command:'test'}));
+    const source = desktopTurns(raw)[0]!;
+    Object.assign(source,{id:'turn',turnId:'turn',status:'inProgress',items:[initial,pending,...work]});
+    const before = normalizeThread(raw,1).turns[0]!;
+    Object.assign(pending,{status:'accepted',serverUserMessageId:'server-one',serverClientUserMessageId:'submission-one'});
+    const accepted = normalizeThread(raw,1).turns[0]!;
+    expect(accepted.itemsTruncatedBefore).toBe(true);
+    const merged = mergeLiveTurn(before,accepted,true);
+    expect(merged.items.filter(item=>item.text==='How large is the client?')).toHaveLength(1);
+    expect(merged.items.some(item=>item.id==='temporary')).toBe(false);
+    expect(mergeLiveTurn(merged,accepted,true).items).toEqual(merged.items);
+    const persisted = normalizeHistoryTurn({id:'turn',status:'inProgress',items:[initial,{id:'server-one',type:'userMessage',clientId:'submission-one',content:pending.input},...work]});
+    expect(mergeLiveTurn(merged,{...persisted,itemsTruncatedBefore:true},true).items.filter(item=>item.clientMessageId==='submission-one')).toHaveLength(1);
+  });
+  it('keeps intentional repeats distinct and preserves full text when accepted follow-ups are clipped', () => {
+    const old = item('temporary','steeringUserMessage',{text:'x'.repeat(5000),clientMessageId:'one',status:'pending'});
+    const live = item('server','steeringUserMessage',{text:'x'.repeat(4096),clientMessageId:'one',status:'accepted',truncated:true});
+    const repeat = item('repeat','userMessage',{text:live.text,clientMessageId:'two'});
+    const merged = mergeLiveTurn(turn([old],{status:'inProgress'}),turn([live,repeat],{status:'inProgress',itemsTruncatedBefore:true}),true);
+    expect(merged.items.map(item=>item.id)).toEqual(['server','repeat']);
+    expect(merged.items[0]!.text).toBe(old.text); expect(merged.items[0]!.status).toBe('accepted');
+  });
   it('uses the current desktop order when an older reply was recorded after a follow-up', () => {
     const prompt = item('prompt', 'userMessage');
     const before = item('before', 'agentMessage', {text:'Earlier reply', startedAtMs:1000});

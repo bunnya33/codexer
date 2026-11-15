@@ -1,0 +1,10 @@
+import { build } from 'esbuild';
+import { mkdir, cp, writeFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+const destination = resolve('apps/relay/assets/documents');
+await mkdir(destination, { recursive: true });
+await build({ entryPoints: ['scripts/document-viewer.ts'], outfile: resolve(destination, 'viewer.js'), bundle: true, minify: true, platform: 'browser', format: 'iife', target: ['es2022'], legalComments: 'eof' });
+for (const folder of ['cmaps', 'standard_fonts', 'wasm']) await cp(resolve('node_modules/pdfjs-dist', folder), resolve(destination, folder), { recursive: true });
+await cp(resolve('node_modules/pdfjs-dist/LICENSE'), resolve(destination, 'LICENSE'));
+await writeFile(resolve(destination, 'placeholder.txt'), 'Built by scripts/build-document-runtime.mjs; public PDF.js viewer assets only.\n');
+console.log('Document viewer and PDF.js font/decoder assets built for Relay embedding.');

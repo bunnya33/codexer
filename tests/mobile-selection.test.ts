@@ -411,6 +411,29 @@ it('keeps edits and created files between commands in one disclosure, retains th
   } finally {test.close();}
 });
 
+it('reconciles an accepted follow-up in place during live updates without reentering the conversation', async () => {
+  const follow = {id:'temporary',type:'steeringUserMessage',status:'pending',clientMessageId:'submission-one',text:'这条跟进只应出现一次',truncated:false};
+  const turn: HistoryTurn = {id:'active-turn',status:'inProgress',truncated:true,itemsTruncatedBefore:true,items:[
+    {id:'prompt',type:'userMessage',text:'Initial request',truncated:false},follow,
+  ]};
+  const controls = {active:true,text:'',images:[] as string[]};
+  const test = await fixture({controls,review:{turns:[turn]}});
+  try {
+    const count = () => test.dom.window.document.body.textContent!.split(follow.text).length - 1;
+    await vi.waitFor(()=>expect(test.historyRequests.length).toBeGreaterThan(0));
+    await vi.waitFor(()=>expect(count()).toBe(1));
+    turn.items = [turn.items[0]!,{...follow,id:'server',status:'accepted'}];
+    test.refresh();
+    await vi.waitFor(()=>expect(count()).toBe(1));
+    test.refresh();
+    await vi.waitFor(()=>expect(count()).toBe(1));
+    turn.items.push({...follow,id:'second',clientMessageId:'submission-two',status:'accepted'});
+    test.refresh();
+    await vi.waitFor(()=>expect(count()).toBe(2));
+    expect(test.commands).toHaveLength(0); expect(test.errors).toEqual([]);
+  } finally {test.close();}
+});
+
 it('automatically folds completed work, keeps the final reply visible and expands the original process in order', async () => {
   const turn: HistoryTurn={id:'active-turn',status:'inProgress',startedAtMs:1000,durationMs:3052000,truncated:false,items:[
     {id:'prompt',type:'userMessage',text:'最初的问题',truncated:false},

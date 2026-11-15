@@ -1,3 +1,6 @@
+import { fileCodeFormat } from './code-languages.js';
+import { fileDocumentKind } from './document-preview.js';
+
 /** 链接解码一次；encoded=false 用于已解码的传输请求和原生路径。 */
 export function localFilePath(value: string, encoded = true): string | null {
   let path = encoded ? value.trim() : value;
@@ -60,40 +63,11 @@ export function fileAudioMime(name: string): string | null {
   return Object.hasOwn(types, extension) ? types[extension]! : null;
 }
 
-export function fileReaderKind(name: string): "image" | "audio" | "markdown" | "json" | "text" | "download" {
-  const extension = name.toLowerCase().split(".").at(-1);
+export function fileReaderKind(name: string): "image" | "audio" | "document" | "markdown" | "json" | "text" | "download" {
   if (fileImageMime(name)) return "image";
   if (fileAudioMime(name)) return "audio";
-  if (extension === "md" || extension === "markdown") return "markdown";
-  if (extension === "json") return "json";
-  if (
-    extension &&
-    [
-      "txt",
-      "log",
-      "csv",
-      "tsv",
-      "yaml",
-      "yml",
-      "toml",
-      "ini",
-      "xml",
-      "conf",
-      "css",
-      "js",
-      "ts",
-      "tsx",
-      "jsx",
-      "py",
-      "go",
-      "rs",
-      "sql",
-      "sh",
-      "ps1",
-    ].includes(extension)
-  )
-    return "text";
-  return "download";
+  if (fileDocumentKind(name)) return "document";
+  return fileCodeFormat(name)?.kind ?? "download";
 }
 
 export function readableFileText(bytes: Uint8Array, name: string, formatJson = true): string {

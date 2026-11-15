@@ -346,6 +346,12 @@ static Object normalizeItem(
       {"id", stringId(item["id"]).isEmpty() ? "unknown" : stringId(item["id"])},
       {"type", type.left(100)},
       {"truncated", false}};
+  if (user(item)) {
+    auto client = type == "userMessage" ? item["clientId"].toString()
+                                       : item["serverClientUserMessageId"].toString(item["clientUserMessageId"].toString());
+    if (!client.isEmpty() && client.size() <= 160)
+      out["clientMessageId"] = client;
+  }
   for (const auto &key : {"status", "phase"})
     if (item[key].isString() &&
         (QString(key) != "phase" || item[key] == "commentary" ||

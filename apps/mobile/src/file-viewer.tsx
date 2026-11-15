@@ -19,9 +19,9 @@ import { fileError, previewFile } from "./file-transfer";
 import { downloadFile } from "./file-download";
 import { FileImage } from "./file-image";
 import { FileAudio } from "./file-audio";
+import { FileDocument } from "./file-document";
 import type { FileSource } from "./file-transfer";
-import { Markdown } from "./markdown";
-import { SourceCode } from "./source-code";
+import { FileTextPreview } from "./file-text-preview";
 import { ReviewReader } from "./review-reader";
 import { copyText } from "./runtime";
 import { relay } from "./relay";
@@ -33,6 +33,7 @@ type OpenFile = {
   phase: "loading" | "preview" | "confirm" | "downloading" | "done" | "error";
   text?: string;
   imageSource?: FileSource;
+  documentSource?: FileSource;
   message?: string;
   progress?: number;
 };
@@ -103,6 +104,10 @@ export function FileViewerProvider({
             return;
           }
           setFile({ path, info, phase: "loading" });
+          if (fileReaderKind(info.name) === 'document') {
+            setFile({ path, info, phase: 'preview', documentSource: relay.fileSource(deviceId, threadId, path, info.version) });
+            return;
+          }
           try {
             const text = await previewFile(
               relay.fileSource(deviceId, threadId, path, info.version),
@@ -188,19 +193,11 @@ export function FileViewerProvider({
               </Pressable>
             </View>
             {!!copyMessage && <Text accessibilityLiveRegion="polite" style={[fs.meta,{paddingHorizontal:16,paddingBottom:8}]}>{copyMessage}</Text>}
-            {file?.phase === "preview" && file.imageSource ? (
+            {file?.phase === 'preview' && file.documentSource ? <FileDocument key={file.path + file.info!.version} source={file.documentSource} info={file.info!} /> : file?.phase === "preview" && file.imageSource ? (
               <FileImage source={file.imageSource} info={file.info!} onClose={close} />
             ) : file?.phase === "preview" && fileReaderKind(file.info!.name) === "audio" ? (
               <FileAudio key={file.path + file.info!.version} deviceId={deviceId} threadId={threadId} path={file.path} info={file.info!} />
-            ) : file?.phase === "preview" && file.text !== undefined && fileReaderKind(file.info!.name) !== "markdown" ? <SourceCode text={file.text} path={file.path} /> : <ScrollView style={fs.body} contentContainerStyle={fs.content}>
-              {file?.phase === "preview" && (
-                <FileLinkContext.Provider value={undefined}>
-                  {fileReaderKind(file.info!.name) === "markdown" ? (
-                    <Markdown>{file.text ?? ""}</Markdown>
-                  ) : <Text selectable style={fs.text}>{file.text}</Text>
-                  }
-                </FileLinkContext.Provider>
-              )}
+            ) : file?.phase === "preview" && file.text !== undefined ? <FileTextPreview key={file.path + file.info!.version} text={file.text} path={file.path} /> : <ScrollView style={fs.body} contentContainerStyle={fs.content}>
               {(file?.phase === "loading" || file?.phase === "downloading") && (
                 <View style={fs.status}>
                   <ActivityIndicator color={c.accent} />

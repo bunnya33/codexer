@@ -9,7 +9,7 @@ declare global {
   }
 }
 relay.projectFiles = (...args) => window.__projectFiles(...args);
-relay.projectFileSource = (_device, _project, _root, path) => ({uri: `https://fixture.test/files/${path}`, headers: {}});
+relay.projectFileSource = (_device, _project, _root, path) => ({uri: path.endsWith('.pdf') ? `https://fixture.test/v1/devices/device/projects/project/files/content?path=${encodeURIComponent(path)}` : `https://fixture.test/files/${path}`, headers: {}});
 function Fixture() {
   const [open, setOpen] = useState(true);
   return <ProjectBrowser open={open} onClose={() => setOpen(false)} deviceId="device" project={{id: 'project', name: 'Demo', roots: ['/demo'], position: 0, updatedAt: 1}} online supported/>;

@@ -14,6 +14,7 @@
 | [发送项目到其他设备](project-transfers.md) | 未推送项目的快照、后台接收、续传和稍后继续开发 |
 | [会话界面与交互](conversation.md) | 自动滚动、文件面板、扫光、两种提问格式与回答展示、Plan Mode 和升级要求 |
 | [对话内预览](previews.md) | HTML 原型、本地开发网页、全屏、Tweak、元素标注与反馈 |
+| [文件阅读器与格式清单](file-preview.md) | 脚本与文档直接查看、语言高亮、行号、内容搜索、Markdown 预览及格式范围 |
 | [管理后台](admin.md) | 创建账号、密码重置、禁用、管理与控制会话隔离 |
 | [服务器更新](server-update.md) | Release/Git tag 切换、分步构建、手动重启、校验、回退与部署要求 |
 | [让 Codex 更新服务器](server-deploy.md) | 专用网页授权、多端安装包发布、服务器安装及核验 |

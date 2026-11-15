@@ -28,7 +28,9 @@ import type { FileInfo } from "../../../packages/protocol/src/files";
 import { filePreviewLimit, filePreviewLimitMessage } from "../../../packages/client-shared/src/file-preview";
 import { ReviewReader } from "./review-reader";
 import { useWideReader } from "./interaction/reader-layout";
-import { SourceCode } from "./source-code";
+import { FileTextPreview } from "./file-text-preview";
+import { FileDocument } from "./file-document";
+import { fileDocumentKind } from "../../../packages/client-shared/src/document-preview";
 import { ChromeButton } from "./interaction/primitives";
 import { useTheme } from "./styles";
 import { relay } from "./relay";
@@ -74,13 +76,16 @@ export function ProjectBrowser({
     [error, setError] = useState(""),
     [revision, setRevision] = useState(0);
   const [selected, setSelected] = useState<{ path: string; line: number }>(),
-    [info, setInfo] = useState<FileInfo>(),
+    [loadedInfo, setLoadedInfo] = useState<{scope: string; info: FileInfo}>(),
     [text, setText] = useState<string>(),
     [loadingFile, setLoadingFile] = useState(false),
     [feedback, setFeedback] = useState(""),
     [downloading, setDownloading] = useState(false),
     [fileRevision, setFileRevision] = useState(0),
     [resultLimited, setResultLimited] = useState(false);
+  const selectedScope = JSON.stringify([deviceId, project.id, root, selected?.path]);
+  const info = loadedInfo?.scope === selectedScope ? loadedInfo.info : undefined;
+  const setInfo = (value: FileInfo | undefined) => setLoadedInfo(value ? {scope: selectedScope, info: value} : undefined);
   const operations = useRef(new Map<string, AbortController>()),
     version = useRef(0),
     downloadLock = useRef(false),
@@ -249,6 +254,7 @@ export function ProjectBrowser({
           setFeedback(filePreviewLimitMessage(page.file));
           return;
         }
+        if (fileDocumentKind(page.file.name)) return;
         const value = await previewFile(
           relay.projectFileSource(deviceId, project.id, root, selected.path, page.file.version),
           page.file,
@@ -664,8 +670,8 @@ export function ProjectBrowser({
         <View style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
           {loadingFile ? (
             <ActivityIndicator color={c.muted} />
-          ) : text !== undefined ? (
-            <SourceCode
+          ) : source && info && info.size <= filePreviewLimit(info) && fileDocumentKind(info.name) ? <FileDocument key={selected.path + info.version} source={source} info={info} /> : text !== undefined ? (
+            <FileTextPreview
               key={JSON.stringify([selected.path, info?.version, selected.line])}
               path={selected.path}
               text={text}

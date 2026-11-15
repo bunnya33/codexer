@@ -15,12 +15,13 @@ it('retrieves live and historical files through a real PC Agent with account/thr
   const app = await createRelay({store});
   let agent: PcAgent | undefined;
   try {
-    const path = join(directory,'文档 with spaces.md').replaceAll('\\','/'), archive = join(directory,'archive.zip').replaceAll('\\','/'), historical = join(directory,'old.json').replaceAll('\\','/');
+    const path = join(directory,'文档 with spaces.md').replaceAll('\\','/'), archive = join(directory,'archive.zip').replaceAll('\\','/'), historical = join(directory,'old.json').replaceAll('\\','/'), pdfPath = join(directory,'read.pdf').replaceAll('\\','/');
     const body = '# 测试文档\n\n已从 PC 读取。', binary = Buffer.alloc(FILE_CHUNK_BYTES * 2 + 71, 123);
-    await Promise.all([writeFile(path,body),writeFile(archive,binary),writeFile(historical,'{"ok":true}')]);
+    const pdf = Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(FILE_CHUNK_BYTES + 43, 32), Buffer.from('\n%%EOF')]);
+    await Promise.all([writeFile(path,body),writeFile(archive,binary),writeFile(historical,'{"ok":true}'),writeFile(pdfPath,pdf)]);
     const turns = desktop.state.turnHistory as {history:{entitiesByKey: Record<string,{items:unknown[]}>}};
     const citation = process.platform === 'win32' ? '/' + path : path;
-    turns.history.entitiesByKey['turn-key']!.items = [{id:'final',type:'agentMessage',text:`[文档](<${citation}>)\n\n[压缩包](<${archive}>)`,phase:'final_answer'}];
+    turns.history.entitiesByKey['turn-key']!.items = [{id:'final',type:'agentMessage',text:`[文档](<${citation}>)\n\n[压缩包](<${archive}>)\n\n[PDF](<${pdfPath}>)`,phase:'final_answer'}];
     await desktop.start();
     const base = await app.listen({host:'127.0.0.1',port:0}), registered = await testAgent(store,account.id);
     const credentials = {relayUrl:base,deviceId:registered.id,session:registered.token,installationId:'test',username:account.name,expiresAt:Date.now()+60000};
@@ -39,6 +40,19 @@ it('retrieves live and historical files through a real PC Agent with account/thr
     const content = await app.inject({url:url('content')+`&version=${info.json().version}`,headers:account.headers});
     expect(content.statusCode).toBe(200); expect(content.body).toBe(body); expect(content.headers['content-disposition']).toContain('filename*=UTF-8');
     expect(content.headers['cache-control']).toBe('no-store');
+    const pdfInfo = (await app.inject({url:url('info',pdfPath),headers:account.headers})).json();
+    const documentURL = url('content',pdfPath)+`&version=${pdfInfo.version}&preview=1`;
+    const rendered = await app.inject({url:documentURL,headers:account.headers});
+    expect(rendered.statusCode).toBe(200); expect(rendered.rawPayload).toEqual(pdf);
+    expect(rendered.headers['content-type']).toBe('application/octet-stream'); expect(rendered.headers['content-disposition']).toContain('filename');
+    expect(rendered.headers['cache-control']).toBe('no-store');
+    expect((await app.inject({url:documentURL})).statusCode).toBe(401);
+    expect((await app.inject({url:documentURL,headers:other.headers})).statusCode).toBe(404);
+    expect((await app.inject({url:documentURL.replace('/thread-test/','/other-thread/'),headers:account.headers})).json().error).toBe('file-not-in-thread');
+    expect((await app.inject({url:url('content',pdfPath)+`&version=${'b'.repeat(64)}&preview=1`,headers:account.headers})).json().error).toBe('file-changed');
+    const runtime = await app.inject({url:'/v1/document-runtime/viewer.js'});
+    expect(runtime.statusCode).toBe(200); expect(runtime.headers['access-control-allow-origin']).toBe('*');
+    expect((await app.inject({url:'/v1/document-runtime/secret.txt'})).statusCode).toBe(404);
     const zipInfo = await app.inject({url:url('info',archive),headers:account.headers});
     const zip = await app.inject({url:url('content',archive)+`&version=${zipInfo.json().version}`,headers:account.headers});
     expect(zip.statusCode).toBe(200); expect(zip.rawPayload).toEqual(binary);
@@ -65,6 +79,9 @@ it('retrieves live and historical files through a real PC Agent with account/thr
     expect((await app.inject({url:url('info'),headers:account.headers})).json().previewMaxBytes).toBe(1024*1024);
     const over = await app.inject({url:url('content')+`&version=${large.version}&preview=1`,headers:account.headers});
     expect(over.statusCode).toBe(413); expect(over.json().error).toBe('file-preview-too-large');
+    await writeFile(pdfPath,Buffer.concat([Buffer.from('%PDF-1.7\n'),Buffer.alloc(2*1024*1024,32)]));
+    const largePDF = (await app.inject({url:url('info',pdfPath),headers:account.headers})).json();
+    expect((await app.inject({url:url('content',pdfPath)+`&version=${largePDF.version}&preview=1`,headers:account.headers})).json().error).toBe('file-preview-too-large');
     const original = await app.inject({url:url('content')+`&version=${large.version}`,headers:account.headers});
     expect(original.statusCode).toBe(200);expect(original.rawPayload.length).toBe(large.size);
     await writeFile(path,'changed');

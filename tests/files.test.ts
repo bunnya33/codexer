@@ -48,12 +48,43 @@ it('uses document readers for text and JSON, and requires a download for executa
   expect(fileReaderKind('文档.MD')).toBe('markdown');
   expect(fileReaderKind('config.json')).toBe('json');
   expect(fileReaderKind('readme.txt')).toBe('text');
-  for (const name of ['setup.exe', 'archive.zip', 'archive.7z', 'file.pdf', 'file.docx', 'unknown']) expect(fileReaderKind(name)).toBe('download');
+  for (const name of ['setup.exe', 'archive.zip', 'archive.7z', 'unknown']) expect(fileReaderKind(name)).toBe('download');
+  expect(fileReaderKind('file.pdf')).toBe('document');
+  for (const name of ['file.doc', 'file.docx', 'file.xls', 'file.xlsx', 'file.ppt', 'file.pptx', 'file.odt', 'file.ods', 'file.odp', 'file.rtf']) expect(fileReaderKind(name)).toBe('download');
   expect(readableFileText(Buffer.from('{"a":1}'), 'a.json')).toBe('{\n  "a": 1\n}');
   expect(readableFileText(Buffer.from('{"a":1}\n'), 'a.json', false)).toBe('{"a":1}\n');
   expect(readableFileText(Buffer.from('{invalid'), 'a.json')).toBe('{invalid');
   expect(() => readableFileText(Buffer.from([0xff]), 'a.txt')).toThrow();
   expect(() => readableFileText(Buffer.from('MZ\u0000'), 'a.txt')).toThrow();
+});
+
+it('previews Lua/Luau and other scripts as literal text, rejecting binary data even under a script extension', () => {
+  const source = '-- 中文 &amp; <script>os.execute("never run")</script>\r\nexport type Result = { ok: boolean }\r\nlocal result = { ok = true }\r\n';
+  for (const name of ['main.lua', 'Client.server.LUA', 'module.luau', 'script.js', 'script.sh', 'script.ps1', 'script.bat']) {
+    expect(fileReaderKind(name)).toBe('text');
+    expect(readableFileText(Buffer.from(source), name)).toBe(source);
+    expect(() => readableFileText(Uint8Array.of(0xff, 0xfe), name)).toThrow();
+    expect(() => readableFileText(Buffer.from('MZ\u0000binary'), name)).toThrow();
+  }
+});
+
+it('preserves JSONC/JSON5 comments and formatting instead of applying the JSON reader', () => {
+  const source = '// 保留注释\r\n{ "enabled": true, /* trailing comma */ }\r\n';
+  for (const name of ['settings.jsonc', 'settings.JSON5', '.eslintrc', 'project.code-workspace']) {
+    expect(fileReaderKind(name)).toBe('text');
+    expect(readableFileText(Buffer.from(source), name)).toBe(source);
+    // Valid JSON in these formats must also retain its exact original spacing.
+    expect(readableFileText(Buffer.from('{ "a": 1 }\r\n'), name)).toBe('{ "a": 1 }\r\n');
+  }
+});
+
+it('recognizes named project files and dotfiles without trusting unknown extensions or parent-directory names', () => {
+  for (const name of ['Dockerfile', 'Makefile', 'CMakeLists.txt', '.env', '.env.local', '.env.production.local', '.bashrc', '.gitconfig', '.gitignore', '.editorconfig', 'LICENSE', 'README', 'C:\\work.dir\\Dockerfile', '/work.dir/.env', '/work.dir/src/file.lua']) {
+    expect(fileReaderKind(name), name).toBe('text');
+  }
+  for (const name of ['unknown', 'lua', 'json', 'txt', 'src.lua/unknown', 'C:\\src.lua\\unknown', '.unknown', '.git', '.lua', '.env.unknown', '.env.exe', '.env.local.exe', '.bashrc.zip', '.gitconfig.exe', 'Dockerfile.exe', 'Makefile.zip', 'CMakeLists.txt.exe', 'script.lua.exe', 'script.luau.bin', 'bytecode.luac', 'cache.pyc', 'main.class', 'main.dll', 'app.out', 'archive.tar.gz', 'file.constructor', '__proto__', 'toString', 'hasOwnProperty']) {
+    expect(fileReaderKind(name), name).toBe('download');
+  }
 });
 
 it('opens image file citations with an image reader, while archives and misleading extensions still require download', () => {

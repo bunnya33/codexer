@@ -147,6 +147,7 @@ function normalizeItem(value: unknown, turn: RecordValue, textLimit = 4096, outp
   const rawBody = item.type === "reasoning" ? summary : typeof item.text === "string" ? item.text : content;
   const presentation: ReturnType<typeof userPresentation> = ["userMessage", "steeringUserMessage"].includes(String(item.type)) ? userPresentation(rawBody) : { body: rawBody, files: [] };
   const body = presentation.body;
+  const clientMessageId = item.type === 'userMessage' ? item.clientId : item.type === 'steeringUserMessage' ? item.serverClientUserMessageId ?? item.clientUserMessageId : undefined;
   const output = typeof item.aggregatedOutput === "string" ? item.aggregatedOutput : "";
   const paths = Array.isArray(item.changes) ? item.changes.map(change => String(record(change).path ?? "")).filter(Boolean) : Object.keys(record(item.changes));
   const files = [...paths, ...presentation.files.filter(file => !imageRefs.some(ref => ref.name === file))].slice(0, 40).map(path => path.slice(0, 1000));
@@ -173,6 +174,7 @@ function normalizeItem(value: unknown, turn: RecordValue, textLimit = 4096, outp
     ...(typeof item.status === "string" ? { status: text(item.status, 80) } : {}),
     ...(item.phase === "commentary" || item.phase === "final_answer" ? { phase: item.phase } : {}),
     ...(questionRequestId ? { questionRequestId } : {}),
+    ...(typeof clientMessageId === 'string' && clientMessageId.length > 0 && clientMessageId.length <= 160 ? {clientMessageId} : {}),
     ...(presentation.parts ? {userMessageParts: boundedMessageParts(presentation.parts, textLimit)} : {}),
     ...(startedAtMs !== undefined ? { startedAtMs } : {}),
     ...(completedAtMs !== undefined ? { completedAtMs } : {}),

@@ -6,6 +6,8 @@ export type FileSource = { uri: string; headers: Record<string, string> };
 export function fileError(error: unknown): string {
   const code = error instanceof Error ? error.message : "";
   const messages: Record<string, string> = {
+    'document-server-update-required': '服务器尚不支持文档预览，请更新服务器后重试。也可下载原文件查看。',
+    'invalid-document-preview': '服务器未返回有效的 PDF 预览，请更新服务器或下载原文件查看。',
     'project-files-update-required':'此设备尚不支持项目文件浏览，请更新服务器和 Codexer Agent 后重连。',
     'project-not-in-catalog':'项目已被移除，请刷新项目列表。',
     'project-path-invalid':'项目相对路径无效。',

@@ -9,7 +9,7 @@ RUN ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci --ignore-scripts
 COPY apps ./apps
 COPY packages ./packages
 COPY scripts ./scripts
-RUN npm run build:protocol && npm run build:web && npm run build:admin
+RUN npm run build:protocol && npm run build:document-runtime && npm run build:web && npm run build:admin
 RUN mkdir -p apps/relay/assets/web apps/relay/assets/admin && cp -a apps/web/dist/. apps/relay/assets/web/ && cp -a apps/admin/dist/. apps/relay/assets/admin/
 
 FROM golang:1.27-bookworm AS build
