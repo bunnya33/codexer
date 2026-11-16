@@ -138,6 +138,8 @@ public:
   int ownerLookups = 0;
   int acceptedStarts = 0;
   int followStarts = 0;
+  int followStops = 0;
+  int stateVersion = 11;
   bool hideFirstOwner = false, disconnectStart = false, hideOwner = false,
        rejectStarts = false, sendSnapshots = true;
   QString owner = "synthetic-owner";
@@ -160,6 +162,8 @@ public:
           bytes->remove(0, length + 4);
           auto method = message["method"].toString();
           if (message["type"] == "broadcast") {
+            if (message["params"].toObject()["following"] == false)
+              ++followStops;
             if (message["params"].toObject()["following"].toBool() &&
                 message["targetClientIds"].toArray().contains(owner)) {
               ++followStarts;
@@ -227,7 +231,7 @@ public:
     send({{"type", "broadcast"},
           {"method", "thread-stream-state-changed"},
           {"sourceClientId", owner},
-          {"version", 11},
+          {"version", stateVersion},
           {"params", Object{{"conversationId", "thread-test"},
                             {"hostId", "local"},
                             {"change", Object{{"type", "snapshot"},
@@ -236,7 +240,7 @@ public:
   }
   void patch(const Array &patches, qint64 base, qint64 revision) {
     send({{"type", "broadcast"}, {"method", "thread-stream-state-changed"},
-          {"sourceClientId", owner}, {"version", 11},
+          {"sourceClientId", owner}, {"version", stateVersion},
           {"params", Object{{"conversationId", "thread-test"}, {"hostId", "local"},
               {"change", Object{{"type", "patches"}, {"baseRevision", double(base)},
                                 {"revision", double(revision)}, {"patches", patches}}}}}});
@@ -959,6 +963,132 @@ private slots:
     QTRY_COMPARE(agent->desktop->watched.value("thread-test").revision, 2);
     QCOMPARE(agent->desktop->watched.value("thread-test").retainedBytes, before.retainedBytes);
     QCOMPARE(agent->desktop->watched.value("thread-test").raw, before.raw);
+  }
+  void rejectedDesktopStreamDoesNotLoop_data() {
+    QTest::addColumn<bool>("unknownVersion");
+    QTest::addColumn<bool>("desktopOnly");
+    QTest::newRow("unknown-version-auto") << true << false;
+    QTest::newRow("unknown-version-desktop") << true << true;
+    QTest::newRow("invalid-snapshot-auto") << false << false;
+    QTest::newRow("invalid-snapshot-desktop") << false << true;
+  }
+  void rejectedDesktopStreamDoesNotLoop() {
+    QFETCH(bool, unknownVersion);
+    QFETCH(bool, desktopOnly);
+    DesktopFixture fixture(raw());
+    fixture.stateVersion = 13;
+    qputenv("CODEX_REMOTE_DESKTOP_ENDPOINT", fixture.endpoint.toUtf8());
+    agent->settings["runtime"] = desktopOnly ? "desktop" : "auto";
+    agent->desktop->open(agent->settings);
+    QVERIFY(agent->desktop->follow("thread-test"));
+    QTRY_VERIFY(agent->desktop->watched.value("thread-test").compatible);
+    agent->watch("thread-test");
+    QVERIFY(agent->desktopThreads.contains("thread-test"));
+    if (unknownVersion)
+      fixture.stateVersion = 14;
+    else
+      fixture.raw["id"] = "wrong-thread";
+    fixture.snapshot();
+    QTRY_VERIFY(!agent->desktop->watched.value("thread-test").rejection.isEmpty());
+    QTRY_COMPARE(fixture.followStops, 1);
+    const auto rejected = agent->desktop->watched.value("thread-test");
+    QCOMPARE(rejected.rejection, QString(unknownVersion
+        ? "unsupported-desktop-ipc-version" : "invalid-desktop-state"));
+    QVERIFY(!rejected.compatible);
+    QVERIFY(rejected.raw.isEmpty());
+    QCOMPARE(rejected.retainedBytes, 0);
+    // In-flight frames and periodic refresh/owner rediscovery must not restart
+    // the feedback loop or retain the old raw conversation through Service.
+    for (int i = 0; i < 10; ++i)
+      fixture.snapshot();
+    // A stale subscription recovery deadline must not clear a rejection.
+    agent->desktop->watched["thread-test"].receivedAt = now() - 31000;
+    agent->desktop->watched["thread-test"].resubscribeAt = now() - 3100;
+    QVERIFY(!agent->desktop->follow("thread-test"));
+    QVERIFY(!agent->desktop->follow("thread-test", true));
+    agent->watch("thread-test");
+    agent->watch("thread-test");
+    QTest::qWait(50);
+    QCOMPARE(fixture.followStarts, 1);
+    QCOMPARE(fixture.followStops, 1);
+    QVERIFY(!agent->desktopThreads.contains("thread-test"));
+    if (desktopOnly) {
+      QVERIFY(!agent->rawThreads.contains("thread-test"));
+      const auto thread = agent->snapshot["threads"].toObject()["thread-test"].toObject();
+      QCOMPARE(thread["status"], QJsonValue("unavailable"));
+      QCOMPARE(thread["ownerAvailable"], QJsonValue(false));
+    } else {
+      QVERIFY(!agent->rawThreads.value("thread-test")["_normalized"].toObject().isEmpty());
+      QVERIFY(json(agent->rawThreads.value("thread-test")).size() < 256 * 1024);
+      QVERIFY(!read(temp.path() + "/requests.jsonl").contains("thread/resume"));
+    }
+    // An explicit transport restart can negotiate with an updated desktop.
+    agent->desktop->stop();
+    fixture.stateVersion = 11;
+    fixture.raw = raw();
+    agent->desktop->open(agent->settings);
+    QVERIFY(agent->desktop->follow("thread-test"));
+    QTRY_VERIFY(agent->desktop->watched.value("thread-test").compatible);
+    QVERIFY(agent->desktop->watched.value("thread-test").rejection.isEmpty());
+  }
+  void invalidDesktopPatchesHaveBoundedResync() {
+    DesktopFixture fixture(raw());
+    qputenv("CODEX_REMOTE_DESKTOP_ENDPOINT", fixture.endpoint.toUtf8());
+    agent->desktop->open(agent->settings);
+    QVERIFY(agent->desktop->follow("thread-test"));
+    QTRY_VERIFY(agent->desktop->watched.value("thread-test").compatible);
+    fixture.patch({}, 99, 100);
+    QTRY_COMPARE(fixture.followStarts, 2);
+    QTRY_VERIFY(agent->desktop->watched.value("thread-test").compatible);
+    QCOMPARE(agent->desktop->watched.value("thread-test").revision, 0);
+    fixture.patch({Object{{"op", "add"}, {"path", Array{"recovered"}}, {"value", true}}}, 0, 1);
+    QTRY_COMPARE(agent->desktop->watched.value("thread-test").revision, 1);
+    fixture.patch({}, 99, 100);
+    QTRY_VERIFY(!agent->desktop->watched.value("thread-test").rejection.isEmpty());
+    QTRY_COMPARE(fixture.followStops, 2);
+    QVERIFY(!agent->desktop->follow("thread-test"));
+    for (int i = 0; i < 10; ++i)
+      fixture.snapshot();
+    QTest::qWait(50);
+    QCOMPARE(fixture.followStarts, 2);
+    QCOMPARE(fixture.followStops, 2);
+    QVERIFY(agent->desktop->watched.value("thread-test").raw.isEmpty());
+  }
+  void desktopV13CanonicalTextPatches() {
+    auto state = raw();
+    state.remove("turns");
+    const Object item{{"id", "answer"}, {"type", "agentMessage"},
+                      {"phase", "final_answer"}, {"text", "Before"}};
+    const Object turn{{"turnId", "turn"}, {"status", "completed"}, {"items", Array{item}}};
+    const Object island{{"entries", Array{Object{{"value", "turn-key"}}}}};
+    const Object history{{"entitiesByKey", Object{{"turn-key", turn}}}, {"islands", Array{island}}};
+    state["turnHistory"] = Object{{"kind", "canonical"}, {"history", history}};
+    DesktopFixture fixture(state);
+    fixture.stateVersion = 13;
+    qputenv("CODEX_REMOTE_DESKTOP_ENDPOINT", fixture.endpoint.toUtf8());
+    agent->settings["runtime"] = "auto";
+    agent->desktop->open(agent->settings);
+    QVERIFY(agent->desktop->follow("thread-test"));
+    QTRY_VERIFY(agent->desktop->watched.value("thread-test").compatible);
+    agent->watch("thread-test");
+    auto displayed = [&]() -> QJsonValue { return agent->snapshot["threads"].toObject()["thread-test"].toObject()
+        ["turns"].toArray().last().toObject()["items"].toArray().last().toObject()["text"]; };
+    QCOMPARE(displayed(), QJsonValue("Before"));
+    const Object replacement{{"op", "replace"}, {"value", "After"},
+        {"path", Array{"turnHistory", "history", "entitiesByKey", "turn-key", "items", 0, "text"}}};
+    const Object hint{{"key", Object{{"entityKey", "turn-key"}}}};
+    const Object change{{"type", "patches"}, {"baseRevision", 0}, {"revision", 1},
+                        {"patches", Array{replacement}}, {"acceptedTextChanges", Array{hint}}};
+    fixture.send({{"type", "broadcast"}, {"method", "thread-stream-state-changed"},
+        {"sourceClientId", fixture.owner}, {"version", 13},
+        {"params", Object{{"conversationId", "thread-test"}, {"hostId", "local"}, {"change", change}}}});
+    QTRY_COMPARE(agent->desktop->watched.value("thread-test").revision, 1);
+    agent->watch("thread-test");
+    QCOMPARE(displayed(), QJsonValue("After"));
+    QVERIFY(agent->desktopThreads.contains("thread-test"));
+    QVERIFY(agent->desktop->watched.value("thread-test").compatible);
+    QCOMPARE(fixture.followStarts, 1);
+    QCOMPARE(fixture.followStops, 0);
   }
   void permissions() {
     auto preset = permissionPreset("ask", {temp.path()});
@@ -2680,8 +2810,15 @@ private slots:
     }
     QVERIFY(!read(temp.path() + "/requests.jsonl").contains("thread/resume"));
   }
+  void desktopFramingAndStart_data() {
+    QTest::addColumn<int>("stateVersion");
+    QTest::newRow("v11") << 11;
+    QTest::newRow("v13") << 13;
+  }
   void desktopFramingAndStart() {
+    QFETCH(int, stateVersion);
     DesktopFixture fixture(raw());
+    fixture.stateVersion = stateVersion;
     qputenv("CODEX_REMOTE_DESKTOP_ENDPOINT", fixture.endpoint.toUtf8());
     agent->settings["runtime"] = "auto";
     agent->desktop->open(agent->settings);

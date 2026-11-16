@@ -409,12 +409,20 @@ Desktop::Desktop(QObject *parent) : QObject(parent) {
       if (!watched.contains(id))
         continue;
       auto &watch = watched[id];
-      if (watch.memoryLimited)
+      if (watch.memoryLimited || !watch.rejection.isEmpty())
         continue;
       if (message["sourceClientId"] != watch.owner ||
           params["hostId"] != "local")
         continue;
       auto change = params["change"].toObject();
+      auto reject = [&](const QString &reason) {
+        watch.compatible = false;
+        watch.rejection = reason;
+        watch.raw = {};
+        watch.retainedBytes = 0;
+        watch.revision = -1;
+        following(id, false);
+      };
       try {
         qint64 available = MaxDesktopStateBytes;
         for (auto it = watched.cbegin(); it != watched.cend(); ++it)
@@ -438,7 +446,10 @@ Desktop::Desktop(QObject *parent) : QObject(parent) {
           watch.retainedBytes = bytes;
           return true;
         };
-        if (message["version"] != 11)
+        // v13 retains the snapshot/patch state contract used in v11. Its
+        // acceptedTextChanges hints update the official transcript cache; the
+        // canonical text is still included in the regular state patches.
+        if (message["version"] != 11 && message["version"] != 13)
           throw Error("unsupported-desktop-ipc-version");
         if (change["type"] == "snapshot") {
           auto raw = change["conversationState"].toObject();
@@ -469,11 +480,20 @@ Desktop::Desktop(QObject *parent) : QObject(parent) {
           continue;
         watch.receivedAt = now();
         watch.resubscribeAt = 0;
-      } catch (...) {
+      } catch (const Error &error) {
         watch.compatible = false;
-        watch.resubscribeAt = now();
-        following(id, false);
-        following(id, true);
+        // A fresh snapshot can repair a missed/invalid patch once. An unknown
+        // protocol or an invalid snapshot cannot be repaired by asking for the
+        // same state again. Keep the rejection until the transport is reopened.
+        if ((error.code == "invalid-desktop-revision" ||
+             error.code == "invalid-desktop-patch") && watch.resyncs++ == 0) {
+          watch.resubscribeAt = now();
+          following(id, false);
+          following(id, true);
+        } else
+          reject(error.code);
+      } catch (...) {
+        reject("invalid-desktop-state");
       }
       emit threadChanged(id);
     }
@@ -573,6 +593,8 @@ void Desktop::following(const QString &id, bool enabled) {
 }
 bool Desktop::follow(const QString &id, bool rediscover) {
   if (!connected)
+    return false;
+  if (!watched.value(id).rejection.isEmpty())
     return false;
   if (rediscover)
     unfollow(id);

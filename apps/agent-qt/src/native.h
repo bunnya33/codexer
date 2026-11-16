@@ -115,6 +115,8 @@ public:
     bool memoryLimited = false;
     qint64 retainedBytes = 0;
     qint64 receivedAt = 0, resubscribeAt = 0;
+    QString rejection;
+    int resyncs = 0;
   };
   QHash<QString, Watch> watched;
   bool connected = false;
