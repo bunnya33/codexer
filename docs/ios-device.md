@@ -32,7 +32,7 @@ pod install
 
 iOS 显示名为 FrogCoder，桌面图标使用用户提供的青蛙图片 `apps/mobile/assets/frogcoder-icon.png`（1024 × 1024、白色不透明背景）。`app.json` 的 `ios.icon`、`ios.infoPlist.CFBundleDisplayName` 和 `CFBundleName` 保存这些设置；登录页和侧栏同步显示 FrogCoder。工程 target、scheme、URL scheme 和 Bundle Identifier 保留既有值，便于沿用签名和覆盖升级。已有生成工程直接同步 AppIcon 与 Info.plist，不必为更换图标重新执行 prebuild。
 
-2026-11-14 最新本地开发包为 `release/ios-0.1.21-build6/FrogCoder-0.1.21-build6-development.ipa`，包含持久下载列表、断点继续、关闭文件弹窗后继续下载、完成红点、设备状态青蛙和前台常亮。build 6 只递增构建编号，实际完成 Release 编译、签名、源码及验包检查；支持此前描述文件中登记的手机，未进行本轮装机验收。Relay `0.3.64` 与 Qt Agent `0.2.39` 已配合完成同文件 Mac 浏览器测速，手机结果另验。构建及签名期限见 [验证记录](validation.md)。
+2026-11-16 最新本地开发包为 `release/ios-0.1.24-build11/FrogCoder-0.1.24-build11-development.ipa`。本次在 build 10 基础上修复“用时”详情收起时动画反复重启、拖尾数秒的问题；保留下载列表编辑／多选／全选删除、iOS 前后台键盘恢复、手动展开详情保留阅读位置和历史 Token 占位修复。沿用持久下载、断点继续、完成红点、设备状态青蛙、前台常亮、文件搜索、PDF 阅读及 Agent 资源查看。资源查看需 Relay `0.3.67` 和 Agent `0.2.41`，PDF 阅读器需 Relay `0.3.66` 或更新版本。已完成实际 iPhoneOS arm64 Release 编译、签名、源码及验包检查，支持此前描述文件中登记的手机；SideStore 导入时由其重新签名。本轮未装机验收。构建及签名期限见 [验证记录](validation.md)。
 
 ## 连接手机与签名
 

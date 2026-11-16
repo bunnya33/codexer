@@ -63,13 +63,16 @@ export function ConversationChromeComposer({ text, onChangeText, phase, busy = f
   const disabled = busy || disabledAction || action === 'send' && !hasContent;
   const ActionIcon = action === 'stop' ? Square : action === 'continue' ? Play : ArrowUp;
   useEffect(() => {
+    if (Platform.OS === 'ios') return;
     const animation = Animated.timing(expansion, { toValue: expanded ? 1 : 0, duration: motion ? 180 : 0, useNativeDriver: false });
     animation.start(); return () => animation.stop();
   }, [expanded, motion, expansion]);
   const submit = () => { if (!disabled) onSubmit(action); };
   return <View style={styles.composerDock}>
     <Animated.View ref={composerAnchor} collapsable={false} testID="chrome-composer" onLayout={event => setComposerWidth(event.nativeEvent.layout.width)} style={[styles.composer, { backgroundColor: c.composer,
-      paddingBottom: expansion.interpolate({ inputRange: [0, 1], outputRange: [4, 49] }),
+      // Keep iOS text and toolbar in separate rows even while JS animations are
+      // suspended. A resumed animation must not collapse the input onto its buttons.
+      paddingBottom: Platform.OS === 'ios' ? expanded ? 49 : 4 : expansion.interpolate({ inputRange: [0, 1], outputRange: [4, 49] }),
     }]}>
       {!!attachments.length && <ScrollView horizontal style={styles.attachments} contentContainerStyle={{ gap: 8, padding: 5 }} showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         {attachments.map(item => <View key={item.id} style={[styles.attachment, { backgroundColor: c.surface }]}>
@@ -81,7 +84,7 @@ export function ConversationChromeComposer({ text, onChangeText, phase, busy = f
           <Pressable accessibilityRole="button" accessibilityLabel={`移除 ${item.name}`} disabled={busy} onPress={() => onRemoveAttachment(item.id)} hitSlop={5} style={styles.remove}><X size={15} color={c.muted} /></Pressable>
         </View>)}
       </ScrollView>}
-      <Animated.View style={{ marginLeft: expansion.interpolate({ inputRange: [0, 1], outputRange: [88, 7] }), marginRight: expansion.interpolate({ inputRange: [0, 1], outputRange: [compactRight, 7] }) }}>
+      <Animated.View style={{ marginLeft: Platform.OS === 'ios' ? expanded ? 7 : 88 : expansion.interpolate({ inputRange: [0, 1], outputRange: [88, 7] }), marginRight: Platform.OS === 'ios' ? expanded ? 7 : compactRight : expansion.interpolate({ inputRange: [0, 1], outputRange: [compactRight, 7] }) }}>
         <ComposerInput imagesEnabled filesEnabled imageSlots={Math.max(0, 20 - attachments.filter(item => item.uri).length)} {...media} testID="chrome-input" accessibilityLabel={inputLabel} value={text} onChangeText={onChangeText} maxLength={32000} multiline editable={!busy}
           onFocus={() => { setFocused(true); onFocus?.(); }} onBlur={() => setFocused(false)}
           placeholder={phase === 'running' ? '跟进' : '发消息…'} placeholderTextColor={c.muted} textAlignVertical="top"

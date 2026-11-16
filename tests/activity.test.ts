@@ -12,6 +12,17 @@ const turn = (items: RemoteItem[], rest: Partial<HistoryTurn> = {}): HistoryTurn
 const groups = (value: HistoryTurn, active = false) => buildActivityBlocks(value, active).filter((block): block is ActivityBlock => block.kind === "activity");
 
 describe('refresh history identity and order', () => {
+  it('retains the previous insertion anchor after discarding an accepted follow-up duplicate', () => {
+    const prompt = item('prompt', 'userMessage');
+    const pending = item('pending', 'steeringUserMessage', { clientMessageId: 'submission' });
+    const accepted = item('accepted', 'steeringUserMessage', { clientMessageId: 'submission' });
+    const first = item('first', 'commandExecution');
+    const last = item('last', 'commandExecution');
+    const history = turn([prompt, first, pending, last], { status: 'inProgress' });
+    const live = turn([prompt, accepted], { status: 'inProgress', itemsTruncatedBefore: true });
+    expect(mergeLiveTurn(history, live, true).items.map(entry => entry.id)).toEqual(['prompt', 'first', 'last', 'accepted']);
+  });
+
   it('replaces a pending follow-up after acceptance in a bounded live window without duplicating its bubble', () => {
     const raw = rawThread(), initial = {id:'prompt',type:'userMessage',content:[{type:'text',text:'Initial'}]};
     const pending = {id:'temporary',type:'steeringUserMessage',status:'pending',clientUserMessageId:'submission-one',input:[{type:'text',text:'How large is the client?'}]};
@@ -37,6 +48,25 @@ describe('refresh history identity and order', () => {
     expect(merged.items.map(item=>item.id)).toEqual(['server','repeat']);
     expect(merged.items[0]!.text).toBe(old.text); expect(merged.items[0]!.status).toBe('accepted');
   });
+  it.each([false, true])('merges a long bounded live window with linear record visits (timestamps: %s)', timed => {
+    const size = 3000;
+    let visits = 0;
+    const items = Array.from({ length: size }, (_, index): RemoteItem => ({
+      get id() { visits++; return `record-${index}`; },
+      get startedAtMs() { visits++; return timed ? index * 1000 : undefined; },
+      type: index ? 'commandExecution' : 'userMessage', truncated: false,
+    }));
+    const history = turn(items, { status: 'inProgress' });
+    const live = turn([items[0]!, ...items.slice(-19)], { status: 'inProgress', itemsTruncatedBefore: true });
+    const merged = mergeLiveTurn(history, live, true);
+    const displayed = mergeTurnHistory([merged], [live], 'latest', 'turn')[0]!;
+    const mergeVisits = visits;
+    expect(displayed.items.map(entry => entry.id)).toEqual(items.map(entry => entry.id));
+    expect(displayed.items[100]).toBe(items[100]);
+    // Bound actual record traversal, rather than using a machine-dependent timer.
+    expect(mergeVisits).toBeLessThan(size * 50);
+  });
+
   it('uses the current desktop order when an older reply was recorded after a follow-up', () => {
     const prompt = item('prompt', 'userMessage');
     const before = item('before', 'agentMessage', {text:'Earlier reply', startedAtMs:1000});

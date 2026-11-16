@@ -324,22 +324,51 @@ export function mergeLiveTurn(history: HistoryTurn, live: HistoryTurn, active = 
   if (!live.itemsTruncatedBefore && !live.itemsTruncatedAfter) return { ...merged, items, truncated: Boolean(items.some(item => item.truncated)) };
   // The desktop's current sequence is authoritative. A historical page may have
   // recorded a steering entry or streamed reply at its former position.
-  const combined = [...items];
-  const ids = new Set(combined.map(item => item.id));
-  const clients = new Set(combined.filter(item => messageRole(item) === 'user').map(item => item.clientMessageId).filter(Boolean));
+  // Keep insertion anchors by ID instead of repeatedly copying/scanning the
+  // entire history for each omitted record in a bounded live preview.
+  type Link = { item: RemoteItem; before?: Link; after?: Link };
+  const links = new Map<string, Link>();
+  let first: Link | undefined, last: Link | undefined;
+  const insert = (item: RemoteItem, before?: Link): Link => {
+    const link: Link = { item, before: before ? before.before : last, after: before };
+    if (link.before) link.before.after = link; else first = link;
+    if (before) before.before = link; else last = link;
+    if (!links.has(item.id)) links.set(item.id, link);
+    return link;
+  };
+  for (const item of items) insert(item);
+  const clients = new Set(items.filter(item => messageRole(item) === 'user').map(item => item.clientMessageId).filter(Boolean));
+  const uniqueHistory = previous.size === history.items.length;
+  const nextAnchors = new Array<string | undefined>(history.items.length);
+  let nextAnchor: string | undefined;
+  for (let index = history.items.length - 1; index >= 0; index--) {
+    nextAnchors[index] = nextAnchor;
+    if (links.has(history.items[index]!.id)) nextAnchor = history.items[index]!.id;
+  }
+  // With chronological timestamps, the first later timed record only moves
+  // forward. Restart for out-of-order clocks to preserve existing ordering.
+  let timeCursor = first, previousTime = -Infinity;
+  let prior: Link | undefined;
   for (let index = 0; index < history.items.length; index++) {
     const item = history.items[index]!;
-    if (ids.has(item.id)) continue;
-    // A pending desktop follow-up receives a new item ID after acceptance.
-    // Its explicit client identity survives; equal text alone is never a match.
+    const existing = links.get(item.id);
+    if (existing) { prior = existing; continue; }
+    // Preserve the accepted follow-up identity without using equal text.
     if (messageRole(item) === 'user' && item.clientMessageId && clients.has(item.clientMessageId)) continue;
-    const next = history.items.slice(index + 1).find(candidate => ids.has(candidate.id));
-    const previous = [...history.items.slice(0, index)].reverse().find(candidate => ids.has(candidate.id));
-    const timed = item.startedAtMs === undefined ? -1 : combined.findIndex(candidate => candidate.startedAtMs !== undefined && candidate.startedAtMs > item.startedAtMs!);
-    const position = timed >= 0 ? timed : next ? combined.findIndex(existing => existing.id === next.id) : previous ? combined.findIndex(existing => existing.id === previous.id) + 1 : live.itemsTruncatedAfter ? combined.length : 0;
-    combined.splice(position, 0, item);
-    ids.add(item.id);
+    let timed: Link | undefined;
+    if (item.startedAtMs !== undefined) {
+      if (item.startedAtMs < previousTime) timeCursor = first;
+      while (timeCursor && (timeCursor.item.startedAtMs === undefined || timeCursor.item.startedAtMs <= item.startedAtMs)) timeCursor = timeCursor.after;
+      previousTime = item.startedAtMs;
+      timed = timeCursor;
+    }
+    // Duplicate historical IDs can become future anchors as earlier records
+    // are inserted. Keep their original fallback semantics.
+    const next = uniqueHistory ? nextAnchors[index] : history.items.slice(index + 1).find(candidate => links.has(candidate.id))?.id;
+    prior = insert(item, timed ?? (next ? links.get(next) : prior ? prior.after : live.itemsTruncatedAfter ? undefined : first));
   }
+  const combined: RemoteItem[] = [];
+  for (let link = first; link; link = link.after) combined.push(link.item);
   const before = live.itemsTruncatedAfter && !live.itemsTruncatedBefore ? false : history.itemsTruncatedBefore ?? false;
   const after = live.itemsTruncatedBefore && !live.itemsTruncatedAfter ? false : history.itemsTruncatedAfter ?? false;
   return { ...merged, previousMessage: history.previousMessage ?? live.previousMessage, itemsTruncatedBefore: before, itemsTruncatedAfter: after,

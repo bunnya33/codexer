@@ -33,7 +33,7 @@ function ExecutionIcon({ item }: { item?: RemoteItem }) {
   return <Icon size={14} color={c.muted} />;
 }
 
-function Message({ item, running = false, deviceId, threadId, onImage }: { item: RemoteItem; running?: boolean; deviceId: string; threadId: string; onImage: ImageViewer }) {
+const Message = memo(function Message({ item, running = false, deviceId, threadId, onImage }: { item: RemoteItem; running?: boolean; deviceId: string; threadId: string; onImage: ImageViewer }) {
   const { c, s } = useTheme();
   const role = messageRole(item);
   const [open, setOpen] = useState(false);
@@ -60,7 +60,7 @@ function Message({ item, running = false, deviceId, threadId, onImage }: { item:
     <Pressable accessibilityRole="button" aria-expanded={open} accessibilityLabel={`${title}，${open ? '收起' : '展开'}详情`} onPress={() => setOpen(!open)} style={s.toolHead}><ExecutionIcon item={item} /><Text style={s.toolTitle} numberOfLines={1}>{title}</Text>{itemDuration(item) !== undefined && <Text style={s.toolTime}>{formatDuration(itemDuration(item)!)}</Text>}<ToggleIcon size={13} color={c.muted} /></Pressable>
     <Disclosure open={open}><View style={s.toolBody}>{!!item.text && <Markdown>{item.text}</Markdown>}{!!item.command && <CodeBlock language="命令">{item.command}</CodeBlock>}{!!item.output && <CodeBlock language="输出">{item.output}</CodeBlock>}{!!item.files?.length && <Text style={s.fileNames}>{item.files.join('\n')}</Text>}</View></Disclosure>
   </View>;
-}
+});
 
 function ExecutionGroup({ section, turn, deviceId, threadId, onImage }: { section: ExecutionSection; turn: HistoryTurn; deviceId: string; threadId: string; onImage: ImageViewer }) {
   const { c, s } = useTheme();
@@ -95,7 +95,7 @@ function ExecutionGroup({ section, turn, deviceId, threadId, onImage }: { sectio
 }
 
 type ActivityBlock = Extract<ReturnType<typeof buildActivityBlocks>[number], { kind: 'activity' }>;
-function Activity({ block, turn, deviceId, threadId, onImage, questionRequestIds, steps, agents }: { block: ActivityBlock; turn: HistoryTurn; deviceId: string; threadId: string; onImage: ImageViewer; questionRequestIds: string[]; steps?: {step:string;status:string}[]; agents?: RemoteSubAgent[] }) {
+function Activity({ block, turn, deviceId, threadId, onImage, questionRequestIds, steps, agents, onInspectDetails }: { block: ActivityBlock; turn: HistoryTurn; deviceId: string; threadId: string; onImage: ImageViewer; questionRequestIds: string[]; steps?: {step:string;status:string}[]; agents?: RemoteSubAgent[]; onInspectDetails?: () => void }) {
   const { c, s } = useTheme();
   const [now, setNow] = useState(Date.now());
   const ended = ['completed', 'interrupted', 'failed'].includes(block.state);
@@ -129,7 +129,7 @@ function Activity({ block, turn, deviceId, threadId, onImage, questionRequestIds
   </View>;
   return <View style={s.activity}>
     <TurnTiming turn={turn} running={block.state === 'running'} />
-    {ended ? <Pressable testID={`work-disclosure-${turn.id}`} accessibilityRole="button" accessibilityLabel={`${completedActivityLabel(block)}，${open ? '收起' : '展开'}思考过程`} accessibilityState={{expanded:open}} aria-expanded={open} onPress={() => setOpen(value=>!value)} style={{flexDirection:'row',alignItems:'center',gap:4,minHeight:28}}><Text style={{color:c.muted,fontSize:12}}>{completedActivityLabel(block)}</Text><ToggleIcon size={13} color={c.muted}/></Pressable> : <View>
+    {ended ? <Pressable testID={`work-disclosure-${turn.id}`} accessibilityRole="button" accessibilityLabel={`${completedActivityLabel(block)}，${open ? '收起' : '展开'}思考过程`} accessibilityState={{expanded:open}} aria-expanded={open} onPress={() => { onInspectDetails?.(); setOpen(value=>!value); }} style={{flexDirection:'row',alignItems:'center',gap:4,minHeight:28}}><Text style={{color:c.muted,fontSize:12}}>{completedActivityLabel(block)}</Text><ToggleIcon size={13} color={c.muted}/></Pressable> : <View>
       <View style={s.activityHead}>{block.state === 'running' ? <ActivityIndicator testID="processing-spinner" size="small" color={c.muted} accessibilityLabel="正在处理" /> : <View testID="activity-ended-check" accessible accessibilityLabel="任务已结束" style={{ width: 16, height: 16, alignItems: 'center', justifyContent: 'center' }}><Check size={16} strokeWidth={2.5} color={c.success} /></View>}<Text style={s.activityText}>{activityLabel(block, now)}</Text></View>
     </View>}
     <View style={s.line} />
@@ -140,13 +140,15 @@ function Activity({ block, turn, deviceId, threadId, onImage, questionRequestIds
 
 export { FileChangesPanel } from './file-review';
 
-export const TurnView = memo(function TurnView({ turn, active, deviceId, threadId, onImage, questionRequestIds, steps, agents }: { turn: HistoryTurn; active: boolean; deviceId: string; threadId: string; onImage: ImageViewer; questionRequestIds: string[]; steps?: {step: string; status: string}[]; agents?: RemoteSubAgent[] }) {
+export const TurnView = memo(function TurnView({ turn, active, deviceId, threadId, onImage, questionRequestIds, steps, agents, onInspectDetails }: { turn: HistoryTurn; active: boolean; deviceId: string; threadId: string; onImage: ImageViewer; questionRequestIds: string[]; steps?: {step: string; status: string}[]; agents?: RemoteSubAgent[]; onInspectDetails?: () => void }) {
   const { s } = useTheme();
   const { end } = recordedTurnTiming(turn, active);
-  const running = active || turn.status === 'inProgress';
+  // History can retain an old inProgress status outside the live turn window.
+  // Only the thread's current active turn should show a running placeholder.
+  const running = active && turn.status === 'inProgress';
   const cost = turnCostLabel(turn.tokenUsage);
   return <View style={s.turn}>
-    {buildActivityBlocks(turn, active).map(block => block.kind === 'message' ? <Message key={block.item.id} item={block.item} deviceId={deviceId} threadId={threadId} onImage={onImage} /> : <Activity key={block.id} block={block} turn={turn} deviceId={deviceId} threadId={threadId} onImage={onImage} questionRequestIds={questionRequestIds} steps={steps} agents={agents} />)}
+    {buildActivityBlocks(turn, active).map(block => block.kind === 'message' ? <Message key={block.item.id} item={block.item} deviceId={deviceId} threadId={threadId} onImage={onImage} /> : <Activity key={block.id} block={block} turn={turn} deviceId={deviceId} threadId={threadId} onImage={onImage} questionRequestIds={questionRequestIds} steps={steps} agents={agents} onInspectDetails={onInspectDetails} />)}
     {(turn.tokenUsage || running || end) && <View style={s.turnFooter}>
       {(turn.tokenUsage || running) && <View testID="turn-token-usage" style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
         {running && <TaskStatusDot running label="任务进行中" />}

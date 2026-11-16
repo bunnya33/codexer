@@ -54,7 +54,9 @@ it('collapses completed work while retaining tokens and completion time', async 
     await vi.waitFor(() => expect(f.doc.querySelector('[data-testid="turn-end-time"]')?.textContent).toContain('已完成'));
     expect(f.doc.querySelector('[data-testid="processing-spinner"]')).toBeNull();
     expect(f.doc.querySelector('[data-testid="turn-token-usage"]')?.textContent).toContain('输入 1,000');
-    expect(f.doc.querySelector('[data-testid="work-disclosure-turn"]')?.getAttribute('aria-expanded')).toBe('false');
+    const disclosure = f.doc.querySelector('[data-testid="work-disclosure-turn"]')!;
+    expect(disclosure.textContent).toContain('用时 1m 0s');
+    expect(disclosure.getAttribute('aria-expanded')).toBe('false');
     expect(f.doc.querySelector('[aria-label="当前会话正在运行"]')).toBeNull();
     expect(f.style(f.doc.querySelector('[data-testid="directory-project-heading-project"]')!).backgroundColor).toBe('rgba(0, 0, 0, 0)');
     expect(f.style(f.doc.querySelector('[data-testid="directory-thread-fixture"]')!).backgroundColor).toBe('rgb(237, 241, 252)');
@@ -122,6 +124,25 @@ it('updates the amount beside tokens as running usage arrives and retains it aft
     await vi.waitFor(() => expect(f.doc.querySelector('[data-testid="turn-end-time"]')?.textContent).toMatch(/已完成$/));
     expect(amount()?.textContent).toBe(' · $0.0075');
     expect(f.doc.querySelectorAll('[data-testid="turn-cost"]').length).toBe(1);
+    expect(f.errors).toEqual([]);
+  } finally { f.close(); }
+});
+
+it('shows a single running token placeholder when history retains stale inProgress turns', async () => {
+  const f = await fixture();
+  try {
+    f.click('切换 Token 数据');
+    f.click('显示残留运行状态的历史轮次');
+    await vi.waitFor(() => expect(f.doc.querySelectorAll('[data-testid="turn-token-usage"]')).toHaveLength(2));
+    const rows = [...f.doc.querySelectorAll('[data-testid="turn-token-usage"]')];
+    expect(rows.filter(row => row.textContent === 'Token 统计中')).toHaveLength(1);
+    expect(rows.filter(row => row.querySelector('[aria-label="任务进行中"]'))).toHaveLength(1);
+    expect(rows[0]?.textContent).toContain('输入 50');
+    f.click('切换任务状态');
+    await vi.waitFor(() => expect(f.doc.querySelectorAll('[data-testid="turn-token-usage"]')).toHaveLength(1));
+    expect(f.doc.querySelector('[data-testid="turn-token-usage"]')?.textContent).toContain('输入 50');
+    expect(f.doc.querySelector('[data-testid="turn-token-usage"] [aria-label="任务进行中"]')).toBeNull();
+    expect(f.doc.body.textContent).not.toContain('Token 统计中');
     expect(f.errors).toEqual([]);
   } finally { f.close(); }
 });

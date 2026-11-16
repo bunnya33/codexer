@@ -32,6 +32,9 @@ export function Disclosure({ open, children }: { open: boolean; children: ReactN
       {/* Keep content in normal flow until its first layout is available. A zero
           height viewport can otherwise prevent native children from measuring. */}
       <View style={{ flexShrink: 0 }} onLayout={(e) => {
+        // Closing can constrain this measurement on every frame. Keep the last
+        // expanded height so those callbacks cannot restart the close animation.
+        if (!open) return;
         const next = Math.ceil(e.nativeEvent.layout.height);
         if (!measured && open) height.setValue(next);
         setMeasured(next);

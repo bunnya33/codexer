@@ -1,7 +1,7 @@
 import {ProjectBrowseContext} from './src/project-browser-context';
 import { ThemeProvider } from './src/theme';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { ActivityIndicator, AppState, FlatList, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, AppState, FlatList, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
@@ -38,6 +38,7 @@ import { ProjectTransfers } from './src/project-transfers';
 import { ProjectBrowser } from './src/project-browser';
 import { confirmAction } from './src/runtime';
 import { ConversationControls } from './src/conversation-controls';
+import { ConversationKeyboard } from './src/conversation-keyboard';
 import { ConversationViewport } from './src/conversation-viewport';
 import { ConversationDrawer } from './src/conversation-drawer';
 import { DrawerSwipeArea } from './src/drawer-swipe-area';
@@ -98,6 +99,7 @@ function AppContent() {
   const [preview, setPreview] = useState<ImageGallery | null>(null);
   const listRef = useRef<FlatList<HistoryTurn>>(null);
   const streamKey = historyKey(deviceId, threadId);
+  const previewContext = useMemo(() => ({ deviceId, threadId }), [deviceId, threadId]);
   const currentStreamKey = useRef(streamKey);
   currentStreamKey.current = streamKey;
   const scrollPosition = useRef(new ConversationScroll());
@@ -118,6 +120,12 @@ function AppContent() {
       const responder = listRef.current?.getScrollResponder() as unknown as ScrollView | null;
       responder?.scrollToEnd({ animated: false });
     });
+  }, []);
+  const inspectDetails = useCallback(() => {
+    // A manual disclosure resize is reading, not newly appended output. Pause
+    // before it changes layout, including any scroll already queued this frame.
+    scrollPosition.current.pause();
+    if (scrollFrame.current !== null) { cancelAnimationFrame(scrollFrame.current); scrollFrame.current = null; }
   }, []);
   const markScrollIntent = useCallback((direction?: ScrollDirection) => {
     const followed = scrollPosition.current.shouldFollow;
@@ -457,9 +465,9 @@ function AppContent() {
   const submitDisabled = !ready || busy || (!!composerDraft.preparedPlan && thread?.status !== 'idle') || (emptyComposer && !continueMode && !stopMode) || (thread?.status === 'active' && !thread.activeTurnId) || images.some(image => image.loading || !!image.error) || files.some(file => file.loading || !!file.error || !file.id);
   const settings = thread?.settings ?? summary?.settings;
   return <View style={s.safe}><StatusBar style={theme.dark ? "light" : "dark"} />
-    <RequestDraftProvider scope={draftScope} deviceId={deviceId} threadId={threadId} requests={view.phase === 'connected' && device?.online && !view.syncing[deviceId] ? thread?.requests : undefined}><PlanPreparationContext.Provider value={plan => { preparePlan(plan); }}><FileViewerProvider deviceId={deviceId} threadId={threadId}><PreviewContext.Provider value={{deviceId, threadId}}><ProjectBrowseContext.Provider value={project?()=>setBrowserProject({deviceId,id:project.id,open:true}):undefined}><ConversationDrawer wide={wide} open={drawerOpen} onOpenChange={setDrawerOpen} directory={directory}>
+    <RequestDraftProvider scope={draftScope} deviceId={deviceId} threadId={threadId} requests={view.phase === 'connected' && device?.online && !view.syncing[deviceId] ? thread?.requests : undefined}><PlanPreparationContext.Provider value={plan => { preparePlan(plan); }}><FileViewerProvider deviceId={deviceId} threadId={threadId}><PreviewContext.Provider value={previewContext}><ProjectBrowseContext.Provider value={project?()=>setBrowserProject({deviceId,id:project.id,open:true}):undefined}><ConversationDrawer wide={wide} open={drawerOpen} onOpenChange={setDrawerOpen} directory={directory}>
     <SafeAreaView style={s.page} edges={['top', 'left', 'right', 'bottom']}>
-    <KeyboardAvoidingView style={s.page} behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}>
+    <ConversationKeyboard>
       <ConversationControls key={`controls:${draftScope}:${deviceId}:${threadId}`} text={draft} onChangeText={setDraft}
         preparedPlan={composerDraft.preparedPlan?.title} onRemovePreparedPlan={removePreparedPlan}
         phase={thread?.status === 'active' ? 'running' : canContinue ? 'interrupted' : turns.length ? 'completed' : 'idle'}
@@ -521,7 +529,7 @@ function AppContent() {
           } else if (scrollPosition.current.shouldFollow) scrollToBottom();
         }} refreshing={!!history?.nextCursor && !!history.loading}
         onRefresh={Platform.OS !== 'web' && history?.nextCursor ? loadEarlier : undefined}
-        renderItem={({ item }) => <TurnView turn={item} steps={thread?.turns.find(turn => turn.id === item.id)?.plan} active={item.id === thread?.activeTurnId && thread?.status === 'active'} deviceId={deviceId} threadId={threadId} onImage={openImage} questionRequestIds={questionRequestIds} agents={subAgents} />}
+        renderItem={({ item }) => <TurnView turn={item} steps={thread?.turns.find(turn => turn.id === item.id)?.plan} active={item.id === thread?.activeTurnId && thread?.status === 'active'} deviceId={deviceId} threadId={threadId} onImage={openImage} questionRequestIds={questionRequestIds} agents={subAgents} onInspectDetails={inspectDetails} />}
         ListHeaderComponent={history?.nextCursor ? <Pressable accessibilityRole="button" accessibilityLabel="加载更早消息" disabled={history.loading} onPress={loadEarlier} style={s.earlier}>{history.loading ? <ActivityIndicator size="small" color={c.accent} /> : <Text style={s.earlierText}>{Platform.OS === 'web' ? '加载更早消息' : '下拉加载更早消息'}</Text>}</Pressable> : null}
         ListEmptyComponent={thread?.requests.length ? null : <View style={s.chatEmpty}><Terminal size={30} color={c.accent} /><Text style={s.chatEmptyTitle}>{threadId ? history?.loading ? '正在读取会话' : '开始对话' : view.devices.length ? '选择 PC Agent 和会话' : '等待 PC Agent 登录'}</Text><Text style={s.chatEmptySub}>{threadId ? '消息将在这里显示' : view.devices.length ? '从左侧选择要控制的 PC Agent' : '在 PC 上使用同一账号登录，即可在这里选择控制端'}</Text></View>}
         ListFooterComponent={<View>{!!history?.error && <Text style={s.error}>{history.error}</Text>}{thread?.requests.map(request => <DrawerSwipeBlock key={request.id}><RequestPanel request={request} deviceId={deviceId} threadId={threadId} enabled={ready && !busy} send={async payload => { const result = await relay.sendCommand(deviceId, payload); if (result.status !== 'succeeded') throw new Error(result.code); }} /></DrawerSwipeBlock>)}</View>} /></ConversationViewport>
@@ -538,7 +546,7 @@ function AppContent() {
         </View>
       </View>
       </ConversationControls>
-    </KeyboardAvoidingView>
+    </ConversationKeyboard>
     </SafeAreaView>
     </ConversationDrawer></ProjectBrowseContext.Provider></PreviewContext.Provider></FileViewerProvider></PlanPreparationContext.Provider></RequestDraftProvider>
     {browserProject && view.catalogs[browserProject.deviceId]?.projects.find(p=>p.id===browserProject.id) && <ProjectBrowser key={JSON.stringify([view.url,view.userId,browserProject.deviceId,browserProject.id])} open={browserProject.open} onClose={()=>setBrowserProject(old=>old?{...old,open:false}:undefined)} deviceId={browserProject.deviceId} project={view.catalogs[browserProject.deviceId]!.projects.find(p=>p.id===browserProject.id)!} online={!!view.devices.find(d=>d.id===browserProject.deviceId)?.online} supported={view.snapshots[browserProject.deviceId]?.runtime.capabilities.projectFiles===true} />}

@@ -516,6 +516,122 @@ async function pagingFixture(paging: NonNullable<FixtureOptions['paging']>, opti
   return { ...test, stream, scroll, wheel };
 }
 
+it.each(['completed', 'interrupted', 'failed'] as const)('keeps the reader in place when inspecting %s work at the bottom', async status => {
+  const turn: HistoryTurn = { id: 'inspected-turn', status, durationMs: 7000, truncated: false, items: [
+    { id: 'prompt', type: 'userMessage', text: '查看本轮详情', truncated: false },
+    { id: 'progress', type: 'agentMessage', phase: 'commentary', text: '保留在当前阅读位置的处理详情', truncated: false },
+    { id: 'final', type: 'agentMessage', phase: 'final_answer', text: '末尾答复', truncated: false },
+  ] };
+  const test = await pagingFixture({ exhausted: true }, { controls: { active: false, text: '', images: [] }, review: { turns: [turn] } });
+  try {
+    const doc = test.dom.window.document;
+    let height = 2000;
+    Object.defineProperty(test.stream, 'scrollHeight', { configurable: true, get: () => height });
+    const scrollToEnd = vi.fn(({ top }: { top: number }) => { test.stream.scrollTop = Math.max(0, Math.min(top, height - 500)); });
+    Object.defineProperty(test.stream, 'scroll', { configurable: true, value: scrollToEnd });
+    await test.scroll(1500);
+    const toggle = doc.querySelector('[data-testid="work-disclosure-inspected-turn"]')!;
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    scrollToEnd.mockClear();
+    await test.click(toggle.getAttribute('aria-label')!);
+    await vi.waitFor(() => expect(toggle.getAttribute('aria-expanded')).toBe('true'));
+    await vi.waitFor(() => expect(doc.body.textContent).toContain('保留在当前阅读位置的处理详情'));
+    // Disclosure animation and asynchronously measured children increase the
+    // list height. They must not be treated as newly appended conversation.
+    for (const next of [2600, 5000]) {
+      height = next;
+      test.stream.dispatchEvent(new test.dom.window.Event('scroll'));
+      await new Promise(resolve => test.dom.window.setTimeout(resolve, 150));
+      expect(scrollToEnd).not.toHaveBeenCalled();
+      expect(test.stream.scrollTop).toBe(1500);
+    }
+    turn.items.splice(2, 0, { id: 'late-detail', type: 'agentMessage', phase: 'commentary', text: '同步补充的详情', truncated: false });
+    test.refresh();
+    await vi.waitFor(() => expect(doc.body.textContent).toContain('同步补充的详情'));
+    await new Promise(resolve => test.dom.window.requestAnimationFrame(() => test.dom.window.requestAnimationFrame(resolve)));
+    expect(scrollToEnd).not.toHaveBeenCalled();
+    expect(test.stream.scrollTop).toBe(1500);
+    expect(doc.querySelector('[aria-label="滚动到会话底部"]')).not.toBeNull();
+    await test.click('滚动到会话底部');
+    await vi.waitFor(() => expect(test.stream.scrollTop).toBe(4500));
+    height = 5400;
+    test.stream.dispatchEvent(new test.dom.window.Event('scroll'));
+    await vi.waitFor(() => expect(test.stream.scrollTop).toBe(4900));
+    // Collapsing is also an explicit reading action. A later downward gesture
+    // at the end restores following for subsequent output.
+    await test.click(toggle.getAttribute('aria-label')!);
+    await vi.waitFor(() => expect(toggle.getAttribute('aria-expanded')).toBe('false'));
+    height = 2000; test.stream.scrollTop = 1500;
+    test.stream.dispatchEvent(new test.dom.window.Event('scroll'));
+    await new Promise(resolve => test.dom.window.setTimeout(resolve, 150));
+    scrollToEnd.mockClear();
+    test.refresh();
+    await new Promise(resolve => test.dom.window.requestAnimationFrame(() => test.dom.window.requestAnimationFrame(resolve)));
+    expect(scrollToEnd).not.toHaveBeenCalled();
+    test.wheel(40);
+    height = 2600;
+    test.stream.dispatchEvent(new test.dom.window.Event('scroll'));
+    await vi.waitFor(() => expect(test.stream.scrollTop).toBe(2100));
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
+it('cancels queued bottom following when the reader opens work details', async () => {
+  const turn: HistoryTurn = { id: 'queued-turn', status: 'completed', durationMs: 7000, truncated: false, items: [
+    { id: 'progress', type: 'agentMessage', phase: 'commentary', text: '展开后阅读的记录', truncated: false },
+    { id: 'final', type: 'agentMessage', phase: 'final_answer', text: '完成答复', truncated: false },
+  ] };
+  const test = await pagingFixture({ exhausted: true }, { review: { turns: [turn] } });
+  const w = test.dom.window, requestFrame = w.requestAnimationFrame.bind(w), cancelFrame = w.cancelAnimationFrame.bind(w);
+  try {
+    let height = 2000;
+    Object.defineProperty(test.stream, 'scrollHeight', { configurable: true, get: () => height });
+    const scrollToEnd = vi.fn(({ top }: { top: number }) => { test.stream.scrollTop = Math.max(0, Math.min(top, height - 500)); });
+    Object.defineProperty(test.stream, 'scroll', { configurable: true, value: scrollToEnd });
+    await test.scroll(1500);
+    scrollToEnd.mockClear();
+    const frames = new Map<number, FrameRequestCallback>(); let frameId = 1000000;
+    w.requestAnimationFrame = callback => { const id = ++frameId; frames.set(id, callback); return id; };
+    w.cancelAnimationFrame = id => { if (!frames.delete(id)) cancelFrame(id); };
+    height = 2400;
+    test.stream.dispatchEvent(new w.Event('scroll'));
+    await vi.waitFor(() => expect(frames.size).toBeGreaterThan(0));
+    const queued = [...frames.values()];
+    const toggle = w.document.querySelector('[data-testid="work-disclosure-queued-turn"]') as HTMLElement;
+    toggle.click();
+    await vi.waitFor(() => expect(toggle.getAttribute('aria-expanded')).toBe('true'));
+    height = 5000;
+    // Even an already-dispatched callback from before the click must recheck
+    // the reading intent before it can move the list.
+    for (const callback of queued) callback(w.performance.now());
+    expect(scrollToEnd).not.toHaveBeenCalled();
+    expect(test.stream.scrollTop).toBe(1500);
+    expect(test.errors).toEqual([]);
+  } finally { w.requestAnimationFrame = requestFrame; w.cancelAnimationFrame = cancelFrame; test.close(); }
+});
+
+it('keeps following when completed work folds automatically instead of being manually inspected', async () => {
+  const turn: HistoryTurn = { id: 'active-turn', status: 'inProgress', durationMs: 7000, truncated: false, items: [
+    { id: 'progress', type: 'agentMessage', phase: 'commentary', text: '自动收起的进度', truncated: false },
+  ] };
+  const controls = { active: true, text: '', images: [] as string[] };
+  const test = await pagingFixture({ exhausted: true }, { controls, review: { turns: [turn] } });
+  try {
+    let height = 4000;
+    Object.defineProperty(test.stream, 'scrollHeight', { configurable: true, get: () => height });
+    Object.defineProperty(test.stream, 'scroll', { configurable: true, value: ({ top }: { top: number }) => { test.stream.scrollTop = Math.max(0, Math.min(top, height - 500)); } });
+    await test.scroll(3500);
+    height = 2000; turn.status = 'completed'; controls.active = false; test.refresh();
+    await vi.waitFor(() => expect(test.dom.window.document.querySelector('[data-testid="work-disclosure-active-turn"]')?.getAttribute('aria-expanded')).toBe('false'));
+    await vi.waitFor(() => expect(test.stream.scrollTop).toBe(1500));
+    height = 2400;
+    turn.items.push({ id: 'final', type: 'agentMessage', phase: 'final_answer', text: '随后同步的最终答复', truncated: false });
+    test.refresh();
+    await vi.waitFor(() => expect(test.stream.scrollTop).toBe(1900));
+    expect(test.errors).toEqual([]);
+  } finally { test.close(); }
+});
+
 it.each(['start', 'steer', 'continue'] as const)('restores bottom following on %s, then lets the reader pause during the pending request', async action => {
   const submission = gate();
   const test = await pagingFixture({ exhausted: true }, {

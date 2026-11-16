@@ -22,7 +22,7 @@
           "NSAllowsArbitraryLoads": true
         }
       },
-      "buildNumber": "6"
+      "buildNumber": "11"
     },
     "android": {
       "softwareKeyboardLayoutMode": "resize",

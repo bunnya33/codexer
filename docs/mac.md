@@ -6,6 +6,8 @@
 
 ### Qt macOS arm64
 
+2026-11-15 已从最新远端 `main`（`a8bc7bc`）及保留的本地实时同步修复（合并后 `a681913`）实际原生编译 Qt Agent 0.2.41，生成 `apps/agent-qt/release/Codexer-Agent-Qt-0.2.41-mac-arm64.dmg` 和同名 ZIP，并替换 `/Applications/Codexer Agent.app`。安装后的 71 个文件／符号链接与已验包内容一致，启动前全部设置及两份加密登录文件保持。旧 0.2.40 程序和完整配置备份在 `.local/agent-upgrades/20261115-qt-0.2.41`。用户完成 macOS 钥匙串授权后，原生窗口确认版本、原账号及连接状态，状态文件确认新 epoch、原设备身份和全部设置保持，Relay／桌面／运行时均连接；只有一个正式 Agent 进程。此包包含按需 CPU／内存采样及会话缓存清理，仍为 arm64 ad-hoc 本地签名包，未 Apple 公证。
+
 2026-11-13 在本机完成 Qt Agent 0.2.36 的实际原生编译、DMG/ZIP 打包和 Applications 替换验收。安装包为 `apps/agent-qt/release/Codexer-Agent-Qt-0.2.36-mac-arm64.dmg`，包内不包含 Electron、Node 或 JavaScript 运行时。本地使用 ad-hoc 签名，未做 Apple 公证；结果与限制见 [验证记录](validation.md)。
 
 同日已进一步构建并安装 Qt Agent 0.2.38，包为 `apps/agent-qt/release/Codexer-Agent-Qt-0.2.38-mac-arm64.dmg` 和同名 ZIP。后台、界面、协议回归及安装后原身份／登录／设置保留、Relay／桌面／运行时连接核对通过；旧程序和配置保存在 `.local/agent-upgrades/20261113-qt-0.2.38`。仍为本机 arm64 ad-hoc 包，未公证或验证 Intel。

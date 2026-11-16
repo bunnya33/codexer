@@ -15,6 +15,7 @@ function Fixture() {
   const [running, setRunning] = useState(true);
   const [expanded, setExpanded] = useState(true);
   const [usage, setUsage] = useState(true);
+  const [staleHistory, setStaleHistory] = useState(false);
   const [usageScale, setUsageScale] = useState(1);
   const [parallel, setParallel] = useState(false);
   const [title, setTitle] = useState(longTitle);
@@ -33,7 +34,13 @@ function Fixture() {
   return <View style={{ width: '100%', maxWidth: 520, alignSelf: 'center', gap: 16, backgroundColor: theme.colors.bg }}>
     <ConversationHeader title={title} subtitle={`示例项目 · ${running ? '进行中' : '空闲'}`} threadUsage={threadUsage} running={running} deviceId="fixture" threadId="fixture"
       agents={[]} supported synchronized truncated={false} hasTruncatedContent={false} onDrawer={noop} onRefresh={noop} onInfo={noop} />
-    <View style={{ paddingHorizontal: 20 }}><TurnView turn={turn} active={running} deviceId="fixture" threadId="fixture" onImage={noop} questionRequestIds={[]} /></View>
+    <View style={{ paddingHorizontal: 20 }}>
+      {staleHistory && <>
+        <TurnView turn={{ id: 'stale-empty', status: 'inProgress', items: [], truncated: false }} active={false} deviceId="fixture" threadId="fixture" onImage={noop} questionRequestIds={[]} />
+        <TurnView turn={{ ...turn, id: 'stale-usage', status: 'inProgress', items: [], tokenUsage: { model: 'gpt-5.3-codex', totalTokens: 60, inputTokens: 50, cachedInputTokens: 0, outputTokens: 10, state: 'partial' } }} active={false} deviceId="fixture" threadId="fixture" onImage={noop} questionRequestIds={[]} />
+      </>}
+      <TurnView turn={turn} active={running} deviceId="fixture" threadId="fixture" onImage={noop} questionRequestIds={[]} />
+    </View>
     <View style={{ height: 370 }}><Directory view={view} deviceId="fixture" threadId="fixture" rows={[{ type: 'project', id: 'project', name: '示例项目', active: running, runningCount: count, expanded,
       threads: [{ type: 'thread', id: 'fixture', title: '示例会话', active: running, nested: true }, ...(parallel ? [{ type: 'thread' as const, id: 'second', title: '另一个并行任务', active: running, nested: true }] : [])] }]} search="" wide={false} managing={false} paddingTop={0} paddingBottom={0}
       setSearch={noop} selectDevice={noop} selectThread={noop} toggleProject={() => setExpanded(value => !value)} createProject={noop} projectActions={noop} threadActions={noop} close={noop} settings={noop} refresh={noop} /></View>
@@ -41,6 +48,7 @@ function Fixture() {
       <Pressable accessibilityRole="button" accessibilityLabel="切换任务状态" onPress={() => setRunning(value => !value)}><Text>切换任务状态</Text></Pressable>
       <Pressable accessibilityRole="button" accessibilityLabel="切换并行会话" onPress={() => setParallel(value => !value)}><Text>切换并行会话</Text></Pressable>
       <Pressable accessibilityRole="button" accessibilityLabel="切换 Token 数据" onPress={() => setUsage(value => !value)}><Text>切换 Token 数据</Text></Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel="显示残留运行状态的历史轮次" onPress={() => setStaleHistory(value => !value)}><Text>显示残留运行状态的历史轮次</Text></Pressable>
       <Pressable accessibilityRole="button" accessibilityLabel="增加 Token 用量" onPress={() => setUsageScale(value => value + 1)}><Text>增加 Token 用量</Text></Pressable>
       <Pressable accessibilityRole="button" accessibilityLabel="切换标题长度" onPress={() => setTitle(value => value === longTitle ? '短标题' : longTitle)}><Text>切换标题长度</Text></Pressable>
       <Pressable accessibilityRole="button" accessibilityLabel="切换主题" onPress={() => selectTheme(theme.id === 'default' ? 'paper' : theme.id === 'paper' ? 'warm-dark' : 'default')}><Text>切换主题</Text></Pressable>

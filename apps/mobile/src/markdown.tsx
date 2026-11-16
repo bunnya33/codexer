@@ -1,5 +1,5 @@
 import { themedStyles } from './theme';
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import { Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import MarkdownIt from 'markdown-it';
 import taskLists from 'markdown-it-task-lists';
@@ -33,9 +33,9 @@ const useMsStyles = themedStyles(c => StyleSheet.create({
   table: { borderWidth: 1, borderColor: c.line, marginBottom: 8 }, tableRow: { flexDirection: 'row', borderBottomWidth: 1, borderColor: c.line }, tableCell: { minWidth: 110, maxWidth: 220, padding: 8, borderRightWidth: 1, borderColor: c.line },
 }));
 
-export function Markdown({ children }: { children: string }) {
+export const Markdown = memo(function Markdown({ children }: { children: string }) {
   return <PreviewContent source={children} renderText={text => <MarkdownText>{text}</MarkdownText>} />;
-}
+});
 
 function MarkdownText({ children }: { children: string }) {
   const { c } = useTheme();
