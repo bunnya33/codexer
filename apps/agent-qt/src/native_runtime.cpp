@@ -570,11 +570,13 @@ void Service::watch(const QString &id, bool forceHeadless) {
   if (id.isEmpty())
     return;
   ensureThreadSlot(id);
-  if (desktop->watched.value(id).memoryLimited) {
+  const auto desktopWatch = desktop->watched.value(id);
+  if (desktopWatch.memoryLimited || !desktopWatch.rejection.isEmpty()) {
     if (desktopThreads.remove(id)) {
       gapUsage(id);
       rawThreads.remove(id);
-      log("desktop-state-memory-limit");
+      log(desktopWatch.memoryLimited ? "desktop-state-memory-limit"
+                                    : desktopWatch.rejection);
     }
     if (settings["runtime"] == "desktop") {
       auto thread = snapshot["threads"].toObject()[id].toObject();

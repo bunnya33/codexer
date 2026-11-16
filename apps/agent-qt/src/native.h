@@ -114,6 +114,8 @@ public:
     bool compatible = false;
     bool memoryLimited = false;
     qint64 retainedBytes = 0;
+    QString rejection;
+    int resyncs = 0;
   };
   QHash<QString, Watch> watched;
   bool connected = false;
