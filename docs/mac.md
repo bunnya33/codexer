@@ -6,6 +6,8 @@
 
 ### Qt macOS arm64
 
+同日稍后 fetch 得到 `de05874`，Agent 最新版本为 0.2.44；已进一步合并并完成 macOS arm64 Release 原生编译、154 项后台／18 项界面／338 例协议回归及 DMG／ZIP 核验。本地同步发布与先进先出更新队列保留，新增后台维护队列及空闲内容复用；后台元数据更新等待期间的实时正文不得被旧快照覆盖。最新待安装包为 `apps/agent-qt/release/Codexer-Agent-Qt-0.2.44-mac-arm64.dmg` 和同名 ZIP，回执在 `.local/agent-upgrades/20261116-qt-0.2.44`。电脑操作工具复核仍锁屏，正式安装仍为原 0.2.41，尚未替换或取得新进程连接验收。
+
 2026-11-16 已合入远端 `8fa9bf2` 的 Qt Agent 0.2.42，保留本地实时发布及静默订阅恢复修复，完成 macOS arm64 Release 原生编译、146 项后台／18 项界面／338 例协议回归，以及 DMG／ZIP 签名和文件一致性核验。安装包在 `apps/agent-qt/release/Codexer-Agent-Qt-0.2.42-mac-arm64.dmg` 和同名 ZIP；回执在 `.local/agent-upgrades/20261116-qt-0.2.42`。本轮检测到 Mac 锁屏，尚未退出旧 0.2.41 或替换正式安装，解锁后的连接验收另行记录。
 
 2026-11-15 已从最新远端 `main`（`a8bc7bc`）及保留的本地实时同步修复（合并后 `a681913`）实际原生编译 Qt Agent 0.2.41，生成 `apps/agent-qt/release/Codexer-Agent-Qt-0.2.41-mac-arm64.dmg` 和同名 ZIP，并替换 `/Applications/Codexer Agent.app`。安装后的 71 个文件／符号链接与已验包内容一致，启动前全部设置及两份加密登录文件保持。旧 0.2.40 程序和完整配置备份在 `.local/agent-upgrades/20261115-qt-0.2.41`。用户完成 macOS 钥匙串授权后，原生窗口确认版本、原账号及连接状态，状态文件确认新 epoch、原设备身份和全部设置保持，Relay／桌面／运行时均连接；只有一个正式 Agent 进程。此包包含按需 CPU／内存采样及会话缓存清理，仍为 arm64 ad-hoc 本地签名包，未 Apple 公证。

@@ -148,7 +148,7 @@ void Service::flushDesktopUpdates() {
     if (!desktopThreads.contains(id))
       continue;
     try {
-      updateThread(id, false);
+      updateThread(id, false, false);
     } catch (...) {
       log("desktop-state-publish-failed");
     }

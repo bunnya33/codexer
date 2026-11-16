@@ -65,6 +65,7 @@ Object normalizeTurn(
     const Object &raw, bool history, const QString &threadId,
     const std::function<Array(const QString &, const Object &)> &images = {});
 Object usageMetadata(const Object &raw);
+Object subAgentMetadata(const Object &raw);
 Object boundTurns(Object result, qint64 limit = 256 * 1024);
 Object normalizeCatalog(const QString &device, const Array &projects,
                         const Array &threads, const Array &models);
@@ -173,11 +174,13 @@ class Service : public QObject {
   QHash<QString, Object> usageObservations;
   QHash<QString, Object> agentDetails;
   QHash<QString, qint64> agentDetailsAt;
+  struct IdleRead { QString stamp; qint64 verifiedAt = 0; };
+  QHash<QString, IdleRead> idleReads;
   SubAgentUsageReader subAgentUsage;
   int subAgentUsageCursor = 0;
   QSet<QString> answeredRequests;
   QSet<QString> owned, newThreads, busyTurns, completedTurns,
-      desktopThreads, awaitingQueue, desktopUpdates;
+      desktopThreads, awaitingQueue, desktopUpdates, backgroundThreads;
   QStringList dirtyThreads;
   bool desktopFlushScheduled = false;
   QHash<QString, qint64> acquired;
@@ -201,6 +204,7 @@ class Service : public QObject {
   qint64 fileReadCount = 0, fileReadBytes = 0, fileQueueMs = 0,
          fileQueueMaxMs = 0, fileReadMs = 0, fileReadMaxMs = 0;
   int nativeSerial = 0, depth = 0, remoteGeneration = 0, reconnectAttempt = 0;
+  int foregroundRefreshes = 0;
   int pendingStarts = 0;
   int threadLimit = DefaultSyncedThreads;
   bool initialized = false, paused = true, allowed = true, stopping = false,
@@ -253,10 +257,12 @@ class Service : public QObject {
   void attachDesktop();
   Array pages(const QString &method, Object params = {});
   void refreshCatalog();
-  void watch(const QString &id, bool forceHeadless = false);
+  void watch(const QString &id, bool forceHeadless = false,
+             bool background = false);
   void queueThreadUpdate(const QString &id);
   void flushDesktopUpdates();
-  void updateThread(const QString &id, bool enrich = true);
+  void updateThread(const QString &id, bool metadataOnly = false,
+                    bool enrich = true);
   Object history(const QString &id, QJsonValue cursor);
   Object timedTurn(const QString &id, Object turn, bool recent);
   void enrichAgents(const QString &id, Object &raw);

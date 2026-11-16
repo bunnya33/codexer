@@ -47,6 +47,8 @@ void Service::forgetThreadCache(const QString &id) {
   effectiveSettings.remove(id);
   tokenUsage.remove(id);
   dirtyThreads.removeAll(id);
+  backgroundThreads.remove(id);
+  idleReads.remove(id);
   gapUsage(id);
   desktop->unfollow(id);
   desktopThreads.remove(id);
@@ -79,12 +81,14 @@ void Service::attachRpc(Rpc *value) {
       return;
     }
     pendingRequests[request["id"].toVariant().toString()] = request;
+    idleReads.remove(p["threadId"].toString());
     queueThreadUpdate(p["threadId"].toString());
   });
   connect(value, &Rpc::notification, this, [this](QString method, Object p) {
     auto id = p["threadId"].toString(), turnId = p["turnId"].toString();
     if (id.isEmpty())
       return;
+    idleReads.remove(id);
     if (method == "turn/started") {
       auto tid = p["turn"].toObject()["id"].toString();
       busyTurns.insert(tid);
@@ -139,6 +143,7 @@ void Service::attachRpc(Rpc *value) {
     pendingRequests.clear();
     clearTurnUpdates();
     tokenUsage.clear();
+    idleReads.clear();
     commit({{"type", "runtime.status"},
             {"connected", desktop && desktop->connected},
             {"kind", desktop && desktop->connected ? "official-desktop-ipc"
@@ -160,6 +165,7 @@ void Service::ensureRpc() {
     throw;
   }
   rpc = replacement;
+  idleReads.clear();
   answeredRequests.clear();
   attachRpc(rpc);
   commit({{"type", "runtime.status"},
@@ -266,7 +272,7 @@ void Service::refreshCatalog() {
       continue;
     auto id = t["id"].toString();
     if (count++ < threadLimit)
-      queueThreadUpdate(id);
+      backgroundThreads.insert(id);
   }
 }
 static QByteArray rollout(const QString &path,
@@ -566,10 +572,29 @@ bool Service::trimThreadPreviews(int target) {
   }
   return true;
 }
-void Service::watch(const QString &id, bool forceHeadless) {
+// A timestamp alone can miss multiple updates in the same second. Include the
+// rollout's identity/size/mtime, and still re-read bodies at least once a minute.
+// Missing or unsafe files disable this shortcut instead of trusting stale data.
+static QString idleReadStamp(const Object &source) {
+  const auto type = source["status"].toObject()["type"].toString();
+  if (type != "idle" && type != "notLoaded")
+    return {};
+  const QFileInfo file(source["path"].toString());
+  if (!file.isFile() || file.isSymLink() || !file.lastModified().isValid())
+    return {};
+  try {
+    return hash(json(Array{source, fileIdentity(file.absoluteFilePath()),
+                           double(file.size()),
+                           double(file.lastModified().toMSecsSinceEpoch())}));
+  } catch (...) {
+    return {};
+  }
+}
+void Service::watch(const QString &id, bool forceHeadless, bool background) {
   if (id.isEmpty())
     return;
   ensureThreadSlot(id);
+  const bool wasDesktop = desktopThreads.contains(id);
   const auto desktopWatch = desktop->watched.value(id);
   if (desktopWatch.memoryLimited || !desktopWatch.rejection.isEmpty()) {
     if (desktopThreads.remove(id)) {
@@ -596,6 +621,14 @@ void Service::watch(const QString &id, bool forceHeadless) {
     desktopThreads.insert(id);
     observeDesktopUsage(id);
     if (desktop->watched[id].compatible) {
+      idleReads.remove(id);
+      if (background && wasDesktop &&
+          snapshot["threads"].toObject().contains(id)) {
+        // Body changes are queued by threadChanged. Periodic maintenance only
+        // refreshes independent child metadata/usage and queued messages.
+        updateThread(id, !dirtyThreads.contains(id));
+        return;
+      }
       rawThreads[id] = desktop->watched[id].raw;
       updateThread(id);
       return;
@@ -612,6 +645,18 @@ void Service::watch(const QString &id, bool forceHeadless) {
           .toObject();
   if (source["id"] != id)
     throw Error("headless-thread-unavailable");
+  const auto sourceMetadata = source;
+  const auto stamp = idleReadStamp(sourceMetadata);
+  const auto cached = idleReads.value(id);
+  const auto previous = snapshot["threads"].toObject()[id].toObject();
+  if (background && !stamp.isEmpty() && cached.stamp == stamp &&
+      now() - cached.verifiedAt < 60000 && previous["status"] == "idle" &&
+      previous["requests"].toArray().isEmpty() &&
+      rawThreads.value(id)["_normalized"].isObject() &&
+      !desktopThreads.contains(id) && !dirtyThreads.contains(id)) {
+    updateThread(id, true);
+    return;
+  }
   if (!effectiveSettings.contains(id) && !newThreads.contains(id))
     try {
       effectiveSettings[id] = nativeSaved(savedContext(source));
@@ -655,21 +700,41 @@ void Service::watch(const QString &id, bool forceHeadless) {
     gapUsage(id);
   rawThreads[id] = source;
   updateThread(id);
+  if (!stamp.isEmpty() && stamp == idleReadStamp(sourceMetadata))
+    idleReads[id] = {stamp, now()};
+  else
+    idleReads.remove(id);
 }
 void Service::queueThreadUpdate(const QString &id) {
   if (!id.isEmpty() && !dirtyThreads.contains(id))
     dirtyThreads.append(id);
 }
-void Service::updateThread(const QString &id, bool enrich) {
-  auto raw = rawThreads[id];
-  if (desktopThreads.contains(id) && !desktop->watched.value(id).raw.isEmpty())
-    raw = desktop->watched.value(id).raw;
-  if (raw.isEmpty())
-    return;
+void Service::updateThread(const QString &id, bool metadataOnly, bool enrich) {
   auto old = snapshot["threads"].toObject()[id].toObject();
+  metadataOnly = metadataOnly && !old.isEmpty();
+  Object raw;
+  if (metadataOnly) {
+    raw = {{"id", id}, {"codexerSubAgents", old["subAgents"]},
+           {"codexerSubAgentsTruncated", old["subAgentsTruncated"]}};
+  } else {
+    raw = rawThreads.value(id);
+    if (desktopThreads.contains(id) && !desktop->watched.value(id).raw.isEmpty())
+      raw = desktop->watched.value(id).raw;
+    if (raw.isEmpty())
+      return;
+  }
   const auto desktopWatch = desktop->watched.value(id);
   Object thread;
-  if (!desktopThreads.contains(id) && raw["_normalized"].isObject()) {
+  if (metadataOnly) {
+    if (enrich) enrichAgents(id, raw);
+    if (snapshot.isEmpty()) return;
+    old = snapshot["threads"].toObject()[id].toObject();
+    thread = old;
+    if (raw["codexerAgentDetails"].isArray())
+      thread["subAgents"] = raw["codexerAgentDetails"];
+    thread["subAgentsTruncated"] = raw["codexerSubAgentsTruncated"];
+    thread["revision"] = double(old["revision"].toInteger(-1) + 1);
+  } else if (!desktopThreads.contains(id) && raw["_normalized"].isObject()) {
     thread = raw["_normalized"].toObject();
     thread["revision"] = double(old["revision"].toInteger(-1) + 1);
   } else {
@@ -683,7 +748,7 @@ void Service::updateThread(const QString &id, bool enrich) {
           (desktop->watched.value(id).revision != desktopWatch.revision ||
            desktop->watched.value(id).owner != desktopWatch.owner ||
            desktop->watched.value(id).receivedAt != desktopWatch.receivedAt)) {
-        updateThread(id, false);
+        updateThread(id, false, false);
         return;
       }
       old = snapshot["threads"].toObject()[id].toObject();
@@ -759,6 +824,10 @@ void Service::updateThread(const QString &id, bool enrich) {
   if (!desktopThreads.contains(id)) {
     // Keep the bounded display state, not every raw tool output from the RPC
     // response.
+    if (metadataOnly) {
+      rawThreads[id]["_normalized"] = thread;
+      return;
+    }
     rawThreads[id] = {{"id", id},
                       {"cwd", raw["cwd"]},
                       {"projectId", raw["projectId"]},
@@ -811,7 +880,7 @@ Object Service::timedTurn(const QString &id, Object turn, bool recent) {
 void Service::enrichAgents(const QString &id, Object &raw) {
   if (!rpc || !rpc->connected())
     return;
-  auto initial = normalizeThread(raw, 0)["subAgents"].toArray();
+  const auto initial = subAgentMetadata(raw)["subAgents"].toArray();
   QHash<QString, Object> agents;
   for (auto v : initial)
     agents[v.toObject()["threadId"].toString()] = v.toObject();
@@ -1103,6 +1172,7 @@ QString Service::refresh(bool force) {
   }
   auto old = rpc;
   rpc = replacement;
+  idleReads.clear();
   attachRpc(rpc);
   disconnect(old, nullptr, this, nullptr);
   for (const auto &id : usageObservations.keys())

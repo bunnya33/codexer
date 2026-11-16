@@ -75,7 +75,7 @@ func TestAgentResourcesRoundTripAndAccess(t *testing.T) {
 		t.Fatal("request", request, err)
 	}
 	resource := M{"capturedAt": now(), "logicalCpus": 8, "sampleWindowMs": 5000,
-		"agent":    M{"pid": 123, "name": "Codexer Agent", "cpuPercent": 1.5, "residentBytes": 128 * 1024 * 1024, "privateBytes": 96 * 1024 * 1024, "uptimeSeconds": 42},
+		"agent":    M{"pid": 123, "name": "Codexer Agent", "cpuPercent": 1.5, "residentBytes": 128 * 1024 * 1024, "privateWorkingSetBytes": 80 * 1024 * 1024, "privateBytes": 96 * 1024 * 1024, "uptimeSeconds": 42},
 		"children": []any{}}
 	if err := ws.WriteJSON(M{"type": "device.resources", "requestId": request["requestId"], "resources": resource}); err != nil {
 		t.Fatal(err)

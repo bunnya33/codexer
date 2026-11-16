@@ -11,6 +11,9 @@ type Reading = {scope: string; value?: AgentResources; receivedAt?: number; erro
 const memory = (bytes: number | null) => bytes === null ? '不可用' : bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(2)} GiB` : `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
 const cpu = (value: number | null) => value === null ? '采样中' : `${value.toFixed(1)}%`;
 const uptime = (seconds: number | null) => seconds === null ? '不可用' : seconds < 60 ? `${Math.floor(seconds)} 秒` : seconds < 3600 ? `${Math.floor(seconds / 60)} 分钟` : `${Math.floor(seconds / 3600)} 小时 ${Math.floor(seconds % 3600 / 60)} 分钟`;
+const primaryMemory = (process: AgentProcessResources, platform: string) => platform === 'win32'
+  ? process.privateWorkingSetBytes === undefined ? {label: '工作集', bytes: process.residentBytes} : {label: '内存', bytes: process.privateWorkingSetBytes}
+  : {label: '内存', bytes: process.residentBytes};
 
 export function useAgentResources(deviceId: string, scope: string, enabled: boolean) {
   const [foreground, setForeground] = useState(AppState.currentState !== 'background' && AppState.currentState !== 'inactive');
@@ -53,10 +56,14 @@ export function useAgentResources(deviceId: string, scope: string, enabled: bool
 
 function ProcessCard({process, title, platform}: {process: AgentProcessResources; title: string; platform: string}) {
   const styles = useLocalStyles();
+  const main = primaryMemory(process, platform);
   return <View style={styles.process}>
     <Text style={styles.title}>{title}</Text>
-    <View style={styles.metrics}><Text style={styles.metric}>CPU {cpu(process.cpuPercent)}</Text><Text style={styles.metric}>内存 {memory(process.residentBytes)}</Text></View>
-    {platform === 'win32' && <Text style={styles.note}>私有提交 {memory(process.privateBytes)}</Text>}
+    <View style={styles.metrics}><Text style={styles.metric}>CPU {cpu(process.cpuPercent)}</Text><Text style={styles.metric}>{main.label} {memory(main.bytes)}</Text></View>
+    {platform === 'win32' && <>
+      {process.privateWorkingSetBytes !== undefined && <Text style={styles.note}>专用工作集 {memory(process.privateWorkingSetBytes)} · 总工作集 {memory(process.residentBytes)}</Text>}
+      <Text style={styles.note}>私有提交 {memory(process.privateBytes)}</Text>
+    </>}
     <Text style={styles.note}>PID {process.pid} · 已运行 {uptime(process.uptimeSeconds)}</Text>
   </View>;
 }
@@ -79,7 +86,8 @@ export function AgentResourceBar({device, scope, visible, connected}: {
   const seconds = reading.receivedAt === undefined ? undefined : Math.max(0, Math.floor((clock - reading.receivedAt) / 1000));
   const stale = !device.online || !connected || (seconds ?? 16) > 15 || !!reading.error;
   const state = !device.online ? '设备离线' : !connected ? '连接已断开' : reading.error ?? (data && stale ? '数据已过期' : '');
-  const summary = data ? `CPU ${cpu(data.agent.cpuPercent)} · 内存 ${memory(data.agent.residentBytes)}` : state || 'CPU / 内存读取中…';
+  const main = data && primaryMemory(data.agent, device.platform);
+  const summary = data && main ? `CPU ${cpu(data.agent.cpuPercent)} · ${main.label} ${memory(main.bytes)}` : state || 'CPU / 内存读取中…';
   return <>
     <Pressable testID="agent-resource-summary" accessibilityRole="button" accessibilityLabel={`查看 ${device.name} 的 Agent 运行状态，${summary}${data && stale ? '，上次采样' : ''}`} onPress={() => setOpen(true)} style={styles.summary}>
       <Text style={[styles.summaryText, stale && {color: c.muted}]}>{summary}{data && stale ? ' · 上次采样' : ''}</Text><Info size={14} color={c.muted}/>
@@ -91,7 +99,7 @@ export function AgentResourceBar({device, scope, visible, connected}: {
         <ProcessCard process={data.agent} title="Agent 本身" platform={device.platform}/>
         <Text style={styles.title}>Agent 启动的 Codex 后台</Text>
         {data.children.length ? data.children.map(process => <ProcessCard key={process.pid} process={process} title={process.name} platform={device.platform}/>) : <Text style={styles.note}>当前未运行独立的 Codex app-server。</Text>}
-        <Text style={styles.note}>CPU 以整机总算力 100% 为基准（{data.logicalCpus} 个逻辑处理器）。内存为进程常驻内存{device.platform === 'win32' ? '（Windows 工作集），私有提交单独列出' : ''}。</Text>
+        <Text style={styles.note}>CPU 以整机总算力 100% 为基准（{data.logicalCpus} 个逻辑处理器）。{device.platform === 'win32' ? data.agent.privateWorkingSetBytes === undefined ? '当前 Agent 仅提供总工作集，更新 Agent 后可按任务管理器口径显示内存。' : '内存使用专用工作集，与 Windows 任务管理器默认内存列口径一致；总工作集和私有提交单独列出。' : '内存为进程常驻内存。'}</Text>
         <Text style={styles.note}>仅统计 Agent 本身和它直接启动的 Codex app-server；后者运行的工具进程不计入，官方桌面程序另计。</Text>
         <Text testID="agent-resource-updated" style={styles.note}>采样时间：{new Date(data.capturedAt).toLocaleTimeString()} · {seconds === 0 ? '刚刚更新' : `${seconds} 秒前收到`}</Text>
       </> : <Text style={styles.note}>{state || '正在读取本机采样…'}</Text>}

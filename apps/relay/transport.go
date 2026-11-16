@@ -685,19 +685,30 @@ func (s *Server) clientSocket(w http.ResponseWriter, r *http.Request) {
 						s.mu.Unlock()
 						snapshot = legacySnapshot(snapshot, "")
 					}
+					// Leave room for sync.begin, sync.ready and presence. A replay
+					// is optional; an already busy writer can use one snapshot instead.
+					replay = replay && len(events)+3 <= cap(p.queue)-len(p.queue)
 					mode := "snapshot"
 					if replay {
 						mode = "replay"
 					}
-					p.Send(M{"type": "sync.begin", "deviceId": id, "epoch": snapshot["epoch"], "lastSeq": snapshot["lastSeq"], "mode": mode})
+					if !p.Send(M{"type": "sync.begin", "deviceId": id, "epoch": snapshot["epoch"], "lastSeq": snapshot["lastSeq"], "mode": mode}) {
+						return
+					}
 					if replay {
 						for _, v := range events {
-							p.Send(M{"type": "device.event", "event": v})
+							if !p.Send(M{"type": "device.event", "event": v}) {
+								return
+							}
 						}
 					} else {
-						p.Send(M{"type": "device.snapshot", "snapshot": snapshot})
+						if !p.Send(M{"type": "device.snapshot", "snapshot": snapshot}) {
+							return
+						}
 					}
-					p.Send(M{"type": "sync.ready", "deviceId": id, "epoch": snapshot["epoch"], "lastSeq": snapshot["lastSeq"]})
+					if !p.Send(M{"type": "sync.ready", "deviceId": id, "epoch": snapshot["epoch"], "lastSeq": snapshot["lastSeq"]}) {
+						return
+					}
 					p.Send(M{"type": "device.presence", "deviceId": id, "online": s.agent(id) != nil})
 				})
 			}()
