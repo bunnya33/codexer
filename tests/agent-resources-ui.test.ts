@@ -43,8 +43,8 @@ beforeAll(async () => {
   script = result.outputFiles[0]!.text;
 });
 const sample = () => ({capturedAt: 1700000000000, logicalCpus: 8, sampleWindowMs: 5000,
-  agent: {pid: 123, name: 'Codexer Agent' as const, cpuPercent: 2.3, residentBytes: 128 * 1024 ** 2, privateBytes: 96 * 1024 ** 2, uptimeSeconds: 3660},
-  children: [{pid: 456, name: 'Codex app-server' as const, cpuPercent: 1, residentBytes: 64 * 1024 ** 2, privateBytes: 32 * 1024 ** 2, uptimeSeconds: 300}],
+  agent: {pid: 123, name: 'Codexer Agent' as const, cpuPercent: 2.3, residentBytes: 128 * 1024 ** 2, privateWorkingSetBytes: 80 * 1024 ** 2, privateBytes: 96 * 1024 ** 2, uptimeSeconds: 3660},
+  children: [{pid: 456, name: 'Codex app-server' as const, cpuPercent: 1, residentBytes: 64 * 1024 ** 2, privateWorkingSetBytes: 24 * 1024 ** 2, privateBytes: 32 * 1024 ** 2, uptimeSeconds: 300}],
 });
 function fixture() {
   const dom = new JSDOM('<div id="root"></div>', {runScripts:'dangerously', beforeParse(window) {
@@ -66,11 +66,14 @@ it('shows only Agent usage in the card and separates its own Codex backend in de
   try {
     f.window.render(); expect(f.window.requests).toHaveLength(1);
     await f.window.reply(0,sample());
-    expect(f.text()).toContain('CPU 2.3% · 内存 128.0 MiB');
+    expect(f.text()).toContain('CPU 2.3% · 内存 80.0 MiB');
     expect(f.text()).not.toContain('64.0 MiB');
     f.window.press();
     expect(f.text()).toContain('Agent 本身'); expect(f.text()).toContain('64.0 MiB');
     expect(f.text()).toContain('私有提交 96.0 MiB'); expect(f.text()).toContain('1 小时 1 分钟');
+    expect(f.text()).toContain('专用工作集 80.0 MiB · 总工作集 128.0 MiB');
+    expect(f.text()).toContain('专用工作集 24.0 MiB · 总工作集 64.0 MiB');
+    expect(f.text()).toContain('任务管理器默认内存列');
     expect(f.text()).toContain('整机总算力 100%');
     f.window.render({device:{id:'one',name:'我的电脑',online:false,platform:'win32'}});
     expect(f.window.requests[0]!.signal.aborted).toBe(true);
@@ -87,15 +90,15 @@ it('does not overlap reads and aborts hidden/background work and late responses'
     f.window.render({visible:true}); await f.window.advance(30000);
     expect(f.window.requests).toHaveLength(1);
     f.window.appState('background'); expect(f.window.requests[0]!.signal.aborted).toBe(true);
-    await f.window.reply(0,sample()); expect(f.text()).not.toContain('128.0 MiB');
+    await f.window.reply(0,sample()); expect(f.text()).not.toContain('80.0 MiB');
     f.window.appState('active'); expect(f.window.requests).toHaveLength(2);
     await f.window.reply(1,sample());
     await f.window.advance(4999); expect(f.window.requests).toHaveLength(2);
     await f.window.advance(1); expect(f.window.requests).toHaveLength(3);
     f.window.render({scope:'account:two',device:{id:'two',name:'另一台电脑',online:true,platform:'darwin'}});
     expect(f.window.requests[2]!.signal.aborted).toBe(true); expect(f.window.requests[3]!.id).toBe('two');
-    expect(f.text()).not.toContain('128.0 MiB');
-    await f.window.reply(2,sample()); expect(f.text()).not.toContain('128.0 MiB');
+    expect(f.text()).not.toContain('80.0 MiB');
+    await f.window.reply(2,sample()); expect(f.text()).not.toContain('80.0 MiB');
     f.window.render({visible:false}); expect(f.window.requests[3]!.signal.aborted).toBe(true);
     await f.window.advance(60000); expect(f.window.requests).toHaveLength(4);
   } finally {f.close();}
@@ -124,4 +127,31 @@ it('rejects malformed or unbounded resource payloads', () => {
   for (const cpuPercent of [NaN,Infinity,-1,101]) expect(agentResourcesSchema.safeParse({...sample(),agent:{...sample().agent,cpuPercent}}).success).toBe(false);
   expect(agentResourcesSchema.safeParse({...sample(),children:Array(5).fill(sample().children[0])}).success).toBe(false);
   expect(agentResourcesSchema.safeParse({...sample(),agent:{...sample().agent,residentBytes:-1}}).success).toBe(false);
+  for (const privateWorkingSetBytes of [-1, Infinity, Number.MAX_SAFE_INTEGER + 1]) expect(agentResourcesSchema.safeParse({...sample(),agent:{...sample().agent,privateWorkingSetBytes}}).success).toBe(false);
+});
+
+it('labels legacy Windows working sets explicitly and leaves macOS resident memory unchanged', async () => {
+  const f=fixture();
+  try {
+    f.window.render();
+    const {privateWorkingSetBytes, ...agent} = sample().agent;
+    await f.window.reply(0,{...sample(),agent});
+    expect(f.text()).toContain('CPU 2.3% · 工作集 128.0 MiB');
+    f.window.press(); expect(f.text()).toContain('更新 Agent 后可按任务管理器口径显示内存');
+    expect(agentResourcesSchema.parse({...sample(),agent}).agent.privateWorkingSetBytes).toBeUndefined();
+    f.window.render({device:{id:'one',name:'Mac',online:true,platform:'darwin'}});
+    expect(f.text()).toContain('CPU 2.3% · 内存 128.0 MiB');
+    expect(f.text()).not.toContain('私有提交');
+  } finally {f.close();}
+});
+
+it('shows an unavailable private working set without substituting a different Windows metric', async () => {
+  const f=fixture();
+  try {
+    f.window.render();
+    await f.window.reply(0,{...sample(),agent:{...sample().agent,privateWorkingSetBytes:null}});
+    expect(f.text()).toContain('CPU 2.3% · 内存 不可用');
+    expect(f.text()).not.toContain('128.0 MiB');
+    f.window.press(); expect(f.text()).toContain('总工作集 128.0 MiB');
+  } finally {f.close();}
 });

@@ -354,6 +354,7 @@ private slots:
       ProcessReading value;
       value.pid = pid; value.identity = identity; value.startedAt = now() - 5000;
       value.cpuNs = used; value.residentBytes = 128 * 1024 * 1024; value.privateBytes = 96 * 1024 * 1024;
+      value.privateWorkingSetBytes = 64 * 1024 * 1024;
       return value;
     }, [&] { return clock; }, 4);
     auto first = monitor.sample(123);
@@ -368,6 +369,8 @@ private slots:
     QCOMPARE(second["agent"].toObject()["cpuPercent"].toDouble(), 25.0);
     QCOMPARE(second["agent"].toObject()["residentBytes"].toDouble(), 128.0 * 1024 * 1024);
     QCOMPARE(second["agent"].toObject()["privateBytes"].toDouble(), 96.0 * 1024 * 1024);
+    QCOMPARE(second["agent"].toObject()["privateWorkingSetBytes"].toDouble(), 64.0 * 1024 * 1024);
+    QCOMPARE(second["children"].toArray()[0].toObject()["privateWorkingSetBytes"].toDouble(), 64.0 * 1024 * 1024);
     QCOMPARE(second["sampleWindowMs"].toDouble(), 2000.0);
     // A long absence starts a new short CPU sample; it cannot display an hours-long average.
     clock += 60000;
@@ -396,6 +399,11 @@ private slots:
     QVERIFY(own["cpuPercent"].toDouble() >= 0 && own["cpuPercent"].toDouble() <= 100);
 #ifdef Q_OS_WIN
     QVERIFY(own["privateBytes"].toDouble() > 0);
+    QVERIFY(own["privateWorkingSetBytes"].isDouble());
+    QVERIFY(own["privateWorkingSetBytes"].toDouble() > 0);
+    QVERIFY(own["privateWorkingSetBytes"].toDouble() <= own["residentBytes"].toDouble());
+#else
+    QVERIFY(own["privateWorkingSetBytes"].isNull());
 #endif
   }
   void processResourcesRelayReadOnly() {

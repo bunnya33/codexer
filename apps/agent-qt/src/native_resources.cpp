@@ -1,5 +1,6 @@
 #include "native_resources.h"
 #include <algorithm>
+#include <cstddef>
 #ifdef Q_OS_WIN
 #include <windows.h>
 #include <psapi.h>
@@ -24,10 +25,23 @@ static ProcessReading processReading(qint64 pid) {
     value.identity = ticks(created);
     value.cpuNs = (ticks(kernel) + ticks(user)) * 100;
   }
-  PROCESS_MEMORY_COUNTERS_EX memory{};
+  // PROCESS_MEMORY_COUNTERS_EX2 has this ABI, but some supported SDK versions
+  // hide its declaration behind a newer NTDDI_VERSION. Keep the runtime fallback.
+  struct MemoryCounters {
+    PROCESS_MEMORY_COUNTERS_EX base{};
+    SIZE_T privateWorkingSetSize = SIZE_T(-1);
+    ULONG64 sharedCommitUsage = 0;
+  } memory;
+  static_assert(offsetof(MemoryCounters, privateWorkingSetSize) == sizeof(PROCESS_MEMORY_COUNTERS_EX));
+  memory.base.cb = sizeof(memory);
   if (GetProcessMemoryInfo(handle, reinterpret_cast<PROCESS_MEMORY_COUNTERS *>(&memory), sizeof(memory))) {
-    value.residentBytes = quint64(memory.WorkingSetSize);
-    value.privateBytes = quint64(memory.PrivateUsage);
+    value.residentBytes = quint64(memory.base.WorkingSetSize);
+    value.privateBytes = quint64(memory.base.PrivateUsage);
+    if (memory.privateWorkingSetSize != SIZE_T(-1))
+      value.privateWorkingSetBytes = quint64(memory.privateWorkingSetSize);
+  } else if (GetProcessMemoryInfo(handle, reinterpret_cast<PROCESS_MEMORY_COUNTERS *>(&memory.base), sizeof(memory.base))) {
+    value.residentBytes = quint64(memory.base.WorkingSetSize);
+    value.privateBytes = quint64(memory.base.PrivateUsage);
   }
   CloseHandle(handle);
 #elif defined(Q_OS_MACOS)
@@ -81,6 +95,7 @@ QJsonObject ResourceMonitor::sample(qint64 childPid) {
     const auto bytes = [](std::optional<quint64> count) { return count ? QJsonValue(double(*count)) : QJsonValue(QJsonValue::Null); };
     return QJsonObject{{"pid", double(pid)}, {"name", name}, {"cpuPercent", cpu},
                        {"residentBytes", bytes(current.residentBytes)}, {"privateBytes", bytes(current.privateBytes)},
+                       {"privateWorkingSetBytes", bytes(current.privateWorkingSetBytes)},
                        {"uptimeSeconds", current.startedAt > 0 ? QJsonValue(qMax(0.0, double(wall - current.startedAt) / 1000)) : QJsonValue(QJsonValue::Null)}};
   };
   const auto ownPid = QCoreApplication::applicationPid();

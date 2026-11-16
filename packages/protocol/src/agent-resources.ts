@@ -6,6 +6,7 @@ export const agentProcessResourcesSchema = z.object({
   name: z.enum(['Codexer Agent', 'Codex app-server']),
   cpuPercent: z.number().min(0).max(100).nullable(),
   residentBytes: bytes,
+  privateWorkingSetBytes: bytes.optional(),
   privateBytes: bytes,
   uptimeSeconds: z.number().nonnegative().nullable(),
 });

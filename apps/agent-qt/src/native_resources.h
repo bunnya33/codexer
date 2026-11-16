@@ -7,7 +7,7 @@ namespace Native {
 struct ProcessReading {
   qint64 pid = 0, startedAt = 0;
   quint64 identity = 0;
-  std::optional<quint64> cpuNs, residentBytes, privateBytes;
+  std::optional<quint64> cpuNs, residentBytes, privateBytes, privateWorkingSetBytes;
 };
 // At most two counters and one small response; no timers, process walks or history.
 class ResourceMonitor {

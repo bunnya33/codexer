@@ -3,8 +3,14 @@ package relay
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"time"
 )
+
+// Catch-up must fit comfortably inside a peer's bounded writer, even while a
+// returning mobile client is slow to receive. Larger gaps use the latest snapshot.
+const maxReplayEvents = 64
+const maxReplayBytes = 1024 * 1024
 
 func (s *Store) Snapshot(id string) M {
 	if s.q == s.DB {
@@ -122,16 +128,48 @@ func (s *Store) Replay(id, epoch string, seq int64) ([]M, bool) {
 	if seq == num(head["seq"]) {
 		return []M{}, true
 	}
-	rows := s.Q("SELECT seq,payload FROM events WHERE device_id=$1 AND epoch=$2 AND seq>$3 ORDER BY seq LIMIT 1000", id, epoch, seq)
-	if int64(len(rows)) != num(head["seq"])-seq {
+	gap := num(head["seq"]) - seq
+	if gap > maxReplayEvents {
 		return nil, false
 	}
-	out := []M{}
-	for i, r := range rows {
-		if num(r["seq"]) != seq+int64(i)+1 {
+	// Stream rows and stop at the byte budget instead of decoding the whole
+	// retained history before deciding to fall back to a snapshot.
+	start := time.Now()
+	failed := false
+	defer func() { s.Metrics.Observe("database", start, failed) }()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	rows, e := s.q.QueryContext(ctx, s.SQL("SELECT seq,payload FROM events WHERE device_id=$1 AND epoch=$2 AND seq>$3 ORDER BY seq LIMIT $4"), id, epoch, seq, maxReplayEvents)
+	if e != nil {
+		failed = true
+		panic(e)
+	}
+	defer rows.Close()
+	out := make([]M, 0, int(gap))
+	bytes := 0
+	for rows.Next() {
+		var current int64
+		var payload []byte
+		if e = rows.Scan(&current, &payload); e != nil {
+			failed = true
+			panic(e)
+		}
+		bytes += len(payload) + len(`{"type":"device.event","event":}`)
+		if current != seq+int64(len(out))+1 || bytes > maxReplayBytes {
 			return nil, false
 		}
-		out = append(out, obj(r["payload"]))
+		var event M
+		if json.Unmarshal(payload, &event) != nil || event == nil {
+			return nil, false
+		}
+		out = append(out, event)
+	}
+	if e = rows.Err(); e != nil {
+		failed = true
+		panic(e)
+	}
+	if int64(len(out)) != gap {
+		return nil, false
 	}
 	return out, true
 }
