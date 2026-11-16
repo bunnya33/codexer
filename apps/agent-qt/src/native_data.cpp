@@ -215,11 +215,11 @@ QString asyncAnswer(const Object &request, const Object &answers) {
   return result;
 }
 static Array rawTurns(const Object &raw) {
-  auto container = raw["turnHistory"].toObject();
+  const auto container = raw["turnHistory"].toObject();
   if (container["kind"] != "canonical")
     return raw["turns"].toArray();
-  auto history = container["history"].toObject(),
-       entities = history["entitiesByKey"].toObject();
+  const auto history = container["history"].toObject(),
+             entities = history["entitiesByKey"].toObject();
   Array result;
   for (const auto &island : history["islands"].toArray())
     for (const auto &entry : island.toObject()["entries"].toArray())
@@ -745,18 +745,9 @@ Object usageMetadata(const Object &raw) {
           {"usage", raw["latestTokenUsageInfo"]},
           {"model", normalizeSettings(raw)["model"]}};
 }
-Object normalizeThread(
-    const Object &raw, qint64 revision,
-    const std::function<Array(const QString &, const Object &)> &images) {
-  auto runtime = raw["threadRuntimeStatus"].toObject();
-  auto status = runtime["type"].toString("unavailable");
-  if (!QStringList{"notLoaded", "idle", "active", "systemError"}.contains(
-          status))
-    status = "unavailable";
-  auto turns = rawTurns(raw);
-  Array normalized, agents, requests, flags;
-  QJsonValue activeId(QJsonValue::Null);
-  QSet<QString> agentIds;
+Object subAgentMetadata(const Object &raw) {
+  const auto turns = rawTurns(raw);
+  Array agents;
   QHash<QString, Object> latestAgents;
   for (auto v : raw["codexerSubAgents"].toArray()) {
     auto a = v.toObject();
@@ -765,8 +756,6 @@ Object normalizeThread(
   }
   for (const auto &v : turns) {
     const auto turn = v.toObject();
-    if (turn["status"] == "inProgress")
-      activeId = turnIdentity(turn);
     for (const auto &iv : turn["items"].toArray())
       for (const auto &a : subAgents(iv.toObject(), raw["id"].toString())) {
         auto id = a.toObject()["threadId"].toString();
@@ -779,7 +768,6 @@ Object normalizeThread(
         latestAgents[id] = update;
         if (a.toObject()["status"] == "running")
           latestAgents[id].remove("message");
-        agentIds.insert(id);
       }
   }
   for (auto v : raw["codexerAgentDetails"].toArray()) {
@@ -793,6 +781,27 @@ Object normalizeThread(
     if (agents.size() >= 32)
       break;
     agents.append(a);
+  }
+  return {{"subAgents", agents},
+          {"subAgentsTruncated", latestAgents.size() > 32 ||
+                                  raw["codexerSubAgentsTruncated"].toBool()}};
+}
+Object normalizeThread(
+    const Object &raw, qint64 revision,
+    const std::function<Array(const QString &, const Object &)> &images) {
+  auto runtime = raw["threadRuntimeStatus"].toObject();
+  auto status = runtime["type"].toString("unavailable");
+  if (!QStringList{"notLoaded", "idle", "active", "systemError"}.contains(
+          status))
+    status = "unavailable";
+  auto turns = rawTurns(raw);
+  Array normalized, requests, flags;
+  QJsonValue activeId(QJsonValue::Null);
+  const auto agentMetadata = subAgentMetadata(raw);
+  for (const auto &value : turns) {
+    const auto turn = value.toObject();
+    if (turn["status"] == "inProgress")
+      activeId = turnIdentity(turn);
   }
   for (int i = qMax(0, turns.size() - 2); i < turns.size(); ++i)
     normalized.append(normalizeTurn(turns[i].toObject(), false,
@@ -931,9 +940,8 @@ Object normalizeThread(
       {"updatedAt", raw["updatedAt"].isDouble() ? raw["updatedAt"]
                                                 : QJsonValue(double(now()))},
       {"settings", normalizeSettings(raw)},
-      {"subAgents", agents},
-      {"subAgentsTruncated",
-       latestAgents.size() > 32 || raw["codexerSubAgentsTruncated"].toBool()},
+      {"subAgents", agentMetadata["subAgents"]},
+      {"subAgentsTruncated", agentMetadata["subAgentsTruncated"]},
       {"turns", normalized},
       {"requests", requests},
       {"tokenUsage", raw["latestTokenUsageInfo"].isObject() &&

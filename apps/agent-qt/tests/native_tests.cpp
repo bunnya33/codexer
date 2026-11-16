@@ -1048,6 +1048,152 @@ private slots:
     QCOMPARE(fixture.followStops, 2);
     QVERIFY(agent->desktop->watched.value("thread-test").raw.isEmpty());
   }
+  void backgroundDesktopMaintenanceKeepsPushAndIndependentMetadata() {
+    auto state = raw();
+    state["turns"] = Array{Object{{"id", "turn"}, {"status", "completed"},
+        {"items", Array{Object{{"id", "answer"}, {"type", "agentMessage"},
+                              {"text", "before"}}}}}};
+    DesktopFixture fixture(state);
+    fixture.stateVersion = 13;
+    qputenv("CODEX_REMOTE_DESKTOP_ENDPOINT", fixture.endpoint.toUtf8());
+    agent->settings["runtime"] = "auto";
+    agent->ensureRpc();
+    agent->desktop->open(agent->settings);
+    QVERIFY(agent->desktop->follow("thread-test"));
+    QTRY_VERIFY(agent->desktop->watched.value("thread-test").compatible);
+    agent->watch("thread-test");
+    agent->dirtyThreads.clear();
+    const auto before = agent->snapshot["threads"].toObject()["thread-test"].toObject();
+    const Object child{{"id", "child"}, {"agentNickname", "Child"},
+                       {"status", Object{{"type", "active"}}}};
+    setFixture({{"threadList", Array{child}}});
+    agent->watch("thread-test", false, true);
+    auto thread = agent->snapshot["threads"].toObject()["thread-test"].toObject();
+    QCOMPARE(thread["turns"], before["turns"]);
+    QCOMPARE(thread["subAgents"].toArray()[0].toObject()["status"], QJsonValue("running"));
+    fixture.patch({Object{{"op", "replace"},
+        {"path", Array{"turns", 0, "items", 0, "text"}}, {"value", "after"}}}, 0, 1);
+    QTRY_VERIFY(agent->dirtyThreads.contains("thread-test"));
+    // An event received during maintenance must take precedence over reuse.
+    agent->watch("thread-test", false, true);
+    thread = agent->snapshot["threads"].toObject()["thread-test"].toObject();
+    QCOMPARE(thread["turns"].toArray()[0].toObject()["items"].toArray()[0].toObject()["text"], QJsonValue("after"));
+    QCOMPARE(fixture.followStarts, 1);
+    QCOMPARE(fixture.followStops, 0);
+    const auto requests = read(temp.path() + "/requests.jsonl");
+    QVERIFY(!requests.contains("thread/turns/list"));
+    QVERIFY(!requests.contains("thread/resume"));
+  }
+  void backgroundIdleReadsReuseBodiesAndDetectRolloutChanges() {
+    const auto turn = [](const QString &text) {
+      return Object{{"id", "turn"}, {"status", "completed"},
+        {"items", Array{Object{{"id", "answer"}, {"type", "agentMessage"}, {"text", text}}}}};
+    };
+    setFixture({{"turns", Array{turn("before")}}});
+    agent->watch("thread-test");
+    QVERIFY(agent->idleReads.contains("thread-test"));
+    const auto before = agent->snapshot["threads"].toObject()["thread-test"].toObject();
+    sql(agent->journal, "INSERT INTO queued_messages(id,thread_id,text,images,created_at,status) VALUES(?,?,?,?,?,?)",
+        {"queued-test", "thread-test", "queued input", "[]", now(), "queued"});
+    for (int i = 0; i < 3; ++i)
+      agent->watch("thread-test", false, true);
+    auto thread = agent->snapshot["threads"].toObject()["thread-test"].toObject();
+    QCOMPARE(thread["turns"], before["turns"]);
+    QCOMPARE(thread["queuedMessages"].toArray().size(), 1);
+    auto requests = read(temp.path() + "/requests.jsonl");
+    QCOMPARE(requests.count("\"method\":\"thread/turns/list\""), 1);
+    QCOMPARE(requests.count("\"method\":\"thread/read\""), 4);
+    // Keep updatedAt identical: same-second writes must still be noticed.
+    auto next = fixtureState();
+    next["turns"] = Array{turn("after")};
+    save(temp.path() + "/fixture.json", json(next));
+    QFile rollout(next["thread"].toObject()["path"].toString());
+    QVERIFY(rollout.open(QIODevice::Append));
+    rollout.write("\n");
+    rollout.close();
+    agent->watch("thread-test", false, true);
+    thread = agent->snapshot["threads"].toObject()["thread-test"].toObject();
+    QCOMPARE(thread["turns"].toArray()[0].toObject()["items"].toArray()[0].toObject()["text"], QJsonValue("after"));
+    requests = read(temp.path() + "/requests.jsonl");
+    QCOMPARE(requests.count("\"method\":\"thread/turns/list\""), 2);
+    QVERIFY(!requests.contains("thread/resume"));
+  }
+  void backgroundDesktopDiscoveryReplacesFallbackPreview() {
+    agent->watch("thread-test");
+    QVERIFY(agent->idleReads.contains("thread-test"));
+    auto state = raw();
+    state["title"] = "Desktop title";
+    DesktopFixture fixture(state);
+    qputenv("CODEX_REMOTE_DESKTOP_ENDPOINT", fixture.endpoint.toUtf8());
+    agent->settings["runtime"] = "auto";
+    agent->desktop->open(agent->settings);
+    QVERIFY(agent->desktop->follow("thread-test"));
+    QTRY_VERIFY(agent->desktop->watched.value("thread-test").compatible);
+    agent->watch("thread-test", false, true);
+    QCOMPARE(agent->snapshot["threads"].toObject()["thread-test"].toObject()["title"], QJsonValue("Desktop title"));
+    QVERIFY(!agent->idleReads.contains("thread-test"));
+  }
+  void backgroundIdleReadsRevalidateAndNotificationsInvalidate() {
+    agent->watch("thread-test");
+    QVERIFY(agent->idleReads.contains("thread-test"));
+    agent->watch("thread-test", false, true);
+    QCOMPARE(read(temp.path() + "/requests.jsonl").count("\"method\":\"thread/turns/list\""), 1);
+    agent->idleReads["thread-test"].verifiedAt -= 60001;
+    agent->watch("thread-test", false, true);
+    QCOMPARE(read(temp.path() + "/requests.jsonl").count("\"method\":\"thread/turns/list\""), 2);
+    emit agent->rpc->notification("turn/diff/updated", {{"threadId", "thread-test"},
+        {"turnId", "turn"}, {"diff", "changed"}});
+    QVERIFY(!agent->idleReads.contains("thread-test"));
+    agent->watch("thread-test", false, true);
+    QCOMPARE(read(temp.path() + "/requests.jsonl").count("\"method\":\"thread/turns/list\""), 3);
+    agent->backgroundThreads.insert("thread-test");
+    agent->forgetThreadCache("thread-test");
+    QVERIFY(!agent->idleReads.contains("thread-test"));
+    QVERIFY(!agent->backgroundThreads.contains("thread-test"));
+  }
+  void backgroundSchedulerPrioritizesChanges() {
+    agent->watch("thread-test");
+    agent->paused = true;
+    agent->lastScan = agent->lastCatalog = agent->lastProjectUsage =
+        agent->lastRelease = agent->lastStatus = now();
+    agent->backgroundThreads.insert("thread-test");
+    agent->dirtyThreads.insert("thread-test");
+    agent->tick();
+    QCOMPARE(read(temp.path() + "/requests.jsonl").count("\"method\":\"thread/turns/list\""), 2);
+    QVERIFY(agent->backgroundThreads.isEmpty());
+    QVERIFY(agent->dirtyThreads.isEmpty());
+    agent->lastScan = 0;
+    agent->tick();
+    QCOMPARE(read(temp.path() + "/requests.jsonl").count("\"method\":\"thread/turns/list\""), 2);
+    QVERIFY(agent->lastScan > 0);
+    // Continuous changes in another chat cannot indefinitely delay maintenance.
+    agent->backgroundThreads.insert("thread-test");
+    for (int i = 0; i < 4; ++i) {
+      agent->dirtyThreads.insert("other-thread");
+      agent->tick();
+    }
+    QVERIFY(!agent->backgroundThreads.contains("thread-test"));
+  }
+  void backgroundReadsWithoutStableIdleSource_data() {
+    QTest::addColumn<bool>("active");
+    QTest::newRow("active") << true;
+    QTest::newRow("missing-rollout") << false;
+  }
+  void backgroundReadsWithoutStableIdleSource() {
+    QFETCH(bool, active);
+    auto state = fixtureState();
+    auto thread = state["thread"].toObject();
+    if (active)
+      thread["status"] = Object{{"type", "active"}};
+    else
+      thread["path"] = temp.path() + "/missing.jsonl";
+    state["thread"] = thread;
+    save(temp.path() + "/fixture.json", json(state));
+    agent->watch("thread-test");
+    agent->watch("thread-test", false, true);
+    QCOMPARE(read(temp.path() + "/requests.jsonl").count("\"method\":\"thread/turns/list\""), 2);
+    QVERIFY(!agent->idleReads.contains("thread-test"));
+  }
   void desktopV13CanonicalTextPatches() {
     auto state = raw();
     state.remove("turns");

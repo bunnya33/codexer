@@ -194,6 +194,9 @@ void Service::closeAgent() {
   acquired.clear();
   busyTurns.clear();
   dirtyThreads.clear();
+  backgroundThreads.clear();
+  foregroundRefreshes = 0;
+  idleReads.clear();
   desktopThreads.clear();
   awaitingQueue.clear();
   commandQueue.clear();
@@ -711,7 +714,7 @@ void Service::tick() {
           } catch (...) {
           }
         for (const auto &t : snapshot["threads"].toObject())
-          dirtyThreads.insert(t.toObject()["id"].toString());
+          backgroundThreads.insert(t.toObject()["id"].toString());
       }
       if (now() - lastCatalog >= 60000) {
         lastCatalog = now();
@@ -721,11 +724,18 @@ void Service::tick() {
           log("catalog-refresh-failed");
         }
       }
-      if (!dirtyThreads.isEmpty()) {
-        auto id = *dirtyThreads.begin();
-        dirtyThreads.remove(id);
+      if (!dirtyThreads.isEmpty() || !backgroundThreads.isEmpty()) {
+        // Give push changes priority without starving child metadata while a
+        // long reply continuously produces patches.
+        const bool background = !backgroundThreads.isEmpty() &&
+            (dirtyThreads.isEmpty() || foregroundRefreshes >= 3);
+        const auto id = background ? *backgroundThreads.begin()
+                                   : *dirtyThreads.begin();
+        const bool changed = dirtyThreads.remove(id) > 0;
+        backgroundThreads.remove(id);
+        foregroundRefreshes = background ? 0 : qMin(3, foregroundRefreshes + 1);
         try {
-          watch(id);
+          watch(id, false, background && !changed);
         } catch (...) {
         }
       }
