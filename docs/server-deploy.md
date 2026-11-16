@@ -1,17 +1,19 @@
 # 让 Codex 发布和更新 Codexer
 
-`codexer-server-deploy` Skill 调用仓库中的按需 CLI，不新增常驻 MCP 服务。服务器继续使用 Go 和既有 systemd 更新器。服务器从 **0.3.55** 起支持专用发布授权；第一次先在后台手动上传新版服务器包、准备并确认重启，之后再授权工具。
+`codexer-server-deploy` Skill 调用仓库中的按需 CLI，不新增常驻 MCP 服务。服务器继续使用 Go 和既有 systemd 更新器。服务器从 **0.3.55** 起支持专用网页审批，**0.3.69** 起支持后台生成授权码和远程 HTTP 发布；第一次先在后台手动上传新版服务器包、准备并确认重启，之后再授权工具。
 
-## 首次网页授权
+## 首次导入授权码
+
+先在服务器管理后台进入“发布授权”，点击“生成发布授权码”，设置名称、发布权限和有效期（7、30 或 90 天）。生成后立即复制，明文只在该窗口显示一次；关闭后无法再次查看，丢失时撤销并重新生成。
 
 ```powershell
 npm run skill:install-deploy
-npm run server:deploy -- login --url https://codexer.example.com
+npm run server:deploy -- login --url http://codexer.example.com:8899
 ```
 
-工具输出真实服务器的 `/admin/?publish=ABCD-1234` 地址、电脑名称和验证码，等待十分钟。打开该地址，在**服务器管理后台**登录，核对电脑、验证码和申请权限，点击“允许发布”。已登录管理员无需再次输入密码。工具自动接收授权并退出；它不接收密码，不读取浏览器 Cookie 或 localStorage，也不保存管理员会话。
+在终端粘贴授权码，输入不显示；工具向指定服务器验证后加密保存并退出。自动化流程可通过标准输入传入，不要将授权码放进命令行参数或日志。后台的复制按钮兼容 HTTP；若浏览器禁止自动复制，可手动选中复制。
 
-默认申请以下四项权限。可用 `--scopes server:read,server:write` 只授权服务器更新；客户端发布使用 `clients:read,clients:write`。`--name` 自定义电脑名称，默认系统主机名。
+权限在后台生成时选择。服务器更新使用 `server:read,server:write`，客户端发布使用 `clients:read,clients:write`。已有网页审批凭据继续兼容，仍需旧流程时运行 `login --web --url <服务器地址>`，该模式支持 `--name` 和 `--scopes`。
 
 | 权限 | 范围 |
 | --- | --- |
@@ -22,15 +24,17 @@ npm run server:deploy -- login --url https://codexer.example.com
 
 发布凭据不能管理账号、读取控制会话、调用远程 PC 命令或管理其它发布授权。权限授权也不等于每次操作的用户指令：只要求“发个服务器更新”时仅发布 Release；明确要求“更新到服务器”时才准备、重启并核验。上传客户端安装包不会自动替换所有设备上的应用，保留原来的客户端更新确认。
 
-访问令牌有效 10 分钟；刷新凭据每次续期轮换，连续 30 天未续期失效；授权最长 90 天，之后重新网页授权。重复使用旧刷新凭据会撤销整个授权。后台“发布授权”可查看电脑、权限、有效期、撤销授权及最近操作。管理员禁用或重置密码同样立即撤销关联授权。
+授权码可重复用于发布，固定有效期最长 90 天，可在后台随时撤销；到期后生成并导入新的授权码。后台只显示授权名称、权限、有效期和操作记录，不能找回明文。管理员禁用或重置密码同样立即撤销关联授权。旧网页审批的访问令牌仍有效 10 分钟，刷新凭据轮换，连续 30 天未续期失效，重用刷新凭据会撤销授权。
 
 当前本机 CLI 的加密存储支持 **Windows DPAPI / CurrentUser**，位置为 `%LOCALAPPDATA%/Codexer/server-deploy/default.secret`；不回退为明文文件。换 Windows 用户或电脑需要重新网页授权。可发布 macOS 安装包不代表本机工具已完成 macOS/Linux 凭据存储支持。`CODEXER_DEPLOY_HOME` 可指定本机配置目录；多服务器使用不同的 `--profile 名称`，后续命令保持相同 profile。
 
 旧工具保存的完整管理员会话不作为新发布授权使用。运行新 login 成功后覆盖本机旧凭据；旧服务器会话不再续期，按原登录策略过期。旧本地密码登录页已移除。Node >=22.13 和仓库开发依赖仅用于运行本地工具，服务器不安装 Node。
 
-## HTTPS 与首次升级
+## HTTP、HTTPS 与首次升级
 
-公网授权和发布必须使用 **HTTPS**；没有 `--allow-http` 降级选项。原服务器的 HTTP 管理后台仍可用来手动完成第一次升级，但不据此传输新的发布凭据。HTTPS 反向代理配置及 SSH 隧道替代方法见[发布工具的 HTTPS 配置](publishing-https.md)。加密本机文件不能保护明文网络，不能把随机 Token 的长度当作 HTTP 安全保证。
+授权码生成、导入和更新上传均支持远程 **HTTP**，无需域名证书或额外 CLI 开关。HTTPS 同样可用，工具不自动切换协议、不跟随重定向。HTTP 不加密网络传输，本机 DPAPI 保护的是落盘文件。可选的反向代理和隧道配置见[发布工具的 HTTPS 配置](publishing-https.md)。
+
+原服务器需要先通过后台手动上传包含新接口的服务器包，准备并确认重启；升级后即可生成授权码。仅支持 0.3.55 旧网页审批的服务器，可暂时使用 `login --web`，但旧版服务器的公网 HTTPS 限制仍由旧程序执行。
 
 ## 服务器更新
 
@@ -72,8 +76,9 @@ npm run server:deploy -- publish-client --target agent-windows-x64-setup --archi
 | 错误 | 处理 |
 | --- | --- |
 | `server-upgrade-required-for-publishing` | 先手动安装 0.3.55 或更新版本 |
-| `http-server-requires-allow-http` / `publishing-requires-https` | 改用 HTTPS 或本机 SSH 隧道；新授权没有 HTTP 兼容开关 |
-| `legacy-admin-login-requires-new-web-authorization` / `login-expired` | 运行 login 重新在服务器网页授权 |
+| `publishing-requires-https` | 服务器仍运行旧程序，先手动升级；新版支持远程 HTTP |
+| `invalid-publishing-code` | 核对后台复制的完整授权码，不能使用管理员会话或旧访问令牌 |
+| `legacy-admin-login-requires-publishing-code` / `login-expired` | 从后台生成授权码并运行 login 重新导入 |
 | `refresh-reused-reauthorize` | 原刷新凭据已使用，授权被撤销；重新网页授权，不重复刷新 |
 | `profile-in-use-check-running-command-or-stale-lock` | 同一 profile 还有命令运行；确认原进程已退出后再删除 `.secret.lock`，不自动抢锁 |
 | `unrelated-update-in-progress` / `deployment-job-changed` | 先查看 status 和后台，不抢占任务 |

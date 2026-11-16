@@ -12,6 +12,7 @@ export type Role = 'admin' | 'user';
 export const publishingRequest = (code:string) => request<import('../../../packages/shared/src/publishing').PublishRequest>('/v1/admin/publishing/request?'+new URLSearchParams({code}));
 export const approvePublishing = (code:string,approve:boolean) => request('/v1/admin/publishing/approve','POST',{code,approve});
 export const publishingInfo = () => request<import('../../../packages/shared/src/publishing').PublishingInfo>('/v1/admin/publishing');
+export const createPublishingKey = (name:string,scopes:string[],expiresInDays:number) => request<import('../../../packages/shared/src/publishing').PublishingKey>('/v1/admin/publishing/keys','POST',{name,scopes,expiresInDays});
 export const revokePublishing = (id:string) => request('/v1/admin/publishing/'+encodeURIComponent(id),'DELETE');
 export type Account = { id: string; name: string; role: Role; created_at: number; revoked_at: number | null; login_enabled: boolean };
 export type Overview = {users: number; enabledUsers: number; admins: number; enabledAdmins: number; onlineDevices: number; onlineClients: number; uptime: number};
@@ -39,7 +40,9 @@ async function request<T>(path: string, method = 'GET', body?: unknown, signal?:
   if (!response.ok) {
     if (response.status === 401) clearSession();
     const publishingErrors: Record<string,string> = {
-      'publishing-requires-https':'发布授权需要 HTTPS，请先配置 HTTPS 或使用 SSH 回环隧道。',
+      'invalid-publishing-expiry':'有效期应为 1 至 90 天。',
+      'invalid-publishing-scopes':'请至少选择一项发布权限。',
+      'too-many-publishing-grants':'有效授权已达上限，请先撤销不再使用的授权。',
       'authorization-request-expired':'授权请求已过期，请在本机工具重新运行 login。',
       'authorization-request-unavailable':'请求已处理或过期，请在本机工具重新申请。',
       'invalid-authorization-code':'验证码格式不正确，请核对工具输出。',

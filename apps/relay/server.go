@@ -314,7 +314,7 @@ func (s *Server) principal(r *http.Request, role string) *Principal {
 	if !strings.HasPrefix(value, "Bearer ") {
 		fail(401, "unauthorized")
 	}
-	if strings.HasPrefix(value, "Bearer cdxp_a_") {
+	if strings.HasPrefix(value, "Bearer cdxp_a_") || strings.HasPrefix(value, "Bearer cdxp_k_") {
 		if !strings.HasPrefix(role, "publish:") {
 			fail(403, "publishing-scope-denied")
 		}

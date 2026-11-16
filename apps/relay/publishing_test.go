@@ -218,13 +218,21 @@ func TestPublishingTransportAndOrigin(t *testing.T) {
 		r.Header.Set("Origin", origin)
 		w := httptest.NewRecorder()
 		f.server.Handler().ServeHTTP(w, r)
+		if w.Code == 200 {
+			var result M
+			json.Unmarshal(w.Body.Bytes(), &result)
+			trusted := f.server.Options.PublicURL == "https://"+r.Host && f.server.publishingProxy(r.RemoteAddr) && forward == "https"
+			if !tlsOn && !trusted && !strings.HasPrefix(str(result["verificationUri"]), "http://") {
+				t.Fatal("untrusted headers changed origin", result)
+			}
+		}
 		return w.Code
 	}
-	if c := check("http://public.test/v1/publish/authorize", "198.51.100.3:5000", "https", "", false); c != 403 {
+	if c := check("http://public.test/v1/publish/authorize", "198.51.100.3:5000", "https", "", false); c != 200 {
 		t.Fatal(c)
 	}
-	if c := check("http://localhost/v1/publish/authorize", "198.51.100.3:5000", "", "", false); c != 403 {
-		t.Fatal("rebound localhost", c)
+	if c := check("http://public.test/v1/publish/authorize", "198.51.100.3:5000", "", "http://public.test", false); c != 200 {
+		t.Fatal("remote HTTP", c)
 	}
 	if c := check("http://127.0.0.1/v1/publish/authorize", "127.0.0.1:5000", "", "", false); c != 200 {
 		t.Fatal(c)
@@ -237,7 +245,7 @@ func TestPublishingTransportAndOrigin(t *testing.T) {
 	if c := check("http://public.test/v1/publish/authorize", "127.0.0.1:5000", "https", "https://public.test", false); c != 200 {
 		t.Fatal("trusted TLS proxy", c)
 	}
-	if c := check("http://public.test/v1/publish/authorize", "198.51.100.3:5000", "https", "", false); c != 403 {
+	if c := check("http://public.test/v1/publish/authorize", "198.51.100.3:5000", "https", "", false); c != 200 {
 		t.Fatal("untrusted proxy", c)
 	}
 	f.server.Options.TrustedProxies = []string{"198.51.100.3/32"}
@@ -262,8 +270,21 @@ func (b *publishingBlockedReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 func TestPublishingUploadRevocationAndDigest(t *testing.T) {
+	for _, kind := range []string{"device", "key"} {
+		t.Run(kind, func(t *testing.T) { testPublishingUploadRevocationAndDigest(t, kind) })
+	}
+}
+func testPublishingUploadRevocationAndDigest(t *testing.T, kind string) {
 	f := newPublishingFixture(t, "")
-	grant := f.grant([]any{"clients:read", "clients:write"})
+	issue := func(scopes []any) M {
+		if kind == "key" {
+			grant := f.key(scopes)
+			grant["accessToken"] = grant["code"]
+			return grant
+		}
+		return f.grant(scopes)
+	}
+	grant := issue([]any{"clients:read", "clients:write"})
 	access := str(grant["accessToken"])
 	data := installerFixture(1024)
 	reader := &publishingBlockedReader{data, make(chan struct{}), make(chan struct{}), sync.Once{}}
@@ -285,7 +306,7 @@ func TestPublishingUploadRevocationAndDigest(t *testing.T) {
 	if f.server.clientReleases.current("agent-windows-x64-setup") != nil {
 		t.Fatal("revoked upload published")
 	}
-	grant = f.grant([]any{"clients:write"})
+	grant = issue([]any{"clients:write"})
 	r = httptest.NewRequest("PUT", "https://codexer.test/v1/admin/client-releases/agent-windows-x64-setup?name=Agent-1.0.0.exe&version=1.0.0&sha256="+strings.Repeat("0", 64), bytes.NewReader(data))
 	r.Header.Set("Authorization", "Bearer "+str(grant["accessToken"]))
 	w = httptest.NewRecorder()

@@ -113,9 +113,14 @@ HTTP 错误体是 `{ "error": "code" }`。常见状态：`400 invalid-request`�
 | GET | `/v1/admin/metrics` | 管理员聚合性能指标：进程资源、排队、数据库、HTTP、事件、广播和清理；`Cache-Control: no-store`，见 [指标说明](relay-metrics.md) |
 | GET | `/v1/admin/system/resources` | 管理员资源面板快照，`Cache-Control: no-store`；整机/进程 CPU、内存与系统/数据分区空间，共享短时采样缓存，见 [指标说明](relay-metrics.md) |
 | GET | `/v1/admin/system/logs` | 仅管理员；脱敏诊断日志，`Cache-Control: no-store`。可选 `level=info|warn|error`、`category=connection|protocol|storage|http|background`、`deviceId`（精确）、`code`（包含）、`before`（上一页游标）、`limit=1..200`（默认 100）。返回 `entries,nextCursor,retained,capacity,persistent,file,maxFileBytes,fileCount,capturedAt`；记录按 ID 倒序，`nextCursor=null` 表示无更多记录。字段与保存范围见 [服务器日志](admin.md#服务器日志) |
+| POST | `/v1/admin/publishing/keys` | 生成发布授权码；`{name,scopes,expiresInDays?:1..90}`，默认 90 天。仅本次响应返回明文 `code`，同时返回 `grantId,name,scopes,expiresAt,username`，`Cache-Control: no-store` |
+| GET | `/v1/admin/publishing` | 授权元数据和最近发布审计，不返回明文授权码或摘要 |
+| DELETE | `/v1/admin/publishing/:grantId` | 撤销指定发布授权，立即失效 |
 | GET | `/v1/admin/system/version` | 可选 `?force=true`；返回 `currentVersion,latestVersion,hasUpdate,checkedAt,warning,release,supported,gitSupported,method,tags,autoInstall,job` |
 | POST | `/v1/admin/system/update` | `{tag:'vX.Y.Z',action?:'update'|'build'|'restart',jobId?:uuid}`；update 只准备版本；build/restart 匹配已有 jobId 和阶段；不接受 URL 或命令 |
 | PUT | `/v1/admin/system/update-settings` | `{method?:'release'|'git',autoInstall?:boolean}`；至少一项；autoInstall 只自动准备 Release，不自动重启；Git 禁止自动准备 |
+
+0.3.69 起支持服务器生成的发布授权码（`Authorization: Bearer cdxp_k_...`），可通过 HTTP 或 HTTPS 调用受限发布路由。`GET /v1/publish/me` 验证身份；`server:read` 读取服务器版本，`server:write` 通过 `PUT /v1/admin/system/update-package` 上传服务器包并为该上传任务请求重启；`clients:read/write` 查看/上传客户端安装包。账号管理、生成授权码、更新设置和 Git 构建等操作仍仅限管理员。完整协议和上传参数见[发布授权](publishing-auth.md)及[本机工具](server-deploy.md)。
 
 `UpdateJob` 包含 `id,tag,method,action,commit?,phase,updatedAt,code?`。阶段为 queued/downloading/verifying/installing/fetching/fetched/building/built/restarting/succeeded/failed/rolled-back。fetched 和 built 等待管理员操作，不是正在运行。Git tag 为 `{tag,version,commit}`，只允许比当前版本更高的稳定 tag；Release 准备后同样停在 built，重启始终单独请求。重复处理返回 `409 update-in-progress`，过期 Release 返回 `409 update-not-current`，不可用 tag 返回 `409 tag-not-available`，跳步骤或旧任务 ID 返回 `409 update-step-not-ready`，旧/缺失更新器返回 `409 updater-not-installed`。检查失败保留缓存并设置 warning，禁止准备新版本，已准备好的步骤可继续。只有协议 2 helper 才启用后台安装。详见 [服务器更新](server-update.md)。
 

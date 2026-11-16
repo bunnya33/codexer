@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { ActivityIndicator, Image, Modal, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Text, View } from 'react-native';
 import { SvgXml } from 'react-native-svg';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -10,6 +10,7 @@ import { imageSwipe } from '../../../packages/client-shared/src/images';
 import type { ImageDirection, ImageGallery, ImagePreview } from '../../../packages/client-shared/src/images';
 import { ImageViewerHeader, ImageViewerNavigation } from './image-viewer-controls';
 import { useTheme } from './styles';
+import { RelayImage } from './relay-image';
 
 export function ImageViewerImage({ preview, onClose, onNavigate }: { preview: ImagePreview; onClose: () => void; onNavigate?: (direction: ImageDirection) => void }) {
   const { s } = useTheme();
@@ -31,7 +32,7 @@ export function ImageViewerImage({ preview, onClose, onNavigate }: { preview: Im
         if (direction) onNavigate?.(direction);
       }}>
       {preview.svgXml ? <SvgXml xml={preview.svgXml} width={size.width} height={size.height} onError={() => setError(true)} />
-        : <Image source={preview.source} style={{ width: size.width, height: size.height }} resizeMode="contain" onLoad={() => setLoading(false)} onError={() => { setLoading(false); setError(true); }} />}
+        : <RelayImage source={preview.source} style={{ width: size.width, height: size.height }} resizeMode="contain" onLoad={() => setLoading(false)} onError={() => { setLoading(false); setError(true); }} />}
     </ResumableZoom>}
     {(loading || error) && <View pointerEvents="none" style={{ position: 'absolute', inset: 0, alignItems: 'center', justifyContent: 'center' }}>
       {error ? <Text accessibilityRole="alert" style={{ color: '#fff' }}>图片暂不可用或格式不受支持</Text> : <ActivityIndicator color="#fff" />}

@@ -10,7 +10,7 @@ export const PUBLISH_SCOPES = [
   "clients:read",
   "clients:write",
 ] as const;
-export type PublishingCredential = {
+export type DevicePublishingCredential = {
   format: "publishing-v1";
   url: string;
   accessToken: string;
@@ -22,38 +22,75 @@ export type PublishingCredential = {
   username: string;
   scopes: string[];
 };
-type TokenReply = Omit<PublishingCredential, "format" | "url">;
+export type KeyPublishingCredential = Omit<
+  DevicePublishingCredential,
+  "format" | "refreshToken" | "refreshExpiresAt"
+> & {
+  format: "publishing-key-v1";
+};
+export type PublishingCredential = DevicePublishingCredential | KeyPublishingCredential;
+type TokenReply = Omit<DevicePublishingCredential, "format" | "url">;
 export function validPublishingCredential(value: unknown): value is PublishingCredential {
   const v = value as PublishingCredential;
   return (
     !!v &&
-    v.format === "publishing-v1" &&
-    /^cdxp_a_[A-Za-z0-9_-]{43}$/.test(v.accessToken) &&
-    /^cdxp_r_[A-Za-z0-9_-]{43}$/.test(v.refreshToken) &&
+    ((v.format === "publishing-v1" &&
+      /^cdxp_a_[A-Za-z0-9_-]{43}$/.test(v.accessToken) &&
+      /^cdxp_r_[A-Za-z0-9_-]{43}$/.test(v.refreshToken) &&
+      Number.isSafeInteger(v.refreshExpiresAt)) ||
+      (v.format === "publishing-key-v1" && /^cdxp_k_[A-Za-z0-9_-]{43}$/.test(v.accessToken))) &&
     typeof v.url === "string" &&
     typeof v.username === "string" &&
     typeof v.grantId === "string" &&
-    [v.expiresAt, v.refreshExpiresAt, v.grantExpiresAt].every(Number.isSafeInteger) &&
+    [v.expiresAt, v.grantExpiresAt].every(Number.isSafeInteger) &&
     Array.isArray(v.scopes) &&
     v.scopes.length > 0 &&
     v.scopes.every((s) => PUBLISH_SCOPES.includes(s as (typeof PUBLISH_SCOPES)[number]))
   );
 }
 function tokenCredential(url: string, value: TokenReply) {
-  const credential: PublishingCredential = { ...value, format: "publishing-v1", url };
+  const credential: DevicePublishingCredential = { ...value, format: "publishing-v1", url };
   if (!validPublishingCredential(credential))
     throw new DeployError("invalid-publishing-token-response");
   return credential;
+}
+/** Validate against this exact server before saving. The code is never returned
+ * in identity/status output, and redirects cannot carry it to another origin. */
+export async function importPublishingCode(
+  url: string,
+  code: string,
+): Promise<KeyPublishingCredential> {
+  url = deployUrl(url, true);
+  code = code.trim();
+  if (!/^cdxp_k_[A-Za-z0-9_-]{43}$/.test(code)) throw new DeployError("invalid-publishing-code");
+  const client = new DeployClient({ url, session: code, allowHttp: true, publishing: true });
+  const me =
+    await client.request<Omit<KeyPublishingCredential, "format" | "url" | "accessToken">>(
+      "/v1/publish/me",
+    );
+  const value: KeyPublishingCredential = {
+    ...me,
+    format: "publishing-key-v1",
+    url,
+    accessToken: code,
+  };
+  if (
+    !validPublishingCredential(value) ||
+    value.expiresAt <= Date.now() ||
+    value.grantExpiresAt <= Date.now()
+  )
+    throw new DeployError("invalid-publishing-identity");
+  return value;
 }
 export async function beginPublishingLogin(
   url: string,
   name: string,
   scopes: readonly string[] = PUBLISH_SCOPES,
 ) {
-  url = deployUrl(url); // Remote plaintext is deliberately unsupported.
+  url = deployUrl(url, true);
   const verifier = randomBytes(32).toString("base64url"),
     challenge = createHash("sha256").update(verifier).digest("base64url");
-  const client = new DeployClient({ url, session: "", allowHttp: false });
+  const client = new DeployClient({ url, session: "", allowHttp: true });
   let response: {
     deviceCode: string;
     userCode: string;
@@ -85,7 +122,7 @@ export async function waitPublishingLogin(
   login: Awaited<ReturnType<typeof beginPublishingLogin>>,
   options: { signal?: AbortSignal; pollMs?: number } = {},
 ) {
-  const client = new DeployClient({ url: login.url, session: "", allowHttp: false }),
+  const client = new DeployClient({ url: login.url, session: "", allowHttp: true }),
     deadline = Date.now() + login.expiresIn * 1000;
   while (Date.now() < deadline) {
     if (options.signal?.aborted) throw new DeployError("authorization-cancelled");
@@ -149,18 +186,23 @@ export async function loadPublishingClient(path: string, expectedUrl?: string) {
     throw new DeployError("login-required-run-server-deploy-login");
   }
   if (!validPublishingCredential(value))
-    throw new DeployError("legacy-admin-login-requires-new-web-authorization");
+    throw new DeployError("legacy-admin-login-requires-publishing-code");
   if (process.platform !== "win32")
     throw new DeployError("publishing-encrypted-store-requires-windows");
   let credential = value;
-  deployUrl(credential.url);
-  if (expectedUrl && deployUrl(expectedUrl) !== credential.url)
+  deployUrl(credential.url, true);
+  if (expectedUrl && deployUrl(expectedUrl, true) !== credential.url)
     throw new DeployError("saved-profile-server-mismatch");
   const authorize = async () => {
+    if (credential.format === "publishing-key-v1") {
+      if (Math.min(credential.expiresAt, credential.grantExpiresAt) <= Date.now())
+        throw new DeployError("publishing-authorization-expired-run-login");
+      return credential.accessToken;
+    }
     if (credential.expiresAt > Date.now() + 60000) return credential.accessToken;
     if (credential.refreshExpiresAt <= Date.now() || credential.grantExpiresAt <= Date.now())
       throw new DeployError("publishing-authorization-expired-run-login");
-    const anon = new DeployClient({ url: credential.url, session: "", allowHttp: false });
+    const anon = new DeployClient({ url: credential.url, session: "", allowHttp: true });
     const next = tokenCredential(
       credential.url,
       await anon.json<TokenReply>("/v1/publish/token", {
@@ -179,7 +221,7 @@ export async function loadPublishingClient(path: string, expectedUrl?: string) {
     return next.accessToken;
   };
   const client = new DeployClient(
-    { url: credential.url, session: "", allowHttp: false, publishing: true },
+    { url: credential.url, session: "", allowHttp: true, publishing: true },
     authorize,
   );
   return {

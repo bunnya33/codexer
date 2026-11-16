@@ -21,3 +21,7 @@
 .publishing-panel form { margin:20px 0; align-items:end; }
 .publishing-request { display:flex; flex-wrap:wrap; align-items:center; gap:14px; background:var(--background, #f3f5f8); padding:20px; border-radius:12px; }
 .publishing-request code { font-size:22px; letter-spacing:3px; }
+.publishing-scope { display:flex; align-items:center; gap:10px; margin:12px 0; }
+.publishing-scope input { width:18px; min-height:18px; flex-shrink:0; }
+.modal fieldset { margin:20px 0; border:1px solid var(--line); border-radius:8px; padding:10px 14px; }
+.modal textarea[aria-label="发布授权码"] { width:100%; padding:12px; border:1px solid var(--line); border-radius:8px; font:14px/1.6 Consolas,monospace; overflow-wrap:anywhere; resize:vertical; }

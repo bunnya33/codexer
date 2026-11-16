@@ -2,7 +2,17 @@
 
 0.3.55 新增独立设备授权，代码位于 `apps/relay/publishing.go`，仅对选定发布路由开放。普通管理员登录、控制端登录和设备凭据保持独立。
 
-## 流程与凭据
+## 服务器生成授权码
+
+管理员通过 `POST /v1/admin/publishing/keys` 提交 `name`、`scopes` 和可选的 `expiresInDays`（整数 1–90，默认 90）。服务器生成 `cdxp_k_` 加 32 字节随机值，并仅在这次 `Cache-Control: no-store` 响应中返回 `code`；同时返回 `grantId`、名称、权限、过期时间和管理员名称。服务器仅保存 SHA-256 摘要，授权列表、身份接口、审计均不返回明文，也没有重新查看接口。
+
+后台“发布授权”可生成、复制并撤销授权码。生成窗口关闭即清除页面内明文，不写入浏览器存储；HTTP 页面不支持 Clipboard API 时尝试兼容复制，失败则选中内容供手动复制。每名管理员最多保留 100 个未撤销且未到期的授权，避免无限生成。
+
+本机 `login --url <服务器地址>` 隐藏读取授权码，也可从标准输入接收；不接受命令行明文参数。工具通过 `GET /v1/publish/me` 校验后以 Windows DPAPI 保存 `publishing-key-v1` 配置。授权码可重复使用至固定有效期，撤销立即失效，不进行刷新或三十天空闲过期。最近使用时间最多每分钟更新一次。明文“只展示一次”不表示上传只能执行一次。
+
+## 兼容的网页审批流程
+
+已有 `publishing-v1` 配置继续使用原访问/刷新凭据；新申请此类配置时使用 `login --web`。
 
 1. CLI 随机生成 32 字节 verifier，提交其 SHA-256 / base64url challenge、电脑名称和申请 scopes 到 `POST /v1/publish/authorize`。
 2. 服务器生成独立的 256 位 deviceCode 和八位十六进制 userCode，十分钟有效。返回真实本站后台地址、userCode 和五秒轮询间隔。库不接受异站授权 URL、回调 URL 或任意重定向。
@@ -22,7 +32,7 @@
 
 ## 传输与撤销
 
-授权和全部发布凭据请求需要 HTTPS。回环例外要求实际 TCP 来源和 Host 都为回环且无转发协议头，可用于本机开发和 SSH 隧道。TLS 终结代理必须同时满足显式 HTTPS public URL、Host 匹配、可信代理来源和 `X-Forwarded-Proto: https`，不信任任意公网转发头。部署说明见[HTTPS 配置](publishing-https.md)。
+授权码、兼容网页审批和全部发布接口均支持 HTTP 与 HTTPS，包括远程 HTTP；CLI 无需额外开关。直接请求按实际连接生成本站地址。TLS 终结代理仅在显式 HTTPS public URL、Host 匹配、可信代理来源和 `X-Forwarded-Proto: https` 同时满足时改变协议，不信任任意公网转发头。客户端拒绝重定向，避免把凭据带到其它地址。HTTP 本身不加密传输；可选的 TLS 和隧道部署说明见[HTTPS 配置](publishing-https.md)。
 
 后台 `GET /v1/admin/publishing` 查看授权和审计，`DELETE /v1/admin/publishing/{grantId}` 撤销。账户禁用和重置密码撤销关联 grant；普通浏览器退出不会撤销独立工具授权。工具 logout 撤销自己的 grant 并删除本机密文，不影响其它应用登录。
 
