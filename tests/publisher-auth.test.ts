@@ -4,12 +4,17 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
+import { vi } from "vitest";
 import {
   beginPublishingLogin,
   waitPublishingLogin,
   loadPublishingClient,
   lockPublishingProfile,
   savePublishingCredential,
+  importPublishingCode,
+  validPublishingCredential,
 } from "../packages/shared/src/publisher-auth.js";
 import { writeSecret } from "../packages/shared/src/secrets.js";
 
@@ -23,7 +28,8 @@ async function fixture() {
     polls = 0,
     refreshes = 0,
     approved = false;
-  const access = "cdxp_a_" + "A".repeat(43),
+  const key = "cdxp_k_" + "K".repeat(43),
+    access = "cdxp_a_" + "A".repeat(43),
     refresh = "cdxp_r_" + "B".repeat(43),
     calls: string[] = [];
   const reply = () => ({
@@ -67,9 +73,17 @@ async function fixture() {
       return approved ? json(200, reply()) : json(400, { error: "authorization-pending" });
     }
     if (req.url === "/v1/publish/me")
-      return req.headers.authorization === "Bearer " + access
-        ? json(200, { grantId: "test-grant", scopes: ["server:read"] })
+      return ["Bearer " + access, "Bearer " + key].includes(req.headers.authorization ?? "")
+        ? json(200, {
+            grantId: "test-grant",
+            scopes: ["clients:read"],
+            username: "admin",
+            expiresAt: Date.now() + 86400000,
+            grantExpiresAt: Date.now() + 86400000,
+          })
         : json(401, { error: "unauthorized" });
+    if (req.url === "/v1/admin/client-releases" && req.headers.authorization === "Bearer " + key)
+      return json(200, { releases: {}, packages: [] });
     json(404, { error: "not-found" });
   });
   await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
@@ -88,6 +102,7 @@ async function fixture() {
     calls,
     reply,
     refresh,
+    key,
     approve: () => {
       approved = true;
     },
@@ -107,10 +122,90 @@ it("authorizes on the real server website and exchanges only the bound device pr
   });
   expect(remote.counts().polls).toBeGreaterThan(0);
   expect(remote.calls).not.toContain("/v1/admin/auth/login");
-  await expect(beginPublishingLogin("http://47.109.21.89:8899", "PC")).rejects.toThrow(
-    "allow-http",
-  );
 });
+
+it("imports reusable publishing codes over public HTTP and rejects malformed codes locally", async () => {
+  const remote = await fixture();
+  const credential = await importPublishingCode(remote.url, "  " + remote.key + "\n");
+  expect(credential).toMatchObject({ format: "publishing-key-v1", grantId: "test-grant" });
+  expect(validPublishingCredential(credential)).toBe(true);
+  await expect(importPublishingCode(remote.url, "cdxp_a_" + "A".repeat(43))).rejects.toThrow(
+    "invalid-publishing-code",
+  );
+  await expect(importPublishingCode(remote.url, "cdxp_k_" + "Z".repeat(43))).rejects.toThrow(
+    "login-expired",
+  );
+  // Assert remote HTTP is passed to fetch without requiring TLS or a loopback exception.
+  const originalFetch = globalThis.fetch;
+  const mock = vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+    expect(String(input)).toBe("http://publisher.example.test:8899/v1/publish/me");
+    return originalFetch(remote.url + "/v1/publish/me", init);
+  });
+  try {
+    expect((await importPublishingCode("http://publisher.example.test:8899", remote.key)).url).toBe(
+      "http://publisher.example.test:8899",
+    );
+  } finally {
+    mock.mockRestore();
+  }
+  expect(remote.counts().refreshes).toBe(0);
+});
+
+it.skipIf(process.platform !== "win32")(
+  "imports a code through CLI stdin, encrypts it, and reuses it without refresh or secret output",
+  async () => {
+    const remote = await fixture(),
+      dir = await mkdtemp(join(tmpdir(), "codexer-key-cli-"));
+    cleanup.push(() => rm(dir, { recursive: true, force: true }));
+    const env = { ...process.env, CODEXER_DEPLOY_HOME: dir };
+    const login = await new Promise<string>((done, reject) => {
+      const child = spawn(
+        process.execPath,
+        ["node_modules/tsx/dist/cli.mjs", "scripts/server-deploy.ts", "login", "--url", remote.url],
+        { env, windowsHide: true },
+      );
+      let stdout = "",
+        stderr = "";
+      child.stdout.on("data", (v) => {
+        stdout += v;
+      });
+      child.stderr.on("data", (v) => {
+        stderr += v;
+      });
+      child.on("error", reject);
+      child.on("close", (code) =>
+        code === 0 ? done(stdout + stderr) : reject(Error(stdout + stderr)),
+      );
+      child.stdin.end(remote.key + "\n");
+    });
+    expect(login).toContain("authorization-saved");
+    expect(login).not.toContain(remote.key);
+    const disk = await readFile(join(dir, "default.secret"), "utf8");
+    expect(disk).toContain("windows-dpapi-v1");
+    expect(disk).not.toContain(remote.key);
+    const status = await promisify(execFile)(
+      process.execPath,
+      ["node_modules/tsx/dist/cli.mjs", "scripts/server-deploy.ts", "status"],
+      { env, windowsHide: true },
+    );
+    expect(JSON.parse(status.stdout)).toMatchObject({ authorized: true, scopes: ["clients:read"] });
+    expect(status.stdout + status.stderr).not.toContain(remote.key);
+    const clients = await promisify(execFile)(
+      process.execPath,
+      ["node_modules/tsx/dist/cli.mjs", "scripts/server-deploy.ts", "clients"],
+      { env, windowsHide: true },
+    );
+    expect(JSON.parse(clients.stdout)).toMatchObject({ packages: [] });
+    expect(remote.counts().refreshes).toBe(0);
+    const { client, identity } = await loadPublishingClient(join(dir, "default.secret"));
+    await client.assertAdmin();
+    expect(JSON.stringify(identity())).not.toContain(remote.key);
+    await expect(
+      loadPublishingClient(join(dir, "default.secret"), "http://different.test"),
+    ).rejects.toThrow("server-mismatch");
+  },
+  25000,
+);
 it("cancels authorization without requesting an administrator password", async () => {
   const remote = await fixture(),
     login = await beginPublishingLogin(remote.url, "PC"),
@@ -145,7 +240,7 @@ it.skipIf(process.platform !== "win32")(
     expect(disk).not.toContain(remote.reply().accessToken);
     expect(disk).not.toContain(remote.refresh);
     const loaded = await loadPublishingClient(path);
-  expect(loaded.identity().username).toBe(remote.reply().username);
+    expect(loaded.identity().username).toBe(remote.reply().username);
     await loaded.client.assertAdmin();
     expect(remote.counts().refreshes).toBe(1);
   },

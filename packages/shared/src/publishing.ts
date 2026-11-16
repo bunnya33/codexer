@@ -13,6 +13,7 @@ export type PublishRequest = {
   status: string;
 };
 export type PublishingGrant = {
+  credential_type?: "key" | "device";
   id: string;
   name: string;
   username: string;
@@ -33,3 +34,11 @@ export type PublishingAudit = {
   code: string;
 };
 export type PublishingInfo = { grants: PublishingGrant[]; audit: PublishingAudit[] };
+export type PublishingKey = {
+  code: string;
+  grantId: string;
+  name: string;
+  scopes: string[];
+  expiresAt: number;
+  username: string;
+};

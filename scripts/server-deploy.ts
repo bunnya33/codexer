@@ -17,14 +17,17 @@ import {
   loadPublishingClient,
   lockPublishingProfile,
   PUBLISH_SCOPES,
+  importPublishingCode,
 } from "../packages/shared/src/publisher-auth.js";
+import { readPublishingCode } from "../packages/shared/src/publisher-input.js";
 import {
   inspectClientPackage,
   publishClientPackage,
 } from "../packages/shared/src/client-publish.js";
 
-const help = `Codexer 发布工具（独立网页授权）
-  npm run server:deploy -- login --url https://server.example.com [--name <电脑名称>] [--scopes server:read,server:write,clients:read,clients:write]
+const help = `Codexer 发布工具（服务器生成授权码）
+  npm run server:deploy -- login --url http://server.example.com
+  npm run server:deploy -- login --web --url <服务器地址> [--name <电脑名称>] [--scopes server:read,server:write,clients:read,clients:write]
   npm run server:deploy -- status
   npm run server:deploy -- deploy --archive <服务器包.tar.gz> [--checksum <文件.sha256>] [--apply]
   npm run server:deploy -- publish-client --target <目标> --archive <安装包> [--version X.Y.Z] [--build-number N] [--notes-file <说明.txt>] [--checksum <文件.sha256>] [--apply]
@@ -33,7 +36,8 @@ const help = `Codexer 发布工具（独立网页授权）
 
 通用选项：--profile <名称>（默认 default） --timeout <秒>（默认 900）
 deploy / publish-client 默认只预检，--apply 才执行。
-login 在真实服务器后台授权，工具不接收管理员密码。远程连接必须使用 HTTPS。
+login 粘贴后台“发布授权”生成的授权码，输入隐藏；也支持通过标准输入传入。支持 HTTP 和 HTTPS。
+--web 保留旧版网页审批方式。工具不接收管理员密码。
 客户端发布不自动安装到设备。Windows Agent 安装版同时同步兼容更新通道。
 Android 自动验证正式签名、applicationId、versionName 和 versionCode（需要 Android SDK/JDK）。
 `;
@@ -47,6 +51,7 @@ async function main() {
       profile: { type: "string", default: "default" },
       name: { type: "string" },
       scopes: { type: "string" },
+      web: { type: "boolean" },
       archive: { type: "string" },
       checksum: { type: "string" },
       apply: { type: "boolean" },
@@ -92,6 +97,22 @@ async function main() {
       if (!values.url) throw new DeployError("server-url-required");
       if (process.platform !== "win32")
         throw new DeployError("publishing-encrypted-store-requires-windows");
+      if (!values.web) {
+        if (values.name || values.scopes)
+          throw new DeployError("publishing-code-scopes-set-in-admin");
+        const credential = await importPublishingCode(values.url, await readPublishingCode());
+        await savePublishingCredential(secretPath, credential);
+        output({
+          event: "authorization-saved",
+          profile: values.profile,
+          url: credential.url,
+          username: credential.username,
+          grantId: credential.grantId,
+          scopes: credential.scopes,
+          grantExpiresAt: credential.grantExpiresAt,
+        });
+        return;
+      }
       const scopes = values.scopes ? values.scopes.split(",") : PUBLISH_SCOPES;
       if (
         scopes.length === 0 ||

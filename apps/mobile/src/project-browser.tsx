@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
-  Image,
   Platform,
   Pressable,
   ScrollView,
@@ -11,6 +10,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { RelayImage } from "./relay-image";
 import {
   ChevronDown,
   ChevronRight,
@@ -686,7 +686,7 @@ export function ProjectBrowser({
               }
             />
           ) : source && /\.(png|jpe?g|webp|gif)$/i.test(selected.path) ? (
-            <Image
+            <RelayImage
               source={source}
               resizeMode="contain"
               style={{ flex: 1, minHeight: 200 }}

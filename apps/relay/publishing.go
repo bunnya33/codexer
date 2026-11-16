@@ -59,22 +59,18 @@ func (s *Server) publishingProxy(remote string) bool {
 	return false
 }
 
-// Never infer a public origin from untrusted forwarding headers. A TLS proxy is
-// supported only on loopback with an explicitly configured HTTPS public origin.
+// HTTP is supported for publishing. Only a trusted proxy with a matching public
+// origin may change the scheme; arbitrary forwarding headers are ignored.
 func (s *Server) publishTransport(r *http.Request) string {
 	wOrigin := "https://" + r.Host
 	if r.TLS != nil {
 		return wOrigin
 	}
-	if loopbackHost(r.Host) && loopbackHost(r.RemoteAddr) && r.Header.Get("X-Forwarded-Proto") == "" && r.Header.Get("Forwarded") == "" {
-		return "http://" + r.Host
-	}
 	u, err := url.Parse(s.Options.PublicURL)
 	if err == nil && u.Scheme == "https" && u.User == nil && (u.Path == "" || u.Path == "/") && u.RawQuery == "" && u.Fragment == "" && strings.EqualFold(u.Host, r.Host) && s.publishingProxy(r.RemoteAddr) && r.Header.Get("X-Forwarded-Proto") == "https" {
 		return u.Scheme + "://" + u.Host
 	}
-	fail(403, "publishing-requires-https")
-	return ""
+	return "http://" + r.Host
 }
 
 func publishScopes(v any) string {
@@ -113,12 +109,16 @@ func (s *Store) publishAudit(p *Principal, action, target, outcome, code string)
 }
 
 func (s *Store) publishPrincipal(value, scope string) *Principal {
-	row := s.One("SELECT g.id,g.user_id,g.scopes,t.expires_at FROM publish_tokens t JOIN publish_grants g ON g.id=t.grant_id JOIN users u ON u.id=g.user_id WHERE t.hash=$1 AND t.kind='access' AND t.expires_at>$2 AND g.expires_at>$2 AND g.revoked_at IS NULL AND u.revoked_at IS NULL AND u.role='admin' AND u.password_hash IS NOT NULL", hash(value), now())
+	row := s.One("SELECT g.id,g.user_id,g.scopes,t.expires_at,t.kind FROM publish_tokens t JOIN publish_grants g ON g.id=t.grant_id JOIN users u ON u.id=g.user_id WHERE t.hash=$1 AND t.kind IN ('access','key') AND t.expires_at>$2 AND g.expires_at>$2 AND g.revoked_at IS NULL AND u.revoked_at IS NULL AND u.role='admin' AND u.password_hash IS NOT NULL", hash(value), now())
 	if row == nil {
 		fail(401, "unauthorized")
 	}
 	if scope != "any" && !strings.Contains(" "+str(row["scopes"])+" ", " "+scope+" ") {
 		fail(403, "publishing-scope-denied")
+	}
+	if row["kind"] == "key" {
+		// Bound writes when upload finalization rechecks the same credential.
+		s.Q("UPDATE publish_grants SET last_used_at=$2 WHERE id=$1 AND last_used_at<$3", row["id"], now(), now()-60000)
 	}
 	return &Principal{ID: str(row["user_id"]), Kind: "publisher", Grant: str(row["id"]), Hash: hash(value), Expires: num(row["expires_at"])}
 }
@@ -135,6 +135,43 @@ func (s *Store) publishTokens(grant M) M {
 }
 
 func (s *Server) publishRoutes() {
+	s.route("POST /v1/admin/publishing/keys", "admin", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
+		if !s.originAllowed(r) {
+			fail(403, "origin-denied")
+		}
+		b := body(r)
+		name := strings.TrimSpace(str(b["name"]))
+		if name == "" || jsLength(name) > 100 || strings.ContainsAny(name, "\r\n\x00") {
+			fail(400, "invalid-publishing-request")
+		}
+		scopes := publishScopes(b["scopes"])
+		days := int64(90)
+		if v, ok := b["expiresInDays"]; ok {
+			f, valid := v.(float64)
+			if !valid || f < 1 || f > 90 || f != float64(int64(f)) {
+				fail(400, "invalid-publishing-expiry")
+			}
+			days = int64(f)
+		}
+		s.exclusive.RLock()
+		defer s.exclusive.RUnlock()
+		s.auth.Lock()
+		defer s.auth.Unlock()
+		s.principal(r, "admin")
+		id, at, code := uuid(), now(), "cdxp_k_"+token(32)
+		expiry := at + days*86400000
+		username := s.Store.One("SELECT name FROM users WHERE id=$1", p.ID)["name"]
+		s.Store.Tx(func(t *Store) {
+			if num(t.One("SELECT COUNT(*) AS n FROM publish_grants WHERE user_id=$1 AND revoked_at IS NULL AND expires_at>$2", p.ID, at)["n"]) >= 100 {
+				fail(429, "too-many-publishing-grants")
+			}
+			t.Q("INSERT INTO publish_grants(id,user_id,name,scopes,created_at,expires_at,last_used_at) VALUES($1,$2,$3,$4,$5,$6,$5)", id, p.ID, name, scopes, at, expiry)
+			t.Q("INSERT INTO publish_tokens(hash,grant_id,kind,expires_at) VALUES($1,$2,'key',$3)", hash(code), id, expiry)
+			t.publishAudit(&Principal{ID: p.ID, Grant: id}, "publishing-key-created", name, "succeeded", "")
+		})
+		w.Header().Set("Cache-Control", "no-store")
+		return M{"code": code, "grantId": id, "name": name, "scopes": scopeList(scopes), "expiresAt": expiry, "username": username}
+	})
 	s.route("POST /v1/publish/authorize", "", func(w http.ResponseWriter, r *http.Request, _ *Principal) any {
 		origin := s.publishTransport(r)
 		if !s.originAllowed(r) {
@@ -280,6 +317,7 @@ func (s *Server) publishRoutes() {
 		return result
 	})
 	s.route("GET /v1/publish/me", "publish:any", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
+		w.Header().Set("Cache-Control", "no-store")
 		if p.Grant == "" {
 			fail(403, "publishing-credential-required")
 		}
@@ -298,7 +336,8 @@ func (s *Server) publishRoutes() {
 		return M{"ok": true}
 	})
 	s.route("GET /v1/admin/publishing", "admin", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
-		rows := s.Store.Q("SELECT g.id,g.name,g.scopes,g.created_at,g.expires_at,g.last_used_at,g.revoked_at,u.name AS username FROM publish_grants g JOIN users u ON u.id=g.user_id ORDER BY g.created_at DESC LIMIT 500")
+		w.Header().Set("Cache-Control", "no-store")
+		rows := s.Store.Q("SELECT g.id,g.name,g.scopes,g.created_at,g.expires_at,g.last_used_at,g.revoked_at,u.name AS username,CASE WHEN EXISTS(SELECT 1 FROM publish_tokens t WHERE t.grant_id=g.id AND t.kind='key') THEN 'key' ELSE 'device' END AS credential_type FROM publish_grants g JOIN users u ON u.id=g.user_id ORDER BY g.created_at DESC LIMIT 500")
 		return M{"grants": rows, "audit": s.Store.Q("SELECT * FROM publish_audit ORDER BY at DESC,id DESC LIMIT 200")}
 	})
 	s.route("DELETE /v1/admin/publishing/{grantId}", "admin", func(w http.ResponseWriter, r *http.Request, p *Principal) any {

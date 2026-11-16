@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { KeyRound, RefreshCw, ShieldCheck } from "lucide-react";
 import * as api from "./api";
 import { Modal } from "./modal";
+import { PublishingKeyDialog } from "./publishing-key";
 
 import { publishingScopeNames } from "../../../packages/shared/src/publishing";
 import type {
@@ -113,6 +114,7 @@ export function PublishingPanel() {
     [revoke, setRevoke] = useState<Grant | null>(null),
     [code, setCode] = useState(""),
     [approval, setApproval] = useState("");
+  const [creating, setCreating] = useState(false);
   const refresh = async () => {
     setError("");
     try {
@@ -133,33 +135,41 @@ export function PublishingPanel() {
               <KeyRound size={20} />
               发布授权
             </h2>
-            <p className="muted">管理本机工具的独立授权。撤销后，访问令牌和刷新凭据立即失效。</p>
+            <p className="muted">生成授权码供本地工具上传更新，明文仅显示一次。撤销后立即失效。</p>
           </div>
-          <button disabled={busy} onClick={() => void refresh()}>
-            <RefreshCw size={16} />
-            刷新
-          </button>
+          <div className="actions">
+            <button className="primary" onClick={() => setCreating(true)}>
+              生成发布授权码
+            </button>
+            <button disabled={busy} onClick={() => void refresh()}>
+              <RefreshCw size={16} />
+              刷新
+            </button>
+          </div>
         </div>
-        <form
-          className="actions"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setApproval(code.toUpperCase().trim());
-          }}
-        >
-          <label>
-            工具验证码
-            <input
-              placeholder="ABCD-1234"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              maxLength={9}
-              pattern="[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}"
-              required
-            />
-          </label>
-          <button>查看授权请求</button>
-        </form>
+        <details>
+          <summary>旧版工具网页审批</summary>
+          <form
+            className="actions"
+            onSubmit={(e) => {
+              e.preventDefault();
+              setApproval(code.toUpperCase().trim());
+            }}
+          >
+            <label>
+              工具验证码
+              <input
+                placeholder="ABCD-1234"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                maxLength={9}
+                pattern="[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}"
+                required
+              />
+            </label>
+            <button>查看授权请求</button>
+          </form>
+        </details>
         {error && (
           <p className="error" role="alert">
             {error}
@@ -171,7 +181,7 @@ export function PublishingPanel() {
               <tr>
                 <th>电脑 / 管理员</th>
                 <th>权限</th>
-                <th>有效期 / 最近续期</th>
+                <th>有效期 / 最近使用</th>
                 <th>状态</th>
                 <th>操作</th>
               </tr>
@@ -182,6 +192,7 @@ export function PublishingPanel() {
                   <td>
                     <strong>{g.name}</strong>
                     <small>{g.username}</small>
+                    <small>{g.credential_type === "key" ? "授权码" : "网页审批"}</small>
                   </td>
                   <td>
                     {g.scopes.split(" ").map((s) => (
@@ -195,7 +206,9 @@ export function PublishingPanel() {
                   <td>
                     {g.revoked_at
                       ? "已撤销"
-                      : g.expires_at <= Date.now() || g.last_used_at + 30 * 86400000 <= Date.now()
+                      : g.expires_at <= Date.now() ||
+                          (g.credential_type !== "key" &&
+                            g.last_used_at + 30 * 86400000 <= Date.now())
                         ? "已过期"
                         : "有效"}
                   </td>
@@ -213,7 +226,7 @@ export function PublishingPanel() {
             </tbody>
           </table>
           {data && !data.grants.length && (
-            <p className="empty">暂无发布授权。运行本机发布工具的 login 命令申请。</p>
+            <p className="empty">暂无发布授权，点击“生成发布授权码”创建。</p>
           )}
         </div>
       </section>
@@ -261,7 +274,7 @@ export function PublishingPanel() {
             if (!busy) setRevoke(null);
           }}
         >
-          <p>该电脑需要重新在网页授权才能继续发布。已经完成的更新和客户端安装包保留。</p>
+          <p>该工具需要使用新的发布授权才能继续发布。已经完成的更新和客户端安装包保留。</p>
           <div className="actions">
             <button disabled={busy} onClick={() => setRevoke(null)}>
               取消
@@ -291,6 +304,14 @@ export function PublishingPanel() {
           code={approval}
           close={() => {
             setApproval("");
+            void refresh();
+          }}
+        />
+      )}
+      {creating && (
+        <PublishingKeyDialog
+          close={() => {
+            setCreating(false);
             void refresh();
           }}
         />
