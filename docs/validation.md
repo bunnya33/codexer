@@ -1,5 +1,15 @@
 # 当前 Go 迁移验证
 
+## 2026-11-18：Android FrogCoder 0.1.26 / versionCode 30 已发布
+
+fetch 后主目录 main 与 origin/main 同为 `f54fb33`，保留既有 AGENTS、历史 Android 验证段落及其它未提交文件。本轮仅将 mobile package、Expo version 和锁文件版本同步升到 `0.1.26`，Android versionCode 递增到 30；业务源码沿用该提交已完成的消息交互、原生选择及分支编辑实现。本轮不重复此前通过的功能回归，相关原生交互、40 项专项及 Qt 后台／协议验收见下节。
+
+1,236 个文件同步到短路径构建副本且逐文件一致，保留正常 App 入口。真实 Gradle Release `BUILD SUCCESSFUL in 1m 3s`，634 项任务、71 执行、563 无需重跑。APK 实际清单为 `FrogCoder`、`0.1.26 / 30`、原 applicationId、非 debuggable；原证书、APK v2 签名及 16 KiB ZIP 对齐通过。包内 Hermes 与本轮构建输出一致，source map 中全部 159 份应用／共享 JS 源码匹配主目录，不含 QA 入口；包含本地 CodexerMessages 原生模块。27 份启动／自适应／单色图标资源逐字节匹配线上 0.1.25；包含 ARM64、ARMv7、x86 与 x86_64，minSdk 24／targetSdk 36。
+
+Android 15／API 35 模拟器先安装与线上摘要一致的 `0.1.25 / 29` 正式包，再覆盖安装 `0.1.26 / 30`；应用 UID、首次安装时间与数据目录保留。正常界面冷启动通过，日志无原生或 React Native 致命异常；测试模拟器已关闭。未使用真实账号发送任务，未进行手机实机覆盖安装与震动手感验收。
+
+已通过既有发布授权上传 `control-android`，独立读取客户端目录确认当前为 `0.1.26 / 30`、发布 ID `8a844fb6-9a98-43ca-bfeb-962b4ee08375`，上一版保留为历史。文件 `release/android-0.1.26/FrogCoder-0.1.26-build30.apk` 为 94,526,798 字节，SHA-256 `3c9ed4ff30a91b323b49f1f1e22e1dfa4bfe19ab8fdc81c03f675699d6d4a589`；同名 `.sha256`、原生构建、签名、源码、模拟器及服务器目录回执在同目录。服务器程序仍使用原版本，未安装／重启服务器，未更新其它端包；分支编辑需后续配套服务器与 Agent，新安卓在旧设备上自动隐藏编辑入口。
+
 ## 2026-11-18：消息操作、分支编辑与移动端轻触反馈（待发布）
 
 沿用主目录 main 开发，开始时核对 origin/main 与 HEAD 同为 `5d88912`；保留既有 AGENTS、历史 Android 验证段落及其它未提交文件。消息复制增加成功提示、短暂勾选和系统轻触反馈，编辑框「＋」增加同款轻触；失败或禁用不触发，网页及桌面适配为空操作。新增本地 Expo 原生模块，不增加常驻服务或震动权限。正常发送布局未按录屏改版。
