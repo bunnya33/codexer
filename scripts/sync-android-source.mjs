@@ -24,7 +24,13 @@ const gradlePath=join(stage,'apps/mobile/android/app/build.gradle');
 const gradle=await readFile(gradlePath,'utf8');
 assert.equal((gradle.match(/versionCode \d+/g)||[]).length,1,'Expected one native versionCode');
 assert.equal((gradle.match(/versionName "[^"]+"/g)||[]).length,1,'Expected one native versionName');
-const files=execFileSync('git',['ls-files','--cached','--others','--exclude-standard','-z'],{cwd:root,encoding:'utf8'}).split('\0').filter(file=>file&&(file.startsWith('apps/mobile/')||file.startsWith('packages/')||file.startsWith('scripts/')||['package.json','package-lock.json','tsconfig.json','metro.config.js','babel.config.js'].includes(file)));
+const sharedBuildFiles = new Set([
+  'package.json', 'package-lock.json', 'tsconfig.json', 'metro.config.js', 'babel.config.js',
+  'apps/relay/protocol/default-model-pricing.json',
+]);
+const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: root, encoding: 'utf8' })
+  .split('\0')
+  .filter(file => file.startsWith('apps/mobile/') || file.startsWith('packages/') || file.startsWith('scripts/') || sharedBuildFiles.has(file));
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 for(const file of files){
   const source=join(root,file),target=join(stage,file);
