@@ -94,8 +94,8 @@ final class CodexerMessageTextView: ExpoView, UITextViewDelegate, UIContextMenuI
   override func layoutSubviews() {
     super.layoutSubviews()
     guard bounds.width > 0 else { return }
-    let height = ceil(textView.sizeThatFits(CGSize(width: bounds.width, height: .greatestFiniteMagnitude)).height)
-    let width = ceil(textView.attributedText.boundingRect(with: CGSize(width: 10000, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).width) + 2
+    let height = ceil(textView.sizeThatFits(CGSize(width: bounds.width, height: CGFloat.greatestFiniteMagnitude)).height)
+    let width = ceil(textView.attributedText.boundingRect(with: CGSize(width: 10000, height: CGFloat.greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).width) + 2
     textView.frame = CGRect(x: 0, y: 0, width: bounds.width, height: height)
     if abs(height - measured) > 0.5 || abs(width - naturalWidth) > 0.5 {
       measured = height; naturalWidth = width

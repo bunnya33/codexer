@@ -92,3 +92,24 @@ it('rejects late native measurements from before backgrounding or a newer keyboa
     f.keyboard(docked, 'keyboardWillHide'); f.app.flushMeasures(); expect(f.app.padding).toBe(0);
   } finally { f.close(); }
 });
+
+it('keeps the composer at the bottom when stale frame events follow a keyboard dismissal', () => {
+  const f = fixture();
+  try {
+    f.app.edit('第一行\n第二行\n第三行');
+    const input = f.dom.window.document.querySelector('textarea');
+    f.keyboard(); expect(f.app.padding).toBe(302);
+    f.app.edit(''); // Send clears the draft while keyboard dismissal is in flight.
+    f.keyboard(docked, 'keyboardWillHide'); expect(f.app.padding).toBe(0);
+    f.keyboard(docked, 'keyboardWillChangeFrame');
+    f.app.layout(); expect(f.app.padding).toBe(0);
+    f.keyboard(docked, 'keyboardDidHide');
+    f.app.deferMeasure = true;
+    f.keyboard(docked, 'keyboardDidChangeFrame');
+    f.app.flushMeasures(); expect(f.app.padding).toBe(0);
+    f.app.deferMeasure = false;
+    f.keyboard(docked, 'keyboardWillShow'); expect(f.app.padding).toBe(302);
+    f.keyboard(); expect(f.app.padding).toBe(302);
+    expect(f.dom.window.document.querySelector('textarea')).toBe(input);
+  } finally { f.close(); }
+});

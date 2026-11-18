@@ -9,6 +9,7 @@ export function ConversationKeyboard({ children }: PropsWithChildren) {
   const host = useRef<View>(null);
   const phase = useRef(AppState.currentState);
   const keyboard = useRef<KeyboardMetrics | undefined>(Keyboard.metrics());
+  const hidden = useRef(false);
   const revision = useRef(0), frame = useRef<number | undefined>(undefined);
   const [bottom, setBottom] = useState(0);
   const measure = useCallback(() => {
@@ -32,19 +33,28 @@ export function ConversationKeyboard({ children }: PropsWithChildren) {
       frame.current = requestAnimationFrame(() => { frame.current = undefined; if (live) measure(); });
     };
     const change = (event: KeyboardEvent) => {
-      if ((phase.current && phase.current !== 'active') || ('isEventFromThisApp' in event && event.isEventFromThisApp === false)) return;
+      if (hidden.current || (phase.current && phase.current !== 'active') || ('isEventFromThisApp' in event && event.isEventFromThisApp === false)) return;
       keyboard.current = event.endCoordinates; measure();
     };
-    const hide = () => { keyboard.current = undefined; cancel(); setBottom(0); };
+    const show = (event: KeyboardEvent) => {
+      if ((phase.current && phase.current !== 'active') || ('isEventFromThisApp' in event && event.isEventFromThisApp === false)) return;
+      hidden.current = false; change(event);
+    };
+    // UIKit can deliver the old frame after hide. Only a new show or a foreground
+    // metrics check may reopen avoidance; layout/frame callbacks cannot do so.
+    const hide = (event?: KeyboardEvent) => {
+      if (event && 'isEventFromThisApp' in event && event.isEventFromThisApp === false) return;
+      hidden.current = true; keyboard.current = undefined; cancel(); setBottom(0);
+    };
     const events = [
-      Keyboard.addListener('keyboardWillShow', change), Keyboard.addListener('keyboardDidShow', change),
+      Keyboard.addListener('keyboardWillShow', show), Keyboard.addListener('keyboardDidShow', show),
       Keyboard.addListener('keyboardWillChangeFrame', change), Keyboard.addListener('keyboardDidChangeFrame', change),
       Keyboard.addListener('keyboardWillHide', hide), Keyboard.addListener('keyboardDidHide', hide),
     ];
     const state = AppState.addEventListener('change', next => {
       phase.current = next;
       if (next === 'background') hide();
-      else if (next === 'active') { keyboard.current = Keyboard.metrics(); refresh(); }
+      else if (next === 'active') { keyboard.current = Keyboard.metrics(); hidden.current = !keyboard.current; refresh(); }
       else cancel();
     });
     refresh();

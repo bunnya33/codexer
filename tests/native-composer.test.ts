@@ -41,7 +41,7 @@ function fixture() {
 it('leaves iOS text layout free to grow and keeps caret scrolling enabled before any size callback', () => {
   const { dom, window, style } = fixture();
   try {
-    for (const value of ['', '中'.repeat(200), '第一行\n第二行\n', '短句']) {
+    for (const value of ['中'.repeat(200), '第一行\n第二行\n', '短句']) {
       window.renderComposer(value);
       expect(style()).toMatchObject({ height: undefined, minHeight: 42, maxHeight: 211 });
       expect(window.editor.scrollEnabled).toBe(true);
@@ -51,6 +51,29 @@ it('leaves iOS text layout free to grow and keeps caret scrolling enabled before
     expect(style().height).toBeUndefined();
     expect(window.editor.scrollEnabled).toBe(true);
     expect(window.sizes).toEqual([900]);
+  } finally { dom.window.close(); }
+});
+
+it('shrinks a cleared multiline iOS input immediately and ignores stale native sizes without replacing the editor', () => {
+  const { dom, window, style } = fixture();
+  try {
+    window.renderComposer('第一行\n第二行\n第三行');
+    const input = dom.window.document.querySelector('textarea')!;
+    input.focus();
+    window.contentSize(180);
+    window.renderComposer('');
+    expect(style().height).toBe(42);
+    window.contentSize(180); // Previous native layout arriving after the send cleared the draft.
+    expect(style().height).toBe(42);
+    expect(input.value).toBe('');
+    expect(dom.window.document.querySelector('textarea')).toBe(input);
+    expect(dom.window.document.activeElement).toBe(input);
+    window.renderComposer('继续输入\n中文');
+    expect(style().height).toBeUndefined();
+    expect(window.editor.scrollEnabled).toBe(true);
+    expect(dom.window.document.querySelector('textarea')).toBe(input);
+    window.renderComposer('', 'ios', 120);
+    expect(style()).toMatchObject({height: 30, minHeight: 30, maxHeight: 30});
   } finally { dom.window.close(); }
 });
 
@@ -67,6 +90,8 @@ it.each(['android', 'windows'])('keeps measured growth, overflow scrolling and d
     window.renderComposer('', platform);
     await vi.waitFor(() => expect(style().height).toBe(42));
     expect(window.editor.scrollEnabled).toBe(false);
+    window.contentSize(500);
+    expect(style().height).toBe(42);
     if (platform === 'windows') expect(window.editor.submitKeyEvents).toEqual([{ code: 'Enter' }]);
   } finally { dom.window.close(); }
 });

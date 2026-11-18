@@ -13,7 +13,7 @@ beforeAll(async () => {
     window.render('');
   `, resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"production"' },
     plugins: [{ name: 'suspended-ios-animation', setup(builder) {
-      builder.onResolve({ filter: /^(react-native|lucide-react-native|\.\.\/styles|\.\.\/marquee-title|\.\.\/task-status-dot|\.\/primitives|\.\/motion|\.\/control-symbols)$/ }, args => ({ path: args.path, namespace: 'fixture' }));
+      builder.onResolve({ filter: /^(react-native|lucide-react-native|\.\.\/haptics|\.\.\/styles|\.\.\/marquee-title|\.\.\/task-status-dot|\.\/primitives|\.\/motion|\.\/control-symbols)$/ }, args => ({ path: args.path, namespace: 'fixture' }));
       builder.onLoad({ filter: /.*/, namespace: 'fixture' }, args => ({ loader: 'jsx', resolveDir: process.cwd(), contents: {
         'react-native': `import React,{forwardRef}from'react';export const Platform={OS:'ios'};
           export const useWindowDimensions=()=>({width:390,height:844});export const StyleSheet={create:value=>value};
@@ -23,6 +23,7 @@ beforeAll(async () => {
           export const Animated={View,Value:class{interpolate(){return 'stalled-animation'}},timing:()=>{throw Error('iOS critical layout must not depend on an animation')}};`,
         'lucide-react-native': 'export const ArrowUp=()=>null,Check=ArrowUp,ListChecks=ArrowUp,Menu=ArrowUp,MoreHorizontal=ArrowUp,Paperclip=ArrowUp,Play=ArrowUp,Plus=ArrowUp,Square=ArrowUp,SquarePen=ArrowUp,X=ArrowUp;',
         '../styles': 'export const useTheme=()=>({c:{}});',
+        '../haptics': 'export const messageHaptic=()=>{};',
         '../marquee-title': 'export const MarqueeTitle=()=>null;',
         '../task-status-dot': 'export const TaskStatusDot=()=>null;',
         './primitives': 'export const ChromeButton=()=>null;',
