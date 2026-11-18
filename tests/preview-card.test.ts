@@ -66,3 +66,38 @@ it('aborts a pending open when unmounted and releases a late capability',async()
     await vi.waitFor(()=>expect(app.closed).toEqual([app.opened[0]!.uri]));expect(app.errors).toEqual([]);
   }finally{app.dom.window.close();}
 });
+
+it('rotates the live preview through four positions without reloading the page', async () => {
+  const app = fixture();
+  try {
+    app.click('打开预览 Page 0');
+    const frame = await vi.waitFor(() => {
+      const preview = app.dom.window.document.querySelector('iframe');
+      expect(preview).not.toBeNull();
+      return preview!;
+    });
+    const container = frame.parentElement!;
+    const viewport = container.parentElement as HTMLElement & {
+      __reactLayoutHandler: (event: { nativeEvent: { layout: { width: number; height: number } } }) => void;
+    };
+    viewport.__reactLayoutHandler({ nativeEvent: { layout: { width: 360, height: 280 } } });
+    for (const angle of [90, 180, 270, 0]) {
+      app.click('向右旋转预览 90 度');
+      await vi.waitFor(() => {
+        const style = app.dom.window.getComputedStyle(container);
+        expect(style.transform || 'none').toBe(angle ? `rotate(${angle}deg)` : 'none');
+      });
+      if (angle) {
+        const sideways = angle % 180 !== 0;
+        expect(container.style.width).toBe(sideways ? '280px' : '360px');
+        expect(container.style.height).toBe(sideways ? '360px' : '280px');
+      }
+      expect(app.dom.window.document.querySelector('iframe')).toBe(frame);
+    }
+    expect(app.opened).toHaveLength(1);
+    expect(app.closed).toHaveLength(0);
+  } finally {
+    app.unmount();
+    app.dom.window.close();
+  }
+});

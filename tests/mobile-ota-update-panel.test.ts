@@ -9,10 +9,16 @@ beforeAll(async () => {
   const result = await build({
     stdin: {
       contents: `import {createRoot} from 'react-dom/client';
-        import {Alert} from 'react-native';
-        import {OtaUpdatePanel} from './apps/mobile/src/ota-update-panel.mobile';
+        import {Alert, AppState} from 'react-native';
+        import {OtaUpdatePanel, OtaUpdateProvider, useOtaUpdateAvailable} from './apps/mobile/src/ota-update-panel.mobile';
         Alert.alert = (...args) => window.onAlert(...args);
-        createRoot(document.getElementById('root')).render(<OtaUpdatePanel/>);`,
+        Object.defineProperty(AppState, 'currentState', { get: () => window.appState.currentState });
+        AppState.addEventListener = (...args) => window.appState.addEventListener(...args);
+        function Screen() {
+          return <>{useOtaUpdateAvailable() && <span aria-label="有热更新"/>}
+            <OtaUpdatePanel/></>;
+        }
+        createRoot(document.getElementById('root')).render(<OtaUpdateProvider><Screen/></OtaUpdateProvider>);`,
       resolveDir: resolve("."),
       loader: "tsx",
     },
@@ -64,6 +70,15 @@ async function fixture() {
     setUpdateRequestHeadersOverride: vi.fn(),
   };
   const listeners = new Set<() => void>();
+  const stateListeners = new Set<(state: string) => void>();
+  const appState = {
+    currentState: "active",
+    addEventListener: (_event: string, listener: (state: string) => void) => {
+      stateListeners.add(listener);
+      return { remove: () => stateListeners.delete(listener) };
+    },
+  };
+  let onInterval: (() => void) | undefined;
   let view = { phase: "connected", url: "http://first.test:8899", userId: "user" };
   const relay = {
     getSnapshot: () => view,
@@ -87,7 +102,19 @@ async function fixture() {
     runScripts: "dangerously",
     pretendToBeVisual: true,
     beforeParse(window) {
-      Object.assign(window, { onAlert, updates, relay });
+      Object.assign(window, { onAlert, updates, relay, appState });
+      const startInterval = window.setInterval.bind(window);
+      const stopInterval = window.clearInterval.bind(window);
+      window.setInterval = (callback, interval, ...args) => {
+        if (interval !== 5 * 60 * 1000 || typeof callback !== "function")
+          return startInterval(callback, interval, ...args);
+        onInterval = () => callback(...args);
+        return -1;
+      };
+      window.clearInterval = id => {
+        if (id === -1) onInterval = undefined;
+        else stopInterval(id);
+      };
     },
   });
   dom.window.eval(javascript);
@@ -101,13 +128,19 @@ async function fixture() {
     });
     button.click();
   };
-  await click("检查内容更新");
+  await vi.waitFor(() => expect(updates.checkForUpdateAsync).toHaveBeenCalledOnce());
   return {
     dom,
     click,
     updates,
     onAlert,
     relay,
+    poll: () => onInterval?.(),
+    isPolling: () => !!onInterval,
+    setAppState: (state: string) => {
+      appState.currentState = state;
+      stateListeners.forEach(listener => listener(state));
+    },
     switchRelay: (url: string) => {
       view = { ...view, url };
       listeners.forEach((listener) => listener());
@@ -168,17 +201,14 @@ it("checks the current Relay version and discards the previous server's availabl
         "frogcoder-update-url": "http://first.test:8899/v1/mobile-ota/manifest?relayVersion=0.3.71",
       }),
     );
-    const priorButton = Array.from(dom.window.document.querySelectorAll('[role="button"]')).find(
-      (item) => item.textContent === "检查内容更新",
-    );
-    expect(priorButton).toBeDefined();
+    const badge = () => dom.window.document.querySelector('[aria-label="有热更新"]');
+    await vi.waitFor(() => expect(badge()).not.toBeNull());
     relay.mobileOtaVersion.mockResolvedValue(null);
     switchRelay("http://second.test:8787");
-    await vi.waitFor(() => expect(priorButton!.isConnected).toBe(false));
-    await click("检查内容更新");
     await vi.waitFor(() =>
       expect(dom.window.document.body.textContent).toContain("当前服务器暂不支持内容更新"),
     );
+    expect(badge()).toBeNull();
     expect(updates.checkForUpdateAsync).toHaveBeenCalledOnce();
     relay.mobileOtaVersion.mockResolvedValue("0.3.72");
     await click("检查内容更新");
@@ -188,6 +218,28 @@ it("checks the current Relay version and discards the previous server's availabl
           "http://second.test:8787/v1/mobile-ota/manifest?relayVersion=0.3.72",
       }),
     );
+  } finally {
+    dom.window.close();
+  }
+});
+
+it("checks on launch, foreground return and every five minutes while foregrounded", async () => {
+  const { dom, updates, setAppState, isPolling, poll } = await fixture();
+  const badge = () => dom.window.document.querySelector('[aria-label="有热更新"]');
+  try {
+    await vi.waitFor(() => expect(badge()).not.toBeNull());
+    expect(isPolling()).toBe(true);
+    setAppState("background");
+    expect(isPolling()).toBe(false);
+    poll();
+    expect(updates.checkForUpdateAsync).toHaveBeenCalledOnce();
+    setAppState("active");
+    await vi.waitFor(() => expect(updates.checkForUpdateAsync).toHaveBeenCalledTimes(2));
+    updates.checkForUpdateAsync.mockResolvedValueOnce({ isAvailable: false });
+    poll();
+    await vi.waitFor(() => expect(updates.checkForUpdateAsync).toHaveBeenCalledTimes(3));
+    await vi.waitFor(() => expect(badge()).toBeNull());
+    expect(updates.fetchUpdateAsync).not.toHaveBeenCalled();
   } finally {
     dom.window.close();
   }

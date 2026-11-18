@@ -56,6 +56,7 @@ import { Dialog } from './src/dialog';
 import { ControlSettings } from './src/control-settings';
 import {SettingsShell} from './src/settings-shell';
 import {useClientUpdates} from './src/client-updates';
+import {OtaUpdateProvider, useOtaUpdateAvailable} from './src/ota-update-panel';
 import { pickAttachments } from './src/attachment-picker';
 import { pickMedia } from './src/media-picker';
 import type { AttachmentAsset } from './src/attachment-picker';
@@ -70,7 +71,9 @@ function AppContent() {
   const { width } = useWindowDimensions();
   const wide = ['web', 'windows', 'macos'].includes(Platform.OS) && width >= 900;
   const view = useSyncExternalStore(relay.subscribe, relay.getSnapshot);
-  const clientUpdates=useClientUpdates();
+  const clientUpdates = useClientUpdates();
+  const otaUpdateAvailable = useOtaUpdateAvailable();
+  const updateAvailable = clientUpdates.available || otaUpdateAvailable;
   const [restoring, setRestoring] = useState(true);
   const [loginBusy, setLoginBusy] = useState(false);
   const { deviceId, threadId, selectDevice: setDeviceId, selectThread: setThreadId } = useConversationSelection(view);
@@ -458,7 +461,7 @@ function AppContent() {
     selectDevice={setDeviceId} selectThread={selectThread}
     toggleProject={id => setExpandedProjects(current => current.includes(`${deviceId}:${id}`) ? current.filter(value => value !== `${deviceId}:${id}`) : [...current, `${deviceId}:${id}`])}
     createProject={() => { setProjectDeviceId(deviceId); setDrawerOpen(false); }} projectActions={project => { setActionProject({ ...project, deviceId }); setDrawerOpen(false); }} threadActions={item => { setDrawerOpen(false); setNewName(item.title); setActionThread({ id: item.id, title: item.title }); }}
-    updateAvailable={clientUpdates.available} close={() => setDrawerOpen(false)} settings={() => { setDrawerOpen(false); openMenu('settings'); }} refresh={() => void relay.refreshDevices()} />;
+    updateAvailable={updateAvailable} close={() => setDrawerOpen(false)} settings={() => { setDrawerOpen(false); openMenu('settings'); }} refresh={() => void relay.refreshDevices()} />;
 
   if (restoring) return <SafeAreaView style={[s.safe, s.center]}><ActivityIndicator color={c.accent} /></SafeAreaView>;
   if (view.phase === 'locked') return <Login connect={connect} busy={loginBusy} error={view.notice} />;
@@ -581,10 +584,10 @@ function AppContent() {
             <Pressable style={s.menuOption} disabled={managing} onPress={() => { const target = actionThread; if (target) void confirmAction('永久删除会话', `删除“${target.title}”后无法恢复。`).then(confirmed => { if (confirmed) void manageThread({ type: 'thread.delete', threadId: target.id }); }); }}><Trash2 size={18} color={c.danger} /><Text style={s.dangerText}>永久删除</Text></Pressable>
           </>}
     </Dialog>
-    <SettingsShell open={menuOpen&&menu==='settings'} onClose={closeMenu} onWeixin={()=>setMenu('weixin')} updateAvailable={clientUpdates.available}>{section=><ControlSettings section={section} url={view.url} device={device&&{id:device.id,name:device.name,online:device.online,platform:device.platform,agentVersion:snapshot?.agentVersion??device.agentVersion,runtimeRefresh:snapshot?.runtime.capabilities.runtimeRefresh===true}} onWeixin={()=>setMenu('weixin')} onLogout={()=>{closeMenu();void relay.logout().catch(()=>{});}}/>}</SettingsShell>
+    <SettingsShell open={menuOpen&&menu==='settings'} onClose={closeMenu} onWeixin={()=>setMenu('weixin')} updateAvailable={updateAvailable}>{section=><ControlSettings section={section} url={view.url} device={device&&{id:device.id,name:device.name,online:device.online,platform:device.platform,agentVersion:snapshot?.agentVersion??device.agentVersion,runtimeRefresh:snapshot?.runtime.capabilities.runtimeRefresh===true}} onWeixin={()=>setMenu('weixin')} onLogout={()=>{closeMenu();void relay.logout().catch(()=>{});}}/>}</SettingsShell>
     <Dialog open={menuOpen && menu === 'weixin'} title="微信设置" onClose={closeMenu}>{menuOpen && menu === 'weixin' && <WeixinSettings />}</Dialog>
     <ImageViewer preview={preview} onClose={() => setPreview(null)} onNavigate={moveImage} />
   </View></ModelPricingContext.Provider>;
 }
 
-export default function App() { return <ThemeProvider><ScreenAwakeProvider><DownloadLifecycle /><SafeAreaProvider><AppContent /></SafeAreaProvider></ScreenAwakeProvider></ThemeProvider>; }
+export default function App() { return <ThemeProvider><ScreenAwakeProvider><DownloadLifecycle /><SafeAreaProvider><OtaUpdateProvider><AppContent /></OtaUpdateProvider></SafeAreaProvider></ScreenAwakeProvider></ThemeProvider>; }

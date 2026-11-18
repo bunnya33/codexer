@@ -2,7 +2,7 @@ import { themedStyles } from './theme';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import { Crosshair, Maximize2, MessageSquare, Minimize2, RefreshCw, Share2, SlidersHorizontal, X } from 'lucide-react-native';
+import { Crosshair, Maximize2, MessageSquare, Minimize2, RefreshCw, RotateCw, Share2, SlidersHorizontal, X } from 'lucide-react-native';
 import { buildPreviewDocument } from '../../../packages/client-shared/src/preview-runtime';
 import { previewControls, previewFeedback, restoredControlValue, widgetState } from '../../../packages/client-shared/src/previews';
 import { filePreviewLimit, filePreviewLimitMessage } from '../../../packages/client-shared/src/file-preview';
@@ -26,6 +26,8 @@ export function PreviewCard({ reference, deviceId, threadId }: { reference: Prev
   const [revision, setRevision] = useState(0), [expanded, setExpanded] = useState(false), [tweaking, setTweaking] = useState(false);
   const [sharing,setSharing]=useState(false);
   const [enabled, setEnabled] = useState(false);
+  const [rotation, setRotation] = useState(0);
+  const [viewport, setViewport] = useState({ width: 0, height: 0 });
   const [document, setDocument] = useState<string>(), [url, setUrl] = useState<string>(), [channel, setChannel] = useState('');
   const [height, setHeight] = useState(280), [error, setError] = useState(''), [loading, setLoading] = useState(true);
   const [controls, setControls] = useState<TweakControl[]>([]), [feedback, setFeedback] = useState<string | null>(null), [sending, setSending] = useState(false);
@@ -42,7 +44,7 @@ export function PreviewCard({ reference, deviceId, threadId }: { reference: Prev
   useEffect(() => {
     if (!enabled) return;
     stopActivePreview?.();
-    const stop = () => { setEnabled(false); setExpanded(false); };
+    const stop = () => { setEnabled(false); setExpanded(false); setRotation(0); };
     stopActivePreview = stop;
     return () => { if (stopActivePreview === stop) stopActivePreview = undefined; };
   }, [enabled]);
@@ -124,6 +126,9 @@ export function PreviewCard({ reference, deviceId, threadId }: { reference: Prev
     } catch (error) { relay.showNotice(error instanceof Error ? error.message : '反馈发送失败'); }
     finally { setSending(false); }
   };
+  const sideways = rotation % 180 !== 0;
+  const surfaceHeight = sideways ? viewport.width : viewport.height;
+  const surfaceWidth = sideways ? viewport.height : viewport.width;
   const content = <View style={[ps.card, expanded && ps.fullCard]}>
     <View style={ps.header}><Text style={ps.title} numberOfLines={1}>{reference.title}</Text><View style={ps.actions}>
       <Pressable accessibilityRole="button" accessibilityLabel="分享网页" onPress={() => setSharing(true)} style={ps.icon}><Share2 size={16} color={c.muted}/></Pressable>
@@ -131,13 +136,34 @@ export function PreviewCard({ reference, deviceId, threadId }: { reference: Prev
       <Pressable accessibilityRole="button" accessibilityLabel="调整预览参数" onPress={() => setTweaking(value => !value)} style={ps.icon}><SlidersHorizontal size={16} color={tweaking ? c.accent : c.muted} /></Pressable>
       <Pressable accessibilityRole="button" accessibilityLabel={annotating ? '取消元素标注' : '标注预览元素'} onPress={() => { surface.current?.send({type:'annotate',enabled:!annotating}); setAnnotating(!annotating); }} style={ps.icon}><Crosshair size={16} color={annotating ? c.accent : c.muted} /></Pressable>
       <Pressable accessibilityRole="button" accessibilityLabel="反馈给 Codex" onPress={() => setFeedback('')} style={ps.icon}><MessageSquare size={16} color={c.muted} /></Pressable>
+      {enabled && <Pressable accessibilityRole="button" accessibilityLabel="向右旋转预览 90 度" onPress={() => setRotation(value => (value + 90) % 360)} style={ps.icon}><RotateCw size={16} color={rotation ? c.accent : c.muted} /></Pressable>}
       <Pressable accessibilityRole="button" accessibilityLabel={expanded ? '收起全屏预览' : '展开全屏预览'} onPress={() => { setEnabled(true); setExpanded(value => !value); setRevision(value => value + 1); }} style={ps.icon}>{expanded ? <Minimize2 size={16} color={c.muted} /> : <Maximize2 size={16} color={c.muted} />}</Pressable>
-      {enabled && <Pressable accessibilityRole="button" accessibilityLabel="关闭预览" onPress={() => { setEnabled(false); setExpanded(false); }} style={ps.icon}><X size={16} color={c.muted}/></Pressable>}
+      {enabled && <Pressable accessibilityRole="button" accessibilityLabel="关闭预览" onPress={() => { setEnabled(false); setExpanded(false); setRotation(0); }} style={ps.icon}><X size={16} color={c.muted}/></Pressable>}
     </View></View>
     {annotating && <View style={ps.annotation}><Text style={ps.link}>点击预览中的元素，选择要调整的位置。</Text></View>}
     {selection && <View style={ps.annotation}><Text style={ps.muted}>已选择 {selection.tag}：{selection.text || selection.selector}</Text><Pressable accessibilityRole="button" onPress={() => setFeedback('')}><Text style={ps.link}>反馈这个元素</Text></Pressable></View>}
     <View style={expanded && ps.fullPreview}>
-      {!enabled ? <View style={ps.status}><Pressable accessibilityRole="button" accessibilityLabel={`打开预览 ${reference.title}`} onPress={() => setEnabled(true)}><Text style={ps.link}>打开预览</Text></Pressable><Text style={ps.muted}>点击后加载并运行网页</Text></View> : loading ? <View style={[ps.status, expanded && ps.fullStatus]}><ActivityIndicator color={c.accent} /><Text style={ps.muted}>正在从电脑加载预览…</Text></View> : error ? <View style={[ps.status, expanded && ps.fullStatus]}><Text style={ps.error}>{error}</Text><Pressable accessibilityRole="button" onPress={() => setRevision(value => value + 1)}><Text style={ps.link}>重试</Text></Pressable></View> : <PreviewSurface key={channel} surfaceRef={surface} document={document} url={url} channel={channel} height={height} expanded={expanded} title={reference.title} onMessage={receive} />}
+      {!enabled ? <View style={ps.status}><Pressable accessibilityRole="button" accessibilityLabel={`打开预览 ${reference.title}`} onPress={() => setEnabled(true)}><Text style={ps.link}>打开预览</Text></Pressable><Text style={ps.muted}>点击后加载并运行网页</Text></View> : loading ? <View style={[ps.status, expanded && ps.fullStatus]}><ActivityIndicator color={c.accent} /><Text style={ps.muted}>正在从电脑加载预览…</Text></View> : error ? <View style={[ps.status, expanded && ps.fullStatus]}><Text style={ps.error}>{error}</Text><Pressable accessibilityRole="button" onPress={() => setRevision(value => value + 1)}><Text style={ps.link}>重试</Text></Pressable></View> : (
+        <View
+          style={[ps.viewport, expanded ? ps.fullPreview : { height: rotation ? 280 : height }]}
+          onLayout={({ nativeEvent: { layout } }) => setViewport(previous =>
+            previous.width === layout.width && previous.height === layout.height
+              ? previous : { width: layout.width, height: layout.height },
+          )}
+        >
+          <View style={rotation && surfaceWidth && surfaceHeight ? {
+            position: 'absolute',
+            width: surfaceWidth,
+            height: surfaceHeight,
+            top: (viewport.height - surfaceHeight) / 2,
+            left: (viewport.width - surfaceWidth) / 2,
+            transform: [{ rotate: `${rotation}deg` }],
+          } : ps.fullPreview}>
+            <PreviewSurface key={channel} surfaceRef={surface} document={document} url={url} channel={channel}
+              height={rotation ? surfaceHeight || 280 : height} expanded={expanded} title={reference.title} onMessage={receive} />
+          </View>
+        </View>
+      )}
     </View>
     {tweaking && <ScrollView style={[ps.tweakScroll, expanded && ps.fullTweaks]} contentContainerStyle={ps.tweaks}><Text style={ps.group}>Tweak · 参数调节</Text>{!controls.length && <Text style={ps.muted}>这个预览没有提供可调参数。可以通过“反馈给 Codex”描述希望增加的控件。</Text>}{controls.map(control => <View key={control.id} style={ps.control}>
       <View style={ps.controlHead}><Text style={ps.label}>{control.group} · {control.label}</Text><Text style={ps.muted}>{control.kind === 'toggle' ? '' : String(control.value)}</Text></View>
@@ -154,7 +180,8 @@ export function PreviewCard({ reference, deviceId, threadId }: { reference: Prev
 const usePsStyles = themedStyles(c => StyleSheet.create({
   card: { width: '100%', borderWidth: 1, borderColor: c.line, borderRadius: 10, overflow: 'hidden', backgroundColor: c.surface, marginVertical: 10 },
   header: { minHeight: 45, paddingHorizontal: 10, flexShrink: 0, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: 1, borderColor: c.line },
-  title: { color: c.text, fontSize: 13, fontWeight: '600', flex: 1, minWidth: 0 }, actions: { flexDirection: 'row', flexShrink: 0 }, icon: { width: 36, height: 40, alignItems: 'center', justifyContent: 'center' },
+  title: { color: c.text, fontSize: 13, fontWeight: '600', flex: 1, minWidth: 0 }, actions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 1 }, icon: { width: 36, height: 40, alignItems: 'center', justifyContent: 'center' },
+  viewport: { overflow: 'hidden' },
   status: { padding: 22, gap: 12, alignItems: 'center' }, annotation: {padding:10,gap:6,backgroundColor:c.soft}, muted: { color: c.muted, fontSize: 12 }, error: { color: c.danger, fontSize: 13 }, link: { color: c.accent, fontSize: 13 },
   tweakScroll: { flexGrow: 0, flexShrink: 0 }, fullTweaks: { maxHeight: '40%', flexShrink: 1 }, tweaks: { borderTopWidth: 1, borderColor: c.line, padding: 14, gap: 12 }, group: { fontSize: 13, fontWeight: '600', color: c.text }, control: { gap: 6 }, controlHead: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 }, label: { color: c.text, fontSize: 12, flexShrink: 1 },
   options: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 }, option: { borderWidth: 1, borderColor: c.line, borderRadius: 6, padding: 10 }, selected: { backgroundColor: c.soft, borderColor: c.accent },
