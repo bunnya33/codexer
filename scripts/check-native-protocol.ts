@@ -33,6 +33,8 @@ const payloads: Record<string,any>[]=[
  {type:'turn.queue.update',threadId:'thread',queueId:'queue',text:'new',expectedText:'old'},
  {type:'turn.interrupt',threadId:'thread',turnId:'turn'},
  {type:'turn.continue',threadId:'thread',turnId:'stopped'},
+ {type:'turn.edit',threadId:'thread',turnId:'turn',itemId:'message',expectedText:'original',text:'edited'},
+ {type:'turn.edit',threadId:'thread',turnId:'turn',itemId:'message',expectedText:'original',text:'edited',attachments:['a'.repeat(64)]},
  {type:'thread.model.update',threadId:'thread',model:'model',expectedModel:'old'},
  {type:'thread.effort.update',threadId:'thread',effort:'high',expectedModel:'model',expectedEffort:null},
  {type:'thread.mode.update',threadId:'thread',mode:'plan',expectedMode:null,expectedModel:'model',expectedEffort:null},
@@ -50,6 +52,7 @@ for(const payload of payloads) {
  }
 }
 for(const turnId of ['',null,'x'.repeat(161)]) add('command',{...envelope,payload:{type:'turn.continue',threadId:'thread',turnId}});
+for(const extra of [{text:' '},{text:''},{itemId:''},{attachments:['bad']},{attachments:Array(5).fill('a'.repeat(64))},{images:[]},{unexpected:true}]) add('command',{...envelope,payload:{type:'turn.edit',threadId:'thread',turnId:'turn',itemId:'message',expectedText:'original',text:'edited',...extra}});
 for (const type of ['turn.start', 'turn.steer', 'turn.queue']) {
  for (const count of [20, 21]) add('command', {...envelope, payload: {type, threadId:'thread', turnId:'turn', text:'', images:Array(count).fill('a'.repeat(64))}});
 }

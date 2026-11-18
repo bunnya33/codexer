@@ -11,6 +11,7 @@ import type { ComposerProps } from '../composer';
 import { ChromeButton } from './primitives';
 import { useInteractionMotion } from './motion';
 import { chromePermissionLabels, PermissionSymbol } from './control-symbols';
+import {messageHaptic} from '../haptics';
 
 export type ConversationPhase = 'idle' | 'running' | 'interrupted' | 'completed';
 export type ComposerAction = 'send' | 'steer' | 'stop' | 'continue';
@@ -93,7 +94,7 @@ export function ConversationChromeComposer({ text, onChangeText, phase, busy = f
           }} />
       </Animated.View>
       <View style={styles.toolbar} pointerEvents="box-none">
-        <View ref={attachmentAnchor} collapsable={false}><ChromeButton Icon={Plus} label={attachmentsLabel} onPress={onAttachments} disabled={!attachmentsEnabled || busy} /></View>
+        <View ref={attachmentAnchor} collapsable={false}><ChromeButton Icon={Plus} label={attachmentsLabel} onPress={() => { messageHaptic(); onAttachments(); }} disabled={!attachmentsEnabled || busy} /></View>
         <Pressable accessibilityRole="button" accessibilityLabel={`会话权限：${chromePermissionLabels[permission]}`} accessibilityState={{ disabled: !permissionsEnabled }} disabled={!permissionsEnabled} onPress={onPermissions} style={[styles.symbolButton, !permissionsEnabled && { opacity: .35 }]}><PermissionSymbol mode={permission} size={23} /></Pressable>
         {expanded && plan && <Pressable accessibilityRole="button" accessibilityLabel="退出方案模式" disabled={!planEnabled || busy} onPress={onClearPlan} style={[styles.planChip, { backgroundColor: c.soft, opacity: planEnabled ? 1 : .4 }]}><ListChecks size={15} color={c.accent} /><Text style={{ color: c.accent, fontSize: 12 }}>方案</Text><X size={12} color={c.muted} /></Pressable>}
         <View style={{ flex: 1, minWidth: 0 }} pointerEvents="none" />

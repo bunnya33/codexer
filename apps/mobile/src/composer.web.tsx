@@ -6,11 +6,12 @@ import { isVideoAttachment } from '../../../packages/protocol/src/uploads';
 import { attachmentFromFile } from './attachment-picker.web';
 import { imageAsset } from './image-file.web';
 
-export function ComposerInput({ onImages, imagesEnabled, onImageError, imageSlots = MAX_IMAGES, onFiles, filesEnabled, ...props }: ComposerProps) {
-  const input = useRef<TextInput>(null);
+export function ComposerInput({ compact=false, inputRef, onImages, imagesEnabled, onImageError, imageSlots = MAX_IMAGES, onFiles, filesEnabled, ...props }: ComposerProps) {
+  const ownInput = useRef<TextInput>(null);
+  const input = inputRef ?? ownInput;
   const {height: windowHeight} = useWindowDimensions();
   const maxHeight = windowHeight / 4;
-  const minHeight = Math.min(42, maxHeight);
+  const minHeight = Math.min(compact?28:42, maxHeight);
   const measure = useCallback(() => {
     const element = input.current as unknown as HTMLTextAreaElement | null;
     if (!element) return;

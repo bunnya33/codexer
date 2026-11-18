@@ -269,6 +269,7 @@ class Service : public QObject {
   Object execute(Object command);
   Object executeTurn(Object command, const Array &inputs, bool onDesktop);
   Object manage(const Object &command);
+  Object editMessage(const Object &command);
   Object project(const Object &command);
   Object queue(const Object &command);
   void drainQueues();

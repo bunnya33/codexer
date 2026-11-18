@@ -2,6 +2,7 @@ import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import * as Clipboard from 'expo-clipboard';
 import { Alert } from 'react-native';
+import {messageHaptic} from './haptics';
 
 const credentialKey = 'codexer.mobile.relay.v1';
 export const readCredentials = () => SecureStore.getItemAsync(credentialKey);
@@ -9,5 +10,5 @@ export const saveCredentials = (value: string) => SecureStore.setItemAsync(crede
 export const clearCredentials = () => SecureStore.deleteItemAsync(credentialKey);
 export const randomId = () => Crypto.randomUUID();
 export const defaultRelayUrl = () => '';
-export const copyText = async (value: string) => { if (!await Clipboard.setStringAsync(value)) throw new Error('clipboard-unavailable'); };
+export const copyText = async (value: string) => { if (!await Clipboard.setStringAsync(value)) throw new Error('clipboard-unavailable'); messageHaptic(); };
 export const confirmAction = (title: string, message: string): Promise<boolean> => new Promise(resolve => Alert.alert(title, message, [{ text: '取消', style: 'cancel', onPress: () => resolve(false) }, { text: '确认', style: 'destructive', onPress: () => resolve(true) }], { cancelable: true, onDismiss: () => resolve(false) }));

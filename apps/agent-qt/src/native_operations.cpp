@@ -63,6 +63,8 @@ Object Service::execute(Object command) {
     return {{"watched", true}};
   if (type.startsWith("turn.queue"))
     return queue(command);
+  if (type == "turn.edit")
+    return editMessage(command);
   auto prepared = inputs(id, p["images"].toArray(), p["attachments"].toArray());
   if (generation != remoteGeneration || paused || !allowed)
     throw Error("remote-disconnected");
@@ -500,6 +502,145 @@ Object Service::executeTurn(Object command, const Array &prepared,
   dirtyThreads.insert(id);
   return result;
 }
+Object Service::editMessage(const Object &command) {
+  const auto generation = remoteGeneration;
+  auto p = command["payload"].toObject();
+  const auto id = p["threadId"].toString(), turnId = p["turnId"].toString();
+  const auto thread = snapshot["threads"].toObject()[id].toObject();
+  if (thread["status"] != "idle") throw Error("thread-not-idle");
+  ensureRpc();
+  checkCommand(command, generation);
+  // Read only the selected turn, never hydrate the entire source conversation.
+  auto page = rpc->call("thread/items/list", {{"threadId", id}, {"turnId", turnId},
+    {"sortDirection", "asc"}, {"limit", 1}});
+  auto data = page["data"].toArray();
+  if (data.size() != 1) throw Error("edit-message-unavailable");
+  const auto entry = data[0].toObject();
+  if (entry["turnId"] != turnId) throw Error("edit-message-unavailable");
+  auto item = entry["item"].toObject();
+  if (item["id"] != p["itemId"] || item["type"] != "userMessage")
+    throw Error("edit-message-unavailable");
+  const auto normalized = normalizeTurn({{"id", turnId}, {"status", "completed"},
+    {"items", Array{item}}}, true, id)["items"].toArray();
+  if (normalized.size() != 1 || normalized[0].toObject()["truncated"] == true ||
+      normalized[0].toObject().contains("userMessageParts"))
+    throw Error("edit-message-unavailable");
+  if (normalized[0].toObject()["text"].toString() != p["expectedText"].toString())
+    throw Error("edit-message-changed");
+  Array retained;
+  QStringList originalParts;
+  const auto content = item.contains("content") ? item["content"].toArray() : item["input"].toArray();
+  for (auto value : content) {
+    const auto input = value.toObject();
+    if (input["type"] == "image" || input["type"] == "localImage") retained.append(input);
+    else if (input["type"] == "text") originalParts.append(input["text"].toString());
+    else throw Error("edit-message-unavailable");
+  }
+  auto editedText = p["text"].toString();
+  const auto originalText = originalParts.join('\n');
+  const auto visibleText = p["expectedText"].toString();
+  if (originalText != visibleText && !originalText.isEmpty()) {
+    const auto offset = originalText.lastIndexOf(visibleText);
+    if (visibleText.isEmpty() || offset < 0) throw Error("edit-message-unavailable");
+    editedText = originalText;
+    editedText.replace(offset, visibleText.size(), p["text"].toString());
+  }
+  auto metadata = rpc->call("thread/read", {{"threadId", id}, {"includeTurns", false}})["thread"].toObject();
+  if (metadata["id"] != id) throw Error("edit-message-unavailable");
+  auto saved = savedContext(metadata);
+  // Current owner settings take precedence over the last persisted turn.
+  const auto latest = desktopThreads.contains(id)
+      ? desktop->watched[id].raw["latestThreadSettings"].toObject() : effectiveSettings[id];
+  for (const auto &key : {"model", "effort", "collaborationMode", "runtimeWorkspaceRoots", "approvalPolicy", "approvalsReviewer"})
+    if (latest.contains(key)) saved[key] = latest[key];
+  auto policy = latest["sandboxPolicy"].toObject();
+  if (policy.isEmpty()) {
+    const auto rust = saved["sandboxPolicy"].toObject();
+    const auto type = saved["sandbox"].toString();
+    policy = {{"type", type == "danger-full-access" ? "dangerFullAccess" : type == "read-only" ? "readOnly" : "workspaceWrite"}};
+    if (type != "danger-full-access") policy["networkAccess"] = rust["network_access"].toBool();
+    if (type == "workspace-write") {
+      policy["writableRoots"] = rust["writable_roots"].toArray();
+      policy["excludeSlashTmp"] = rust["exclude_slash_tmp"].toBool();
+      policy["excludeTmpdirEnvVar"] = rust["exclude_tmpdir_env_var"].toBool();
+    }
+  }
+  const auto sandboxType = policy["type"].toString();
+  if (!QStringList{"workspaceWrite", "readOnly", "dangerFullAccess"}.contains(sandboxType))
+    throw Error("edit-settings-unsupported");
+  saved["sandbox"] = sandboxType == "workspaceWrite" ? "workspace-write" : sandboxType == "readOnly" ? "read-only" : "danger-full-access";
+  saved["sandboxPolicy"] = policy;
+  for (auto input : inputs(id, {}, p["attachments"].toArray())) retained.append(input);
+  Object request{{"threadId", id}, {"lastTurnId", turnId}, {"excludeTurns", true},
+    {"cwd", saved["cwd"]}, {"model", saved["model"]}, {"modelProvider", saved["modelProvider"]},
+    {"sandbox", saved["sandbox"]}, {"approvalPolicy", saved["approvalPolicy"]},
+    {"approvalsReviewer", saved["approvalsReviewer"]}};
+  if (sandboxType == "workspaceWrite")
+    request["config"] = Object{{"sandbox_workspace_write", Object{
+      {"writable_roots", policy["writableRoots"].toArray()},
+      {"network_access", policy["networkAccess"].toBool()},
+      {"exclude_slash_tmp", policy["excludeSlashTmp"].toBool()},
+      {"exclude_tmpdir_env_var", policy["excludeTmpdirEnvVar"].toBool()}}}};
+  ensureThreadSlot();
+  checkCommand(command, generation);
+  Object fork;
+  try { fork = rpc->call("thread/fork", request); }
+  catch (const Error &e) { if (e.uncertain) {refreshRequested=true;throw;} throw Error("edit-runtime-unsupported"); }
+  auto source = fork["thread"].toObject();
+  const auto forkId = source["id"].toString();
+  if (forkId.isEmpty() || forkId == id) throw Error("incompatible-fork-response", true);
+  // Register the fork before subsequent writes: an uncertain send stays visible
+  // and cannot be mistaken for a failure that is safe to submit again.
+  newThreads.insert(forkId); owned.insert(forkId); acquired[forkId] = now();
+  auto context = saved;
+  context["sandboxPolicy"] = fork["sandbox"];
+  effectiveSettings[forkId] = context;
+  const auto original = findThread(catalog, id);
+  const auto title = original["title"].toString().left(900) + " · 编辑分支";
+  source["title"] = title; source["projectId"] = original["projectId"];
+  source["threadRuntimeStatus"] = Object{{"type", "idle"}};
+  source["latestThreadSettings"] = context; source["turns"] = Array{};
+  source["updatedAt"] = double(now()); rawThreads[forkId] = source;
+  updateThread(forkId);
+  auto list = catalog["threads"].toArray();
+  list.prepend(Object{{"id",forkId},{"title",title},{"cwd",source["cwd"]},
+    {"projectId",original["projectId"]},{"updatedAt",double(now())},{"archived",false},
+    {"settings",normalizeSettings(source)}});
+  catalog["threads"] = list; catalog["generatedAt"] = double(now());
+  send({{"type","device.catalog"},{"catalog",catalog}});
+  try {
+    checkCommand(command,generation);
+    auto actualPolicy = fork["sandbox"].toObject();
+    auto roots = [&](const Object &value) {
+      QSet<QString> result{canonical(saved["cwd"].toString())};
+      for (auto root : value["writableRoots"].toArray()) result.insert(canonical(root.toString()));
+      return result;
+    };
+    if (actualPolicy["type"] != policy["type"] ||
+        fork["model"] != saved["model"] || fork["modelProvider"] != saved["modelProvider"] ||
+        fork["approvalPolicy"] != saved["approvalPolicy"] || fork["approvalsReviewer"] != saved["approvalsReviewer"] ||
+        canonical(fork["cwd"].toString()) != canonical(saved["cwd"].toString()) ||
+        (sandboxType != "dangerFullAccess" && actualPolicy["networkAccess"].toBool() != policy["networkAccess"].toBool()) ||
+        (sandboxType == "workspaceWrite" &&
+          (roots(actualPolicy) != roots(policy) ||
+           actualPolicy["excludeSlashTmp"].toBool() != policy["excludeSlashTmp"].toBool() ||
+           actualPolicy["excludeTmpdirEnvVar"].toBool() != policy["excludeTmpdirEnvVar"].toBool())))
+      throw Error("edit-settings-mismatch");
+    // Only the NEW fork is truncated. The source writer/history is untouched.
+    rpc->call("thread/revert", {{"threadId",forkId},{"beforeTurnId",turnId}});
+    rpc->call("thread/name/set", {{"threadId",forkId},{"name",title}});
+    auto next = command;
+    next["payload"] = Object{{"type","turn.start"},{"threadId",forkId},{"text",editedText}};
+    auto result = executeTurn(next,retained,false);
+    result["threadId"] = forkId; result["sourceThreadId"] = id;
+    result["sent"] = true;
+    return result;
+  } catch (const Error &) {
+    refreshRequested = true;
+    throw Error("edit-fork-created-check-catalog", true);
+  }
+}
+
 Object Service::manage(const Object &command) {
   const auto generation = remoteGeneration;
   ensureRpc();
