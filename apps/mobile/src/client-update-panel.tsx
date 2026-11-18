@@ -3,10 +3,31 @@ import { ActivityIndicator, Platform, Pressable, Text, View } from "react-native
 import { useClientUpdates } from "./client-updates";
 import { useTheme } from "./styles";
 import type { ClientUpdatePhase } from "./client-update-state";
-import { DownloadLibraryButton } from './download-library';
+import { DownloadLibraryButton } from "./download-library";
+import { OtaUpdatePanel } from "./ota-update-panel";
+
 export function ClientUpdatePanel() {
+  const { c } = useTheme();
+  const updates = useClientUpdates();
+  if (Platform.OS === "web")
+    return (
+      <Text style={{ color: c.muted }}>网页控制端随服务器更新，刷新页面即可加载已发布的版本。</Text>
+    );
+  return (
+    <View style={{ gap: 14 }}>
+      <Text style={{ color: c.text, fontSize: 15 }}>当前版本 {updates.version}</Text>
+      <OtaUpdatePanel />
+      {Platform.OS === "ios" ? (
+        <DownloadLibraryButton />
+      ) : (
+        <InstallerUpdatePanel updates={updates} />
+      )}
+    </View>
+  );
+}
+
+function InstallerUpdatePanel({ updates }: { updates: ReturnType<typeof useClientUpdates> }) {
   const { c } = useTheme(),
-    updates = useClientUpdates(),
     task = useRef<AbortController | null>(null),
     live = useRef(true);
   const [busy, setBusy] = useState(false),
@@ -21,13 +42,8 @@ export function ClientUpdatePanel() {
       task.current?.abort();
     };
   }, []);
-  if (Platform.OS === "web")
-    return (
-      <Text style={{ color: c.muted }}>网页控制端随服务器更新，刷新页面即可加载已发布的版本。</Text>
-    );
   return (
-    <View style={{ gap: 14 }}>
-      <Text style={{ color: c.text, fontSize: 15 }}>当前版本 {updates.version}</Text>
+    <>
       <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
         {updates.checking && <ActivityIndicator color={c.accent} />}
         <Text style={{ color: c.text, flex: 1 }}>
@@ -52,7 +68,9 @@ export function ClientUpdatePanel() {
           }}
           style={{ padding: 12 }}
         >
-          <Text style={{ color: c.accent }}>检查更新</Text>
+          <Text style={{ color: c.accent }}>
+            {Platform.OS === "android" ? "检查安装包更新" : "检查更新"}
+          </Text>
         </Pressable>
       </View>
       {!!updates.release?.notes && (
@@ -143,6 +161,6 @@ export function ClientUpdatePanel() {
           : "下载完成后打开系统安装程序，保留当前登录和设备配置。"}
         更新提示会在安装新版后消失。
       </Text>
-    </View>
+    </>
   );
 }

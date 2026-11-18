@@ -71,6 +71,8 @@ Web、Windows/macOS 共享控制 UI 在窗口至少 900 × 560 时使用居中�
 
 ## 构建
 
+FrogCoder 的 iOS 和 Android 支持从当前登录的 Relay 下载内容更新。第一次启用需要安装包含更新模块和更新证书的原生包。之后可在「设置 → 更新与下载」检查和下载适配当前 Relay 版本与安装包的 JavaScript 及资源更新。下载完可选「立即重启」或「下次启动」。发布步骤见 [手机热更新](mobile-ota.md)。
+
 Android 正式 APK 必须沿用原发布证书。密钥和已保存密码的位置、短路径工程及自动打包命令见 [Android 发布签名](android-signing.md)。后续开发和 AI 打包从该入口开始，不能重新生成签名或用 debug APK 代替。
 
 ```bash

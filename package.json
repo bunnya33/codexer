@@ -13,6 +13,7 @@
     "node": ">=22.13"
   },
   "scripts": {
+    "postinstall": "node scripts/patch-expo-updates.mjs",
     "build:document-runtime": "node scripts/build-document-runtime.mjs",
     "inspect:bundle": "node scripts/query-desktop-bundle.mjs",
     "probe:desktop": "node scripts/probe-desktop-ipc.mjs",

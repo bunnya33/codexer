@@ -1,5 +1,6 @@
 import { clearCredentials as clearSavedCredentials, randomId, readCredentials, saveCredentials } from './runtime';
 import { previewClientId } from './preview-client';
+import { clearOtaUpdateSource } from './ota-update-source';
 import { catalogSchema, eventSchema, historyPageSchema, imageRefSchema, MAX_IMAGE_BYTES, queuedMessageDetailsSchema, reduceEvent, snapshotSchema } from '../../../packages/protocol/src/index';
 import type { CommandResult, DeviceCatalog, DeviceSnapshot, HistoryTurn, ImageRef, RemoteCommand } from '../../../packages/protocol/src/index';
 import type { WeixinLogin, WeixinStatus } from '../../../packages/protocol/src/weixin';
@@ -133,6 +134,7 @@ export class RelayClient {
   }
 
   async connect(rawUrl: string, username: string, password: string, remember = true): Promise<void> {
+    clearOtaUpdateSource();
     this.disconnect(false);
     const generation = this.generation;
     try {
@@ -282,7 +284,11 @@ export class RelayClient {
     this.weixinVersion++;
     for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(new Error('连接已断开，请核对操作结果')); }
     this.pending.clear();
-    if (clearCredentials) { this.token = ''; void clearSavedCredentials().catch(() => undefined); }
+    if (clearCredentials) {
+      clearOtaUpdateSource();
+      this.token = '';
+      void clearSavedCredentials().catch(() => undefined);
+    }
     this.set(emptyView());
   }
 
@@ -625,6 +631,18 @@ export class RelayClient {
     const result = await this.api<{ version?: unknown }>('/health', undefined, 'GET', false, signal);
     if (typeof result.version !== 'string' || !result.version || result.version.length > 100) throw new Error('invalid-version');
     return result.version;
+  }
+
+  async mobileOtaVersion(signal: AbortSignal): Promise<string | null> {
+    try {
+      const result = await this.api<{ relayVersion?: unknown }>('/v1/mobile-ota/status', undefined, 'GET', false, signal);
+      if (typeof result.relayVersion !== 'string' || !/^\d{1,10}\.\d{1,10}\.\d{1,10}$/.test(result.relayVersion))
+        throw new Error('invalid-version');
+      return result.relayVersion;
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) return null;
+      throw error;
+    }
   }
 
   async agentResources(deviceId: string, signal: AbortSignal): Promise<AgentResources> {

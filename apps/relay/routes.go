@@ -15,6 +15,7 @@ func (s *Server) routes() {
 	s.uploadRoutes()
 	s.agentReleaseRoutes()
 	s.clientReleaseRoutes()
+	s.mobileOTARoutes()
 	s.agentSettingsRoutes()
 	s.previewSettingsRoutes()
 	s.modelPricingRoutes()
