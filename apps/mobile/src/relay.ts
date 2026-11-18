@@ -20,6 +20,7 @@ import type { AttachmentAsset } from './attachment-picker';
 import {agentReleaseSchema} from '../../../packages/shared/src/agent-release';
 import type {AgentRelease} from '../../../packages/shared/src/agent-release';
 import {agentResourcesSchema, type AgentResources} from '../../../packages/protocol/src/agent-resources';
+import { versionedModelPricingSchema, type VersionedModelPricing } from '../../../packages/shared/src/model-pricing';
 export type PreviewShare = { id: string; url: string; enabled: boolean; kind: 'html' | 'server' | 'audio'; expiresAt:number; durationMinutes:number };
 
 export type Device = { id: string; name: string; platform: string; online: boolean; agentVersion?: string; owner_user_id?: string | null; last_seen_at?: number | string | null };
@@ -38,9 +39,10 @@ export type RelayView = {
   notice: string;
   weixin: WeixinStatus | null;
   threadNotifications: Record<string, ThreadNotification>;
+  modelPricing?: VersionedModelPricing;
 };
 
-const emptyView = (): RelayView => ({ phase: 'locked', url: '', role: null, userId: null, devicesReady: false, devices: [], catalogs: {}, snapshots: {}, histories: {}, syncing: {}, notice: '', weixin: null, threadNotifications: {} });
+const emptyView = (): RelayView => ({ phase: 'locked', url: '', role: null, userId: null, devicesReady: false, devices: [], catalogs: {}, snapshots: {}, histories: {}, syncing: {}, notice: '', weixin: null, threadNotifications: {}, modelPricing: undefined });
 const SOCKET_AUTH_TIMEOUT_MS = 12000;
 const SOCKET_HEALTH_INTERVAL_MS = 15000;
 const SOCKET_IDLE_PROBE_MS = 30000;
@@ -310,7 +312,8 @@ export class RelayClient {
     const generation = this.generation;
     const request = ++this.devicesRequest;
     const presenceVersions = new Map(this.presenceVersions);
-    const response = await this.api<{ devices: Device[] }>('/v1/devices');
+    const revision = this.view.modelPricing?.revision ?? '';
+    const response = await this.api<{ devices: Device[]; modelPricing?: unknown }>(`/v1/devices?modelPricingRevision=${revision}`);
     if (generation !== this.generation || request !== this.devicesRequest) return;
     const devices = response.devices.filter(device => typeof device.id === 'string' && typeof device.name === 'string').map(device => {
       const current = this.view.devices.find(value => value.id === device.id);
@@ -318,7 +321,8 @@ export class RelayClient {
     });
     for (const old of this.view.devices) if (!devices.some(device => device.id === old.id)) this.forgetDevice(old.id);
     for (const device of devices) this.removedDevices.delete(device.id);
-    this.set({ devices, devicesReady: true });
+    const pricing = versionedModelPricingSchema.safeParse(response.modelPricing);
+    this.set({ devices, devicesReady: true, ...(pricing.success ? { modelPricing: pricing.data } : {}) });
     for (const device of devices) {
       if (!this.view.catalogs[device.id]) void this.loadCatalog(device.id);
       if (!this.view.snapshots[device.id]) void this.loadSnapshot(device.id);

@@ -25,3 +25,68 @@
 .publishing-scope input { width:18px; min-height:18px; flex-shrink:0; }
 .modal fieldset { margin:20px 0; border:1px solid var(--line); border-radius:8px; padding:10px 14px; }
 .modal textarea[aria-label="发布授权码"] { width:100%; padding:12px; border:1px solid var(--line); border-radius:8px; font:14px/1.6 Consolas,monospace; overflow-wrap:anywhere; resize:vertical; }
+
+.sidebar nav { overflow-y: auto; }
+.model-pricing { container: model-pricing / inline-size; }
+.model-pricing .page-head, .model-pricing .actions { flex-wrap: wrap; }
+.pricing-basis strong { font-size: 16px; color: #26364b; }
+.model-pricing .pricing-basis p { margin: 2px 0 0; }
+.model-pricing .table-scroll { border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.model-pricing table { font-variant-numeric: tabular-nums; white-space: normal; }
+.model-pricing th { color: #425269; font-weight: 600; white-space: nowrap; }
+.model-pricing th small { display: block; margin-top: 2px; color: var(--muted); font-weight: 400; }
+.model-pricing .pricing-model-id { width: 29%; overflow-wrap: anywhere; }
+.model-pricing .pricing-amount { overflow-wrap: anywhere; }
+.pricing-amount strong { color: #26364b; font-size: 14px; }
+.pricing-mobile-label { display: none; }
+.model-pricing .row-actions { gap: 4px; }
+.model-pricing .pricing-estimate-button { color: var(--accent); white-space: nowrap; gap: 5px; }
+.model-pricing .table-toolbar { padding-inline: 0; gap: 12px; flex-wrap: wrap; }
+.pricing-metadata { display: grid; grid-template-columns: minmax(145px, 180px) minmax(0, 1fr); gap: 16px; margin-bottom: 8px; max-width: 850px; }
+.pricing-metadata label { margin-top: 0; min-width: 0; }
+.pricing-metadata input { min-width: 0; }
+.pricing-scope-note { margin: 0; }
+.pricing-editor label { margin-top: 16px; }
+.pricing-editor-field label { margin-bottom: 7px; }
+.pricing-editor-field small { display: block; margin-top: 5px; }
+.pricing-currency-input { position: relative; display: block; }
+.pricing-currency-input > span { position: absolute; inset-inline-start: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.pricing-currency-input input { padding-inline-start: 28px; }
+.pricing-estimate-model { overflow-wrap: anywhere; }
+.pricing-estimate-model p { margin: 3px 0 16px; }
+.pricing-estimate-columns, .pricing-estimate-row, .pricing-estimate-total {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: end;
+  gap: 14px;
+}
+.pricing-estimate-columns { color: var(--muted); font-size: 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.pricing-estimate-columns > :last-child, .pricing-estimate-subtotal, .pricing-estimate-total > :last-child { text-align: right; }
+.pricing-estimate-row { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.pricing-estimate-row label { margin: 0; gap: 4px; }
+.pricing-estimate-row input { min-height: 36px; min-width: 0; font-variant-numeric: tabular-nums; }
+.pricing-estimate-row input[aria-invalid="true"] { border-color: #b42318; }
+.pricing-estimate-subtotal { min-width: 0; overflow-wrap: anywhere; padding-bottom: 3px; font-variant-numeric: tabular-nums; }
+.pricing-estimate-subtotal small { display: block; font-size: 11px; }
+.pricing-estimate-total { align-items: center; margin: 14px 0 10px; }
+.pricing-estimate-total strong { color: #26364b; font-size: 19px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+@container model-pricing (max-width: 700px) {
+  .model-pricing table, .model-pricing tbody { display: block; }
+  .model-pricing thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .model-pricing tbody tr {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px 10px;
+    padding: 12px 14px 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  .model-pricing tbody tr:last-child { border: 0; }
+  .model-pricing td { min-width: 0; padding: 0; border: 0; }
+  .model-pricing .pricing-model-id { grid-column: 1 / -1; grid-row: 1; width: auto; align-self: center; }
+  .model-pricing .pricing-row-tools { grid-column: 1 / -1; grid-row: 3; }
+  .model-pricing .row-actions { justify-content: flex-start; }
+  .pricing-mobile-label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 2px; }
+}
+@media (max-width: 540px) {
+  .pricing-metadata { grid-template-columns: minmax(0, 1fr); }
+}

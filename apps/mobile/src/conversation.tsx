@@ -18,6 +18,7 @@ import { localAudioPath, stripInlineImageReferences } from '../../../packages/cl
 import { TurnEndTime, TurnTiming } from './turn-timing';
 import { recordedTurnTiming } from '../../../packages/client-shared/src/turn-timing';
 import { turnCostLabel } from '../../../packages/client-shared/src/project-usage';
+import { useModelPricing } from './model-pricing-context';
 import { TaskStatusDot } from './task-status-dot';
 import { useInteractionMotion } from './interaction/motion';
 import { PlanCard, ExecutionPlan } from './plan-review';
@@ -169,7 +170,7 @@ export const TurnView = memo(function TurnView({ turn, active, deviceId, threadI
   const { s } = useTheme();
   const { start,end } = recordedTurnTiming(turn, active);
   const running = active || turn.status === 'inProgress';
-  const cost = turnCostLabel(turn.tokenUsage);
+  const cost = turnCostLabel(turn.tokenUsage, useModelPricing());
   return <MessageTurnContext.Provider value={{turnId:turn.id,time:start?new Date(start).toISOString():''}}><View style={s.turn}>
     {buildActivityBlocks(turn, active).map(block => block.kind === 'message' ? <Message key={block.item.id} item={block.item} deviceId={deviceId} threadId={threadId} onImage={onImage} /> : <Activity key={block.id} block={block} turn={turn} deviceId={deviceId} threadId={threadId} onImage={onImage} questionRequestIds={questionRequestIds} steps={steps} agents={agents} />)}
     {(turn.tokenUsage || running || end) && <View style={s.turnFooter}>

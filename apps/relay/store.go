@@ -91,6 +91,7 @@ func Open(databaseURL, directory string) (*Store, error) {
 	}
 	schema += publishSchema
 	schema += previewSettingsSchema
+	schema += modelPricingSchema
 	for _, q := range strings.Split(schema, ";\n") {
 		if strings.TrimSpace(q) == "" {
 			continue

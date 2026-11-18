@@ -2,6 +2,7 @@ import { expect, it } from 'vitest';
 import { projectUsageSchema, type ProjectUsage } from '../packages/protocol/src/index';
 import { compactTokens, currentThreadUsage, estimateProjectCost, projectUsageLabel, threadUsageLabel, turnCostLabel, usdLabel } from '../packages/client-shared/src/project-usage';
 import type { HistoryTurn } from '../packages/protocol/src/index';
+import { defaultModelPricing } from '../packages/shared/src/model-pricing';
 
 function usage(): ProjectUsage {
   return { totalTokens: 1_200_000, recordedTokens: 1_200_000, totalThreads: 3, knownThreads: 3, partial: false,
@@ -57,6 +58,15 @@ it('does not invent reply fees from a missing model, usage, or unsupported cache
   expect(turnCostLabel()).toBe('');
   for (const model of [undefined, 'unknown', '__proto__', 'constructor']) expect(turnCostLabel({ ...value, model })).toBe('');
   expect(turnCostLabel({ ...value, cacheWriteInputTokens: 1 })).toBe('');
+});
+
+it('uses verified GPT-6.2 rates and treats the server catalog as a full replacement', () => {
+  const sol = { model: 'gpt-6.2-sol', totalTokens: 1200, inputTokens: 1000, cachedInputTokens: 500, outputTokens: 200, state: 'complete' as const };
+  expect(turnCostLabel(sol)).toBe('$0.0031');
+  expect(turnCostLabel({ ...sol, model: 'gpt-6.2-astra' })).toBe('$0.0122');
+  expect(turnCostLabel(sol, { ...defaultModelPricing, models: [] })).toBe('');
+  const snapshot = { id: 'gpt-6.2-sol-2026-11-18', input: 0, cachedInput: 0, output: 0 };
+  expect(turnCostLabel({ ...sol, model: snapshot.id }, { ...defaultModelPricing, models: [...defaultModelPricing.models, snapshot] })).toBe('$0.0000');
 });
 
 it('keeps the Agent chat aggregate including unexpanded history separate from loaded turns', () => {

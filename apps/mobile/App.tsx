@@ -10,6 +10,8 @@ import { Archive, ArrowDown, Check, Pencil, Terminal, Trash2 } from 'lucide-reac
 import { mergeTurnHistory } from '../../packages/client-shared/src/activity';
 import {JumpToBottom} from './src/interaction/jump-to-bottom';
 import { currentThreadUsage } from '../../packages/client-shared/src/project-usage';
+import { defaultModelPricing } from '../../packages/shared/src/model-pricing';
+import { ModelPricingContext } from './src/model-pricing-context';
 import { conversationImages } from '../../packages/client-shared/src/images';
 import { imageBase64Mime } from '../../packages/client-shared/src/image-upload';
 import type { ImageDirection, ImageGallery, ImagePreview } from '../../packages/client-shared/src/images';
@@ -457,7 +459,7 @@ function AppContent() {
   const continueMode = canContinue && emptyComposer;
   const submitDisabled = !ready || busy || (!!composerDraft.preparedPlan && thread?.status !== 'idle') || (emptyComposer && !continueMode && !stopMode) || (thread?.status === 'active' && !thread.activeTurnId) || images.some(image => image.loading || !!image.error) || files.some(file => file.loading || !!file.error || !file.id);
   const settings = thread?.settings ?? summary?.settings;
-  return <View style={s.safe}><StatusBar style={theme.dark ? "light" : "dark"} />
+  return <ModelPricingContext.Provider value={view.modelPricing?.catalog ?? defaultModelPricing}><View style={s.safe}><StatusBar style={theme.dark ? "light" : "dark"} />
     <RequestDraftProvider scope={draftScope} deviceId={deviceId} threadId={threadId} requests={view.phase === 'connected' && device?.online && !view.syncing[deviceId] ? thread?.requests : undefined}><PlanPreparationContext.Provider value={plan => { preparePlan(plan); }}><FileViewerProvider deviceId={deviceId} threadId={threadId}><PreviewContext.Provider value={{deviceId, threadId}}><ProjectBrowseContext.Provider value={project?()=>setBrowserProject({deviceId,id:project.id,open:true}):undefined}><ConversationDrawer wide={wide} open={drawerOpen} onOpenChange={setDrawerOpen} directory={directory}>
     <SafeAreaView style={s.page} edges={['top', 'left', 'right', 'bottom']}>
     <KeyboardAvoidingView style={s.page} behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}>
@@ -574,7 +576,7 @@ function AppContent() {
     <SettingsShell open={menuOpen&&menu==='settings'} onClose={closeMenu} onWeixin={()=>setMenu('weixin')} updateAvailable={clientUpdates.available}>{section=><ControlSettings section={section} url={view.url} device={device&&{id:device.id,name:device.name,online:device.online,platform:device.platform,agentVersion:snapshot?.agentVersion??device.agentVersion,runtimeRefresh:snapshot?.runtime.capabilities.runtimeRefresh===true}} onWeixin={()=>setMenu('weixin')} onLogout={()=>{closeMenu();void relay.logout().catch(()=>{});}}/>}</SettingsShell>
     <Dialog open={menuOpen && menu === 'weixin'} title="微信设置" onClose={closeMenu}>{menuOpen && menu === 'weixin' && <WeixinSettings />}</Dialog>
     <ImageViewer preview={preview} onClose={() => setPreview(null)} onNavigate={moveImage} />
-  </View>;
+  </View></ModelPricingContext.Provider>;
 }
 
 export default function App() { return <ThemeProvider><ScreenAwakeProvider><DownloadLifecycle /><SafeAreaProvider><AppContent /></SafeAreaProvider></ScreenAwakeProvider></ThemeProvider>; }

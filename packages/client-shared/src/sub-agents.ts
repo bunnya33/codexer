@@ -1,5 +1,6 @@
 import { MAX_SUB_AGENTS } from "../../protocol/src/index.js";
 import type { HistoryTurn, RemoteSubAgent, RemoteThread, ThreadUsage } from "../../protocol/src/index.js";
+import type { ModelPricing } from '../../shared/src/model-pricing.js';
 import { compactTokens, estimateProjectCost, usdLabel } from './project-usage.js';
 
 /** Updates can omit metadata. A missing status must not erase the last known state. */
@@ -98,9 +99,9 @@ export function subAgentUsageTotal(agents: RemoteSubAgent[], truncated = false) 
   return { usage, known, total: unique.length };
 }
 
-export function subAgentUsageLabel(usage: ThreadUsage | undefined, prefix = '会话累计'): string {
+export function subAgentUsageLabel(usage: ThreadUsage | undefined, prefix = '会话累计', pricing?: ModelPricing): string {
   if (!usage || !usage.totalKnown && !usage.recordedTokens) return `${prefix}用量待同步`;
-  const cost = estimateProjectCost(usage);
+  const cost = estimateProjectCost(usage, pricing);
   const tokens = `${prefix} ${usage.totalKnown ? '' : '≥'}${compactTokens(usage.totalTokens)} Token`;
   if (!cost.pricedTokens && usage.totalTokens > 0) return `${tokens} · 费用待统计`;
   return `${tokens} · ${cost.partial ? '部分预估 ' : ''}${usdLabel(cost.usd, 4)}`;

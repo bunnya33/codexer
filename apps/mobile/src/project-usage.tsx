@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Linking, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import type { ProjectUsage as Usage, ThreadUsage as ChatUsage } from '../../../packages/protocol/src/index';
-import { estimateProjectCost, pricingDate, pricingSource, projectUsageLabel, threadUsageLabel, usdLabel } from '../../../packages/client-shared/src/project-usage';
+import { estimateProjectCost, projectUsageLabel, threadUsageLabel, usdLabel } from '../../../packages/client-shared/src/project-usage';
+import { useModelPricing } from './model-pricing-context';
 import { useTheme } from './styles';
 
 export function ProjectUsage({ usage }: { usage?: Usage }) { return <UsageSummary scope="project" usage={usage} />; }
@@ -9,10 +10,11 @@ export function ThreadUsage({ usage }: { usage?: ChatUsage }) { return <UsageSum
 function UsageSummary({ scope, usage }: { scope: 'project' | 'thread'; usage?: Usage | ChatUsage }) {
   const { c, s } = useTheme();
   const [open, setOpen] = useState(false);
-  const cost = usage ? estimateProjectCost(usage) : undefined;
+  const pricing = useModelPricing();
+  const cost = usage ? estimateProjectCost(usage, pricing) : undefined;
   const project = scope === 'project';
   const name = project ? '项目' : '会话';
-  const label = project ? projectUsageLabel(usage as Usage | undefined) : threadUsageLabel(usage as ChatUsage | undefined);
+  const label = project ? projectUsageLabel(usage as Usage | undefined, pricing) : threadUsageLabel(usage as ChatUsage | undefined, pricing);
   return <>
     <Pressable accessibilityRole="button" accessibilityLabel={`${name}用量详情，${label}`} onPress={() => setOpen(true)} style={{ minWidth: 0, flexShrink: 1 }}>
       <Text testID={`${scope}-usage-summary`} style={{ color: c.muted, fontSize: 11, lineHeight: 17 }} numberOfLines={2}>{label}</Text>
@@ -29,8 +31,10 @@ function UsageSummary({ scope, usage }: { scope: 'project' | 'thread'; usage?: U
               <Text style={s.sub}>{cost?.pricedTokens ? `${cost.partial ? '已记录部分' : 'Token'}预估 ${usdLabel(cost.usd, project ? 2 : 4)}，可计价 ${cost.pricedTokens.toLocaleString()} Token。` : '尚无可计价的模型明细。'}{project && 'knownThreads' in usage && usage.knownThreads < usage.totalThreads || !project && 'totalKnown' in usage && !usage.totalKnown ? '累计计数不完整，当前 Token 为已知下限。' : ''}{!!cost?.unpricedTokens && `另有 ${cost.unpricedTokens.toLocaleString()} Token 缺少可计价明细。`}</Text>
               {usage.models.map((model, index) => <Text key={`${model.model}:${index}`} selectable style={s.sub}>{model.model ?? '模型未知'} · 输入 {model.inputTokens.toLocaleString()} · 缓存命中 {model.cachedInputTokens.toLocaleString()} · 输出 {model.outputTokens.toLocaleString()}</Text>)}
             </> : <Text style={s.sub}>等待电脑同步{name}统计，需要支持{name}用量统计的 PC Agent。</Text>}
-            <Text style={s.sub}>按 OpenAI 官方 API 标准速度、短上下文单价估算，缓存命中单独计价，推理 Token 已包含在输出中。不是订阅扣款或实际账单；未计速度、长上下文、地区、工具费用与折扣。历史模型未知或缓存写入时长不明的用量不计价。</Text>
-            <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(pricingSource)}><Text style={{ color: c.accent, fontSize: 12 }}>官方单价 · {pricingDate}</Text></Pressable>
+            <Text style={s.sub}>按标准速度、短上下文费率估算 API 等值美元金额。缓存命中单独计价，推理 Token 已包含在输出中。订阅额度和实际扣款以服务商账单为准。</Text>
+            {pricing.source
+              ? <Pressable accessibilityRole="link" onPress={() => { if (pricing.source) void Linking.openURL(pricing.source).catch(() => undefined); }}><Text style={{ color: c.accent, fontSize: 12 }}>费率来源 · {pricing.asOf}</Text></Pressable>
+              : <Text style={s.sub}>费率日期 · {pricing.asOf}</Text>}
           </ScrollView>
           <Pressable accessibilityRole="button" onPress={() => setOpen(false)} style={s.smallPrimary}><Text style={s.primaryText}>关闭</Text></Pressable>
         </View>

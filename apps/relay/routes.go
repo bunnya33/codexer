@@ -17,6 +17,7 @@ func (s *Server) routes() {
 	s.clientReleaseRoutes()
 	s.agentSettingsRoutes()
 	s.previewSettingsRoutes()
+	s.modelPricingRoutes()
 	s.documentRoutes()
 	s.removeDeviceRoutes()
 	s.logRoutes()
@@ -179,7 +180,14 @@ func (s *Server) routes() {
 				d["agentVersion"] = obj(head["payload"])["agentVersion"]
 			}
 		}
-		return M{"devices": devices}
+		result := M{"devices": devices}
+		if query := r.URL.Query(); query.Has("modelPricingRevision") {
+			w.Header().Set("Cache-Control", "no-store")
+			if pricing := s.Store.modelPricing(query.Get("modelPricingRevision")); pricing != nil {
+				result["modelPricing"] = pricing
+			}
+		}
+		return result
 	})
 	s.route("DELETE /v1/devices/{deviceId}", "user", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
 		s.deviceAccess(r, p)
