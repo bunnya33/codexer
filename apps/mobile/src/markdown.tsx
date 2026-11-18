@@ -1,5 +1,5 @@
 import { themedStyles } from './theme';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import MarkdownIt from 'markdown-it';
 import taskLists from 'markdown-it-task-lists';
@@ -21,6 +21,9 @@ parser.validateLink = value => {
   catch { return false; }
 };
 type Token = ReturnType<typeof parser.parse>[number];
+const tablePadding = 8;
+const tableDividerWidth = 1;
+const minColumnWidth = 110, maxColumnWidth = 220;
 
 const useMsStyles = themedStyles(c => StyleSheet.create({
   body: { color: c.text, fontSize: 16, lineHeight: 26 },
@@ -33,10 +36,34 @@ const useMsStyles = themedStyles(c => StyleSheet.create({
   listItem: { flexDirection: 'row', gap: 7, marginBottom: 4 }, bullet: { color: c.muted, width: 18, fontSize: 15, lineHeight: 23 }, listBody: { flex: 1 },
   quote: { borderLeftWidth: 2, borderLeftColor: c.accent, paddingLeft: 11, marginBottom: 8 },
   rule: { height: 1, backgroundColor: c.line, marginVertical: 10 },
-  table: { borderWidth: 1, borderColor: c.line, marginBottom: 8 }, tableRow: { flexDirection: 'row', borderBottomWidth: 1, borderColor: c.line }, tableCell: { minWidth: 110, maxWidth: 220, padding: 8, borderRightWidth: 1, borderColor: c.line },
+  table: { borderWidth: 1, borderColor: c.line, marginBottom: 8 }, tableRow: { flexDirection: 'row', borderBottomWidth: 1, borderColor: c.line }, tableCell: { flexShrink: 0, padding: tablePadding, borderRightWidth: tableDividerWidth, borderColor: c.line },
 }));
 
 type ReplySelection = { onSelection?: (active: boolean) => void; onCopied?: () => void };
+
+function MarkdownTable({ rows, selection, onLink, renderInline }: {
+  rows: MessageTextRun[][][]; selection?: ReplySelection; onLink: (href: string) => void;
+  renderInline: (runs: MessageTextRun[]) => React.ReactNode;
+}) {
+  const ms = useMsStyles();
+  const [cellWidths, setCellWidths] = useState<Record<string, number>>({});
+  const native = !!selection && !!NativeMessageText;
+  const columns: number[] = [];
+  rows.forEach((cells, row) => cells.forEach((_, column) => {
+    columns[column] = Math.max(columns[column] ?? minColumnWidth, cellWidths[`${row}:${column}`] ?? (native ? minColumnWidth : 160));
+  }));
+  return <DrawerSwipeBlock><ScrollView horizontal style={{ flexGrow: 0 }}><View style={ms.table}>
+    {rows.map((cells, row) => <View key={row} style={ms.tableRow}>{cells.map((runs, column) => {
+      const cell = `${row}:${column}`;
+      return <View key={column} style={[ms.tableCell, { width: columns[column] }]}>{native
+        ? <ReplyTextBlock runs={runs} onLink={onLink} {...selection} onNaturalWidth={width => {
+          const measured = Math.max(minColumnWidth, Math.min(maxColumnWidth, Math.ceil(width) + tablePadding * 2 + tableDividerWidth));
+          setCellWidths(previous => previous[cell] === measured ? previous : { ...previous, [cell]: measured });
+        }} />
+        : <Text selectable={!!selection} style={ms.body}>{renderInline(runs)}</Text>}</View>;
+    })}</View>)}
+  </View></ScrollView></DrawerSwipeBlock>;
+}
 
 export function Markdown({ children, replySelection }: { children: string; replySelection?: true | ReplySelection }) {
   const selection = replySelection === true ? {} : replySelection;
@@ -127,23 +154,20 @@ function MarkdownText({ children, selection }: { children: string; selection?: R
         index = end;
       } else if (token.type === 'table_open') {
         const end = closeIndex(tokens, index);
-        const rows: React.ReactNode[] = [];
+        const rows: MessageTextRun[][][] = [];
         for (let at = index + 1; at < end; at++) {
           if (tokens[at]!.type !== 'tr_open') continue;
           const rowEnd = closeIndex(tokens, at);
-          const cells: React.ReactNode[] = [];
+          const cells: MessageTextRun[][] = [];
           for (let cell = at + 1; cell < rowEnd; cell++) {
             if (!['th_open', 'td_open'].includes(tokens[cell]!.type)) continue;
-            const runs = inline(tokens[cell + 1]?.children, 0, tokens[cell]!.type === 'th_open');
-            cells.push(<View key={cell} style={ms.tableCell}>{selection && NativeMessageText
-              ? <ReplyTextBlock runs={runs} minWidth={93} maxWidth={203} onLink={openLink} {...selection} />
-              : <Text selectable={!!selection} style={ms.body}>{inlineText(runs)}</Text>}</View>);
+            cells.push(inline(tokens[cell + 1]?.children, 0, tokens[cell]!.type === 'th_open'));
             cell = closeIndex(tokens, cell);
           }
-          rows.push(<View key={at} style={ms.tableRow}>{cells}</View>);
+          rows.push(cells);
           at = rowEnd;
         }
-        output.push(<DrawerSwipeBlock key={`${prefix}:${index}`}><ScrollView horizontal style={{ flexGrow: 0 }}><View style={ms.table}>{rows}</View></ScrollView></DrawerSwipeBlock>);
+        output.push(<MarkdownTable key={`${prefix}:${index}`} rows={rows} selection={selection} onLink={openLink} renderInline={inlineText} />);
         index = end;
       } else if (token.type === 'hr') output.push(<View key={`${prefix}:${index}`} style={ms.rule} />);
     }

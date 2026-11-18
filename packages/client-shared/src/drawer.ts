@@ -5,6 +5,11 @@ export function drawerCanStart(dx: number, dy: number, offset: number) {
   return Math.abs(dx) >= 12 && Math.abs(dx) > Math.abs(dy) * 1.5 && (dx > 0 || offset > 0);
 }
 
+/** Text gets the gesture once the finger has paused long enough to begin a hold. */
+export function drawerCanStartFromText(elapsedMs: number, selectionActive: boolean) {
+  return !selectionActive && elapsedMs < 300;
+}
+
 /** A deliberate swipe commits even after a pause; short drags keep the starting state. */
 export function drawerReleaseOpen(offset: number, width: number, velocity: number, wasOpen = false, origin = wasOpen ? width : 0) {
   if (width <= 0) return false;

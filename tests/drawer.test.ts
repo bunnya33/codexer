@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { drawerCanStart, drawerOffset, drawerReleaseOpen, drawerWidth } from '../packages/client-shared/src/drawer';
+import { drawerCanStart, drawerCanStartFromText, drawerOffset, drawerReleaseOpen, drawerWidth } from '../packages/client-shared/src/drawer';
 
 it('keeps a visible part of the conversation and clamps movement at both ends', () => {
   const width = drawerWidth(390);
@@ -33,4 +33,10 @@ it('commits deliberate opening and closing swipes after a pause, with short drag
   expect(drawerReleaseOpen(140, 312, 0, false, 120)).toBe(false);
   expect(drawerReleaseOpen(200, 312, 0, false, 120)).toBe(true);
   expect(drawerReleaseOpen(0, 0, 0)).toBe(false);
+});
+
+it('allows an immediate swipe from reply text while giving holds and active selections to the text', () => {
+  expect(drawerCanStartFromText(70, false)).toBe(true);
+  expect(drawerCanStartFromText(420, false)).toBe(false);
+  expect(drawerCanStartFromText(70, true)).toBe(false);
 });

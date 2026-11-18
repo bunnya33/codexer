@@ -6,6 +6,7 @@ import { drawerCanStart, drawerOffset, drawerReleaseOpen, drawerWidth } from '..
 import { DrawerMotionContext } from './drawer-context';
 import { DrawerSwipeArea } from './drawer-swipe-area';
 import { DrawerAccessibility } from './drawer-accessibility';
+import { MessageSelectionArea } from './message-selection-area';
 
 export function ConversationDrawer({ wide, open, onOpenChange, directory, children }: {
   wide: boolean; open: boolean; onOpenChange: (open: boolean) => void; directory: ReactNode; children: ReactNode;
@@ -87,7 +88,7 @@ export function ConversationDrawer({ wide, open, onOpenChange, directory, childr
     return () => back.remove();
   }, [wide, present, animate]);
   const interactive = open && !wide;
-  return <DrawerMotionContext.Provider value={motion}><View testID="conversation-drawer" style={[styles.root, wide && styles.wide]}>
+  return <DrawerMotionContext.Provider value={motion}><MessageSelectionArea><View testID="conversation-drawer" style={[styles.root, wide && styles.wide]}>
     <Animated.View testID="conversation-directory" pointerEvents={wide || interactive ? 'auto' : 'none'} aria-hidden={!wide && !interactive}
       accessibilityElementsHidden={!wide && !interactive} importantForAccessibility={wide || interactive ? 'auto' : 'no-hide-descendants'}
       style={wide ? styles.desktopDirectory : [styles.directory, { width: travel, opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] }), transform: [{ translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [-20, 0] }) }] }]}>
@@ -107,7 +108,7 @@ export function ConversationDrawer({ wide, open, onOpenChange, directory, childr
       </Animated.View>}
       </View>
     </Animated.View>
-  </View></DrawerMotionContext.Provider>;
+  </View></MessageSelectionArea></DrawerMotionContext.Provider>;
 }
 
 const useLocalStyles = themedStyles(c => StyleSheet.create({
