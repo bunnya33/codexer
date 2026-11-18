@@ -14,6 +14,7 @@ public class CodexerMessagesModule: Module {
       Prop("userMessage") { (view, value: Bool) in view.userMessage = value }
       Prop("menuTitle") { (view, value: String) in view.menuTitle = value }
       Prop("canEdit") { (view, value: Bool) in view.canEdit = value }
+      Prop("codeBlock") { (view, value: Bool) in view.codeBlock = value; view.render() }
       Prop("selectionRequest") { (view, value: Int) in if value > view.selectionRequest { view.selectionRequest = value; view.selectMessage() } }
     }
   }
@@ -35,8 +36,16 @@ final class CodexerMessageTextView: ExpoView, UITextViewDelegate, UIContextMenuI
   let onContentHeight = EventDispatcher(), onAction = EventDispatcher(), onSelection = EventDispatcher()
   let textView = MessageSelectionTextView()
   var runs: [[String: Any]] = [], ink = "#222222", accent = "#346bdf"
-  var userMessage = false { didSet { textView.isSelectable = !userMessage || selecting } }
+  var userMessage = false {
+    didSet {
+      guard userMessage != oldValue else { return }
+      textView.isSelectable = !userMessage || selecting
+      if userMessage { addInteraction(messageMenu) } else { removeInteraction(messageMenu) }
+    }
+  }
   var canEdit = false, menuTitle = "", selectionRequest = 0
+  var codeBlock = false
+  private lazy var messageMenu = UIContextMenuInteraction(delegate: self)
   private var selecting = false, measured: CGFloat = 0, naturalWidth: CGFloat = 0
   private var menuVisible = false
 
@@ -52,7 +61,6 @@ final class CodexerMessageTextView: ExpoView, UITextViewDelegate, UIContextMenuI
     textView.copied = { [weak self] in self?.onAction(["action": "copied"]) }
     textView.adjustsFontForContentSizeCategory = true
     addSubview(textView)
-    addInteraction(UIContextMenuInteraction(delegate: self))
     let linkTap = UITapGestureRecognizer(target: self, action: #selector(openUserLink(_:)))
     linkTap.cancelsTouchesInView = false
     addGestureRecognizer(linkTap)
@@ -72,11 +80,11 @@ final class CodexerMessageTextView: ExpoView, UITextViewDelegate, UIContextMenuI
       if run["bold"] as? Bool == true || heading > 0 { traits.insert(.traitBold) }
       if run["italic"] as? Bool == true { traits.insert(.traitItalic) }
       let size: CGFloat = heading == 1 ? 20 : heading == 2 ? 18 : 16
-      let base = run["code"] as? Bool == true ? UIFont.monospacedSystemFont(ofSize: 14, weight: .regular) : UIFont.systemFont(ofSize: size)
+      let base = codeBlock || run["code"] as? Bool == true ? UIFont.monospacedSystemFont(ofSize: codeBlock ? 12 : 14, weight: .regular) : UIFont.systemFont(ofSize: size)
       let font = base.fontDescriptor.withSymbolicTraits(traits).map { UIFont(descriptor: $0, size: base.pointSize) } ?? base
       let paragraph = NSMutableParagraphStyle()
-      paragraph.minimumLineHeight = 26
-      var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: Self.color(ink), .paragraphStyle: paragraph]
+      paragraph.minimumLineHeight = codeBlock ? 18 : 26
+      var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: Self.color(run["color"] as? String ?? ink), .paragraphStyle: paragraph]
       if run["paragraphBreak"] as? Bool == true {
         paragraph.minimumLineHeight = 8; paragraph.maximumLineHeight = 8
         attributes[.font] = UIFont.systemFont(ofSize: 6)
@@ -110,7 +118,8 @@ final class CodexerMessageTextView: ExpoView, UITextViewDelegate, UIContextMenuI
     if !active { render(); if userMessage { textView.isSelectable = false } }
   }
   func textView(_ textView: UITextView, shouldInteractWith URL: URL, in characterRange: NSRange, interaction: UITextItemInteraction) -> Bool {
-    onAction(["action": "link", "href": URL.absoluteString]); return false
+    if interaction == .invokeDefaultAction { onAction(["action": "link", "href": URL.absoluteString]) }
+    return false
   }
   @objc private func openUserLink(_ recognizer: UITapGestureRecognizer) {
     guard userMessage && !selecting else { return }

@@ -25,6 +25,7 @@ import {Disclosure} from './interaction/disclosure';
 import {AgentActivityRecord, CompactionActivityRecord, FileActivityRecord, ImageActivityRecord} from './activity-records';
 import {messageTextRuns} from '../../../packages/client-shared/src/message-text';
 import {NativeMessageText} from './message-native';
+import {SelectableNativeMessage} from './message-selection';
 import {MessageActionOverlays,MessageTurnContext,useMessageAction} from './message-actions';
 import {useFileLink} from './file-link-context';
 import {localFilePath} from '../../../packages/client-shared/src/file-links';
@@ -51,6 +52,8 @@ const Message = memo(function Message({ item, running = false, deviceId, threadI
   const parts = role === 'user' ? item.userMessageParts ?? presentation?.parts : undefined;
   const display = stripInlineImageReferences(body, imageSources);
   const actions=useMessageAction({item,display,deviceId,threadId});
+  const selectedDisplay=useRef(display);
+  if(!actions.selecting)selectedDisplay.current=display;
   const onFile=useFileLink();
   const parsedRuns=useMemo(()=>!display.trim()||parts?.length||splitPreviewContent(display).some(x=>x.kind!=='text')||splitAudioContent(display).some(x=>x.kind!=='text')||/\]\(<?(?:\/|[A-Za-z]:|file:)/i.test(display)?null:messageTextRuns(display),[display,parts]);
   const selectionRuns=useRef(parsedRuns);
@@ -62,8 +65,9 @@ const Message = memo(function Message({ item, running = false, deviceId, threadI
   if (role) {
     if (!body && !images.length && !item.files?.length) return null;
     return <View ref={actions.anchor} collapsable={false} style={[s.message, role === 'user' ? s.userMessage : s.agentMessage,native&&role==='user'&&{width:Math.max(images.length?160:60,naturalWidth+30)}]}>
-      {native&&NativeMessageText&&runs?<NativeMessageText runs={runs} textColor={c.text} linkColor={c.accent} bubbleColor={c.bubble} userMessage={role==='user'} canEdit={actions.canEdit} menuTitle={actions.time} selectionRequest={actions.selectionRequest}
+      {native&&runs?<SelectableNativeMessage runs={runs} textColor={c.text} linkColor={c.accent} bubbleColor={c.bubble} userMessage={role==='user'} canEdit={actions.canEdit} menuTitle={actions.time} selectionRequest={actions.selectionRequest}
         onContentHeight={event=>{setNativeHeight(event.nativeEvent.height);setNaturalWidth(event.nativeEvent.naturalWidth);}} onSelection={event=>actions.setSelecting(event.nativeEvent.active)} onAction={event=>{const {action,href}=event.nativeEvent;if(action==='link'&&href){const path=localFilePath(href);if(path)onFile?.(path);else if(/^(https?:|mailto:)/i.test(href))void Linking.openURL(href).catch(()=>relay.showNotice('链接无法打开'));}else actions.act(action);}} style={{height:nativeHeight,alignSelf:'stretch'}}/>
+      :role==='assistant'?<Markdown replySelection={{ onSelection: actions.setSelecting, onCopied: () => actions.act('copied') }}>{selectedDisplay.current}</Markdown>
       :<Pressable onLongPress={actions.open} delayLongPress={450}>
       {parts?.length ? <View style={s.replyParts}>{parts.map((part, index) => part.type === 'questionAnswer'
         ? <View key={index} style={s.replyPair}><Text selectable style={s.replyQuestion}>{part.question}</Text><Text selectable style={s.replyAnswer}>{part.answer}</Text></View>
@@ -71,8 +75,8 @@ const Message = memo(function Message({ item, running = false, deviceId, threadI
       </Pressable>}
       {!!images.length && <DrawerSwipeBlock style={s.imageRow}>{images.map(image => <Pressable key={image.id} accessibilityRole="button" accessibilityLabel={`查看图片 ${image.name}`} onPress={() => onImage(relay.imageSource(deviceId, threadId, image.id), image.name)}><RelayImage source={relay.imageSource(deviceId, threadId, image.id)} resizeMode="cover" style={s.image} /></Pressable>)}</DrawerSwipeBlock>}
       {!!item.files?.length && <Text style={s.fileNames}>{item.files.join(' · ')}</Text>}
-      {!!display && <Pressable accessibilityRole="button" accessibilityLabel={actions.copied?'消息已复制':'复制消息'} style={[s.iconButton, { alignSelf: role === 'user' ? 'flex-end' : 'flex-start', width: 30, height: 28 }]} onLongPress={actions.open} delayLongPress={450} onPress={()=>void actions.copy()}>{actions.copied?<Check size={14} color={c.muted}/>:<Copy size={14} color={c.muted}/>}</Pressable>}
-      <MessageActionOverlays actions={actions} text={display} nativeSelection={native}/>
+      {!!display && <Pressable accessibilityRole="button" accessibilityLabel={actions.copied?'消息已复制':'复制消息'} style={[s.iconButton, { alignSelf: role === 'user' ? 'flex-end' : 'flex-start', width: 30, height: 28 }]} onLongPress={role==='user'?actions.open:undefined} delayLongPress={450} onPress={()=>void actions.copy()}>{actions.copied?<Check size={14} color={c.muted}/>:<Copy size={14} color={c.muted}/>}</Pressable>}
+      {role==='user'&&<MessageActionOverlays actions={actions} text={display} nativeSelection={native}/>}
     </View>;
   }
   const title = executionItemSummary(item, running);
@@ -143,7 +147,7 @@ function Activity({ block, turn, deviceId, threadId, onImage, questionRequestIds
       const item = section.item;
       if (item.type === 'plan') return <PlanCard key={item.id} item={item} turnId={turn.id} turnStatus={turn.status} deviceId={deviceId} threadId={threadId} />;
       if (item.questionRequestId && questionRequestIds.includes(item.questionRequestId)) return null;
-      if (messageRole(item) === 'assistant' && item.phase !== 'final_answer') return <View key={item.id} style={s.commentary}><Markdown>{item.text ?? ''}</Markdown></View>;
+      if (messageRole(item) === 'assistant' && item.phase !== 'final_answer') return <View key={item.id} style={s.commentary}><Markdown replySelection>{item.text ?? ''}</Markdown></View>;
       return <Message key={item.id} item={item} deviceId={deviceId} threadId={threadId} onImage={onImage} />;
     })}
     {completed && !!turn.fileChanges?.length && <FileChangesPanel changes={turn.fileChanges} compact={false} deviceId={deviceId} threadId={threadId} turnId={turn.id}/>}

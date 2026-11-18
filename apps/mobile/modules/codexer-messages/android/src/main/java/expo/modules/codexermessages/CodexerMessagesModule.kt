@@ -44,6 +44,7 @@ class CodexerMessagesModule : Module() {
       Prop("userMessage") { view: CodexerMessageTextView, value: Boolean -> view.userMessage=value }
       Prop("menuTitle") { view: CodexerMessageTextView, value: String -> view.menuTitle=value }
       Prop("canEdit") { view: CodexerMessageTextView, value: Boolean -> view.canEdit=value }
+      Prop("codeBlock") { view: CodexerMessageTextView, value: Boolean -> view.setCodeBlock(value) }
       Prop("selectionRequest") { view: CodexerMessageTextView, value: Int -> if(value>view.selectionRequest){view.selectionRequest=value;view.selectMessage()} }
     }
   }
@@ -86,6 +87,7 @@ class CodexerMessageTextView(context: Context, appContext: AppContext) : ExpoVie
       postDelayed(copyTimeout,1000)
     }
     override fun onTouchEvent(event:MotionEvent):Boolean {
+      if(selecting && event.actionMasked==MotionEvent.ACTION_DOWN) parent.requestDisallowInterceptTouchEvent(true)
       if(event.action==MotionEvent.ACTION_UP && !selecting){
         val layout=layout
         if(layout!=null){
@@ -109,6 +111,7 @@ class CodexerMessageTextView(context: Context, appContext: AppContext) : ExpoVie
   private var reportedHeight=0
   private var reportedWidth=0
   private var menu:Dialog?=null
+  private var codeBlock=false
   init {
     addView(text)
     text.setPadding(0,0,0,0)
@@ -120,13 +123,26 @@ class CodexerMessageTextView(context: Context, appContext: AppContext) : ExpoVie
       if(userMessage && !selecting){showMenu();true}else false
     }
     text.customSelectionActionModeCallback=object:ActionMode.Callback {
-      override fun onCreateActionMode(mode:ActionMode,menu:Menu):Boolean {selecting=true;onSelection(mapOf("active" to true));return true}
+      override fun onCreateActionMode(mode:ActionMode,menu:Menu):Boolean {
+        selecting=true
+        parent?.requestDisallowInterceptTouchEvent(true)
+        onSelection(mapOf("active" to true))
+        return true
+      }
       override fun onPrepareActionMode(mode:ActionMode,menu:Menu)=false
       override fun onActionItemClicked(mode:ActionMode,item:MenuItem)=false
       override fun onDestroyActionMode(mode:ActionMode){selecting=false;onSelection(mapOf("active" to false));text.post{if(!selecting)render()}}
     }
   }
   private fun dp(value:Int)=(value*density).toInt()
+  fun setCodeBlock(value:Boolean){
+    if(codeBlock==value)return
+    codeBlock=value
+    text.typeface=if(value)Typeface.MONOSPACE else Typeface.DEFAULT
+    text.textSize=if(value)12f else 16f
+    text.setLineSpacing((if(value)3 else 5)*density,1f)
+    render()
+  }
   private fun stopCopyWatch(){
     copyListener?.let{clipboard.removePrimaryClipChangedListener(it)}
     copyListener=null
@@ -173,8 +189,11 @@ class CodexerMessageTextView(context: Context, appContext: AppContext) : ExpoVie
       if(style!=Typeface.NORMAL)result.setSpan(StyleSpan(style),start,end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
       if(run["strike"]==true)result.setSpan(StrikethroughSpan(),start,end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
       if(run["code"]==true)result.setSpan(TypefaceSpan("monospace"),start,end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-      if(heading>0)result.setSpan(RelativeSizeSpan(if(heading==1)1.25f else 1.125f),start,end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+      if(heading in 1..2)result.setSpan(RelativeSizeSpan(if(heading==1)1.25f else 1.125f),start,end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
       val link=run["link"] as? String
+      (run["color"] as? String)?.let{color ->
+        if(link==null)result.setSpan(ForegroundColorSpan(Color.parseColor(color)),start,end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+      }
       if(link!=null)result.setSpan(object:ClickableSpan(){override fun onClick(widget:View){onAction(mapOf("action" to "link","href" to link))}},start,end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
     }
     text.text=result

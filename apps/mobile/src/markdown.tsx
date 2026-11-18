@@ -9,6 +9,9 @@ import { DrawerSwipeBlock } from './drawer-swipe-block';
 import { localFilePath } from '../../../packages/client-shared/src/file-links';
 import { useFileLink } from './file-link-context';
 import { PreviewContent } from './preview-content';
+import { NativeMessageText } from './message-native';
+import { ReplyTextBlock } from './message-selection';
+import type { MessageTextRun } from '../../../packages/client-shared/src/message-text';
 
 const parser = new MarkdownIt({ html: false, linkify: true, breaks: true }).use(taskLists, { enabled: false });
 const originalValidate = parser.validateLink.bind(parser);
@@ -33,31 +36,52 @@ const useMsStyles = themedStyles(c => StyleSheet.create({
   table: { borderWidth: 1, borderColor: c.line, marginBottom: 8 }, tableRow: { flexDirection: 'row', borderBottomWidth: 1, borderColor: c.line }, tableCell: { minWidth: 110, maxWidth: 220, padding: 8, borderRightWidth: 1, borderColor: c.line },
 }));
 
-export const Markdown = memo(function Markdown({ children }: { children: string }) {
-  return <PreviewContent source={children} renderText={text => <MarkdownText>{text}</MarkdownText>} />;
+type ReplySelection = { onSelection?: (active: boolean) => void; onCopied?: () => void };
+
+export const Markdown = memo(function Markdown({ children, replySelection }: { children: string; replySelection?: true | ReplySelection }) {
+  const selection = replySelection === true ? {} : replySelection;
+  return <PreviewContent source={children} renderText={text => <MarkdownText selection={selection}>{text}</MarkdownText>} />;
 });
 
-function MarkdownText({ children }: { children: string }) {
+function MarkdownText({ children, selection }: { children: string; selection?: ReplySelection }) {
   const { c } = useTheme();
   const ms = useMsStyles();
-  function inline(tokens: Token[] = [], onFile?: (path: string) => void) {
+  const onFile = useFileLink();
+  const openLink = (href: string) => {
+    const path = localFilePath(href);
+    if (path) onFile?.(path);
+    else void Linking.openURL(href).catch(() => {});
+  };
+  function inline(tokens: Token[] | null | undefined, heading = 0, cellHeading = false): MessageTextRun[] {
     let strong = 0, emphasis = 0, strike = 0, link = '';
-    return tokens.map((token, index) => {
-      if (token.type === 'strong_open') { strong++; return null; }
-      if (token.type === 'strong_close') { strong--; return null; }
-      if (token.type === 'em_open') { emphasis++; return null; }
-      if (token.type === 'em_close') { emphasis--; return null; }
-      if (token.type === 's_open') { strike++; return null; }
-      if (token.type === 's_close') { strike--; return null; }
-      if (token.type === 'link_open') { const href = String(token.attrGet('href') ?? ''); link = (onFile && localFilePath(href)) || originalValidate(href) && parser.validateLink(href) ? href : ''; return null; }
-      if (token.type === 'link_close') { link = ''; return null; }
-      if (token.type === 'softbreak' || token.type === 'hardbreak') return <Text key={index}>{'\n'}</Text>;
-      if (token.type === 'image') return <Text key={index} style={{ color: c.muted }}>{token.content}</Text>;
-      if (token.type === 'html_inline' && token.content.startsWith('<input class="task-list-item-checkbox"')) return <Text key={index} style={{ color: c.muted }}>{token.content.includes('checked=""') ? '☑ ' : '☐ '}</Text>;
-      if (token.type !== 'text' && token.type !== 'code_inline' && token.type !== 'html_inline') return null;
-      const href = link;
-      return <Text key={index} selectable accessibilityRole={href ? 'link' : undefined} style={[strong > 0 && { fontWeight: '700' }, emphasis > 0 && { fontStyle: 'italic' }, strike > 0 && { textDecorationLine: 'line-through' }, token.type === 'code_inline' && ms.code, href && { color: c.accent }]} onPress={href ? () => { const path = localFilePath(href); if (path) onFile?.(path); else void Linking.openURL(href); } : undefined}>{token.content}</Text>;
-    });
+    const runs: MessageTextRun[] = [];
+    for (const token of tokens ?? []) {
+      if (token.type === 'strong_open') strong++;
+      else if (token.type === 'strong_close') strong--;
+      else if (token.type === 'em_open') emphasis++;
+      else if (token.type === 'em_close') emphasis--;
+      else if (token.type === 's_open') strike++;
+      else if (token.type === 's_close') strike--;
+      else if (token.type === 'link_open') {
+        const href = String(token.attrGet('href') ?? '');
+        link = (onFile && localFilePath(href)) || parser.validateLink(href) ? href : '';
+      } else if (token.type === 'link_close') link = '';
+      else if (token.type === 'softbreak' || token.type === 'hardbreak') runs.push({ text: '\n' });
+      else if (token.type === 'image') runs.push({ text: token.content, color: c.muted });
+      else if (token.type === 'html_inline' && token.content.startsWith('<input class="task-list-item-checkbox"')) runs.push({ text: token.content.includes('checked=""') ? '☑ ' : '☐ ', color: c.muted });
+      else if (['text', 'code_inline', 'html_inline'].includes(token.type)) runs.push({
+        text: token.content, bold: cellHeading || strong > 0, italic: emphasis > 0, strike: strike > 0,
+        code: token.type === 'code_inline', heading,
+        color: heading === 1 ? c.heading : heading > 0 ? c.headingSecondary : undefined,
+        link: link || undefined,
+      });
+    }
+    return runs;
+  }
+  function inlineText(runs: MessageTextRun[]) {
+    return runs.map((run, index) => <Text key={index} accessibilityRole={run.link ? 'link' : undefined}
+      style={[run.bold && { fontWeight: '700' }, run.italic && { fontStyle: 'italic' }, run.strike && { textDecorationLine: 'line-through' }, run.code && ms.code, { color: run.link ? c.accent : run.color }]}
+      onPress={run.link ? () => openLink(run.link!) : undefined}>{run.text}</Text>);
   }
 
   function closeIndex(tokens: Token[], from: number): number {
@@ -70,17 +94,20 @@ function MarkdownText({ children }: { children: string }) {
     return tokens.length - 1;
   }
 
-  function blocks(tokens: Token[], prefix = 'b', onFile?: (path: string) => void): React.ReactNode[] {
+  function blocks(tokens: Token[], prefix = 'b'): React.ReactNode[] {
     const output: React.ReactNode[] = [];
     for (let index = 0; index < tokens.length; index++) {
       const token = tokens[index]!;
       if (token.type === 'paragraph_open' || token.type === 'heading_open') {
         const content = tokens[index + 1];
         const style = token.type === 'heading_open' ? token.tag === 'h1' ? ms.h1 : token.tag === 'h2' ? ms.h2 : ms.h3 : ms.paragraph;
-        output.push(<Text key={`${prefix}:${index}`} selectable style={[ms.body, style]}>{inline(content?.children ?? [], onFile)}</Text>);
+        const runs = inline(content?.children, token.type === 'heading_open' ? Number(token.tag.slice(1)) : 0);
+        output.push(selection && NativeMessageText
+          ? <ReplyTextBlock key={`${prefix}:${index}`} runs={runs} style={{ marginTop: token.type === 'heading_open' ? 5 : 0, marginBottom: style.marginBottom }} onLink={openLink} {...selection} />
+          : <Text key={`${prefix}:${index}`} selectable style={[ms.body, style]}>{inlineText(runs)}</Text>);
         index += 2;
       } else if (token.type === 'fence' || token.type === 'code_block') {
-        output.push(<CodeBlock key={`${prefix}:${index}`} language={token.info || 'text'}>{token.content}</CodeBlock>);
+        output.push(<CodeBlock key={`${prefix}:${index}`} language={token.info || 'text'} replySelection={selection}>{token.content}</CodeBlock>);
       } else if (token.type === 'bullet_list_open' || token.type === 'ordered_list_open') {
         const end = closeIndex(tokens, index), ordered = token.type === 'ordered_list_open';
         const start = Number(token.attrGet('start') ?? 1);
@@ -89,14 +116,14 @@ function MarkdownText({ children }: { children: string }) {
         for (let at = index + 1; at < end; at++) {
           if (tokens[at]!.type !== 'list_item_open') continue;
           const itemEnd = closeIndex(tokens, at);
-          rows.push(<View key={`${prefix}:${at}`} style={ms.listItem}><Text style={ms.bullet}>{ordered ? `${number++}.` : '•'}</Text><View style={ms.listBody}>{blocks(tokens.slice(at + 1, itemEnd), `${prefix}:${at}`, onFile)}</View></View>);
+          rows.push(<View key={`${prefix}:${at}`} style={ms.listItem}><Text style={ms.bullet}>{ordered ? `${number++}.` : '•'}</Text><View style={ms.listBody}>{blocks(tokens.slice(at + 1, itemEnd), `${prefix}:${at}`)}</View></View>);
           at = itemEnd;
         }
         output.push(<View key={`${prefix}:${index}`}>{rows}</View>);
         index = end;
       } else if (token.type === 'blockquote_open') {
         const end = closeIndex(tokens, index);
-        output.push(<View key={`${prefix}:${index}`} style={ms.quote}>{blocks(tokens.slice(index + 1, end), `${prefix}:${index}`, onFile)}</View>);
+        output.push(<View key={`${prefix}:${index}`} style={ms.quote}>{blocks(tokens.slice(index + 1, end), `${prefix}:${index}`)}</View>);
         index = end;
       } else if (token.type === 'table_open') {
         const end = closeIndex(tokens, index);
@@ -107,7 +134,10 @@ function MarkdownText({ children }: { children: string }) {
           const cells: React.ReactNode[] = [];
           for (let cell = at + 1; cell < rowEnd; cell++) {
             if (!['th_open', 'td_open'].includes(tokens[cell]!.type)) continue;
-            cells.push(<View key={cell} style={ms.tableCell}><Text style={[ms.body, tokens[cell]!.type === 'th_open' && { fontWeight: '700' }]}>{inline(tokens[cell + 1]?.children ?? [], onFile)}</Text></View>);
+            const runs = inline(tokens[cell + 1]?.children, 0, tokens[cell]!.type === 'th_open');
+            cells.push(<View key={cell} style={ms.tableCell}>{selection && NativeMessageText
+              ? <ReplyTextBlock runs={runs} minWidth={93} maxWidth={203} onLink={openLink} {...selection} />
+              : <Text selectable={!!selection} style={ms.body}>{inlineText(runs)}</Text>}</View>);
             cell = closeIndex(tokens, cell);
           }
           rows.push(<View key={at} style={ms.tableRow}>{cells}</View>);
@@ -120,7 +150,6 @@ function MarkdownText({ children }: { children: string }) {
     return output;
   }
 
-  const onFile = useFileLink();
   const parsed = useMemo(() => {
     const validate = parser.validateLink;
     try {
@@ -128,5 +157,6 @@ function MarkdownText({ children }: { children: string }) {
       return parser.parse(children, {});
     } finally { parser.validateLink = validate; }
   }, [children, onFile]);
-  return <View>{blocks(parsed, 'b', onFile)}</View>;
+  const content = blocks(parsed);
+  return selection && !NativeMessageText ? <DrawerSwipeBlock>{content}</DrawerSwipeBlock> : <View>{content}</View>;
 }

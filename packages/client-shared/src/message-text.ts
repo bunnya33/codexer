@@ -1,6 +1,6 @@
 import MarkdownIt from 'markdown-it';
 
-export type MessageTextRun = { text: string; bold?: boolean; italic?: boolean; strike?: boolean; code?: boolean; heading?: number; link?: string; paragraphBreak?:boolean };
+export type MessageTextRun = { text: string; bold?: boolean; italic?: boolean; strike?: boolean; code?: boolean; heading?: number; link?: string; paragraphBreak?:boolean; color?: string };
 const parser = new MarkdownIt({html:false,linkify:true,breaks:true});
 /** One native attributed string keeps the selection range continuous across paragraphs. */
 export function messageTextRuns(source: string): MessageTextRun[] | null {
