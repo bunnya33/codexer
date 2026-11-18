@@ -6875,5 +6875,106 @@
       "totalBytes"
     ],
     "additionalProperties": false
+  },
+  "modelPricing": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "revision": {
+        "type": "string",
+        "pattern": "^(default|saved)-[a-f0-9]{64}$"
+      },
+      "catalog": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "const": 1
+          },
+          "currency": {
+            "type": "string",
+            "const": "USD"
+          },
+          "unit": {
+            "type": "string",
+            "const": "perMillionTokens"
+          },
+          "asOf": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512,
+                "pattern": "^https:\\/\\/[a-zA-Z0-9.-]+(?::[0-9]{1,5})?(?:[/?#][^\\s\\\\]*)?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "models": {
+            "maxItems": 250,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "maxLength": 128,
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:/-]*$"
+                },
+                "input": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1000000
+                },
+                "cachedInput": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1000000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "output": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1000000
+                }
+              },
+              "required": [
+                "id",
+                "input",
+                "cachedInput",
+                "output"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "version",
+          "currency",
+          "unit",
+          "asOf",
+          "source",
+          "models"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "revision",
+      "catalog"
+    ],
+    "additionalProperties": false
   }
 }

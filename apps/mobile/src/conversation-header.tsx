@@ -27,11 +27,13 @@ import type { ThreadUsage as Usage } from '../../../packages/protocol/src/index'
 import { InteractionSurface } from './interaction/surface';
 import { ContextMenuGroup, ContextMenuRow } from './interaction/context-menu';
 import { estimateProjectCost } from '../../../packages/client-shared/src/project-usage';
+import { useModelPricing } from './model-pricing-context';
 
 function AgentCard({ agent }: { agent: RemoteSubAgent }) {
   const { c, s } = useTheme();
   const hs = useHsStyles();
-  const cost = agent.usage ? estimateProjectCost(agent.usage) : undefined;
+  const pricing = useModelPricing();
+  const cost = agent.usage ? estimateProjectCost(agent.usage, pricing) : undefined;
   function statusColor(agent: RemoteSubAgent) {
     return agent.status === "errored" || agent.status === "notFound"
       ? c.danger
@@ -67,7 +69,7 @@ function AgentCard({ agent }: { agent: RemoteSubAgent }) {
       </Text>
       <Text style={hs.source}>{agent.statusSource === "thread" ? "会话状态" : "最近活动记录"}</Text>
       <Text selectable testID={`sub-agent-usage-${agent.threadId}`} style={hs.usage}>
-        {subAgentUsageLabel(agent.usage)}
+        {subAgentUsageLabel(agent.usage, undefined, pricing)}
       </Text>
       {expanded && (
         <View style={hs.details}>
@@ -145,6 +147,7 @@ export function ConversationHeader({
   const [panelOpen, setPanelOpen] = useState(false);
   const host = useRef<View>(null), optionsAnchor = useRef<View>(null);
   const notification = useThreadNotification({ deviceId, threadId });
+  const pricing = useModelPricing();
   const agentUsage = subAgentUsageTotal(agents, truncated);
   const counts = subAgentCounts(agents);
   const notifying = notification.notification?.allEnabled || notification.notification?.enabled;
@@ -260,7 +263,7 @@ export function ConversationHeader({
                       : "连接恢复后更新状态，以下为最后同步记录"}
                   </Text>
                   {!!agents.length && <View testID="sub-agents-usage-total" style={hs.usageTotal}>
-                    <Text selectable style={hs.usage}>{subAgentUsageLabel(agentUsage.usage, '子 Agent 合计')}</Text>
+                    <Text selectable style={hs.usage}>{subAgentUsageLabel(agentUsage.usage, '子 Agent 合计', pricing)}</Text>
                     <Text style={hs.source}>仅合计这些子 Agent 的独立会话，不含主会话 · {agentUsage.known}/{agentUsage.total} 个有累计计数</Text>
                   </View>}
                   {agents.map((agent) => (

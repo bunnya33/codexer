@@ -18,6 +18,7 @@ import { localAudioPath, stripInlineImageReferences } from '../../../packages/cl
 import { TurnEndTime, TurnTiming } from './turn-timing';
 import { recordedTurnTiming } from '../../../packages/client-shared/src/turn-timing';
 import { turnCostLabel } from '../../../packages/client-shared/src/project-usage';
+import { useModelPricing } from './model-pricing-context';
 import { TaskStatusDot } from './task-status-dot';
 import { useInteractionMotion } from './interaction/motion';
 import { PlanCard, ExecutionPlan } from './plan-review';
@@ -171,7 +172,7 @@ export const TurnView = memo(function TurnView({ turn, active, deviceId, threadI
   // History can retain an old inProgress status outside the live turn window.
   // Only the thread's current active turn should show a running placeholder.
   const running = active && turn.status === 'inProgress';
-  const cost = turnCostLabel(turn.tokenUsage);
+  const cost = turnCostLabel(turn.tokenUsage, useModelPricing());
   return <MessageTurnContext.Provider value={{turnId:turn.id,time:start?new Date(start).toISOString():''}}><View style={s.turn}>
     {buildActivityBlocks(turn, active).map(block => block.kind === 'message' ? <Message key={block.item.id} item={block.item} deviceId={deviceId} threadId={threadId} onImage={onImage} /> : <Activity key={block.id} block={block} turn={turn} deviceId={deviceId} threadId={threadId} onImage={onImage} questionRequestIds={questionRequestIds} steps={steps} agents={agents} onInspectDetails={onInspectDetails} />)}
     {(turn.tokenUsage || running || end) && <View style={s.turnFooter}>

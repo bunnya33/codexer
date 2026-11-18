@@ -28,7 +28,7 @@ Agent 从配置的 `codexHome`（默认 `~/.codex`）中选择数字版本最新
 
 ## 美元预估
 
-费率为 [OpenAI 官方 API 单价](https://developers.openai.com/api/docs/pricing) 的 **2026-11-08** 快照，以美元／百万 Token 保存。按 Standard 速度、短上下文的等值费用计算：
+默认费率按 **2026-11-18** 核对的 OpenAI API 标准速度、短上下文单价，以美元／百万 Token 保存。[官方总价表](https://platform.openai.com/docs/pricing) · [GPT-5.3-Codex 模型页](https://platform.openai.com/docs/models/gpt-5.3-codex)
 
 ```text
 ((输入 - 缓存命中) × 输入单价 + 缓存命中 × 缓存单价 + 输出 × 输出单价) / 1,000,000
@@ -38,7 +38,13 @@ Agent 从配置的 `codexHome`（默认 `~/.codex`）中选择数字版本最新
 
 历史累计计数并不一定附带模型或输入／缓存／输出明细。这些 Token 保留在项目总量中，金额仅计算已有可计价明细的部分，并标为「部分预估」；完全没有明细显示「费用待统计」。小于一美分且大于零的金额显示 `<$0.01`。详情同时列出缺少计价明细的 Token 数。
 
-该金额不是 ChatGPT/Codex 订阅实际扣款，也不包含速度、长上下文、地区、工具费用及折扣。模型或官方费率变化时，应核对官方页面后更新 `packages/client-shared/src/project-usage.ts` 的精确映射和日期；未知模型继续保留待统计。
+金额仅用于 API 等值预估。速度、长上下文、地区、工具费用及折扣另计，订阅额度与实际扣款以服务商账单为准。
+
+### 后台模型费率
+
+在管理后台的「模型费率」搜索、添加、编辑或移除模型。JSON 导出包含当前草稿，可直接导入。导入替换整份草稿，点击「保存费率」后生效。已连接的控制端通过已有设备刷新请求获取费率变更，历史用量也按当前费率重新估算。服务器与新版控制端首次部署后，后续调价通过后台生效。Agent 继续提供 Token 明细。
+
+JSON 结构为 `{"version":1,"currency":"USD","unit":"perMillionTokens","asOf":"2026-11-18","source":null,"models":[{"id":"gpt-6.2-sol","input":2,"cachedInput":0.1,"output":10}]}`。缓存命中费率为 `null` 时，包含缓存命中的记录缺少完整费率。空列表会关闭所有模型的美元估算。旧服务器上的新版控制端采用内置默认费率。
 
 ## 单次回复费用（服务器 0.3.45）
 

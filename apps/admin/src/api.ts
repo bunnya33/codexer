@@ -1,6 +1,7 @@
 import type { AuthSettings } from '../../../packages/shared/src/session-policy';
 import { agentSettingsSchema, type AgentSettings } from '../../../packages/shared/src/agent-settings';
 import { previewSettingsSchema, type PreviewSettings } from '../../../packages/shared/src/preview-settings';
+import { versionedModelPricingSchema, type VersionedModelPricing } from '../../../packages/shared/src/model-pricing';
 import {agentReleaseSchema} from '../../../packages/shared/src/agent-release';
 import type {AgentRelease} from '../../../packages/shared/src/agent-release';
 import {clientReleaseSchema} from '../../../packages/shared/src/client-release';
@@ -76,6 +77,8 @@ export const agentSettings = async (signal?:AbortSignal) => agentSettingsSchema.
 export const saveAgentSettings = async (value:AgentSettings,signal?:AbortSignal) => agentSettingsSchema.parse(await request('/v1/admin/agent-settings','PUT',value,signal));
 export const previewSettings = async (signal?:AbortSignal) => previewSettingsSchema.parse(await request('/v1/admin/preview-settings','GET',undefined,signal));
 export const savePreviewSettings = async (value:PreviewSettings,signal?:AbortSignal) => previewSettingsSchema.parse(await request('/v1/admin/preview-settings','PUT',value,signal));
+export const modelPricing = async (signal?: AbortSignal) => versionedModelPricingSchema.parse(await request('/v1/admin/model-pricing', 'GET', undefined, signal));
+export const saveModelPricing = async (value: VersionedModelPricing) => versionedModelPricingSchema.parse(await request('/v1/admin/model-pricing', 'PUT', value));
 export const saveAuthSettings = (settings: Partial<AuthSettings>) => request<AuthSettings>('/v1/admin/auth-settings', 'PUT', settings);
 export const touchLogin = () => request('/v1/auth/active', 'POST');
 export const agentRelease = async () => {const value=await request<{release:AgentRelease|null}>('/v1/admin/pc-agent/release');return value.release===null?null:agentReleaseSchema.parse(value.release);};

@@ -4,6 +4,7 @@ import { event, snapshot } from './helpers.js';
 vi.mock('../apps/mobile/src/runtime', () => ({ randomId: () => '00000000-0000-4000-8000-000000000001', readCredentials: vi.fn(async () => null), saveCredentials: vi.fn(async () => undefined), clearCredentials: vi.fn(async () => undefined) }));
 import { RelayClient, historyKey, normalizeRelayUrl } from '../apps/mobile/src/relay.js';
 import { clearCredentials, readCredentials, saveCredentials } from '../apps/mobile/src/runtime';
+import { defaultModelPricing } from '../packages/shared/src/model-pricing';
 
 class FakeSocket {
   static OPEN = 1;
@@ -42,6 +43,22 @@ beforeEach(() => {
   }));
 });
 afterEach(() => { client.disconnect(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+it('refreshes model rates by revision and clears the catalog when changing servers', async () => {
+  await client.connect('https://relay.test', 'user', 'password');
+  expect(client.getSnapshot().modelPricing).toBeUndefined();
+  const pricing = { revision: 'saved-' + 'a'.repeat(64), catalog: { ...defaultModelPricing, models: [] } };
+  vi.mocked(fetch).mockResolvedValueOnce(response({ devices: [], modelPricing: pricing }));
+  await client.refreshDevices();
+  const activePricing = client.getSnapshot().modelPricing;
+  expect(activePricing).toEqual(pricing);
+  vi.mocked(fetch).mockResolvedValueOnce(response({ devices: [] }));
+  await client.refreshDevices();
+  expect(vi.mocked(fetch).mock.calls.at(-1)?.[0]).toBe(`https://relay.test/v1/devices?modelPricingRevision=${pricing.revision}`);
+  expect(client.getSnapshot().modelPricing).toBe(activePricing);
+  await client.connect('https://other-relay.test', 'user', 'password');
+  expect(client.getSnapshot().modelPricing).toBeUndefined();
+});
 
 it('preserves the server preview limit on both thread and project metadata, including changes on next open', async () => {
   await client.connect('https://relay.test', 'user', 'password');

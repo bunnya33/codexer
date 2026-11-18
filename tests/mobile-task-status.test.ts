@@ -176,7 +176,8 @@ it('shows only the current chat total and cached-input cost breakdown in the hea
     await vi.waitFor(() => expect(f.doc.body.textContent).toContain('只统计当前设备的当前会话'));
     expect(f.doc.body.textContent).toContain('缓存命中 500');
     expect(f.doc.body.textContent).not.toContain('含已归档会话');
-    expect(f.doc.body.textContent).toContain('不是订阅扣款或实际账单');
+    expect(f.doc.body.textContent).toContain('估算 API 等值美元金额');
+    expect(f.doc.body.textContent).toContain('订阅额度和实际扣款以服务商账单为准');
     expect(f.errors).toEqual([]);
   } finally { f.close(); }
 });
