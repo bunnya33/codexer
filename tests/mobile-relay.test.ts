@@ -167,6 +167,25 @@ async function connectedSocket() {
   return socket;
 }
 
+it('expires bottom notices five seconds after the latest occurrence and cancels dismissed notices', async () => {
+  const socket = await connectedSocket();
+  vi.useFakeTimers();
+  const notice = '操作失败，请重试';
+  client.showNotice(notice);
+  vi.advanceTimersByTime(4000);
+  client.showNotice(notice);
+  vi.advanceTimersByTime(4999);
+  expect(client.getSnapshot().notice).toBe(notice);
+  vi.advanceTimersByTime(1);
+  expect(client.getSnapshot().notice).toBe('');
+
+  socket.message({ type: 'error', code: 'sync-test' });
+  expect(client.getSnapshot().notice).toBe('同步失败：sync-test');
+  client.clearNotice();
+  expect(client.getSnapshot().notice).toBe('');
+  expect(vi.getTimerCount()).toBe(0);
+});
+
 it('reloads the project catalog when creation is announced during an older REST read', async () => {
   const socket = await connectedSocket();
   await vi.waitFor(() => expect(client.getSnapshot().catalogs['device-test']).toBeDefined());

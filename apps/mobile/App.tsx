@@ -169,6 +169,7 @@ function AppContent() {
   useEffect(() => { if (view.phase === 'locked') { setDrawerOpen(false); setActionThread(null); setActionProject(null); setProjectDeviceId(''); setPreview(null); setEditingQueueId(null); closeMenu(); } }, [view.phase]);
   useEffect(() => { setActionProject(null); }, [deviceId]);
   useEffect(() => { if (view.phase === 'connected' && deviceId && !view.catalogs[deviceId]) void relay.loadCatalog(deviceId); }, [deviceId, view.catalogs, view.phase]);
+  useLayoutEffect(() => { relay.clearNotice(); }, [streamKey]);
   useEffect(() => {
     setPreview(null);
     setEditingQueueId(null);
@@ -221,6 +222,9 @@ function AppContent() {
   const rows = useMemo(() => buildDirectoryRows({catalog, snapshot: device?.online ? snapshot : undefined, deviceId, expandedProjects, search}), [catalog, device?.online, deviceId, expandedProjects, search, snapshot]);
 
   const connect = async (url: string, username: string, password: string) => { setLoginBusy(true); try { await relay.connect(url, username, password, true); } catch { /* Error appears in the login view. */ } finally { setLoginBusy(false); } };
+  const showConversationNotice = (message: string) => {
+    if (draftIsCurrent() && currentStreamKey.current === streamKey) relay.showNotice(message);
+  };
   const selectThread = (id: string) => { setThreadId(id); setDrawerOpen(false); };
   const createProject = async (payload: Extract<RemoteCommand['payload'], { type: 'project.create' }>) => {
     const target = projectDeviceId;
@@ -270,7 +274,7 @@ function AppContent() {
       if (result.status !== 'succeeded') throw new Error(result.code);
       if (clearDraft) clearSubmitted(composerDraft);
       return true;
-    } catch (error) { if (draftIsCurrent()) relay.showNotice(error instanceof Error ? error.message : String(error)); return false; }
+    } catch (error) { showConversationNotice(error instanceof Error ? error.message : String(error)); return false; }
     finally { commandLock.current = false; setBusy(false); }
   };
   const uploadDraft = async (image: DraftImage, targetDeviceId: string, targetThreadId: string) => {
@@ -404,7 +408,7 @@ function AppContent() {
       if (result.status !== 'succeeded') throw new Error(result.code);
       clearSubmitted(composerDraft);
     } catch (error) {
-      if (draftIsCurrent()) relay.showNotice(`${switched ? '已切换为默认模式；' : ''}${error instanceof Error ? error.message : String(error)} 草稿已保留。`);
+      showConversationNotice(`${switched ? '已切换为默认模式；' : ''}${error instanceof Error ? error.message : String(error)} 草稿已保留。`);
     } finally { commandLock.current = false; setBusy(false); }
   };
   const submit = () => {
@@ -506,7 +510,7 @@ function AppContent() {
         deviceId={deviceId} threadId={threadId} agents={subAgents} supported={!!snapshot?.runtime.capabilities.subAgents}
         synchronized={view.phase === 'connected' && !!device?.online && !!snapshot?.runtime.connected && !!thread?.ownerAvailable && !view.syncing[deviceId]}
         truncated={!!thread?.subAgentsTruncated} hasTruncatedContent={hasTruncatedContent} onDrawer={wide ? undefined : () => setDrawerOpen(true)}
-        onRefresh={() => { void relay.loadHistory(deviceId, threadId).catch(() => relay.showNotice('会话刷新失败，请重试。')); relay.watchThread(deviceId, threadId, true); }}
+        onRefresh={() => { void relay.loadHistory(deviceId, threadId).catch(() => showConversationNotice('会话刷新失败，请重试。')); relay.watchThread(deviceId, threadId, true); }}
         onInfo={() => relay.showNotice('部分长记录受传输大小限制。完整内容可在本机 Codex 查看；更早消息可在会话顶部加载。')} />
       <MessageActionsProvider key={JSON.stringify([draftScope,deviceId,threadId])} deviceId={deviceId} threadId={threadId} canEdit={ready&&thread?.status==='idle'&&snapshot?.runtime.capabilities.editMessage===true} onFork={setThreadId} onSelection={active=>{if(active)markScrollIntent('up');}}>
       <ConversationViewport onScrollIntent={markScrollIntent}><FlatList key={historyKey(deviceId, threadId)} ref={listRef} testID="conversation-stream" data={turns} keyExtractor={item => item.id} style={s.stream} contentContainerStyle={[s.streamContent, wide && s.desktopContent]} initialNumToRender={8} windowSize={7} maintainVisibleContentPosition={{ minIndexForVisible: 0 }}

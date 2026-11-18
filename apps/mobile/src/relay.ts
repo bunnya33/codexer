@@ -48,6 +48,7 @@ const SOCKET_AUTH_TIMEOUT_MS = 12000;
 const SOCKET_HEALTH_INTERVAL_MS = 15000;
 const SOCKET_IDLE_PROBE_MS = 30000;
 const SOCKET_SYNC_IDLE_TIMEOUT_MS = 60000;
+const NOTICE_DURATION_MS = 5000;
 class ApiError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 export const historyKey = (deviceId: string, threadId: string) => `${deviceId}:${threadId}`;
 
@@ -78,6 +79,7 @@ export class RelayClient {
   private socketHealthTimer?: ReturnType<typeof setInterval>;
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   private refreshTimer?: ReturnType<typeof setInterval>;
+  private noticeTimer?: ReturnType<typeof setTimeout>;
   private foreground = true;
   private initialization?: { generation: number; revision: number };
   private historyLoading = new Map<string, number>();
@@ -99,7 +101,16 @@ export class RelayClient {
 
   getSnapshot = () => this.view;
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
-  private set(patch: Partial<RelayView>) { this.view = { ...this.view, ...patch }; for (const listener of this.listeners) listener(); }
+  private set(patch: Partial<RelayView>) {
+    this.view = { ...this.view, ...patch };
+    if (patch.notice !== undefined) {
+      clearTimeout(this.noticeTimer);
+      this.noticeTimer = patch.notice && this.view.phase !== 'locked'
+        ? setTimeout(() => this.clearNotice(), NOTICE_DURATION_MS)
+        : undefined;
+    }
+    for (const listener of this.listeners) listener();
+  }
   private notice(message: string) { this.set({ notice: message }); }
   private forgetDevice(id: string) {
     this.deviceVersions.set(id, (this.deviceVersions.get(id) ?? 0) + 1);
@@ -117,6 +128,7 @@ export class RelayClient {
     this.set({ devices: this.view.devices.filter(device => device.id !== id), catalogs: withoutDevice(this.view.catalogs), snapshots: withoutDevice(this.view.snapshots), histories: withoutDevice(this.view.histories, true), syncing: withoutDevice(this.view.syncing), threadNotifications: withoutDevice(this.view.threadNotifications, true) });
   }
   showNotice(message: string) { if (this.view.phase !== 'locked') this.notice(agentErrorMessage(message)); }
+  clearNotice() { if (this.view.phase !== 'locked' && this.view.notice) this.notice(''); }
 
   async restore(): Promise<boolean> {
     try {
