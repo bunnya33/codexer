@@ -33,6 +33,7 @@ const samples = [
   ['main.rb', 'ruby', 'def greet\n  "中文 <>&amp;"\nend\n'],
   ['main.php', 'php', '<?php function greet() { return "中文 <>&amp;"; }\n'],
   ['query.sql', 'sql', "SELECT '中文 <>&amp;' AS message;\n"],
+  ['schema.PROTO', 'proto', 'syntax = "proto3";\nmessage Greeting { string text = 1; } // 中文 <>&amp;\n'],
   ['config.json', 'json', '{ "message": "中文 <>&amp;", "ok": true }\n'],
   ['config.jsonc', 'jsonc', '// 中文 <>&amp;\n{ "ok": true, }\n'],
   ['config.yaml', 'yml', 'message: "中文 <>&amp;"\nok: true\n'],

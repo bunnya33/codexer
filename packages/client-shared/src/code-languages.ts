@@ -28,6 +28,7 @@ const definitions = {
   ruby: { extensions: ['rb', 'rake', 'gemspec', 'podspec'], aliases: ['thor', 'irb'], names: ['gemfile', 'rakefile', 'guardfile', 'podfile', 'brewfile'] },
   php: { extensions: ['php', 'phtml'] },
   sql: { extensions: ['sql', 'ddl', 'dml'] },
+  protobuf: { extensions: ['proto'] },
   json: { extensions: ['json', 'jsonc', 'json5', 'code-workspace'], names: ['.prettierrc', '.babelrc', '.eslintrc', '.stylelintrc', '.jshintrc', '.jscsrc', '.bowerrc', '.luarc', 'pipfile.lock'] },
   css: { extensions: ['css'] },
   scss: { extensions: ['scss'] },

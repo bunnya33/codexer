@@ -27,6 +27,7 @@ import php from 'highlight.js/lib/languages/php';
 import plaintext from 'highlight.js/lib/languages/plaintext';
 import powershell from 'highlight.js/lib/languages/powershell';
 import properties from 'highlight.js/lib/languages/properties';
+import protobuf from 'highlight.js/lib/languages/protobuf';
 import python from 'highlight.js/lib/languages/python';
 import ruby from 'highlight.js/lib/languages/ruby';
 import rust from 'highlight.js/lib/languages/rust';
@@ -53,7 +54,7 @@ const luaWithLuau: LanguageFn = api => {
 const languages = {
   apache, asciidoc, bash, c, cmake, cpp, csharp, css, diff, dockerfile, dos, go, ini, java,
   javascript, json, kotlin, latex, less, lua: luaWithLuau, makefile, markdown, nginx, php,
-  powershell, properties, python, ruby, rust, scss, sql, swift, text: plaintext, typescript, xml, yaml,
+  powershell, properties, protobuf, python, ruby, rust, scss, sql, swift, text: plaintext, typescript, xml, yaml,
 } satisfies Record<CodeLanguage, LanguageFn>;
 for (const [name, language] of Object.entries(languages)) hljs.registerLanguage(name, language);
 
