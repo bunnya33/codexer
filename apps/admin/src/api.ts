@@ -35,8 +35,17 @@ export class ApiError extends Error { constructor(readonly status: number, messa
 export function clearSession() { session = ''; for (const storage of ['localStorage', 'sessionStorage'] as const) { try { globalThis[storage].removeItem(key); } catch { /* Storage is optional. */ } } }
 export function hasSession() { return Boolean(session); }
 async function request<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
-  const timeout = AbortSignal.timeout(path.startsWith('/v1/admin/system/version') ? 25000 : 15000);
-  const response = await fetch(path, { method, headers: { ...(session ? { authorization: `Bearer ${session}` } : {}), ...(body === undefined ? {} : { 'content-type': 'application/json' }) }, ...(body ===undefined ? {} : { body: JSON.stringify(body) }), signal: signal ? AbortSignal.any([signal, timeout]) : timeout, redirect: 'error', ...(path === '/v1/auth/active' ? {keepalive: true} : {}) });
+  const binary = body instanceof Blob;
+  const timeout = AbortSignal.timeout(binary ? 10 * 60 * 1000 : path.startsWith('/v1/admin/system/version') ? 25000 : 15000);
+  const headers = new Headers(session ? { authorization: `Bearer ${session}` } : {});
+  if (body !== undefined) headers.set('content-type', binary ? 'application/octet-stream' : 'application/json');
+  const response = await fetch(path, {
+    method, headers,
+    body: binary ? body : JSON.stringify(body),
+    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    redirect: 'error',
+    ...(path === '/v1/auth/active' ? { keepalive: true } : {}),
+  });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
     if (response.status === 401) clearSession();
@@ -53,6 +62,18 @@ async function request<T>(path: string, method = 'GET', body?: unknown, signal?:
     const codes: Record<string,string> = {'admin-disable-protected':'不能禁用当前账号或最后一位管理员', 'update-in-progress':'已有更新正在进行', 'update-not-current':'版本已变化，请重新检查更新', 'updater-not-installed':'请先用安装器启用服务器更新服务', 'git-updater-not-installed':'请运行新版安装器，启用 Git 构建更新服务', 'git-requires-manual-steps':'Git 更新需要手动确认构建和重启', 'tag-not-available':'该 tag 不可用或不高于当前版本，请重新检查', 'update-step-not-ready':'更新步骤已变化，请刷新后重试', 'account-name-taken':'该类账号的名称已存在', 'client-upload-in-progress':'已有安装包上传或删除操作，请稍后重试', 'client-release-in-use':'安装包正在下载，请下载完成后再删除', 'client-release-storage-error':'服务器保存失败，请刷新后重试', 'client-release-delete-error':'安装包文件删除失败，请检查服务器存储权限后重试'};
     codes['client-release-changed'] = '版本信息已变化，请关闭后刷新列表再修改';
     codes['client-upload-in-progress'] = '已有安装包正在上传、修改或删除，请稍后重试';
+    Object.assign(codes, {
+      'invalid-ota-package': '更新包格式不符。请选择发布脚本生成的热更新归档。',
+      'invalid-ota-assets': '热更新资源的 SHA-256 校验失败。',
+      'invalid-ota-signature': '签名校验失败，请重新生成热更新包。',
+      'ota-relay-version': '更新包和当前 Relay 版本不匹配，请用当前版本重新生成。',
+      'ota-not-newer': '已有相同或更晚时间的更新。回滚时请重新签发旧内容。',
+      'ota-too-large': '热更新包或解压后的内容超过服务器限制。',
+      'ota-incomplete': '服务器未收到完整的热更新包，请重新上传。',
+      'ota-busy': '已有热更新发布或下架操作正在进行，请稍后重试。',
+      'ota-changed': '此热更新已变化，请刷新列表后再操作。',
+      'ota-storage-error': '访问热更新文件失败，请检查服务器存储权限和磁盘空间。',
+    });
     const message = codes[result.error] || (response.status === 401 ? '账号或密码错误，或登录已失效' : response.status === 403 ? '此入口仅供管理员使用' : response.status === 409 ? '操作与当前状态冲突，请刷新后重试' : response.status === 429 ? '操作过于频繁，请稍后重试' : response.status === 400 ? '请检查输入的格式和范围' : '服务器暂时不可用，请稍后重试');
     throw new ApiError(response.status, message);
   }
@@ -81,6 +102,25 @@ export const modelPricing = async (signal?: AbortSignal) => versionedModelPricin
 export const saveModelPricing = async (value: VersionedModelPricing) => versionedModelPricingSchema.parse(await request('/v1/admin/model-pricing', 'PUT', value));
 export const saveAuthSettings = (settings: Partial<AuthSettings>) => request<AuthSettings>('/v1/admin/auth-settings', 'PUT', settings);
 export const touchLogin = () => request('/v1/auth/active', 'POST');
+
+export type MobileOTARelease = {
+  id: string;
+  createdAt: string;
+  runtimeVersion: string;
+  platform: 'android' | 'ios';
+  label?: string;
+  relayUrl?: string;
+};
+const mobileOTAPath = '/v1/admin/mobile-ota';
+export const mobileOTAReleases = (signal: AbortSignal) =>
+  request<{ relayVersion: string; releases: MobileOTARelease[]; invalid: number }>(mobileOTAPath, 'GET', undefined, signal);
+export const publishMobileOTA = (file: File, signal: AbortSignal) =>
+  request<{ release: MobileOTARelease }>(mobileOTAPath, 'PUT', file, signal);
+export const unpublishMobileOTA = (release: MobileOTARelease, signal: AbortSignal) => {
+  const target = [release.platform, release.runtimeVersion, release.id].map(encodeURIComponent).join('/');
+  return request<{ ok: boolean }>(`${mobileOTAPath}/${target}`, 'DELETE', undefined, signal);
+};
+
 export const agentRelease = async () => {const value=await request<{release:AgentRelease|null}>('/v1/admin/pc-agent/release');return value.release===null?null:agentReleaseSchema.parse(value.release);};
 export async function clientReleases(){
   const value=await request<{releases:Record<string,unknown>;packages:unknown[]}>('/v1/admin/client-releases');

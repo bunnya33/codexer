@@ -27,6 +27,26 @@
 .modal textarea[aria-label="发布授权码"] { width:100%; padding:12px; border:1px solid var(--line); border-radius:8px; font:14px/1.6 Consolas,monospace; overflow-wrap:anywhere; resize:vertical; }
 
 .sidebar nav { overflow-y: auto; }
+.client-update-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.client-update-tabs button {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 10px 16px;
+}
+.client-update-tabs button[aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.ota-release-table time { white-space: nowrap; }
 .model-pricing { container: model-pricing / inline-size; }
 .model-pricing .page-head, .model-pricing .actions { flex-wrap: wrap; }
 .pricing-basis strong { font-size: 16px; color: #26364b; }

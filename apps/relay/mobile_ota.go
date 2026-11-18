@@ -16,12 +16,37 @@ var otaRuntime = regexp.MustCompile(`^[a-f0-9]{40}$`)
 var otaAsset = regexp.MustCompile(`^[a-f0-9]{64}$`)
 var otaRelayVersion = regexp.MustCompile(`^[0-9]{1,10}\.[0-9]{1,10}\.[0-9]{1,10}$`)
 
+const maxOTAManifestBytes = 1024 * 1024
+
+type otaSignedManifest struct {
+	Manifest  json.RawMessage
+	Signature string
+}
+
+func readOTASignedManifest(file io.Reader) (otaSignedManifest, error) {
+	var update otaSignedManifest
+	err := json.NewDecoder(io.LimitReader(file, maxOTAManifestBytes)).Decode(&update)
+	if err == nil && len(update.Manifest) == 0 {
+		err = errors.New("missing OTA manifest")
+	}
+	return update, err
+}
+
+func (update otaSignedManifest) signatureBytes() ([]byte, error) {
+	signature, err := base64.StdEncoding.DecodeString(update.Signature)
+	if err != nil || len(signature) < 256 || len(signature) > 1024 {
+		return nil, errors.New("invalid OTA signature")
+	}
+	return signature, nil
+}
+
 func (s *Server) mobileOTARoutes() {
 	version := s.Options.Version
 	if s.Options.DataDir == "" || !otaRelayVersion.MatchString(version) {
 		return
 	}
 	root := filepath.Join(s.Options.DataDir, "mobile-ota")
+	s.adminMobileOTARoutes(root, version)
 	s.mux.HandleFunc("GET /v1/mobile-ota/status", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, http.StatusOK, M{"relayVersion": version})
@@ -47,16 +72,12 @@ func (s *Server) mobileOTARoutes() {
 			fail(500, "server-error")
 		}
 		defer file.Close()
-		var update struct {
-			Manifest  json.RawMessage
-			Signature string
-		}
-		decoder := json.NewDecoder(io.LimitReader(file, 1024*1024))
-		if decoder.Decode(&update) != nil || len(update.Manifest) == 0 {
+		update, err := readOTASignedManifest(file)
+		if err != nil {
 			fail(500, "server-error")
 		}
-		signature, err := base64.StdEncoding.DecodeString(update.Signature)
-		if err != nil || len(signature) < 256 || len(signature) > 1024 {
+		signature, err := update.signatureBytes()
+		if err != nil {
 			fail(500, "server-error")
 		}
 		w.Header().Set("Content-Type", "application/expo+json")

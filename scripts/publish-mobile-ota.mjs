@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash, createPrivateKey, randomUUID, sign, X509Certificate } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -12,7 +12,9 @@ const { getConfig } = require("expo/config");
 const { values } = parseArgs({
   options: {
     "output-dir": { type: "string" },
+    "archive-dir": { type: "string" },
     "relay-url": { type: "string" },
+    "release-label": { type: "string" },
     platform: { type: "string", default: "all" },
   },
 });
@@ -22,16 +24,14 @@ if (
   !["ios", "android", "all"].includes(values.platform)
 ) {
   throw new Error(
-    "Usage: node scripts/publish-mobile-ota.mjs --relay-url <http(s)://relay> --output-dir <mobile-ota> [--platform ios|android|all]",
+    "Usage: node scripts/publish-mobile-ota.mjs --relay-url <http(s)://relay> --output-dir <mobile-ota> [--platform ios|android|all] [--archive-dir <dir>] [--release-label <label>]",
   );
 }
 const { updates } = getConfig(project).exp;
 if (!updates?.enabled || !process.env.FROGCODER_UPDATE_PRIVATE_KEY) {
   throw new Error("Set FROGCODER_UPDATE_CERT and FROGCODER_UPDATE_PRIVATE_KEY");
 }
-const certificate = new X509Certificate(
-  await readFile(resolve(project, updates.codeSigningCertificate)),
-);
+const certificate = new X509Certificate(await readFile(resolve(project, updates.codeSigningCertificate)));
 const privateKey = createPrivateKey(
   await readFile(resolve(process.env.FROGCODER_UPDATE_PRIVATE_KEY)),
 );
@@ -39,6 +39,10 @@ if (!certificate.checkPrivateKey(privateKey))
   throw new Error("The private key does not match the update certificate");
 
 const output = resolve(values["output-dir"]);
+const archiveDir = values["archive-dir"] ? resolve(values["archive-dir"]) : null;
+const releaseLabel = values["release-label"]?.trim();
+if (releaseLabel && Buffer.byteLength(releaseLabel) > 120)
+  throw new Error("--release-label must be at most 120 UTF-8 bytes");
 const relay = new URL(values["relay-url"]);
 if (
   !["http:", "https:"].includes(relay.protocol) ||
@@ -72,6 +76,30 @@ async function writeAtomic(destination, bytes) {
   }
 }
 
+async function packageForAdmin(platform, runtimeVersion, id, signed, hashes) {
+  const source = join(staging, platform + "-archive");
+  const manifestDirectory = join(source, relayVersion, platform);
+  await mkdir(manifestDirectory, { recursive: true });
+  await mkdir(join(source, "assets"));
+  await writeFile(join(source, "certificate.pem"), certificate.toString());
+  await writeFile(join(manifestDirectory, runtimeVersion + ".json"), signed);
+  for (const hash of hashes) {
+    await copyFile(join(output, "assets", hash), join(source, "assets", hash));
+  }
+  await mkdir(archiveDir, { recursive: true });
+  const archive = join(archiveDir, `frogcoder-ota-${relayVersion}-${platform}-${id}.tar.gz`);
+  const temporary = archive + ".tmp";
+  try {
+    execFileSync("tar", [
+      "--format=ustar", "-czf", temporary, "-C", source, "certificate.pem", relayVersion, "assets",
+    ], { stdio: "inherit" });
+    await rename(temporary, archive);
+  } finally {
+    await rm(temporary, { force: true });
+  }
+  console.log(`Admin upload archive: ${archive}`);
+}
+
 async function publish(platform) {
   const { runtimeVersion } = JSON.parse(
     execFileSync(
@@ -96,11 +124,13 @@ async function publish(platform) {
   const { bundle, assets } = fileMetadata[platform];
   if (!bundle.endsWith(".hbc")) throw new Error("Expected a Hermes bytecode bundle");
 
+  const hashes = new Set();
   const store = async (path, extension) => {
     const bytes = await readFile(join(exported, path));
     const digest = createHash("sha256").update(bytes).digest();
     const hex = digest.toString("hex");
     await writeAtomic(join(output, "assets", hex), bytes);
+    hashes.add(hex);
     return {
       key: basename(path, extension === "js" ? ".hbc" : "." + extension),
       hash: digest.toString("base64url"),
@@ -115,18 +145,20 @@ async function publish(platform) {
     runtimeVersion,
     launchAsset: await store(bundle, "js"),
     assets: [],
-    metadata: { relayUpdateUrl: manifestUrl.href },
+    metadata: { relayUpdateUrl: manifestUrl.href, ...(releaseLabel ? { releaseLabel } : {}) },
     extra: {},
   };
   for (const { path, ext } of assets) manifest.assets.push(await store(path, ext));
   const body = JSON.stringify(manifest);
   if (Buffer.byteLength(body) > 512 * 1024) throw new Error("Update manifest is too large");
   const signature = sign("sha256", Buffer.from(body), privateKey).toString("base64");
+  const signed = JSON.stringify({ manifest, signature });
   await mkdir(join(output, relayVersion, platform), { recursive: true });
   await writeAtomic(
     join(output, relayVersion, platform, runtimeVersion + ".json"),
-    JSON.stringify({ manifest, signature }),
+    signed,
   );
+  if (archiveDir) await packageForAdmin(platform, runtimeVersion, manifest.id, signed, hashes);
   console.log(`Published ${platform} ${runtimeVersion} ${manifest.id}`);
 }
 
