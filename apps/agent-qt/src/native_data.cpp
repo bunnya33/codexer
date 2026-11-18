@@ -1188,6 +1188,14 @@ bool validCommand(const Object &command) {
     return true;
   if (type == "turn.continue")
     return p.size() == 3 && id(p["turnId"]);
+  if (type == "turn.edit") {
+    if (p.size() != 6 + int(p.contains("attachments"))) return false;
+    if (p.contains("attachments") && (!p["attachments"].isArray() || p["attachments"].toArray().size() > 4)) return false;
+    for (auto v : p["attachments"].toArray()) if (!digest(v)) return false;
+    return id(p["turnId"]) && id(p["itemId"]) &&
+           bounded(p["expectedText"], 0, 32000) && bounded(p["text"], 1, 32000) &&
+           !p["text"].toString().trimmed().isEmpty();
+  }
   auto model = [&](QJsonValue v) { return bounded(v, 1, 200); };
   auto effort = [&](QJsonValue v) { return v.isNull() || bounded(v, 0, 80); };
   if (type == "thread.model.update")

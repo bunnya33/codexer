@@ -40,6 +40,7 @@ import { confirmAction } from './src/runtime';
 import { ConversationControls } from './src/conversation-controls';
 import { ConversationKeyboard } from './src/conversation-keyboard';
 import { ConversationViewport } from './src/conversation-viewport';
+import {MessageActionsProvider} from './src/message-actions';
 import { ConversationDrawer } from './src/conversation-drawer';
 import { DrawerSwipeArea } from './src/drawer-swipe-area';
 import { DrawerSwipeBlock } from './src/drawer-swipe-block';
@@ -502,6 +503,7 @@ function AppContent() {
         truncated={!!thread?.subAgentsTruncated} hasTruncatedContent={hasTruncatedContent} onDrawer={wide ? undefined : () => setDrawerOpen(true)}
         onRefresh={() => { void relay.loadHistory(deviceId, threadId).catch(() => relay.showNotice('会话刷新失败，请重试。')); relay.watchThread(deviceId, threadId, true); }}
         onInfo={() => relay.showNotice('部分长记录受传输大小限制。完整内容可在本机 Codex 查看；更早消息可在会话顶部加载。')} />
+      <MessageActionsProvider key={JSON.stringify([draftScope,deviceId,threadId])} deviceId={deviceId} threadId={threadId} canEdit={ready&&thread?.status==='idle'&&snapshot?.runtime.capabilities.editMessage===true} onFork={setThreadId} onSelection={active=>{if(active)markScrollIntent('up');}}>
       <ConversationViewport onScrollIntent={markScrollIntent}><FlatList key={historyKey(deviceId, threadId)} ref={listRef} testID="conversation-stream" data={turns} keyExtractor={item => item.id} style={s.stream} contentContainerStyle={[s.streamContent, wide && s.desktopContent]} initialNumToRender={8} windowSize={7} maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
         onScroll={event => {
           if (currentStreamKey.current !== streamKey) return;
@@ -533,6 +535,7 @@ function AppContent() {
         ListHeaderComponent={history?.nextCursor ? <Pressable accessibilityRole="button" accessibilityLabel="加载更早消息" disabled={history.loading} onPress={loadEarlier} style={s.earlier}>{history.loading ? <ActivityIndicator size="small" color={c.accent} /> : <Text style={s.earlierText}>{Platform.OS === 'web' ? '加载更早消息' : '下拉加载更早消息'}</Text>}</Pressable> : null}
         ListEmptyComponent={thread?.requests.length ? null : <View style={s.chatEmpty}><Terminal size={30} color={c.accent} /><Text style={s.chatEmptyTitle}>{threadId ? history?.loading ? '正在读取会话' : '开始对话' : view.devices.length ? '选择 PC Agent 和会话' : '等待 PC Agent 登录'}</Text><Text style={s.chatEmptySub}>{threadId ? '消息将在这里显示' : view.devices.length ? '从左侧选择要控制的 PC Agent' : '在 PC 上使用同一账号登录，即可在这里选择控制端'}</Text></View>}
         ListFooterComponent={<View>{!!history?.error && <Text style={s.error}>{history.error}</Text>}{thread?.requests.map(request => <DrawerSwipeBlock key={request.id}><RequestPanel request={request} deviceId={deviceId} threadId={threadId} enabled={ready && !busy} send={async payload => { const result = await relay.sendCommand(deviceId, payload); if (result.status !== 'succeeded') throw new Error(result.code); }} /></DrawerSwipeBlock>)}</View>} /></ConversationViewport>
+      </MessageActionsProvider>
       </DrawerSwipeArea>
       <View testID="composer-dock" style={[s.composerDock, wide && {maxWidth: 900, alignSelf: 'center'}]}>
         <JumpToBottom visible={showJumpToBottom} onPress={scrollToBottom}/>

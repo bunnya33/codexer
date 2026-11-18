@@ -1,5 +1,5 @@
-import { memo, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Easing, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Animated, Easing, Linking, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { Bot, Check, ChevronDown, ChevronRight, ChevronUp, Copy, Pencil, Sparkles, SquareTerminal, Globe, MessageCircle, Image, Clock, Search, Layers, Wrench } from 'lucide-react-native';
 import { activityLabel, activitySections, buildActivityBlocks, completedActivityLabel, splitActivityReply, executionItemIcon, executionItemSummary, executionSectionItem, executionSectionSummary, formatDuration, itemDuration, messageRole } from '../../../packages/client-shared/src/activity';
 import type { ExecutionSection } from '../../../packages/client-shared/src/activity';
@@ -23,6 +23,13 @@ import { useInteractionMotion } from './interaction/motion';
 import { PlanCard, ExecutionPlan } from './plan-review';
 import {Disclosure} from './interaction/disclosure';
 import {AgentActivityRecord, CompactionActivityRecord, FileActivityRecord, ImageActivityRecord} from './activity-records';
+import {messageTextRuns} from '../../../packages/client-shared/src/message-text';
+import {NativeMessageText} from './message-native';
+import {MessageActionOverlays,MessageTurnContext,useMessageAction} from './message-actions';
+import {useFileLink} from './file-link-context';
+import {localFilePath} from '../../../packages/client-shared/src/file-links';
+import {splitPreviewContent} from '../../../packages/client-shared/src/previews';
+import {splitAudioContent} from '../../../packages/client-shared/src/audio';
 
 type ImageSource = { uri: string; headers?: Record<string, string> };
 type ImageViewer = (source: ImageSource, name: string) => void;
@@ -43,15 +50,29 @@ const Message = memo(function Message({ item, running = false, deviceId, threadI
   const body = presentation?.body ?? item.text ?? '';
   const parts = role === 'user' ? item.userMessageParts ?? presentation?.parts : undefined;
   const display = stripInlineImageReferences(body, imageSources);
+  const actions=useMessageAction({item,display,deviceId,threadId});
+  const onFile=useFileLink();
+  const parsedRuns=useMemo(()=>!display.trim()||parts?.length||splitPreviewContent(display).some(x=>x.kind!=='text')||splitAudioContent(display).some(x=>x.kind!=='text')||/\]\(<?(?:\/|[A-Za-z]:|file:)/i.test(display)?null:messageTextRuns(display),[display,parts]);
+  const selectionRuns=useRef(parsedRuns);
+  if(!actions.selecting)selectionRuns.current=parsedRuns;
+  const runs=selectionRuns.current;
+  const [nativeHeight,setNativeHeight]=useState(26);
+  const [naturalWidth,setNaturalWidth]=useState(280);
+  const native=!!NativeMessageText&&!!runs;
   if (role) {
     if (!body && !images.length && !item.files?.length) return null;
-    return <View style={[s.message, role === 'user' ? s.userMessage : s.agentMessage]}>
+    return <View ref={actions.anchor} collapsable={false} style={[s.message, role === 'user' ? s.userMessage : s.agentMessage,native&&role==='user'&&{width:Math.max(images.length?160:60,naturalWidth+30)}]}>
+      {native&&NativeMessageText&&runs?<NativeMessageText runs={runs} textColor={c.text} linkColor={c.accent} bubbleColor={c.bubble} userMessage={role==='user'} canEdit={actions.canEdit} menuTitle={actions.time} selectionRequest={actions.selectionRequest}
+        onContentHeight={event=>{setNativeHeight(event.nativeEvent.height);setNaturalWidth(event.nativeEvent.naturalWidth);}} onSelection={event=>actions.setSelecting(event.nativeEvent.active)} onAction={event=>{const {action,href}=event.nativeEvent;if(action==='link'&&href){const path=localFilePath(href);if(path)onFile?.(path);else if(/^(https?:|mailto:)/i.test(href))void Linking.openURL(href).catch(()=>relay.showNotice('链接无法打开'));}else actions.act(action);}} style={{height:nativeHeight,alignSelf:'stretch'}}/>
+      :<Pressable onLongPress={actions.open} delayLongPress={450}>
       {parts?.length ? <View style={s.replyParts}>{parts.map((part, index) => part.type === 'questionAnswer'
         ? <View key={index} style={s.replyPair}><Text selectable style={s.replyQuestion}>{part.question}</Text><Text selectable style={s.replyAnswer}>{part.answer}</Text></View>
         : <Markdown key={index}>{stripInlineImageReferences(part.text, imageSources)}</Markdown>)}</View> : !!display && <Markdown>{display}</Markdown>}
+      </Pressable>}
       {!!images.length && <DrawerSwipeBlock style={s.imageRow}>{images.map(image => <Pressable key={image.id} accessibilityRole="button" accessibilityLabel={`查看图片 ${image.name}`} onPress={() => onImage(relay.imageSource(deviceId, threadId, image.id), image.name)}><RelayImage source={relay.imageSource(deviceId, threadId, image.id)} resizeMode="cover" style={s.image} /></Pressable>)}</DrawerSwipeBlock>}
       {!!item.files?.length && <Text style={s.fileNames}>{item.files.join(' · ')}</Text>}
-      {!!display && <Pressable accessibilityRole="button" accessibilityLabel="复制消息" style={[s.iconButton, { alignSelf: role === 'user' ? 'flex-end' : 'flex-start', width: 30, height: 28 }]} onPress={() => void copyText(display).catch(() => relay.showNotice('复制失败，请选择文字手动复制'))}><Copy size={14} color={c.muted} /></Pressable>}
+      {!!display && <Pressable accessibilityRole="button" accessibilityLabel={actions.copied?'消息已复制':'复制消息'} style={[s.iconButton, { alignSelf: role === 'user' ? 'flex-end' : 'flex-start', width: 30, height: 28 }]} onLongPress={actions.open} delayLongPress={450} onPress={()=>void actions.copy()}>{actions.copied?<Check size={14} color={c.muted}/>:<Copy size={14} color={c.muted}/>}</Pressable>}
+      <MessageActionOverlays actions={actions} text={display} nativeSelection={native}/>
     </View>;
   }
   const title = executionItemSummary(item, running);
@@ -142,12 +163,12 @@ export { FileChangesPanel } from './file-review';
 
 export const TurnView = memo(function TurnView({ turn, active, deviceId, threadId, onImage, questionRequestIds, steps, agents, onInspectDetails }: { turn: HistoryTurn; active: boolean; deviceId: string; threadId: string; onImage: ImageViewer; questionRequestIds: string[]; steps?: {step: string; status: string}[]; agents?: RemoteSubAgent[]; onInspectDetails?: () => void }) {
   const { s } = useTheme();
-  const { end } = recordedTurnTiming(turn, active);
+  const { start, end } = recordedTurnTiming(turn, active);
   // History can retain an old inProgress status outside the live turn window.
   // Only the thread's current active turn should show a running placeholder.
   const running = active && turn.status === 'inProgress';
   const cost = turnCostLabel(turn.tokenUsage);
-  return <View style={s.turn}>
+  return <MessageTurnContext.Provider value={{turnId:turn.id,time:start?new Date(start).toISOString():''}}><View style={s.turn}>
     {buildActivityBlocks(turn, active).map(block => block.kind === 'message' ? <Message key={block.item.id} item={block.item} deviceId={deviceId} threadId={threadId} onImage={onImage} /> : <Activity key={block.id} block={block} turn={turn} deviceId={deviceId} threadId={threadId} onImage={onImage} questionRequestIds={questionRequestIds} steps={steps} agents={agents} onInspectDetails={onInspectDetails} />)}
     {(turn.tokenUsage || running || end) && <View style={s.turnFooter}>
       {(turn.tokenUsage || running) && <View testID="turn-token-usage" style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
@@ -156,7 +177,7 @@ export const TurnView = memo(function TurnView({ turn, active, deviceId, threadI
       </View>}
       <TurnEndTime turn={turn} running={active} />
     </View>}
-  </View>;
+  </View></MessageTurnContext.Provider>;
 });
 
 export { RequestPanel } from './request-panel';

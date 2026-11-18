@@ -83,6 +83,7 @@ void Service::connectAgent() {
                 {"startTurn", true},
                 {"interrupt", true},
                 {"continueTurn", true},
+                {"editMessage", true},
                 {"activeSettingsUpdate", true},
                 {"approvals", true},
                 {"userInput", true},

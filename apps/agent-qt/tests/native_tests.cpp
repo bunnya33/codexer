@@ -104,6 +104,14 @@ static int fixtureServer() {
       result["thread"] = thread;
       save(fixtureRoot + "/fixture.json", json(state));
     }
+    if (method == "thread/fork") {
+      result = state["resume"].toObject();
+      auto fork = state["thread"].toObject(); fork["id"] = "edit-fork";
+      result["thread"] = fork;
+      if (state.contains("forkSandbox")) result["sandbox"] = state["forkSandbox"];
+    }
+    if (method == "thread/revert" && state["rejectRevert"].toBool())
+      response["error"] = Object{{"message", "revert unavailable"}};
     if (method == "turn/start") {
       if (state["disconnectOnStart"].toBool())
         return 0;
@@ -348,6 +356,68 @@ class NativeTests : public QObject {
     emit agent->desktop->threadChanged("thread-test");
   }
 private slots:
+  void editForkPreservesSourceAndAttachments_data() {
+    QTest::addColumn<bool>("fileContext");
+    QTest::newRow("plain") << false;
+    QTest::newRow("file-context") << true;
+  }
+  void editForkPreservesSourceAndAttachments() {
+    QFETCH(bool,fileContext);
+    auto source = raw();
+    agent->rawThreads["thread-test"] = source; agent->updateThread("thread-test");
+    agent->catalog["threads"] = Array{Object{{"id","thread-test"},{"title","Synthetic"},{"projectId","project-test"}}};
+    const auto originalText=fileContext?QString("Files mentioned by the user:\nreport.txt:\nfile context\nMy request:\noriginal"):QString("original");
+    const auto editedText=fileContext?QString("Files mentioned by the user:\nreport.txt:\nfile context\nMy request:\nedited"):QString("edited");
+    Object user{{"id","message"},{"type","userMessage"},{"content",Array{
+      Object{{"type","text"},{"text",originalText}},Object{{"type","localImage"},{"path","/synthetic/image.png"}}}}};
+    setFixture({{"itemEntries",Array{Object{{"turnId","turn"},{"item",user}}}}});
+    auto cmd=command("turn.edit");
+    cmd["payload"]=Object{{"type","turn.edit"},{"threadId","thread-test"},{"turnId","turn"},{"itemId","message"},{"expectedText","original"},{"text","edited"}};
+    const auto before=agent->rawThreads["thread-test"];
+    auto result=agent->editMessage(cmd);
+    QCOMPARE(result["threadId"],QJsonValue("edit-fork"));
+    QCOMPARE(agent->rawThreads["thread-test"],before);
+    bool sawFork=false,sawRevert=false,sawStart=false;
+    for(const auto &line:read(temp.path()+"/requests.jsonl").split('\n')) {
+      if(line.isEmpty())continue;
+      auto request=parse(line).toObject(),p=request["params"].toObject();
+      if(request["method"]=="thread/fork") {
+        sawFork=true;QCOMPARE(p["threadId"],QJsonValue("thread-test"));QCOMPARE(p["lastTurnId"],QJsonValue("turn"));
+        QCOMPARE(p["excludeTurns"],QJsonValue(true));
+        QCOMPARE(p["config"].toObject()["sandbox_workspace_write"].toObject()["writable_roots"],QJsonValue(Array{temp.path()}));
+      }
+      if(request["method"]=="thread/revert") {sawRevert=true;QCOMPARE(p["threadId"],QJsonValue("edit-fork"));QCOMPARE(p["beforeTurnId"],QJsonValue("turn"));}
+      if(request["method"]=="turn/start") {sawStart=true;QCOMPARE(p["threadId"],QJsonValue("edit-fork"));QCOMPARE(p["input"].toArray()[0].toObject()["text"],QJsonValue(editedText));QCOMPARE(p["input"].toArray()[1].toObject()["type"],QJsonValue("localImage"));}
+      QVERIFY(request["method"]!="thread/resume");
+    }
+    QVERIFY(sawFork&&sawRevert&&sawStart);
+  }
+  void editRejectsStaleMessageBeforeFork() {
+    auto source=raw();agent->rawThreads["thread-test"]=source;agent->updateThread("thread-test");
+    setFixture({{"itemEntries",Array{Object{{"turnId","turn"},{"item",Object{{"id","message"},{"type","userMessage"},{"content",Array{Object{{"type","text"},{"text","changed"}}}}}}}}}});
+    auto cmd=command("turn.edit");cmd["payload"]=Object{{"type","turn.edit"},{"threadId","thread-test"},{"turnId","turn"},{"itemId","message"},{"expectedText","original"},{"text","edited"}};
+    try{agent->editMessage(cmd);QFAIL("stale edit accepted");}catch(const Error &e){QCOMPARE(e.code,QString("edit-message-changed"));QVERIFY(!e.uncertain);}
+    QVERIFY(!read(temp.path()+"/requests.jsonl").contains("thread/fork"));
+  }
+  void editNeverSendsAfterForkFailure_data() {
+    QTest::addColumn<bool>("revertFailure");
+    QTest::newRow("wider-permissions") << false;
+    QTest::newRow("revert-failed") << true;
+  }
+  void editNeverSendsAfterForkFailure() {
+    QFETCH(bool,revertFailure);
+    auto source=raw();agent->rawThreads["thread-test"]=source;agent->updateThread("thread-test");
+    agent->catalog["threads"]=Array{Object{{"id","thread-test"},{"title","Synthetic"}}};
+    Object message{{"id","message"},{"type","userMessage"},{"content",Array{Object{{"type","text"},{"text","original"}}}}};
+    Object fixture{{"itemEntries",Array{Object{{"turnId","turn"},{"item",message}}}}};
+    if(revertFailure)fixture["rejectRevert"]=true;
+    else fixture["forkSandbox"]=Object{{"type","dangerFullAccess"}};
+    setFixture(fixture);
+    auto cmd=command("turn.edit");cmd["payload"]=Object{{"type","turn.edit"},{"threadId","thread-test"},{"turnId","turn"},{"itemId","message"},{"expectedText","original"},{"text","edited"}};
+    try{agent->editMessage(cmd);QFAIL("wider permissions accepted");}catch(const Error &e){QVERIFY(e.uncertain);}
+    QVERIFY(!read(temp.path()+"/requests.jsonl").contains("turn/start"));
+    QVERIFY(agent->rawThreads.contains("edit-fork"));
+  }
   void processResourceAccounting() {
     qint64 clock = 0;
     quint64 used = 1000000000, identity = 7;
