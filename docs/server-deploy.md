@@ -19,8 +19,8 @@ npm run server:deploy -- login --url http://codexer.example.com:8899
 | --- | --- |
 | `server:read` | 读取版本、平台和更新任务 |
 | `server:write` | 上传服务器包；重启由上传生成的确切任务，不执行 Git 构建或更改更新设置 |
-| `clients:read` | 读取客户端和兼容 Agent 更新目录 |
-| `clients:write` | 上传 Android、Windows/macOS Control、Windows/macOS Agent 安装包；不删除、修改已有包 |
+| `clients:read` | 读取客户端安装包、手机热更新和兼容 Agent 更新目录 |
+| `clients:write` | 上传客户端安装包和已签名的手机热更新归档 |
 
 发布凭据不能管理账号、读取控制会话、调用远程 PC 命令或管理其它发布授权。权限授权也不等于每次操作的用户指令：只要求“发个服务器更新”时仅发布 Release；明确要求“更新到服务器”时才准备、重启并核验。上传客户端安装包不会自动替换所有设备上的应用，保留原来的客户端更新确认。
 
@@ -70,6 +70,17 @@ npm run server:deploy -- publish-client --target agent-windows-x64-setup --archi
 | `agent-macos-arm64` / `agent-macos-x64` | 对应架构 Agent `.dmg` |
 
 所有上传按实际文件计算并提交 SHA-256，服务器不匹配则不发布；工具再次核对响应和目录。不会把较旧版本覆盖到最新目录；同版本同摘要返回 `already-published`。Windows Agent 的两个通道按顺序发布，若兼容通道失败会明确报错；核对后再次执行会补齐剩余通道而不重复发布现代目录。其它格式与原生签名、架构、实机验收仍依照[客户端更新](client-updates.md)及对应产品的打包流程；文件扩展名和服务器格式校验不能替代原生验收。
+
+## 发布手机热更新
+
+Relay 0.3.75 起，发布工具可通过含 `clients:read` 和 `clients:write` 的授权码上传 Android 或 iOS 热更新。继续用签名脚本的 `--archive-dir` 生成归档，保留脚本生成的文件名。
+
+```powershell
+npm run server:deploy -- publish-ota --archive "F:/packages/<热更新包>.tar.gz"
+npm run server:deploy -- publish-ota --archive "F:/packages/<热更新包>.tar.gz" --apply
+```
+
+默认仅预检归档文件、计算 SHA-256 并核对当前 Relay 版本。传入 `--apply` 后，服务器对照摘要校验归档，验证清单签名与资源后发布。工具随后核对生效目录。下架通过管理员网页操作。签名流程见[手机热更新](mobile-ota.md)。
 
 ## 故障与退出
 

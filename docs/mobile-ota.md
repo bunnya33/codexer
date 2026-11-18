@@ -54,4 +54,6 @@ node scripts/publish-mobile-ota.mjs --relay-url http://relay.example:8787 \
 
 下架会停止向设备提供对应清单，并保留资源供已经开始的下载使用。已经安装更新的设备可能继续运行该内容。回滚时使用同一原生基线重新签发确认过的旧内容，再上传新的归档。发布、下架和回滚即时生效。
 
+Relay 0.3.75 起也支持用现有发布授权运行 `npm run server:deploy -- publish-ota --archive <归档> --apply`。发布工具需要 `clients:read` 和 `clients:write`。[命令行发布流程](server-deploy.md#发布手机热更新)
+
 构建和发布均使用仓库安装的工具，手机端直接连接配置的 Relay，无需 Expo 云服务或账号。

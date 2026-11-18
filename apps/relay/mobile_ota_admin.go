@@ -88,8 +88,9 @@ func otaPlatform(platform string) bool {
 
 func (s *Server) adminMobileOTARoutes(directory, version string) {
 	const endpoint = "/v1/admin/mobile-ota"
+	const publishScope = "publish:clients:write"
 	var write sync.Mutex
-	s.route("GET "+endpoint, "admin", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
+	s.route("GET "+endpoint, "publish:clients:read", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
 		w.Header().Set("Cache-Control", "no-store")
 		releases := []otaRelease{}
 		invalid := 0
@@ -134,7 +135,11 @@ func (s *Server) adminMobileOTARoutes(directory, version string) {
 		}
 		return M{"relayVersion": version, "releases": releases, "invalid": invalid}
 	})
-	s.route("PUT "+endpoint, "admin", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
+	s.route("PUT "+endpoint, publishScope, func(w http.ResponseWriter, r *http.Request, p *Principal) any {
+		name, expected := r.URL.Query().Get("name"), r.URL.Query().Get("sha256")
+		if len(name) > 180 || expected != "" && !otaAsset.MatchString(expected) {
+			fail(400, "invalid-ota-package")
+		}
 		if !write.TryLock() {
 			fail(409, "ota-busy")
 		}
@@ -161,11 +166,18 @@ func (s *Server) adminMobileOTARoutes(directory, version string) {
 			fail(500, "ota-storage-error")
 		}
 		defer os.RemoveAll(staging)
-		bundle := readOTAUpload(upload, staging, version)
+		digest := sha256.New()
+		bundle := readOTAUpload(io.TeeReader(upload, digest), staging, version)
+		if expected != "" && hex.EncodeToString(digest.Sum(nil)) != expected {
+			fail(400, "checksum-mismatch")
+		}
+		if name != "" && name != "frogcoder-ota-"+version+"-"+bundle.Platform+"-"+bundle.ID+".tar.gz" {
+			fail(400, "invalid-ota-package")
+		}
 
 		s.exclusive.RLock()
 		defer s.exclusive.RUnlock()
-		s.principal(r, "admin")
+		s.principal(r, publishScope)
 		if r.Context().Err() != nil || s.ctx.Err() != nil {
 			fail(400, "ota-incomplete")
 		}

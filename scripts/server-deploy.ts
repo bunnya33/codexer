@@ -20,6 +20,7 @@ import {
   importPublishingCode,
 } from "../packages/shared/src/publisher-auth.js";
 import { readPublishingCode } from "../packages/shared/src/publisher-input.js";
+import { publishMobileOTAPackage } from "../packages/shared/src/mobile-ota-publish.js";
 import {
   inspectClientPackage,
   publishClientPackage,
@@ -31,11 +32,12 @@ const help = `Codexer 发布工具（服务器生成授权码）
   npm run server:deploy -- status
   npm run server:deploy -- deploy --archive <服务器包.tar.gz> [--checksum <文件.sha256>] [--apply]
   npm run server:deploy -- publish-client --target <目标> --archive <安装包> [--version X.Y.Z] [--build-number N] [--notes-file <说明.txt>] [--checksum <文件.sha256>] [--apply]
+  npm run server:deploy -- publish-ota --archive <热更新包.tar.gz> [--checksum <文件.sha256>] [--apply]
   npm run server:deploy -- clients
   npm run server:deploy -- logout
 
 通用选项：--profile <名称>（默认 default） --timeout <秒>（默认 900）
-deploy / publish-client 默认只预检，--apply 才执行。
+deploy / publish-client / publish-ota 默认只预检，--apply 才执行。
 login 粘贴后台“发布授权”生成的授权码，输入隐藏；也支持通过标准输入传入。支持 HTTP 和 HTTPS。
 --web 保留旧版网页审批方式。工具不接收管理员密码。
 客户端发布不自动安装到设备。Windows Agent 安装版同时同步兼容更新通道。
@@ -69,7 +71,7 @@ async function main() {
   }
   if (
     positionals.length !== 1 ||
-    !["login", "status", "deploy", "publish-client", "clients", "logout"].includes(command)
+    !["login", "status", "deploy", "publish-client", "publish-ota", "clients", "logout"].includes(command)
   )
     throw new DeployError("invalid-command");
   if (!/^[a-z0-9][a-z0-9-]{0,40}$/.test(values.profile!)) throw new DeployError("invalid-profile");
@@ -194,6 +196,13 @@ async function main() {
       return;
     }
     if (!values.archive) throw new DeployError("archive-required");
+    if (command === "publish-ota") {
+      const scopes = identity().scopes;
+      if (!scopes.includes("clients:read") || !scopes.includes("clients:write"))
+        throw new DeployError("publishing-scope-denied");
+      output(await publishMobileOTAPackage(client, values.archive, values));
+      return;
+    }
     if (command === "publish-client") {
       if (!values.target) throw new DeployError("client-target-required");
       if (values["notes-file"] && (await stat(values["notes-file"])).size > 16000)

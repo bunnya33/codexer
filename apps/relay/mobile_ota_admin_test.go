@@ -65,6 +65,21 @@ func TestMobileOTAAdminPublishesAndUnpublishesScriptFormat(t *testing.T) {
 	}
 	call(http.MethodGet, endpoint, "", nil, 401)
 	call(http.MethodPut, endpoint, user, nil, 403)
+	keyFor := func(scope string) string {
+		t.Helper()
+		body := []byte(js(M{"name": scope, "scopes": []string{scope}, "expiresInDays": 7}))
+		result := call(http.MethodPost, "/v1/admin/publishing/keys", admin, body, 200)
+		var credential struct{ Code string }
+		if err := json.Unmarshal(result.Body.Bytes(), &credential); err != nil || credential.Code == "" {
+			t.Fatal("unable to obtain test publishing credential", err)
+		}
+		return credential.Code
+	}
+	reader, writer, serverWriter := keyFor("clients:read"), keyFor("clients:write"), keyFor("server:write")
+	call(http.MethodGet, endpoint, reader, nil, 200)
+	call(http.MethodGet, endpoint, writer, nil, 403)
+	call(http.MethodPut, endpoint, reader, nil, 403)
+	call(http.MethodPut, endpoint, serverWriter, nil, 403)
 
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -162,7 +177,12 @@ func TestMobileOTAAdminPublishesAndUnpublishesScriptFormat(t *testing.T) {
 	expectActive(legacyID)
 
 	valid := pack(release, activePath, assetPath, asset)
-	call(http.MethodPut, endpoint, admin, valid, 200)
+	name := "frogcoder-ota-" + version + "-" + platform + "-" + releaseID + ".tar.gz"
+	archiveDigest := sha256.Sum256(valid)
+	call(http.MethodPut, endpoint+"?name="+name+"&sha256="+strings.Repeat("0", 64), writer, valid, 400)
+	call(http.MethodPut, endpoint+"?name=wrong.tar.gz&sha256="+hex.EncodeToString(archiveDigest[:]), writer, valid, 400)
+	expectActive(legacyID)
+	call(http.MethodPut, endpoint+"?name="+name+"&sha256="+hex.EncodeToString(archiveDigest[:]), writer, valid, 200)
 	if err := os.Remove(filepath.Join(root, filepath.FromSlash(assetPath))); err != nil {
 		t.Fatal(err)
 	}
@@ -175,6 +195,7 @@ func TestMobileOTAAdminPublishesAndUnpublishesScriptFormat(t *testing.T) {
 
 	target := endpoint + "/" + platform + "/" + runtime + "/"
 	call(http.MethodDelete, target+legacyID, admin, nil, 409)
+	call(http.MethodDelete, target+releaseID, writer, nil, 403)
 	call(http.MethodDelete, target+releaseID, user, nil, 403)
 	call(http.MethodDelete, target+releaseID, admin, nil, 200)
 	call(http.MethodGet, source, "", nil, 204)
