@@ -42,7 +42,7 @@ export function MessageActionsProvider({children,deviceId,threadId,canEdit,onFor
   };
   const attempts=useRef(new Map<string,EditDelivery>());
   const delivery=(key:string)=>{let value=attempts.current.get(key);if(!value){value={status:'idle'};attempts.current.set(key,value);}return value;};
-  return <Actions.Provider value={{canEdit,edit:setTarget,copied:notifyCopied,onSelection}}><View style={{flex:1}}>{children}{copied&&<Animated.View pointerEvents="none" accessibilityLiveRegion="polite" accessibilityRole="alert" style={[styles.copyToast,{backgroundColor:c.glass,borderColor:c.glassBorder,shadowColor:c.shadow,opacity:toastOpacity}]}><View style={[styles.toastCheck,{backgroundColor:c.muted}]}><Check size={11} strokeWidth={2.8} color={c.surface}/></View><Text style={{color:c.text,fontSize:12,fontWeight:'600'}}>消息已复制</Text></Animated.View>}</View>{target&&<MessageEditor key={JSON.stringify([deviceId,threadId,target.turnId,target.item.id])} target={target} delivery={delivery(target.item.id)} canEdit={canEdit} deviceId={deviceId} threadId={threadId} close={()=>setTarget(null)} onFork={onFork}/>}</Actions.Provider>;
+  return <Actions.Provider value={{canEdit,edit:setTarget,copied:notifyCopied,onSelection}}><View style={{flex:1}}>{children}{copied&&<Animated.View pointerEvents="none" accessibilityLiveRegion="polite" accessibilityRole="alert" style={[styles.copyToast,{backgroundColor:c.glass,borderColor:c.faint,shadowColor:c.shadow,opacity:toastOpacity}]}><View style={[styles.toastCheck,{backgroundColor:c.muted}]}><Check size={11} strokeWidth={2.8} color={c.surface}/></View><Text style={{color:c.text,fontSize:12,fontWeight:'600'}}>消息已复制</Text></Animated.View>}</View>{target&&<MessageEditor key={JSON.stringify([deviceId,threadId,target.turnId,target.item.id])} target={target} delivery={delivery(target.item.id)} canEdit={canEdit} deviceId={deviceId} threadId={threadId} close={()=>setTarget(null)} onFork={onFork}/>}</Actions.Provider>;
 }
 
 /** Native iOS exposes its system context menu; other hosts use this anchored menu. */
@@ -161,7 +161,7 @@ function MessageEditor({target,deviceId,threadId,close,onFork,delivery,canEdit}:
 }
 const styles=StyleSheet.create({
   header:{height:56,paddingHorizontal:20,flexDirection:'row',alignItems:'center',justifyContent:'space-between'},
-  copyToast:{position:'absolute',top:8,left:16,right:16,minHeight:50,borderRadius:12,borderWidth:StyleSheet.hairlineWidth,paddingHorizontal:12,flexDirection:'row',alignItems:'center',gap:12,shadowOpacity:.1,shadowRadius:12,shadowOffset:{width:0,height:3},elevation:2,zIndex:10},
+  copyToast:{position:'absolute',top:8,left:16,right:16,minHeight:50,borderRadius:12,borderWidth:1,paddingHorizontal:12,flexDirection:'row',alignItems:'center',gap:12,shadowOpacity:.1,shadowRadius:12,shadowOffset:{width:0,height:3},elevation:2,zIndex:10},
   toastCheck:{width:17,height:17,borderRadius:9,alignItems:'center',justifyContent:'center'},
   editorClose:{width:42,height:42,borderRadius:21,alignItems:'center',justifyContent:'center'},
   editorComposer:{marginHorizontal:12,marginBottom:12,paddingHorizontal:8,paddingTop:12,paddingBottom:6,borderRadius:23},
