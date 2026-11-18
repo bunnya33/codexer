@@ -1,6 +1,7 @@
 import { build } from "esbuild";
 import { JSDOM } from "jsdom";
 import { beforeAll, expect, it, vi } from "vitest";
+import assert from "node:assert/strict";
 import { resolve } from "node:path";
 
 let javascript = "";
@@ -48,7 +49,9 @@ beforeAll(async () => {
       },
     ],
   });
-  javascript = result.outputFiles[0].text;
+  const [output] = result.outputFiles;
+  assert.ok(output);
+  javascript = output.text;
 });
 
 async function fixture() {
@@ -117,17 +120,23 @@ it("keeps a downloaded update after dismissal and reloads only on confirmation",
   try {
     await click("下载内容更新");
     await vi.waitFor(() => expect(onAlert).toHaveBeenCalledTimes(1));
-    onAlert.mock.calls[0][2][0].onPress();
+    const deferButton = onAlert.mock.calls[0]?.[2][0];
+    assert.ok(deferButton);
+    deferButton.onPress();
     await click("应用已下载更新");
     await vi.waitFor(() => expect(onAlert).toHaveBeenCalledTimes(2));
-    onAlert.mock.calls[1][3].onDismiss();
+    const dismiss = onAlert.mock.calls[1]?.[3].onDismiss;
+    assert.ok(dismiss);
+    dismiss();
     await click("应用已下载更新");
     await vi.waitFor(() => expect(onAlert).toHaveBeenCalledTimes(3));
     expect(updates.reloadAsync).not.toHaveBeenCalled();
     expect(updates.fetchUpdateAsync).toHaveBeenCalledOnce();
-    const buttons = onAlert.mock.calls[2][2];
-    expect(buttons.map((button) => button.text)).toEqual(["下次启动", "立即重启"]);
-    buttons[1].onPress();
+    const buttons = onAlert.mock.calls[2]?.[2];
+    expect(buttons?.map((button) => button.text)).toEqual(["下次启动", "立即重启"]);
+    const restartButton = buttons?.[1];
+    assert.ok(restartButton);
+    restartButton.onPress();
     await vi.waitFor(() => expect(updates.reloadAsync).toHaveBeenCalledOnce());
   } finally {
     dom.window.close();
