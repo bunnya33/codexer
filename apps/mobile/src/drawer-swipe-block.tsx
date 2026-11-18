@@ -12,7 +12,7 @@ export function useDrawerSelection() {
 }
 
 /** Nested controls own their horizontal gestures, including code/table scrolling. */
-export function DrawerSwipeBlock({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
+export function DrawerSwipeBlock({ children, style, onTouchStart, selectableText }: { children: ReactNode; style?: StyleProp<ViewStyle>; onTouchStart?: () => void; selectableText?: boolean }) {
   const block = useContext(DrawerSwipeBlockContext);
-  return <View {...(Platform.OS === 'web' ? { dataSet: { drawerSwipe: 'ignore' } } : {})} onTouchStart={() => block?.()} style={style}>{children}</View>;
+  return <View {...(Platform.OS === 'web' ? { dataSet: { drawerSwipe: 'ignore' } } : {})} onTouchStart={() => { block?.(selectableText); onTouchStart?.(); }} style={style}>{children}</View>;
 }

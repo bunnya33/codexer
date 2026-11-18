@@ -1,6 +1,7 @@
 import { useContext, useMemo, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { PanResponder, View } from 'react-native';
+import { drawerCanStartFromText } from '../../../packages/client-shared/src/drawer';
 import { DrawerMotionContext, DrawerSelectionContext, DrawerSwipeBlockContext } from './drawer-context';
 
 export function DrawerSwipeArea({ children }: { children: ReactNode }) {
@@ -9,9 +10,21 @@ export function DrawerSwipeArea({ children }: { children: ReactNode }) {
   const cancelled = useRef(false);
   const dragging = useRef(false);
   const selections = useRef(new Set<symbol>());
+  const text = useRef(false);
+  const startedAt = useRef(0);
   const responder = useMemo(() => PanResponder.create({
-    onStartShouldSetPanResponderCapture: () => { blocked.current = selections.current.size > 0; return false; },
-    onMoveShouldSetPanResponderCapture: (_, gesture) => !blocked.current && !selections.current.size && gesture.numberActiveTouches === 1 && !!motion?.canStart(gesture.dx, gesture.dy),
+    onStartShouldSetPanResponderCapture: ({ nativeEvent }) => {
+      blocked.current = selections.current.size > 0;
+      text.current = false;
+      startedAt.current = nativeEvent.timestamp;
+      return false;
+    },
+    onMoveShouldSetPanResponderCapture: ({ nativeEvent }, gesture) => {
+      if (blocked.current || gesture.numberActiveTouches !== 1) return false;
+      const selected = selections.current.size > 0;
+      const allowed = text.current ? drawerCanStartFromText(nativeEvent.timestamp - startedAt.current, selected) : !selected;
+      return allowed && !!motion?.canStart(gesture.dx, gesture.dy);
+    },
     onPanResponderGrant: (_, gesture) => {
       cancelled.current = blocked.current || selections.current.size > 0;
       if (!cancelled.current) { dragging.current = true; motion?.begin(); motion?.move(gesture.dx); }
@@ -26,7 +39,10 @@ export function DrawerSwipeArea({ children }: { children: ReactNode }) {
     onPanResponderTerminationRequest: () => true,
     onShouldBlockNativeResponder: () => true,
   }), [motion]);
-  const block = useMemo(() => () => { blocked.current = true; }, []);
+  const block = useMemo(() => (selectableText?: boolean) => {
+    if (selectableText) text.current = true;
+    else blocked.current = true;
+  }, []);
   const select = useMemo(() => (owner: symbol, active: boolean) => {
     if (!active) { selections.current.delete(owner); return; }
     selections.current.add(owner);

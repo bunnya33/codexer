@@ -1,10 +1,14 @@
 import ExpoModulesCore
 import UIKit
 
+@MainActor private func messageHaptic() {
+  UIImpactFeedbackGenerator(style: .light).impactOccurred()
+}
+
 public class CodexerMessagesModule: Module {
   public func definition() -> ModuleDefinition {
     Name("CodexerMessages")
-    Function("haptic") { DispatchQueue.main.async { UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.6) } }
+    Function("haptic") { DispatchQueue.main.async { messageHaptic() } }
     View(CodexerMessageTextView.self) {
       Events("onContentHeight", "onAction", "onSelection")
       Prop("runs") { (view, value: [[String: Any]]) in view.updateRuns(value) }
@@ -16,6 +20,9 @@ public class CodexerMessagesModule: Module {
       Prop("canEdit") { (view, value: Bool) in view.canEdit = value }
       Prop("codeBlock") { (view, value: Bool) in view.codeBlock = value; view.render() }
       Prop("selectionRequest") { (view, value: Int) in if value > view.selectionRequest { view.selectionRequest = value; view.selectMessage() } }
+      Prop("dismissSelectionRequest") { (view, value: Int) in
+        if value > view.dismissSelectionRequest { view.dismissSelectionRequest = value; view.dismissSelection() }
+      }
     }
   }
 }
@@ -26,7 +33,7 @@ final class MessageSelectionTextView: UITextView {
     let previous = UIPasteboard.general.changeCount
     super.copy(sender)
     if UIPasteboard.general.changeCount != previous {
-      UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.6)
+      messageHaptic()
       copied?()
     }
   }
@@ -44,6 +51,7 @@ final class CodexerMessageTextView: ExpoView, UITextViewDelegate, UIContextMenuI
     }
   }
   var canEdit = false, menuTitle = "", selectionRequest = 0
+  var dismissSelectionRequest = 0
   var codeBlock = false
   private lazy var messageMenu = UIContextMenuInteraction(delegate: self)
   private var selecting = false, measured: CGFloat = 0, naturalWidth: CGFloat = 0
@@ -116,6 +124,12 @@ final class CodexerMessageTextView: ExpoView, UITextViewDelegate, UIContextMenuI
     selecting = active
     onSelection(["active": active])
     if !active { render(); if userMessage { textView.isSelectable = false } }
+  }
+  func dismissSelection() {
+    guard selecting else { return }
+    textView.selectedRange = NSRange(location: textView.selectedRange.location, length: 0)
+    textView.resignFirstResponder()
+    textViewDidChangeSelection(textView)
   }
   func textView(_ textView: UITextView, shouldInteractWith URL: URL, in characterRange: NSRange, interaction: UITextItemInteraction) -> Bool {
     if interaction == .invokeDefaultAction { onAction(["action": "link", "href": URL.absoluteString]) }

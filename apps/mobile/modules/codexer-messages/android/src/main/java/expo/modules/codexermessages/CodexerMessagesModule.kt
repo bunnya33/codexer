@@ -46,6 +46,9 @@ class CodexerMessagesModule : Module() {
       Prop("canEdit") { view: CodexerMessageTextView, value: Boolean -> view.canEdit=value }
       Prop("codeBlock") { view: CodexerMessageTextView, value: Boolean -> view.setCodeBlock(value) }
       Prop("selectionRequest") { view: CodexerMessageTextView, value: Int -> if(value>view.selectionRequest){view.selectionRequest=value;view.selectMessage()} }
+      Prop("dismissSelectionRequest") { view: CodexerMessageTextView, value: Int ->
+        if(value>view.dismissSelectionRequest){view.dismissSelectionRequest=value;view.dismissSelection()}
+      }
     }
   }
 }
@@ -108,6 +111,8 @@ class CodexerMessageTextView(context: Context, appContext: AppContext) : ExpoVie
   var menuTitle=""
   var bubbleColor=Color.rgb(242,242,242)
   var selectionRequest=0
+  var dismissSelectionRequest=0
+  private var selectionMode:ActionMode?=null
   private var reportedHeight=0
   private var reportedWidth=0
   private var menu:Dialog?=null
@@ -124,6 +129,7 @@ class CodexerMessageTextView(context: Context, appContext: AppContext) : ExpoVie
     }
     text.customSelectionActionModeCallback=object:ActionMode.Callback {
       override fun onCreateActionMode(mode:ActionMode,menu:Menu):Boolean {
+        selectionMode=mode
         selecting=true
         parent?.requestDisallowInterceptTouchEvent(true)
         onSelection(mapOf("active" to true))
@@ -131,7 +137,10 @@ class CodexerMessageTextView(context: Context, appContext: AppContext) : ExpoVie
       }
       override fun onPrepareActionMode(mode:ActionMode,menu:Menu)=false
       override fun onActionItemClicked(mode:ActionMode,item:MenuItem)=false
-      override fun onDestroyActionMode(mode:ActionMode){selecting=false;onSelection(mapOf("active" to false));text.post{if(!selecting)render()}}
+      override fun onDestroyActionMode(mode:ActionMode){
+        selectionMode=null
+        endSelection()
+      }
     }
   }
   private fun dp(value:Int)=(value*density).toInt()
@@ -162,6 +171,7 @@ class CodexerMessageTextView(context: Context, appContext: AppContext) : ExpoVie
     selecting=true
     onSelection(mapOf("active" to true))
     text.post {
+      if(!selecting)return@post
       // The public selection action starts the native toolbar and handles;
       // performLongClick alone leaves Android waiting for a touch release.
       (text.text as? Spannable)?.let{android.text.Selection.removeSelection(it)}
@@ -170,9 +180,23 @@ class CodexerMessageTextView(context: Context, appContext: AppContext) : ExpoVie
         putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT,text.length())
       }
       if(!text.performAccessibilityAction(AccessibilityNodeInfo.ACTION_SET_SELECTION,selection)){
-        selecting=false;onSelection(mapOf("active" to false))
+        endSelection()
       }
     }
+  }
+  fun dismissSelection(){
+    if(!selecting)return
+    selectionMode?.finish()
+    (text.text as? Spannable)?.let{android.text.Selection.removeSelection(it)}
+    text.clearFocus()
+    endSelection()
+  }
+  private fun endSelection(){
+    if(!selecting)return
+    selecting=false
+    onSelection(mapOf("active" to false))
+    // Let Android remove its floating handles before replacing the text.
+    text.post{if(!selecting)render()}
   }
   fun render(){
     if(selecting)return
