@@ -32,7 +32,7 @@ beforeAll(async () => {
     plugins: [{ name: 'count-message-render', setup(build) {
       // Exercise the native Markdown implementation used by the IPA.
       build.onResolve({ filter: /^\.\/markdown$/ }, () => ({ path: resolve('apps/mobile/src/markdown.tsx') }));
-      build.onLoad({ filter: /\/apps\/mobile\/src\/markdown\.tsx$/ }, async args => ({ loader: 'tsx', contents:
+      build.onLoad({ filter: /[\\/]apps[\\/]mobile[\\/]src[\\/]markdown\.tsx$/ }, async args => ({ loader: 'tsx', contents:
         (await readFile(args.path, 'utf8')).replace('return <PreviewContent', 'window.messageRenders[children]=(window.messageRenders[children]||0)+1; return <PreviewContent') }));
     } }], define: { 'process.env.NODE_ENV': '"production"', __DEV__: 'false', global: 'globalThis', 'process.env': '{}' } });
   javascript = result.outputFiles[0]!.text;

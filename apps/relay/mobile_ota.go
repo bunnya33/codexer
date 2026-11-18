@@ -60,7 +60,7 @@ func (s *Server) mobileOTARoutes() {
 			fail(500, "server-error")
 		}
 		w.Header().Set("Content-Type", "application/expo+json")
-		w.Header().Set("Expo-Signature", `sig=:`+base64.StdEncoding.EncodeToString(signature)+`:, keyid="root", alg="rsa-v1_5-sha256"`)
+		w.Header().Set("Expo-Signature", `sig="`+base64.StdEncoding.EncodeToString(signature)+`", keyid="root", alg="rsa-v1_5-sha256"`)
 		_, _ = w.Write(update.Manifest)
 	})
 	s.mux.HandleFunc("GET /v1/mobile-ota/assets/{hash}", func(w http.ResponseWriter, r *http.Request) {

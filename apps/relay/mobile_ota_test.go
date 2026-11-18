@@ -42,7 +42,7 @@ func TestMobileOTAMatchesPlatformAndRuntime(t *testing.T) {
 	}
 	if w := check("ios", "0.3.71"); w.Code != 200 || w.Body.String() != manifest ||
 		w.Header().Get("Content-Type") != "application/expo+json" ||
-		!strings.Contains(w.Header().Get("Expo-Signature"), "sig=:"+signature+":") {
+		w.Header().Get("Expo-Signature") != `sig="`+signature+`", keyid="root", alg="rsa-v1_5-sha256"` {
 		t.Fatalf("unexpected manifest response: %d %s", w.Code, w.Body)
 	}
 	if w := check("android", "0.3.71"); w.Code != 204 || w.Header().Get("Expo-Protocol-Version") != "1" {
