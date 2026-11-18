@@ -28,7 +28,7 @@
 - Windows 原生编译使用短路径 Ninja：`F:/ca20/.local/ninja-1.13.1/ninja.exe`，保留生成工程的 CMake 参数。
 - 版本来自 `apps/mobile/package.json`、`apps/mobile/app.json`，源码当前 `0.1.23` / `versionCode 27`；旧 `0.1.22 / 26` 安装包保留。新版包含源码高亮与搜索、Markdown 排版／源码切换、客户端 PDF 阅读和实时跟进稳定发送标识支持，沿用 FrogCoder 名称、青蛙图标、常亮、持久下载列表／断点续传及登录键盘避让。PDF 阅读需要服务器 0.3.66；消息去重还需配套更新 Agent。Android 登录页使用 `softwareKeyboardLayoutMode: "resize"`，原生配置变化时须按下文重新生成工程。安装包和真机验收结果分别记录在 [验证记录](validation.md)。上传安装包时填写 APK 内实际的 versionCode；后续发布同时递增显示版本和 versionCode，不能只改文件名。
 
-当前 Android 发行源码为 `0.1.26 / versionCode 30`，包含消息长按菜单、连续文本选择、顶部复制提示、全屏编辑页及复制／加号轻触反馈；分支编辑需新版服务器与 Qt Agent 支持，旧设备不显示编辑入口。沿用 `0.1.25` 的安卓图片认证修复、FrogCoder 名称、青蛙图标和原签名，上述旧版本条目保留历史说明。
+当前 Android 发行源码为 `0.1.27 / versionCode 31`，修复回答长按原地选字及选择柄拖动带动会话侧栏的问题。保留 `0.1.26` 的用户消息菜单、顶部复制提示、全屏编辑页及复制／加号轻触反馈；分支编辑需新版服务器与 Qt Agent 支持，旧设备不显示编辑入口。继续沿用 FrogCoder 名称、青蛙图标和原发布签名。
 
 Windows 打包应用可能将旧签名目录重定向到 `%LOCALAPPDATA%/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Local/Codexer/AndroidSigning`。2026-11-17 已从该既有目录逐字节恢复原 `.p12` 与 DPAPI 密文到本页稳定目录；优先检查这两个实际位置，不能将路径重定向误判为密钥丢失，也不能生成替代证书。
 

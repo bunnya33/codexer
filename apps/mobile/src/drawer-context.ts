@@ -9,3 +9,4 @@ export type DrawerMotion = {
 };
 export const DrawerMotionContext = createContext<DrawerMotion | null>(null);
 export const DrawerSwipeBlockContext = createContext<(() => void) | null>(null);
+export const DrawerSelectionContext = createContext<((owner: symbol, active: boolean) => void) | null>(null);
