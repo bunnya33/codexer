@@ -130,6 +130,9 @@ static int fixtureServer() {
     }
     if (method == "turn/steer")
       result = {{"turnId", request["params"].toObject()["expectedTurnId"]}};
+    if (method == "fixture/notify")
+      for (const auto &notification : request["params"].toObject()["events"].toArray())
+        std::cout << json(notification).constData() << '\n' << std::flush;
     if (!response.contains("error"))
       response["result"] = result;
     std::cout << json(response).constData() << '\n' << std::flush;
@@ -3182,6 +3185,123 @@ private slots:
     for (const auto &request : fixture.requests)
       QVERIFY(!request["method"].toString().startsWith("thread-follower-"));
     agent->depth = 0;
+  }
+  void agentCreatedThreadPublishesDuringOwnerLookup() {
+    DesktopFixture fixture(raw());
+    qputenv("CODEX_REMOTE_DESKTOP_ENDPOINT", fixture.endpoint.toUtf8());
+    agent->settings["runtime"] = "auto";
+    agent->desktop->open(agent->settings);
+    agent->refreshCatalog();
+    auto create = command("thread.create");
+    create["payload"] = Object{{"type", "thread.create"}, {"projectId", "project-test"}};
+    const auto id = agent->execute(create)["threadId"].toString();
+    QVERIFY(agent->owned.contains(id));
+
+    QWebSocketServer server("Agent live updates", QWebSocketServer::NonSecureMode);
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+    QList<Object> events;
+    QWebSocket *peer = nullptr;
+    connect(&server, &QWebSocketServer::newConnection, &server, [&] {
+      peer = server.nextPendingConnection();
+      connect(peer, &QWebSocket::textMessageReceived, &server, [&](const QString &wire) {
+        const auto message = parse(wire.toUtf8()).toObject();
+        const auto change = message["event"].toObject()["change"].toObject();
+        const auto thread = change["thread"].toObject();
+        if (thread["id"] == id)
+          events.append(thread);
+      });
+    });
+    agent->credentials["relayUrl"] =
+        "http://127.0.0.1:" + QString::number(server.serverPort());
+    agent->connectRelay();
+    QTRY_VERIFY(peer && agent->relay->state() == QAbstractSocket::ConnectedState);
+
+    const Object turn{{"id", "live-turn"}, {"status", "inProgress"}};
+    const Object prompt{{"id", "prompt"}, {"type", "userMessage"}, {"clientId", "phone-send"},
+                        {"content", Array{Object{{"type", "text"}, {"text", "my message"}}}}};
+    const Object reply{{"id", "reply"}, {"type", "agentMessage"}, {"text", "hello world!"}};
+    const auto event = [&](const QString &method, Object params) {
+      params["threadId"] = id;
+      return Object{{"method", method}, {"params", params}};
+    };
+    const auto notify = [&](Array values) {
+      agent->rpc->call("fixture/notify", {{"events", values}});
+    };
+    const auto itemUpdate = [&](const QString &method, const Object &item) {
+      return event(method, {{"turnId", "live-turn"}, {"item", item}});
+    };
+    const auto delta = [&](const QString &fragment) {
+      return event("item/agentMessage/delta",
+                   {{"turnId", "live-turn"}, {"itemId", "reply"}, {"delta", fragment}});
+    };
+    const auto assertUpdate = [&](qsizetype count) {
+      QVERIFY(waitFor([&] { return events.size() >= count; }, 420));
+      QCOMPARE(events.size(), count);
+    };
+    const auto items = [](const Object &thread) {
+      return thread["turns"].toArray().last().toObject()["items"].toArray();
+    };
+    const Object finished = merged(turn, {{"status", "completed"}, {"durationMs", 640},
+                                           {"itemsView", "summary"}, {"items", Array{reply}}});
+
+    bool deliveredInLookup = false;
+    fixture.hideOwner = true;
+    fixture.onOwnerLookup = [&] {
+      notify({event("turn/started", {{"turn", turn}}),
+              itemUpdate("item/started", prompt), itemUpdate("item/completed", prompt)});
+      assertUpdate(1);
+      QVERIFY(!events.isEmpty());
+      QCOMPARE(events.last()["activeTurnId"], QJsonValue("live-turn"));
+      QCOMPARE(items(events.last()).size(), 1);
+      QCOMPARE(items(events.last())[0].toObject()["clientMessageId"], QJsonValue("phone-send"));
+      notify({delta("hello")});
+      assertUpdate(2);
+      QCOMPARE(items(events.last()).last().toObject()["text"], QJsonValue("hello"));
+      notify({delta(" world")});
+      assertUpdate(3);
+      QCOMPARE(items(events.last()).last().toObject()["text"], QJsonValue("hello world"));
+      notify({itemUpdate("item/completed", reply),
+              event("turn/completed", {{"turn", finished}}), delta(" duplicate")});
+      assertUpdate(4);
+      QCOMPARE(events.last()["status"], QJsonValue("idle"));
+      QCOMPARE(items(events.last()).size(), 2);
+      QCOMPARE(items(events.last())[0].toObject()["text"], QJsonValue("my message"));
+      QCOMPARE(items(events.last())[1].toObject()["text"], QJsonValue("hello world!"));
+      deliveredInLookup = true;
+    };
+    agent->depth = 1;
+    QVERIFY(!agent->desktop->follow("unrelated-thread"));
+    agent->depth = 0;
+    QVERIFY(deliveredInLookup);
+    QVERIFY(!read(temp.path() + "/requests.jsonl").contains("thread/turns/list"));
+
+    // A read can still reflect the start of the turn, even after the end
+    // notification. The published reply and status must never roll back.
+    auto state = fixtureState();
+    auto thread = state["thread"].toObject();
+    thread["id"] = id;
+    thread["status"] = Object{{"type", "active"}};
+    Array staleItems{prompt};
+    for (int i = 0; i < MaxLiveTurnItems; ++i)
+      staleItems.append(Object{{"id", QString::number(i)}, {"type", "reasoning"}});
+    setFixture({{"thread", thread}, {"turns", Array{merged(turn, {{"items", staleItems}})}}});
+    agent->watch(id);
+    auto live = agent->snapshot["threads"].toObject()[id].toObject();
+    QCOMPARE(live["status"], QJsonValue("idle"));
+    QCOMPARE(items(live).size(), MaxLiveTurnItems);
+    QCOMPARE(items(live).first().toObject()["id"], QJsonValue("prompt"));
+    QCOMPARE(items(live).last().toObject()["text"], QJsonValue("hello world!"));
+
+    thread["status"] = Object{{"type", "idle"}};
+    const Object tool{{"id", "tool"}, {"type", "reasoning"}, {"summary", Array{"example"}}};
+    setFixture({{"thread", thread}, {"turns", Array{merged(finished, {
+        {"itemsView", "full"}, {"items", Array{prompt, tool, reply}}})}}});
+    agent->watch(id);
+    live = agent->snapshot["threads"].toObject()[id].toObject();
+    QCOMPARE(live["status"], QJsonValue("idle"));
+    QCOMPARE(items(live).size(), 3);
+    QCOMPARE(items(live)[1].toObject()["id"], QJsonValue("tool"));
+    QVERIFY(!agent->headlessTurns.contains(id));
   }
   void desktopSubscriptionRecovery_data() {
     QTest::addColumn<QString>("scenario");

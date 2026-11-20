@@ -47,6 +47,8 @@ void Service::forgetThreadCache(const QString &id) {
   effectiveSettings.remove(id);
   tokenUsage.remove(id);
   dirtyThreads.removeAll(id);
+  liveUpdates.remove(id);
+  headlessTurns.remove(id);
   backgroundThreads.remove(id);
   idleReads.remove(id);
   gapUsage(id);
@@ -130,7 +132,9 @@ void Service::attachRpc(Rpc *value) {
       } catch (...) {
       }
     }
-    queueThreadUpdate(id);
+    // A token already merged into the live preview needs no historical read.
+    if (!acceptHeadlessUpdate(id, method, p) || method != "item/agentMessage/delta")
+      queueThreadUpdate(id);
   });
   connect(value, &Rpc::disconnected, this, [this, value] {
     if (rpc != value || refreshing)
@@ -138,6 +142,9 @@ void Service::attachRpc(Rpc *value) {
     for (const auto &id : usageObservations.keys())
       if (!desktopThreads.contains(id))
         gapUsage(id);
+    for (const auto &id : headlessTurns.keys())
+      queueThreadUpdate(id);
+    headlessTurns.clear();
     owned.clear();
     acquired.clear();
     busyTurns.clear();
@@ -167,6 +174,7 @@ void Service::ensureRpc() {
     throw;
   }
   rpc = replacement;
+  headlessTurns.clear();
   idleReads.clear();
   answeredRequests.clear();
   attachRpc(rpc);
@@ -592,6 +600,259 @@ static QString idleReadStamp(const Object &source) {
     return {};
   }
 }
+
+static int indexOfId(const Array &values, const QString &id) {
+  for (int i = 0; i < values.size(); ++i)
+    if (values[i].toObject()["id"] == id)
+      return i;
+  return -1;
+}
+
+static constexpr int LiveTextLimit = 4096;
+
+static bool terminalTurn(const QJsonValue &status) {
+  return status == "completed" || status == "interrupted" || status == "failed";
+}
+
+static void saveLiveItem(Array &items, const Object &source, bool completed) {
+  Object item;
+  for (const auto key : {"id", "type", "clientId", "content", "phase", "text",
+                         "startedAtMs", "completedAtMs", "questions"})
+    if (source.contains(key))
+      item[key] = source[key];
+  const auto id = item["id"].toString();
+  if (id.isEmpty() || id.size() > 160 ||
+      (item["type"] != "userMessage" && item["type"] != "agentMessage"))
+    return;
+  if (item["type"] == "agentMessage")
+    item["text"] = item["text"].toString().left(LiveTextLimit);
+  if (json(item).size() > 128 * 1024)
+    return;
+  const auto index = indexOfId(items, id);
+  const auto existing = index < 0 ? Object{} : items[index].toObject();
+  if (!completed && existing["_completed"].toBool())
+    return;
+  if (!completed && item["type"] == "agentMessage" &&
+      existing["text"].toString().startsWith(item["text"].toString()))
+    item["text"] = existing["text"].toString();
+  item["_completed"] = completed;
+  if (index >= 0) {
+    items[index] = merged(existing, item);
+  } else {
+    // Preserve the initial prompt and the most recent messages in a long turn.
+    if (items.size() == MaxLiveTurnItems)
+      items.removeAt(1);
+    items.append(item);
+  }
+}
+
+bool Service::acceptHeadlessUpdate(const QString &id, const QString &method,
+                                   const Object &params) {
+  if (!owned.contains(id) || desktopThreads.contains(id))
+    return false;
+  const bool starts = method == "turn/started", ends = method == "turn/completed";
+  const bool delta = method == "item/agentMessage/delta";
+  const bool completesItem = method == "item/completed";
+  if (!starts && !ends && !delta && !completesItem && method != "item/started")
+    return false;
+  const auto prior = snapshot["threads"].toObject()[id].toObject();
+  if (prior.isEmpty())
+    return false;
+  const auto update = params["turn"].toObject();
+  const auto turnId = (starts || ends ? update["id"] : params["turnId"]).toString();
+  if (turnId.isEmpty() || turnId.size() > 160 ||
+      (ends && !terminalTurn(update["status"])))
+    return false;
+  auto turns = headlessTurns.value(id);
+  const int index = indexOfId(turns, turnId);
+  const auto priorTurns = prior["turns"].toArray();
+  const int priorIndex = indexOfId(priorTurns, turnId);
+  // A late start or delta cannot reopen an already completed turn.
+  if (!ends &&
+      ((index >= 0 && terminalTurn(turns[index].toObject()["status"])) ||
+       (priorIndex >= 0 && terminalTurn(priorTurns[priorIndex].toObject()["status"]))))
+    return true;
+  if (index < 0 && !starts && !ends && prior["activeTurnId"] != turnId)
+    return false;
+  auto turn = index >= 0 ? turns[index].toObject()
+                         : Object{{"id", turnId}, {"status", "inProgress"}};
+  auto items = turn["items"].toArray();
+  if (delta) {
+    const auto itemId = params["itemId"].toString();
+    const int itemIndex = indexOfId(items, itemId);
+    const auto item = itemIndex < 0
+        ? Object{{"id", itemId}, {"type", "agentMessage"}}
+        : items[itemIndex].toObject();
+    if (item["_completed"].toBool())
+      return true;
+    const auto body = item["text"].toString();
+    const auto part =
+        params["delta"].toString().left(qMax(0, LiveTextLimit - int(body.size())));
+    if (part.isEmpty())
+      return true;
+    if (itemIndex >= 0) {
+      items[itemIndex] = merged(item, {{"text", body + part}});
+    } else {
+      saveLiveItem(items, merged(item, {{"text", body + part}}), false);
+    }
+  } else if (starts || ends) {
+    turn["status"] = ends ? update["status"] : QJsonValue("inProgress");
+    turn["_changedAt"] = double(now());
+    for (const auto key : {"startedAt", "completedAt", "durationMs"})
+      if (update[key].isDouble())
+        turn[key] = update[key];
+    // Completion can carry only a summary of the turn's items.
+    for (const auto &item : update["items"].toArray())
+      saveLiveItem(items, item.toObject(), ends);
+  } else {
+    const auto item = params["item"].toObject();
+    if (item["type"] != "userMessage" && item["type"] != "agentMessage")
+      return false;
+    auto timed = item;
+    const auto key = completesItem ? "completedAtMs" : "startedAtMs";
+    if (params[key].isDouble())
+      timed[key] = params[key];
+    saveLiveItem(items, timed, completesItem);
+  }
+  // Reserve space for stream deltas and bound large prompts and attachments.
+  if (!delta)
+    while (items.size() > 1 && json(items).size() > 192 * 1024)
+      items.removeAt(items.size() > 2 ? 1 : 0);
+  turn["items"] = items;
+  if (index >= 0) {
+    turns[index] = turn;
+  } else {
+    turns.append(turn);
+    if (turns.size() > 2)
+      turns.removeFirst();
+  }
+  headlessTurns[id] = turns;
+  queueLiveUpdate(id);
+  return true;
+}
+
+void Service::reconcileHeadlessTurns(const QString &id, const Array &turns) {
+  auto live = headlessTurns.value(id);
+  for (int i = live.size() - 1; i >= 0; --i) {
+    const auto observed = live[i].toObject();
+    const auto index = indexOfId(turns, observed["id"].toString());
+    if (index < 0 || !terminalTurn(observed["status"]))
+      continue;
+    const auto saved = turns[index].toObject();
+    if (saved["status"] != observed["status"])
+      continue;
+    const auto items = saved["items"].toArray();
+    bool allSaved = true;
+    for (const auto &item : observed["items"].toArray())
+      allSaved &= indexOfId(items, item.toObject()["id"].toString()) >= 0;
+    if (allSaved)
+      live.removeAt(i);
+  }
+  if (live.isEmpty())
+    headlessTurns.remove(id);
+  else
+    headlessTurns[id] = live;
+}
+
+void Service::applyHeadlessTurns(const QString &id, Object &thread) {
+  const auto live = headlessTurns.value(id);
+  if (live.isEmpty() || !owned.contains(id))
+    return;
+  auto turns = thread["turns"].toArray();
+  for (int liveIndex = 0; liveIndex < live.size(); ++liveIndex) {
+    const auto observed = live[liveIndex].toObject();
+    const auto turnId = observed["id"].toString();
+    const int index = indexOfId(turns, turnId);
+    auto base = index < 0 ? Object{} : turns[index].toObject();
+    const auto preview =
+        normalizeTurn(merged(observed, plans.value(turnId)), false, id,
+                      [this](const QString &t, const Object &item) {
+                        return registerImages(t, item);
+                      });
+    const auto incoming = preview["items"].toArray();
+    auto items = base["items"].toArray();
+    const bool savedTerminal = terminalTurn(base["status"]);
+    const auto observedItems = observed["items"].toArray();
+    for (int i = 0; i < incoming.size(); ++i) {
+      const auto item = incoming[i].toObject();
+      const auto itemId = item["id"].toString();
+      const int itemIndex = indexOfId(items, itemId);
+      if (itemIndex >= 0) {
+        const auto saved = items[itemIndex].toObject();
+        const auto rawIndex = indexOfId(observedItems, itemId);
+        const bool finalItem = rawIndex >= 0 &&
+            observedItems[rawIndex].toObject()["_completed"].toBool();
+        const bool needsText = item["type"] == "agentMessage" &&
+            !saved["completedAtMs"].isDouble() && (finalItem ||
+            item["text"].toString().startsWith(saved["text"].toString()));
+        if (!savedTerminal && (item["type"] == "userMessage" || needsText))
+          items[itemIndex] = merged(saved, item);
+        continue;
+      }
+      // Keep persisted tool and message ordering, using the next shared item
+      // as an anchor if a read had not yet included this notification.
+      int position = items.size();
+      for (int j = i + 1; j < incoming.size(); ++j) {
+        const int anchor = indexOfId(items, incoming[j].toObject()["id"].toString());
+        if (anchor >= 0) {
+          position = anchor;
+          break;
+        }
+      }
+      items.insert(position, item);
+    }
+    if (index < 0) {
+      base = preview;
+    } else {
+      if (!savedTerminal)
+        base["status"] = preview["status"];
+      for (const auto key : {"startedAtMs", "completedAtMs", "durationMs"})
+        if (!base.contains(key) && preview.contains(key))
+          base[key] = preview[key];
+    }
+    base["items"] = visibleTurnItems(items, MaxLiveTurnItems);
+    if (items.size() > MaxLiveTurnItems) {
+      base["truncated"] = true;
+      base["itemsTruncatedBefore"] = true;
+    }
+    if (index >= 0)
+      turns[index] = base;
+    else {
+      // An older notification can still be pending when a newer turn has
+      // already appeared in the read result.
+      const int next = liveIndex + 1 < live.size()
+          ? indexOfId(turns, live[liveIndex + 1].toObject()["id"].toString())
+          : -1;
+      turns.insert(next < 0 ? turns.size() : next, base);
+    }
+    thread["updatedAt"] = qMax(thread["updatedAt"].toDouble(),
+                               observed["_changedAt"].toDouble());
+  }
+  while (turns.size() > 2) {
+    turns.removeFirst();
+    thread["truncated"] = true;
+  }
+  thread["turns"] = turns;
+  const auto latest = turns.last().toObject();
+  if (latest["id"] != live.last().toObject()["id"])
+    return;
+  const bool active = latest["status"] == "inProgress";
+  thread["status"] = active ? "active" : "idle";
+  thread["activeTurnId"] = active ? latest["id"] : QJsonValue(QJsonValue::Null);
+  if (!active) {
+    thread["activeFlags"] = Array{};
+    Array requests;
+    for (const auto &v : thread["requests"].toArray()) {
+      const auto r = v.toObject();
+      const auto details = r["details"].toObject();
+      if (r["turnId"] != latest["id"] ||
+          (details["isBlocking"] == false && details["source"] != "asyncMessage"))
+        requests.append(r);
+    }
+    thread["requests"] = requests;
+  }
+}
+
 void Service::watch(const QString &id, bool forceHeadless, bool background) {
   if (id.isEmpty())
     return;
@@ -620,6 +881,7 @@ void Service::watch(const QString &id, bool forceHeadless, bool background) {
   }
   if (!forceHeadless && settings["runtime"] != "headless" &&
       desktop->connected && !owned.contains(id) && desktop->follow(id)) {
+    headlessTurns.remove(id);
     desktopThreads.insert(id);
     observeDesktopUsage(id);
     if (desktop->watched[id].compatible) {
@@ -702,6 +964,8 @@ void Service::watch(const QString &id, bool forceHeadless, bool background) {
     gapUsage(id);
   rawThreads[id] = source;
   updateThread(id);
+  if (status["type"] == "idle")
+    reconcileHeadlessTurns(id, ordered);
   if (!stamp.isEmpty() && stamp == idleReadStamp(sourceMetadata))
     idleReads[id] = {stamp, now()};
   else
@@ -768,6 +1032,8 @@ void Service::updateThread(const QString &id, bool metadataOnly, bool enrich) {
     thread["activeTurnId"] = QJsonValue::Null;
     thread["requests"] = Array{};
   }
+  if (!desktopThreads.contains(id))
+    applyHeadlessTurns(id, thread);
   auto turns = thread["turns"].toArray();
   for (int i = 0; i < turns.size(); ++i) {
     auto turn = turns[i].toObject();
@@ -1175,6 +1441,7 @@ QString Service::refresh(bool force) {
   auto old = rpc;
   rpc = replacement;
   idleReads.clear();
+  headlessTurns.clear();
   attachRpc(rpc);
   disconnect(old, nullptr, this, nullptr);
   for (const auto &id : usageObservations.keys())

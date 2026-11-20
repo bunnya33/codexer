@@ -198,7 +198,8 @@ void Service::closeAgent() {
   acquired.clear();
   busyTurns.clear();
   dirtyThreads.clear();
-  desktopUpdates.clear();
+  liveUpdates.clear();
+  headlessTurns.clear();
   backgroundThreads.clear();
   foregroundRefreshes = 0;
   idleReads.clear();

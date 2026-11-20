@@ -14,6 +14,7 @@ using Object = QJsonObject;
 using Array = QJsonArray;
 inline constexpr int DefaultSyncedThreads = 20;
 inline constexpr int MaxSyncedThreads = 30;
+inline constexpr int MaxLiveTurnItems = 20;
 inline constexpr int MaxInputImages = 20;
 inline constexpr int MaxCachedTurnUpdates = 256;
 inline constexpr int MaxCachedUpdatesPerThread = 2;
@@ -67,6 +68,7 @@ Object normalizeThread(
 Object normalizeTurn(
     const Object &raw, bool history, const QString &threadId,
     const std::function<Array(const QString &, const Object &)> &images = {});
+Array visibleTurnItems(const Array &items, int limit);
 Object usageMetadata(const Object &raw);
 Object subAgentMetadata(const Object &raw);
 Object boundTurns(Object result, qint64 limit = 256 * 1024);
@@ -184,9 +186,10 @@ class Service : public QObject {
   int subAgentUsageCursor = 0;
   QSet<QString> answeredRequests;
   QSet<QString> owned, newThreads, busyTurns, completedTurns,
-      desktopThreads, awaitingQueue, desktopUpdates, backgroundThreads;
+      desktopThreads, awaitingQueue, liveUpdates, backgroundThreads;
+  QHash<QString, Array> headlessTurns;
   QStringList dirtyThreads;
-  bool desktopFlushScheduled = false;
+  bool liveFlushScheduled = false;
   QHash<QString, qint64> acquired;
   QHash<QString, QPair<QString, QString>> imageSources;
   QHash<QString, QSet<QString>> fileSources;
@@ -264,7 +267,12 @@ class Service : public QObject {
   void watch(const QString &id, bool forceHeadless = false,
              bool background = false);
   void queueThreadUpdate(const QString &id);
-  void flushDesktopUpdates();
+  void queueLiveUpdate(const QString &id);
+  void flushLiveUpdates();
+  bool acceptHeadlessUpdate(const QString &id, const QString &method,
+                            const Object &params);
+  void reconcileHeadlessTurns(const QString &id, const Array &turns);
+  void applyHeadlessTurns(const QString &id, Object &thread);
   void updateThread(const QString &id, bool metadataOnly = false,
                     bool enrich = true);
   Object history(const QString &id, QJsonValue cursor);

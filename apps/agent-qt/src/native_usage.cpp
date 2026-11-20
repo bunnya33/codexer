@@ -130,27 +130,31 @@ void Service::attachDesktop() {
       log("token-usage-observation-failed");
     }
     queueThreadUpdate(id);
-    desktopUpdates.insert(id);
-    if (!desktopFlushScheduled) {
-      desktopFlushScheduled = true;
-      // Transport waits pump the event loop. Publish only cached desktop state
-      // here: no RPC/enrichment and no reentrant mutating command execution.
-      QTimer::singleShot(100, this, &Service::flushDesktopUpdates);
-    }
+    queueLiveUpdate(id);
   });
 }
-void Service::flushDesktopUpdates() {
-  desktopFlushScheduled = false;
-  const auto pending = std::exchange(desktopUpdates, {});
+void Service::queueLiveUpdate(const QString &id) {
+  liveUpdates.insert(id);
+  if (liveFlushScheduled)
+    return;
+  liveFlushScheduled = true;
+  // Transport waits pump the event loop. Use cached state here so an
+  // unrelated RPC cannot delay publishing messages already received.
+  QTimer::singleShot(100, this, &Service::flushLiveUpdates);
+}
+void Service::flushLiveUpdates() {
+  liveFlushScheduled = false;
+  const auto pending = std::exchange(liveUpdates, {});
   if (stopping || snapshot.isEmpty())
     return;
   for (const auto &id : pending) {
-    if (!desktopThreads.contains(id))
+    if (!desktopThreads.contains(id) &&
+        (!owned.contains(id) || !headlessTurns.contains(id)))
       continue;
     try {
       updateThread(id, false, false);
     } catch (...) {
-      log("desktop-state-publish-failed");
+      log("live-state-publish-failed");
     }
   }
   status();

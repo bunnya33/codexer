@@ -587,6 +587,24 @@ static QJsonValue turnIdentity(const Object &turn) {
   }
   return QJsonValue::Null;
 }
+Array visibleTurnItems(const Array &items, int limit) {
+  if (items.size() <= limit)
+    return items;
+  QSet<int> selected{0, int(items.size()) - 1};
+  for (int i = items.size() - 1; i >= 0 && selected.size() < limit; --i) {
+    const auto item = items[i].toObject();
+    if (user(item) || item["type"] == "agentMessage" ||
+        item["type"] == "assistantMessage")
+      selected.insert(i);
+  }
+  for (int i = items.size() - 1; i >= 0 && selected.size() < limit; --i)
+    selected.insert(i);
+  Array visible;
+  for (int i = 0; i < items.size(); ++i)
+    if (selected.contains(i))
+      visible.append(items[i]);
+  return visible;
+}
 Object normalizeTurn(
     const Object &raw, bool history, const QString &threadId,
     const std::function<Array(const QString &, const Object &)> &images) {
@@ -626,24 +644,10 @@ Object normalizeTurn(
     seen.insert(id);
     items.append(item);
   }
-  int limit = history ? 80 : 20;
-  QSet<int> selected;
-  if (!items.isEmpty()) {
-    selected.insert(0);
-    selected.insert(items.size() - 1);
-  }
-  for (int i = items.size() - 1; i >= 0 && selected.size() < limit; --i) {
-    const auto item = items[i].toObject();
-    if (user(item) || QStringList{"agentMessage", "assistantMessage"}.contains(item["type"].toString()))
-      selected.insert(i);
-  }
-  for (int i = items.size() - 1; i >= 0 && selected.size() < limit; --i)
-    selected.insert(i);
+  const int limit = history ? 80 : MaxLiveTurnItems;
   Array normalized;
-  for (int i = 0; i < items.size(); ++i)
-    if (selected.contains(i))
-      normalized.append(
-          normalizeItem(items[i].toObject(), raw, history, threadId, images));
+  for (const auto &item : visibleTurnItems(items, limit))
+    normalized.append(normalizeItem(item.toObject(), raw, history, threadId, images));
   result["items"] = normalized;
   if (items.size() > limit) {
     result["truncated"] = true;
