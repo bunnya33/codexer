@@ -43,6 +43,19 @@
             "properties": {
               "type": {
                 "type": "string",
+                "const": "desktop.restart"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
                 "const": "project.create"
               },
               "parentId": {
@@ -1704,6 +1717,9 @@
                         "type": "boolean"
                       },
                       "runtimeRefresh": {
+                        "type": "boolean"
+                      },
+                      "desktopRestart": {
                         "type": "boolean"
                       },
                       "projectFiles": {
@@ -5500,6 +5516,19 @@
                       "type": {
                         "type": "string",
                         "const": "runtime.refresh"
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "desktop.restart"
                       }
                     },
                     "required": [

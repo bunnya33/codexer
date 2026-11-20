@@ -42,6 +42,9 @@ bool within(const QString &root, const QString &path);
 bool waitFor(const std::function<bool()> &done, int timeout);
 Object merged(Object left, const Object &right);
 QString platform();
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+void restartCodexDesktop();
+#endif
 QString executable(const Object &settings);
 QString fingerprint(const QString &path);
 QString fileIdentity(const QString &path);
@@ -272,6 +275,7 @@ class Service : public QObject {
   QString refresh(bool force);
   bool active() const;
   void checkCommand(const Object &command, int generation) const;
+  QElapsedTimer desktopRestartTimer;
   Object execute(Object command);
   Object executeTurn(Object command, const Array &inputs, bool onDesktop);
   Object manage(const Object &command);

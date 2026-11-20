@@ -183,6 +183,25 @@ describe("authenticated relay transport", () => {
     expect((await submit()).json()).toMatchObject({ type: "command.result", result: { status: "succeeded" } });
     expect((await app.inject({ method: "POST", url: `/v1/devices/${deviceId}/commands`, headers, payload: { ...input, payload: { ...input.payload, text: "changed" } } })).statusCode).toBe(409);
   });
+  it("dispatches only a parameterless desktop restart to an Agent that advertises support", async () => {
+    const peer = await agent(), state = snapshot(deviceId);
+    await publish(peer, state);
+    const input = command({ type: "desktop.restart" }, state);
+    const submit = (payload: unknown) => app.inject({ method: "POST", url: `/v1/devices/${deviceId}/commands`, headers, payload: { ...input, payload } });
+    expect((await submit(input.payload)).json()).toMatchObject({ error: "desktop-restart-unsupported" });
+    state.runtime.capabilities.desktopRestart = true;
+    peer.send({ type: "device.snapshot", snapshot: state });
+    await waitFor(async () => (await app.inject({ url: `/v1/devices/${deviceId}/snapshot`, headers })).json().snapshot?.runtime.capabilities.desktopRestart === true);
+    expect((await submit({ ...input.payload, path: "/other/application" })).statusCode).toBe(400);
+    expect((await submit(input.payload)).json().type).toBe("command.accepted");
+    expect(await peer.wait(value => value.type === "command")).toMatchObject({ command: { payload: input.payload } });
+    expect((await submit(input.payload)).json().type).toBe("command.accepted");
+    const result = { commandId: input.commandId, deviceId, status: "succeeded", code: "desktop-restarted", result: { desktopRestart: "restarted" } };
+    peer.send({ type: "command.result", result });
+    await waitFor(async () => (await submit(input.payload)).json().type === "command.result");
+    expect((await submit(input.payload)).json()).toMatchObject({ result });
+    expect(peer.messages.filter(value => value.type === "command")).toHaveLength(1);
+  });
   it("rejects stale epochs and blocks revoked devices immediately", async () => {
     const peer = await agent(), state = snapshot(deviceId); await publish(peer, state);
     const input = { ...command({ type: "turn.start", threadId: "thread-test", text: "Test" }, state), expectedEpoch: "old-epoch" };

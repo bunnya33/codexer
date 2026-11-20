@@ -1162,7 +1162,7 @@ bool validCommand(const Object &command) {
     return false;
   const auto p = command["payload"].toObject();
   auto type = p["type"].toString();
-  if (type == "runtime.refresh")
+  if (type == "runtime.refresh" || type == "desktop.restart")
     return p.size() == 1;
   if (type == "project.create")
     return id(p["parentId"]) && bounded(p["name"], 1, 100) &&

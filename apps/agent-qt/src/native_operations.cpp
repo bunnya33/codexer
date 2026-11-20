@@ -50,6 +50,25 @@ Object Service::execute(Object command) {
     refreshRequested = true;
     return {{"runtimeRefresh", refresh(true)}};
   }
+  if (type == "desktop.restart") {
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+    if (desktopRestartTimer.isValid() && desktopRestartTimer.elapsed() < 20000)
+      throw Error("desktop-restart-cooldown");
+    desktopRestartTimer.start();
+    try {
+      restartCodexDesktop();
+    } catch (const Error &error) {
+      log(error.code);
+      throw;
+    }
+    // The normal maintenance loop reconnects IPC and refreshes the watches.
+    lastScan = 0;
+    log("desktop-restarted");
+    return {{"desktopRestart", "restarted"}};
+#else
+    throw Error("desktop-restart-unsupported");
+#endif
+  }
   if (type.startsWith("project."))
     return project(command);
   if (type == "thread.create" || type == "thread.rename" ||

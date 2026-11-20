@@ -24,7 +24,8 @@ for(const fixture of previewFixtures) {
 }
 const envelope={commandId:'command',deviceId:'device',expectedEpoch:'epoch',expiresAt:Date.now()+60000};
 const payloads: Record<string,any>[]=[
- {type:'runtime.refresh'}, {type:'project.create',parentId:'parent',name:'Sample',relativePath:'sample',mode:'new'},
+ {type:'runtime.refresh'}, {type:'desktop.restart'},
+ {type:'project.create',parentId:'parent',name:'Sample',relativePath:'sample',mode:'new'},
  {type:'project.delete.prepare',projectId:'project'}, {type:'project.delete',projectId:'project',token:'e3020b32-b184-4eef-a636-b6c80360df39',deleteDirectory:true},
  {type:'thread.create',projectId:'project'}, ...['thread.watch','thread.archive','thread.delete'].map(type=>({type,threadId:'thread'})),
  {type:'thread.rename',threadId:'thread',name:'Rename'},
@@ -52,6 +53,7 @@ for(const payload of payloads) {
  }
 }
 for(const turnId of ['',null,'x'.repeat(161)]) add('command',{...envelope,payload:{type:'turn.continue',threadId:'thread',turnId}});
+add('command',{...envelope,payload:{type:'desktop.restart',path:'/other/application'}});
 for(const extra of [{text:' '},{text:''},{itemId:''},{attachments:['bad']},{attachments:Array(5).fill('a'.repeat(64))},{images:[]},{unexpected:true}]) add('command',{...envelope,payload:{type:'turn.edit',threadId:'thread',turnId:'turn',itemId:'message',expectedText:'original',text:'edited',...extra}});
 for (const type of ['turn.start', 'turn.steer', 'turn.queue']) {
  for (const count of [20, 21]) add('command', {...envelope, payload: {type, threadId:'thread', turnId:'turn', text:'', images:Array(count).fill('a'.repeat(64))}});

@@ -740,8 +740,12 @@ func (s *Server) Submit(c M, raw ...[]byte) M {
 		fail(409, "stale-device-epoch")
 	}
 	payload := obj(c["payload"])
-	if payload["type"] == "runtime.refresh" && obj(obj(obj(head["payload"])["runtime"])["capabilities"])["runtimeRefresh"] != true {
+	capabilities := obj(obj(obj(head["payload"])["runtime"])["capabilities"])
+	if payload["type"] == "runtime.refresh" && capabilities["runtimeRefresh"] != true {
 		fail(409, "runtime-refresh-unsupported")
+	}
+	if payload["type"] == "desktop.restart" && capabilities["desktopRestart"] != true {
+		fail(409, "desktop-restart-unsupported")
 	}
 	thread := str(payload["threadId"])
 	for _, image := range list(payload["images"]) {

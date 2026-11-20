@@ -138,7 +138,7 @@ func (s *Server) refine(name string, m M) {
 	if name == "command" {
 		p := obj(m["payload"])
 		// This operation never accepts a program, path, or additional arguments.
-		if p["type"] == "runtime.refresh" && len(p) != 1 {
+		if (p["type"] == "runtime.refresh" || p["type"] == "desktop.restart") && len(p) != 1 {
 			fail(400, "invalid-request")
 		}
 		if p["type"] == "turn.continue" && len(p) != 3 {
@@ -194,6 +194,7 @@ func commandHash(m M, raw ...[]byte) string {
 	p := obj(m["payload"])
 	keys := map[string][]string{
 		"runtime.refresh":           {"type"},
+		"desktop.restart":           {"type"},
 		"thread.permissions.update": {"type", "threadId", "mode", "expectedPermissions"}, "elicitation.respond": {"type", "threadId", "turnId", "requestId", "decision", "scope"},
 		"turn.queue.read": {"type", "threadId", "queueId"}, "turn.queue.update": {"type", "threadId", "queueId", "text", "expectedText"},
 		"project.create":         {"type", "parentId", "name", "relativePath", "mode"},

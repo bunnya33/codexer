@@ -14,7 +14,8 @@ async function fixture(mode: string) {
   await vi.waitFor(() => expect(dom.window.document.querySelector('[aria-label="刷新 Codex 运行时"]')).not.toBeNull());
   const button = dom.window.document.querySelector('[aria-label="刷新 Codex 运行时"]') as HTMLElement;
   const calls = () => JSON.parse(dom.window.document.querySelector('[data-testid="calls"]')!.textContent!);
-  return {dom, button, calls, confirm};
+  const restart = dom.window.document.querySelector<HTMLElement>('[aria-label="重启 Codex 桌面端"]');
+  return {dom, button, restart, calls, confirm};
 }
 it.each(['offline', 'old'])('blocks remote refresh for an %s device', async mode => {
   const {dom, button, calls, confirm} = await fixture(mode);
@@ -32,5 +33,28 @@ it.each([['success', 'Codex 运行时已刷新'], ['deferred', '已安排'], ['f
     button.click(); button.click();
     await vi.waitFor(() => expect(dom.window.document.body.textContent).toContain(text));
     expect(calls()).toEqual([{deviceId: 'chosen-device', payload: {type: 'runtime.refresh'}}]);
+  } finally {dom.window.close();}
+});
+
+it.each(['old', 'offline', 'cancel'])('does not restart in the %s case', async mode => {
+  const {dom, restart, calls, confirm} = await fixture(mode);
+  try {
+    if (mode === 'old') expect(restart).toBeNull();
+    else if (mode === 'offline') expect(restart?.getAttribute('aria-disabled')).toBe('true');
+    else {
+      restart!.click();
+      await vi.waitFor(() => expect(confirm).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('Chosen PC')));
+    }
+    expect(calls()).toEqual([]);
+  } finally {dom.window.close();}
+});
+
+it.each([['success', 'Codex 桌面端已重新打开'], ['unknown', '重启结果未确认']])('reports the desktop restart %s result', async (mode, notice) => {
+  const {dom, restart, calls, confirm} = await fixture(mode);
+  try {
+    restart!.click(); restart!.click();
+    await vi.waitFor(() => expect(dom.window.document.body.textContent).toContain(notice));
+    expect(confirm).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('重启可能中断'));
+    expect(calls()).toEqual([{deviceId: 'chosen-device', payload: {type: 'desktop.restart'}}]);
   } finally {dom.window.close();}
 });

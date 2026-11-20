@@ -97,6 +97,9 @@ void Service::connectAgent() {
                 {"maxVideoBytes", double(MaxVideoBytes)},
                 {"subAgents", true},
                 {"runtimeRefresh", true}};
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+    caps["desktopRestart"] = true;
+#endif
     snapshot = {{"protocolVersion", 1},
                 {"deviceId", credentials["deviceId"]},
                 {"epoch", uuid()},
