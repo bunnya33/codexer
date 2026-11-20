@@ -29,6 +29,7 @@ const payloads: Record<string,any>[]=[
  {type:'project.delete.prepare',projectId:'project'}, {type:'project.delete',projectId:'project',token:'e3020b32-b184-4eef-a636-b6c80360df39',deleteDirectory:true},
  {type:'thread.create',projectId:'project'}, ...['thread.watch','thread.archive','thread.delete'].map(type=>({type,threadId:'thread'})),
  {type:'thread.rename',threadId:'thread',name:'Rename'},
+ {type:'thread.fork',threadId:'thread',turnId:'branch-point'},
  ...['turn.start','turn.steer','turn.queue'].map(type=>({type,threadId:'thread',turnId:'turn',text:'你好',images:['a'.repeat(64)],attachments:['b'.repeat(64)]})),
  ...['turn.queue.read','turn.queue.remove','turn.queue.steer'].map(type=>({type,threadId:'thread',turnId:'turn',queueId:'queue'})),
  {type:'turn.queue.update',threadId:'thread',queueId:'queue',text:'new',expectedText:'old'},
@@ -52,7 +53,10 @@ for(const payload of payloads) {
    add('command',{...envelope,payload:{...payload,[key]:123}});
  }
 }
-for(const turnId of ['',null,'x'.repeat(161)]) add('command',{...envelope,payload:{type:'turn.continue',threadId:'thread',turnId}});
+for (const type of ['turn.continue','thread.fork']) {
+ for (const turnId of ['',null,'x'.repeat(161)]) add('command',{...envelope,payload:{type,threadId:'thread',turnId}});
+}
+add('command',{...envelope,payload:{type:'thread.fork',threadId:'thread',turnId:'branch-point',text:'unexpected'}});
 add('command',{...envelope,payload:{type:'desktop.restart',path:'/other/application'}});
 for(const extra of [{text:' '},{text:''},{itemId:''},{attachments:['bad']},{attachments:Array(5).fill('a'.repeat(64))},{images:[]},{unexpected:true}]) add('command',{...envelope,payload:{type:'turn.edit',threadId:'thread',turnId:'turn',itemId:'message',expectedText:'original',text:'edited',...extra}});
 for (const type of ['turn.start', 'turn.steer', 'turn.queue']) {

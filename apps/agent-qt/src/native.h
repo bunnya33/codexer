@@ -6,6 +6,7 @@
 #include <QtWebSockets/QWebSocketHandshakeOptions>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include "native_resources.h"
 
@@ -65,6 +66,12 @@ Object normalizeSettings(const Object &raw);
 Object normalizeThread(
     const Object &raw, qint64 revision,
     const std::function<Array(const QString &, const Object &)> &images = {});
+void appendTurnError(Array &errors, const Object &error, bool willRetry);
+Array mergeTurnErrors(const Array &recorded, const Array &incoming);
+bool hasFinalTurnError(const Array &errors);
+Array rawTurns(const Object &raw);
+QJsonValue turnIdentity(const Object &turn);
+Array turnErrors(const Object &raw);
 Object normalizeTurn(
     const Object &raw, bool history, const QString &threadId,
     const std::function<Array(const QString &, const Object &)> &images = {});
@@ -289,6 +296,8 @@ class Service : public QObject {
   Object executeTurn(Object command, const Array &inputs, bool onDesktop);
   Object manage(const Object &command);
   Object editMessage(const Object &command);
+  Object forkConversation(const Object &command, std::optional<QString> editedText = std::nullopt,
+                          Array retained = {});
   Object project(const Object &command);
   Object queue(const Object &command);
   void drainQueues();
@@ -318,6 +327,8 @@ class Service : public QObject {
   bool saveUsage(const QString &threadId, const QString &turnId,
                  const Object &value);
   void enrichUsage(const QString &threadId, Object &turn);
+  Array recordTurnErrors(const QString &threadId, const QString &turnId, const Array &incoming);
+  void finishHeadlessTurn(const QString &threadId, const QString &turnId);
   void refreshProjectUsage(bool notify = true);
   void refreshSubAgentUsage(const QString &indexPath);
   void processCommand(const Object &command);

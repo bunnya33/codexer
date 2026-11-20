@@ -122,6 +122,13 @@ void Service::attachDesktop() {
   connect(desktop, &Desktop::threadChanged, this, [this](const QString &id) {
     if (!desktopThreads.contains(id))
       return;
+    const auto turns = rawTurns(desktop->watched.value(id).raw);
+    for (int i = qMax(0, turns.size() - 2); i < turns.size(); ++i) {
+      const auto turn = turns[i].toObject();
+      const auto errors = turnErrors(turn);
+      if (!errors.isEmpty())
+        recordTurnErrors(id, turnIdentity(turn).toString(), errors);
+    }
     // Observe every IPC change before the display queue coalesces updates.
     try {
       observeDesktopUsage(id);
@@ -149,7 +156,7 @@ void Service::flushLiveUpdates() {
     return;
   for (const auto &id : pending) {
     if (!desktopThreads.contains(id) &&
-        (!owned.contains(id) || !headlessTurns.contains(id)))
+        !owned.contains(id))
       continue;
     try {
       updateThread(id, false, false);

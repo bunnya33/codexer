@@ -1,7 +1,7 @@
 import {createContext,useContext,useEffect,useRef,useState} from 'react';
 import type {ReactNode} from 'react';
 import {ActivityIndicator,Animated,KeyboardAvoidingView,Modal,Platform,Pressable,Share,StyleSheet,Text,TextInput,View,useWindowDimensions} from 'react-native';
-import {ArrowUp,Check,Copy,Pencil,TextSelect,Share2,X,Plus} from 'lucide-react-native';
+import {ArrowUp,Check,Copy,GitBranch,MoreHorizontal,Pencil,TextSelect,Share2,X,Plus} from 'lucide-react-native';
 import type {RemoteItem} from '../../../packages/protocol/src/index';
 import {messagePlainText} from '../../../packages/client-shared/src/message-text';
 import {copyText} from './runtime';
@@ -9,6 +9,7 @@ import {messageHaptic} from './haptics';
 import {relay} from './relay';
 import {useTheme} from './styles';
 import {ComposerInput} from './composer';
+import {ComposerPopover} from './composer-popover';
 import {SafeAreaView,useSafeAreaInsets} from 'react-native-safe-area-context';
 import {ContextMenuGroup,ContextMenuRow} from './interaction/context-menu';
 import {pickAttachments} from './attachment-picker';
@@ -26,9 +27,9 @@ function menuTime(value:string){
   return `${prefix} ${date.getHours()}:${String(date.getMinutes()).padStart(2,'0')}`;
 }
 type EditTarget={turnId:string;item:RemoteItem};
-const Actions=createContext<{canEdit:boolean;edit:(target:EditTarget)=>void;copied:()=>void;onSelection?:(active:boolean)=>void}>({canEdit:false,edit:()=>{},copied:()=>{}});
+const Actions=createContext<{canEdit:boolean;canFork?:boolean;onForkReply?:(turnId:string)=>void;edit:(target:EditTarget)=>void;copied:()=>void;onSelection?:(active:boolean)=>void}>({canEdit:false,edit:()=>{},copied:()=>{}});
 
-export function MessageActionsProvider({children,deviceId,threadId,canEdit,onFork,onSelection}:{children:ReactNode;deviceId:string;threadId:string;canEdit:boolean;onFork:(id:string)=>void;onSelection?:(active:boolean)=>void}){
+export function MessageActionsProvider({children,deviceId,threadId,canEdit,canFork,onForkReply,onFork,onSelection}:{children:ReactNode;deviceId:string;threadId:string;canEdit:boolean;canFork:boolean;onForkReply:(turnId:string)=>void;onFork:(id:string)=>void;onSelection?:(active:boolean)=>void}){
   const [target,setTarget]=useState<EditTarget|null>(null);
   const {c}=useTheme();
   const [copied,setCopied]=useState(false);
@@ -42,7 +43,30 @@ export function MessageActionsProvider({children,deviceId,threadId,canEdit,onFor
   };
   const attempts=useRef(new Map<string,EditDelivery>());
   const delivery=(key:string)=>{let value=attempts.current.get(key);if(!value){value={status:'idle'};attempts.current.set(key,value);}return value;};
-  return <Actions.Provider value={{canEdit,edit:setTarget,copied:notifyCopied,onSelection}}><View style={{flex:1}}>{children}{copied&&<Animated.View pointerEvents="none" accessibilityLiveRegion="polite" accessibilityRole="alert" style={[styles.copyToast,{backgroundColor:c.glass,borderColor:c.faint,shadowColor:c.shadow,opacity:toastOpacity}]}><View style={[styles.toastCheck,{backgroundColor:c.muted}]}><Check size={11} strokeWidth={2.8} color={c.surface}/></View><Text style={{color:c.text,fontSize:12,fontWeight:'600'}}>消息已复制</Text></Animated.View>}</View>{target&&<MessageEditor key={JSON.stringify([deviceId,threadId,target.turnId,target.item.id])} target={target} delivery={delivery(target.item.id)} canEdit={canEdit} deviceId={deviceId} threadId={threadId} close={()=>setTarget(null)} onFork={onFork}/>}</Actions.Provider>;
+  return <Actions.Provider value={{canEdit,canFork,onForkReply,edit:setTarget,copied:notifyCopied,onSelection}}><View style={{flex:1}}>{children}{copied&&<Animated.View pointerEvents="none" accessibilityLiveRegion="polite" accessibilityRole="alert" style={[styles.copyToast,{backgroundColor:c.glass,borderColor:c.faint,shadowColor:c.shadow,opacity:toastOpacity}]}><View style={[styles.toastCheck,{backgroundColor:c.muted}]}><Check size={11} strokeWidth={2.8} color={c.surface}/></View><Text style={{color:c.text,fontSize:12,fontWeight:'600'}}>消息已复制</Text></Animated.View>}</View>{target&&<MessageEditor key={JSON.stringify([deviceId,threadId,target.turnId,target.item.id])} target={target} delivery={delivery(target.item.id)} canEdit={canEdit} deviceId={deviceId} threadId={threadId} close={()=>setTarget(null)} onFork={onFork}/>}</Actions.Provider>;
+}
+
+export function ReplyMoreButton() {
+  const { canFork, onForkReply } = useContext(Actions);
+  const { turnId } = useContext(MessageTurnContext);
+  const { c, s } = useTheme();
+  const anchor = useRef<View>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => { if (!canFork) setOpen(false); }, [canFork]);
+  if (!canFork || !turnId) return null;
+  return <>
+    <View ref={anchor} collapsable={false}>
+      <Pressable accessibilityRole="button" accessibilityLabel="更多回复操作" accessibilityState={{ expanded: open }}
+        style={[s.iconButton, { width: 30, height: 28 }]} onPress={() => setOpen(true)}>
+        <MoreHorizontal size={16} color={c.muted} />
+      </Pressable>
+    </View>
+    {open && <ComposerPopover anchor={anchor} open={open} width={190} align="start" onClose={() => setOpen(false)}>
+      <ContextMenuGroup>
+        <ContextMenuRow title="分支到新聊天" Icon={GitBranch} onPress={() => { setOpen(false); onForkReply?.(turnId); }} />
+      </ContextMenuGroup>
+    </ComposerPopover>}
+  </>;
 }
 
 /** Native iOS exposes its system context menu; other hosts use this anchored menu. */

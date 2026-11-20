@@ -7,6 +7,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Archive, ArrowDown, Check, Pencil, Terminal, Trash2 } from 'lucide-react-native';
+import { agentErrorMessage } from '../../packages/client-shared/src/agent-errors';
 import { mergeTurnHistory } from '../../packages/client-shared/src/activity';
 import {JumpToBottom} from './src/interaction/jump-to-bottom';
 import { currentThreadUsage } from '../../packages/client-shared/src/project-usage';
@@ -262,6 +263,46 @@ function AppContent() {
     } catch (error) { relay.showNotice(error instanceof Error ? error.message : String(error)); }
     finally { setManaging(false); }
   };
+  const unknownForks = useRef(new Set<string>());
+  const forkReply = async (turnId: string) => {
+    if (!ready || thread?.status !== 'idle' || commandLock.current) return;
+    const scope = currentStreamKey.current;
+    const key = JSON.stringify([deviceId, threadId, turnId]);
+    const unconfirmed = '分支创建结果尚未确认，请在会话列表中核对。';
+    if (unknownForks.current.has(key)) {
+      showConversationNotice(unconfirmed);
+      void relay.loadCatalog(deviceId);
+      return;
+    }
+    commandLock.current = true;
+    setBusy(true);
+    unknownForks.current.add(key);
+    try {
+      const result = await relay.sendCommand(deviceId, { type: 'thread.fork', threadId, turnId });
+      if (result.status === 'succeeded' && typeof result.result?.threadId === 'string') {
+        unknownForks.current.delete(key);
+        if (currentStreamKey.current === scope) setThreadId(result.result.threadId);
+      } else if (result.status === 'unknown' || result.status === 'succeeded') {
+        showConversationNotice(unconfirmed);
+        void relay.loadCatalog(deviceId);
+      } else {
+        unknownForks.current.delete(key);
+        const reasons: Record<string, string> = {
+          'thread-not-idle': '当前会话仍在运行，请等这一轮结束后再创建分支。',
+          'branch-source-unavailable': '无法读取原会话，请在电脑上的 Codex 打开后重试。',
+          'branch-settings-unsupported': '当前连接器无法继承此会话的工作区权限，请更新连接器后重试。',
+          'branch-creation-rejected': 'Codex 拒绝创建分支，请确认所选回复所在轮次已保存，并检查 Codex 版本。',
+        };
+        showConversationNotice(reasons[result.code] ?? agentErrorMessage(result.code));
+      }
+    } catch {
+      showConversationNotice(unconfirmed);
+      void relay.loadCatalog(deviceId);
+    } finally {
+      commandLock.current = false;
+      setBusy(false);
+    }
+  };
   const send = async (payload: RemoteCommand['payload'], clearDraft = false) => {
     if (commandLock.current) return false;
     commandLock.current = true; setBusy(true);
@@ -377,8 +418,11 @@ function AppContent() {
     if (file.id) void relay.removeAttachment(deviceId, threadId, file.id).catch(() => {});
   };
   const activeSettingsEnabled = thread?.status === 'idle' || (thread?.status === 'active' && snapshot?.runtime.capabilities.activeSettingsUpdate === true);
-  const interruptedTurn = thread?.status === 'idle' && thread.turns.at(-1)?.status === 'interrupted' ? thread.turns.at(-1) : undefined;
-  const canContinue = !!interruptedTurn && snapshot?.runtime.capabilities.continueTurn === true;
+  const lastTurn = thread?.turns.at(-1);
+  const lastError = lastTurn?.errors?.at(-1);
+  const retryableFailure = lastTurn?.status === 'failed' && lastError?.willRetry === false &&
+    ['connection', 'retryLimit', 'rateLimit', 'overloaded'].includes(lastError.kind);
+  const canContinue = thread?.status === 'idle' && (lastTurn?.status === 'interrupted' || retryableFailure) && snapshot?.runtime.capabilities.continueTurn === true;
   const executePrepared = async (input: Extract<RemoteCommand['payload'], { type: 'turn.start' }>) => {
     if (commandLock.current || !composerDraft.preparedPlan) return;
     const plan = composerDraft.preparedPlan, selectedStream = streamKey;
@@ -417,7 +461,7 @@ function AppContent() {
     const attachments = files.flatMap(file => file.id ? [file.id] : []);
     if (!text && !ids.length && !attachments.length) {
       if (thread.status === 'active' && thread.activeTurnId) void send({ type: 'turn.interrupt', threadId, turnId: thread.activeTurnId });
-      else if (canContinue && interruptedTurn) void send({ type: 'turn.continue', threadId, turnId: interruptedTurn.id });
+      else if (canContinue && lastTurn) void send({ type: 'turn.continue', threadId, turnId: lastTurn.id });
       return;
     }
     const input = { threadId, text, ...(ids.length ? { images: ids } : {}), ...(attachments.length ? { attachments } : {}) };
@@ -512,7 +556,7 @@ function AppContent() {
         truncated={!!thread?.subAgentsTruncated} hasTruncatedContent={hasTruncatedContent} onDrawer={wide ? undefined : () => setDrawerOpen(true)}
         onRefresh={() => { void relay.loadHistory(deviceId, threadId).catch(() => showConversationNotice('会话刷新失败，请重试。')); relay.watchThread(deviceId, threadId, true); }}
         onInfo={() => relay.showNotice('部分长记录受传输大小限制。完整内容可在本机 Codex 查看；更早消息可在会话顶部加载。')} />
-      <MessageActionsProvider key={JSON.stringify([draftScope,deviceId,threadId])} deviceId={deviceId} threadId={threadId} canEdit={ready&&thread?.status==='idle'&&snapshot?.runtime.capabilities.editMessage===true} onFork={setThreadId} onSelection={active=>{if(active)markScrollIntent('up');}}>
+      <MessageActionsProvider key={JSON.stringify([draftScope,deviceId,threadId])} deviceId={deviceId} threadId={threadId} canEdit={ready&&thread?.status==='idle'&&snapshot?.runtime.capabilities.editMessage===true} canFork={ready && !busy && thread?.status === 'idle' && snapshot?.runtime.capabilities.forkThread === true} onForkReply={forkReply} onFork={setThreadId} onSelection={active=>{if(active)markScrollIntent('up');}}>
       <ConversationViewport onScrollIntent={markScrollIntent}><FlatList key={historyKey(deviceId, threadId)} ref={listRef} testID="conversation-stream" data={turns} keyExtractor={item => item.id} style={s.stream} contentContainerStyle={[s.streamContent, wide && s.desktopContent]} initialNumToRender={8} windowSize={7} maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
         onScroll={event => {
           if (currentStreamKey.current !== streamKey) return;

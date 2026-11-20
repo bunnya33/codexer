@@ -14,7 +14,7 @@ module.exports = function desktopConfig(platform, dependencyRoot) {
   const escaped = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return {
     projectRoot: app,
-    watchFolders: [path.join(root,'apps/mobile'),path.join(root,'packages'),dependencyRoot],
+    watchFolders: [path.join(root,'apps/mobile'),path.join(root,'apps/relay/protocol'),path.join(root,'packages'),dependencyRoot],
     resolver: {
       disableHierarchicalLookup:true,
       nodeModulesPaths:[path.join(dependencyRoot,'node_modules')],

@@ -25,7 +25,7 @@ docker compose --env-file infra/.env -f infra/compose.yaml logs --tail=100 relay
 
 ## 状态和账号恢复
 
-systemd：`sudo codexer status`、`sudo codexer logs`、`sudo codexer restart`；浏览器账号管理见 [Admin](admin.md)。管理员密码使用 `sudo codexer password`，同时更新数据库与受限配置。若曾在后台改密，CLI 提示时输入当前管理员密码。后台与控制端使用独立账号；现有管理员用于 PC 时需创建控制端账号后重新登录。
+systemd 常用命令为 `sudo codexer status`、`sudo codexer logs` 和 `sudo codexer restart`。管理员密码使用 `sudo codexer password` 修改，依次更新数据库和受限配置。若后台改密后配置仍记录旧密码，先同步受限配置中的管理员凭据，再使用命令行账号管理。后台与控制端使用独立账号，PC 连接需要控制端账号。浏览器账号管理见 [Admin](admin.md)。
 
 安装器管理的服务器支持后台 Release 包或 Git tag 更新。自动准备默认关闭；两种方式都等管理员确认后才重启，见 [服务器更新](server-update.md)。SQLite 停服备份期间先 `sudo systemctl stop codexer-updater.timer`，确认没有准备/构建/重启任务正在执行，再停止 Relay；备份后启动 Relay 和 timer，避免更新与复制数据库重叠。
 

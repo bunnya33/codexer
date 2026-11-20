@@ -359,6 +359,108 @@ class NativeTests : public QObject {
     emit agent->desktop->threadChanged("thread-test");
   }
 private slots:
+  void replyForkUsesSelectedTurnAndStartsIdle() {
+    setFixture({{"turns", Array{
+      Object{{"id", "later-turn"}, {"status", "completed"}},
+      Object{{"id", "branch-point"}, {"status", "completed"}}}}});
+    agent->refreshCatalog();
+    auto cmd = command("thread.fork");
+    cmd["payload"] = Object{{"type", "thread.fork"}, {"threadId", "thread-test"},
+                            {"turnId", "branch-point"}};
+    QVERIFY(validCommand(cmd));
+    const auto result = agent->execute(cmd);
+    QCOMPARE(result["threadId"], QJsonValue("edit-fork"));
+    const auto threads = agent->snapshot["threads"].toObject();
+    QCOMPARE(threads["thread-test"].toObject()["turns"].toArray().last().toObject()["id"], QJsonValue("later-turn"));
+    QCOMPARE(threads["edit-fork"].toObject()["status"], QJsonValue("idle"));
+    int forks = 0;
+    for (const auto &line : read(temp.path() + "/requests.jsonl").split('\n')) {
+      if (line.isEmpty()) continue;
+      const auto request = parse(line).toObject();
+      QVERIFY(request["method"] != "thread/revert");
+      QVERIFY(request["method"] != "turn/start");
+      if (request["method"] != "thread/fork") continue;
+      ++forks;
+      const auto params = request["params"].toObject();
+      QCOMPARE(params["threadId"], QJsonValue("thread-test"));
+      QCOMPARE(params["lastTurnId"], QJsonValue("branch-point"));
+      QCOMPARE(params["deferGoalContinuation"], QJsonValue(true));
+      QCOMPARE(params["runtimeWorkspaceRoots"], QJsonValue(Array{temp.path()}));
+    }
+    QCOMPARE(forks, 1);
+  }
+  void retryErrorsRemainVisibleAfterFailure_data() {
+    QTest::addColumn<bool>("desktopOwned");
+    QTest::newRow("desktop") << true;
+    QTest::newRow("app-server") << false;
+  }
+  void retryErrorsRemainVisibleAfterFailure() {
+    QFETCH(bool, desktopOwned);
+    const QString id = "thread-test", turnId = "failing-turn";
+    const Object turn{{"id", turnId}, {"status", "inProgress"}, {"items", Array{}}};
+    const Object terminal{{"message", "exceeded retry limit, last status: 429 Too Many Requests, request id: req_429test"}};
+    auto source = raw();
+    source["threadRuntimeStatus"] = Object{{"type", "active"}};
+    source["turns"] = Array{turn};
+    if (desktopOwned) {
+      desktopUsage(source);
+    } else {
+      agent->ensureRpc();
+      agent->rawThreads[id] = source;
+      agent->owned.insert(id);
+      agent->busyTurns.insert(turnId);
+    }
+    agent->updateThread(id, false, false);
+    const auto published = [&] { return agent->snapshot["threads"].toObject()[id].toObject(); };
+    const auto errors = [&] { return published()["turns"].toArray().first().toObject()["errors"].toArray(); };
+    const auto report = [&](Object error, bool retry) {
+      if (desktopOwned) {
+        auto updated = turn;
+        error["type"] = "error";
+        error["willRetry"] = retry;
+        // Desktop may replace the previous transient error in its next patch.
+        updated["items"] = Array{error};
+        source["turns"] = Array{updated};
+        desktopUsage(source);
+      } else {
+        emit agent->rpc->notification("error", {{"threadId", id}, {"turnId", turnId},
+                                      {"willRetry", retry}, {"error", error}});
+      }
+    };
+    for (int attempt = 1; attempt <= 5; ++attempt) {
+      report({{"message", QStringLiteral("Reconnecting\u2026 %1/5").arg(attempt)}}, true);
+      agent->flushLiveUpdates();
+      QCOMPARE(published()["status"], QJsonValue("active"));
+      QCOMPARE(errors().size(), attempt);
+      QCOMPARE(errors().last().toObject()["attempt"], QJsonValue(attempt));
+      QCOMPARE(errors().last().toObject()["maxAttempts"], QJsonValue(5));
+    }
+    report(terminal, false);
+    agent->flushLiveUpdates();
+    QCOMPARE(published()["status"], QJsonValue("idle"));
+    QVERIFY(published()["activeTurnId"].isNull());
+    QCOMPARE(published()["turns"].toArray().first().toObject()["status"], QJsonValue("failed"));
+    QCOMPARE(errors().size(), 6);
+    QCOMPARE(errors().last().toObject()["httpStatus"], QJsonValue(429));
+    QCOMPARE(errors().last().toObject()["requestId"], QJsonValue("req_429test"));
+    QVERIFY(!agent->busyTurns.contains(turnId));
+    setFixture({{"turns", Array{turn}}});
+    const auto history = agent->history(id, QJsonValue::Null)["turns"].toArray();
+    QCOMPARE(history.first().toObject()["errors"], QJsonValue(errors()));
+    QCOMPARE(history.first().toObject()["status"], QJsonValue("failed"));
+    if (!desktopOwned) {
+      auto continuation = command("turn.continue");
+      continuation["payload"] = Object{{"type", "turn.continue"}, {"threadId", id}, {"turnId", turnId}};
+      QCOMPARE(agent->executeTurn(continuation, {}, false)["turnId"], QJsonValue("turn-new"));
+      emit agent->rpc->notification("turn/started", {{"threadId", id},
+        {"turn", Object{{"id", "turn-new"}, {"status", "inProgress"}}}});
+      report(terminal, false);
+      agent->flushLiveUpdates();
+      QCOMPARE(published()["activeTurnId"], QJsonValue("turn-new"));
+      QCOMPARE(published()["status"], QJsonValue("active"));
+      QCOMPARE(errors().size(), 6);
+    }
+  }
   void editForkPreservesSourceAndAttachments_data() {
     QTest::addColumn<bool>("fileContext");
     QTest::newRow("plain") << false;
@@ -561,6 +663,69 @@ private slots:
   void cleanup() {
     agent.reset();
     qunsetenv("CODEX_REMOTE_DESKTOP_ENDPOINT");
+  }
+  void loginAndConnectionErrors_data() {
+    QTest::addColumn<QString>("method");
+    QTest::addColumn<QByteArray>("body");
+    QTest::addColumn<QString>("expected");
+    QTest::newRow("wrong-credentials")
+        << QString("login") << QByteArray(R"({"error":"invalid-credentials"})")
+        << QString("用户名或密码错误");
+    QTest::newRow("other-401")
+        << QString("login") << QByteArray("Unauthorized")
+        << QString("服务器拒绝认证");
+    QTest::newRow("invalid-session")
+        << QString("connect") << QByteArray(R"({"error":"unauthorized"})")
+        << QString("登录已失效，请重新登录");
+    QTest::newRow("connection-refused")
+        << QString("login") << QByteArray{} << QString("连接服务器失败");
+    QTest::newRow("remote-http-disabled")
+        << QString("save") << QByteArray{} << QString("当前设置禁止远程 HTTP 连接");
+  }
+  void loginAndConnectionErrors() {
+    QFETCH(QString, method);
+    QFETCH(QByteArray, body);
+    QFETCH(QString, expected);
+    QTcpServer http;
+    QVERIFY(http.listen(QHostAddress::LocalHost));
+    const auto address = "http://127.0.0.1:" + QString::number(http.serverPort());
+    if (body.isEmpty()) {
+      http.close();
+    } else {
+      connect(&http, &QTcpServer::newConnection, &http, [&] {
+        auto peer = http.nextPendingConnection();
+        connect(peer, &QTcpSocket::readyRead, peer, [&, peer] {
+          if (!peer->peek(peer->bytesAvailable()).contains("\r\n\r\n"))
+            return;
+          peer->readAll();
+          peer->write("HTTP/1.1 401 Unauthorized\r\nContent-Length: " +
+                      QByteArray::number(body.size()) +
+                      "\r\nConnection: close\r\n\r\n" + body);
+          peer->disconnectFromHost();
+        });
+      });
+    }
+    agent->settings["relayUrl"] = address;
+    if (method == "connect")
+      agent->credentials["relayUrl"] = address;
+    else
+      agent->credentials = {};
+    QString error;
+    const auto reply = connect(agent.get(), &Service::message, agent.get(), [&](const Object &event) {
+      if (event["method"] == "vault.available")
+        agent->submit({{"nativeId", event["nativeId"]}, {"value", true}});
+      if (event["id"] == 1)
+        error = event["error"].toString();
+    });
+    auto value = method == "save"
+                     ? merged(agent->settings, {{"relayUrl", "http://relay.example.com"}})
+                     : Object{{"username", "test"}, {"password", "dummy"}};
+    agent->submit({{"id", 1}, {"method", method}, {"value", value}});
+    disconnect(reply);
+    QVERIFY2(error.startsWith(expected), qPrintable(error));
+    QCOMPARE(agent->view["error"].toString(), error);
+    QVERIFY(agent->credentials.value("session").toString().isEmpty());
+    QVERIFY(!agent->view.value("loggedIn").toBool());
   }
   void fileDownloadBenchmark() {
     const auto path = qEnvironmentVariable("CODEXER_FILE_BENCHMARK_PATH");

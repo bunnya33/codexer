@@ -1,5 +1,29 @@
 #include "native.h"
 namespace Native {
+static QString relayErrorMessage(const QString &code) {
+  if (code == "invalid-credentials")
+    return "用户名或密码错误。请使用在服务器后台创建的控制端账号。";
+  if (code == "session-invalid")
+    return "登录已失效，请重新登录。";
+  if (code == "network-unavailable")
+    return "连接服务器失败。请检查服务器地址、端口和网络。";
+  if (code == "network-timeout")
+    return "连接服务器超时，请稍后重试。";
+  if (code == "tls-handshake-failed")
+    return "无法建立 HTTPS 连接。请检查服务器地址和证书。";
+  if (code == "http-401")
+    return "服务器拒绝认证。请检查服务器地址和登录权限（HTTP 401）。";
+  if (code == "http-404")
+    return "服务器未提供所需的接口。请检查服务器地址和版本。";
+  if (code == "http-429")
+    return "请求过于频繁，请稍后重试。";
+  if (code == "invalid-json" || code == "response-too-large")
+    return "服务器返回的响应不符合预期。请检查服务器地址和版本。";
+  if (code.startsWith("http-"))
+    return QString("服务器请求失败（HTTP %1）。").arg(code.mid(5));
+  return {};
+}
+
 Service::Service(QString profile, QObject *parent)
     : QObject(parent), directory(std::move(profile)) {}
 Service::~Service() { closeAgent(); }
@@ -75,8 +99,10 @@ void Service::initialize() {
       connectAgent();
     } catch (const Error &e) {
       view["startupError"] = e.code;
-      view["error"] = "自动连接失败，请检查网络后重新连接。";
-      publish();
+      const auto reason = relayErrorMessage(e.code);
+      view["error"] = reason.isEmpty() ? "自动连接失败，请打开诊断查看详情。"
+                                      : reason;
+      log(e.code);
     } catch (...) {
       view["error"] = "自动连接失败，请检查网络后重新连接。";
       publish();
@@ -221,9 +247,17 @@ QByteArray Service::http(const QString &method, const QString &path,
   reply->deleteLater();
   if (excessive || result.size() > limit)
     throw Error("response-too-large");
+  if (path == "/v1/agents/login" && status == 401 &&
+      QJsonDocument::fromJson(result).object()["error"] == "invalid-credentials")
+    throw Error("invalid-credentials");
   if (!completed || error != QNetworkReply::NoError) {
     if (status)
       throw Error("http-" + QString::number(status));
+    if (!completed || error == QNetworkReply::TimeoutError ||
+        error == QNetworkReply::OperationCanceledError)
+      throw Error("network-timeout");
+    if (error == QNetworkReply::SslHandshakeFailedError)
+      throw Error("tls-handshake-failed");
     throw Error("network-unavailable");
   }
   if (status < 200 || status >= 300)
@@ -248,14 +282,20 @@ void Service::submit(const Object &value) {
   while (!uiQueue.isEmpty()) {
     auto request = uiQueue.takeFirst();
     const int id = request["id"].toInt();
+    const auto method = request["method"].toString();
     ++depth;
     try {
-      auto result =
-          dispatch(request["method"].toString(), request["value"].toObject());
+      auto result = dispatch(method, request["value"].toObject());
       emit message({{"id", id}, {"value", result}});
     } catch (const Error &e) {
-      view["error"] = e.code;
-      emit message({{"id", id}, {"error", e.code}});
+      const auto reason =
+          method == "login" || method == "connect" || method == "reconnect"
+              ? relayErrorMessage(e.code)
+              : QString{};
+      view["error"] = reason.isEmpty() ? e.code : reason;
+      if (!reason.isEmpty())
+        log(e.code);
+      emit message({{"id", id}, {"error", view["error"]}});
     } catch (...) {
       emit message({{"id", id}, {"error", "native-operation-failed"}});
     }
@@ -289,9 +329,11 @@ Object Service::dispatch(const QString &method, Object value) {
     if (!url.isValid() || url.host().isEmpty() ||
         !QStringList{"http", "https"}.contains(url.scheme()) ||
         !url.userInfo().isEmpty() || url.hasQuery() || url.hasFragment() ||
-        (!url.path().isEmpty() && url.path() != "/") ||
-        (url.scheme() == "http" && !local && !s["allowHttp"].toBool()))
-      throw Error("请输入有效的 HTTPS 服务器地址；HTTP 需在设置中明确允许。");
+        (!url.path().isEmpty() && url.path() != "/"))
+      throw Error("请输入完整的服务器根地址，包含 http:// 或 https://。");
+    if (url.scheme() == "http" && !local && !s["allowHttp"].toBool())
+      throw Error("当前设置禁止远程 HTTP 连接。"
+                  "请使用 HTTPS，或在设置中开启「允许远程 HTTP」。");
     url.setPath({});
     return url.toString();
   };

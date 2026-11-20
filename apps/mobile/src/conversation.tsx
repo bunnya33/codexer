@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Easing, Linking, Platform, Pressable, ScrollView, Text, View } from 'react-native';
-import { Bot, Check, ChevronDown, ChevronRight, ChevronUp, Copy, Pencil, Sparkles, SquareTerminal, Globe, MessageCircle, Image, Clock, Search, Layers, Wrench } from 'lucide-react-native';
+import { Bot, Check, ChevronDown, ChevronRight, ChevronUp, Copy, CircleAlert, RotateCw, Pencil, Sparkles, SquareTerminal, Globe, MessageCircle, Image, Clock, Search, Layers, Wrench } from 'lucide-react-native';
 import { activityLabel, activitySections, buildActivityBlocks, completedActivityLabel, splitActivityReply, executionItemIcon, executionItemSummary, executionSectionItem, executionSectionSummary, formatDuration, itemDuration, messageRole } from '../../../packages/client-shared/src/activity';
 import type { ExecutionSection } from '../../../packages/client-shared/src/activity';
 import type { HistoryTurn, RemoteItem, RemoteSubAgent } from '../../../packages/protocol/src/index';
@@ -27,7 +27,7 @@ import {AgentActivityRecord, CompactionActivityRecord, FileActivityRecord, Image
 import {messageTextRuns} from '../../../packages/client-shared/src/message-text';
 import {NativeMessageText} from './message-native';
 import {SelectableNativeMessage} from './message-selection';
-import {MessageActionOverlays,MessageTurnContext,useMessageAction} from './message-actions';
+import {MessageActionOverlays,MessageTurnContext,ReplyMoreButton,useMessageAction} from './message-actions';
 import {useFileLink} from './file-link-context';
 import {localFilePath} from '../../../packages/client-shared/src/file-links';
 import {splitPreviewContent} from '../../../packages/client-shared/src/previews';
@@ -42,7 +42,7 @@ function ExecutionIcon({ item }: { item?: RemoteItem }) {
   return <Icon size={14} color={c.muted} />;
 }
 
-const Message = memo(function Message({ item, running = false, deviceId, threadId, onImage }: { item: RemoteItem; running?: boolean; deviceId: string; threadId: string; onImage: ImageViewer }) {
+const Message = memo(function Message({ item, running = false, branchPoint = false, deviceId, threadId, onImage }: { item: RemoteItem; running?: boolean; branchPoint?: boolean; deviceId: string; threadId: string; onImage: ImageViewer }) {
   const { c, s } = useTheme();
   const role = messageRole(item);
   const [open, setOpen] = useState(false);
@@ -76,7 +76,10 @@ const Message = memo(function Message({ item, running = false, deviceId, threadI
       </Pressable>}
       {!!images.length && <DrawerSwipeBlock style={s.imageRow}>{images.map(image => <Pressable key={image.id} accessibilityRole="button" accessibilityLabel={`查看图片 ${image.name}`} onPress={() => onImage(relay.imageSource(deviceId, threadId, image.id), image.name)}><RelayImage source={relay.imageSource(deviceId, threadId, image.id)} resizeMode="cover" style={s.image} /></Pressable>)}</DrawerSwipeBlock>}
       {!!item.files?.length && <Text style={s.fileNames}>{item.files.join(' · ')}</Text>}
+      {(!!display || branchPoint) && <View style={{ flexDirection: 'row', alignSelf: role === 'user' ? 'flex-end' : 'flex-start', gap: 3 }}>
       {!!display && <Pressable accessibilityRole="button" accessibilityLabel={actions.copied?'消息已复制':'复制消息'} style={[s.iconButton, { alignSelf: role === 'user' ? 'flex-end' : 'flex-start', width: 30, height: 28 }]} onLongPress={role==='user'?actions.open:undefined} delayLongPress={450} onPress={()=>void actions.copy()}>{actions.copied?<Check size={14} color={c.muted}/>:<Copy size={14} color={c.muted}/>}</Pressable>}
+      {branchPoint && <ReplyMoreButton />}
+      </View>}
       {role==='user'&&<MessageActionOverlays actions={actions} text={display} nativeSelection={native}/>}
     </View>;
   }
@@ -160,11 +163,44 @@ function Activity({ block, turn, deviceId, threadId, onImage, questionRequestIds
     </View>}
     <View style={s.line} />
     {ended ? <Disclosure open={open}>{contents}{!process.length && !steps?.length && !turn.fileChanges?.length && <Text style={s.executionWaiting}>本轮没有额外的处理记录。</Text>}</Disclosure> : contents}
-    {final.map(item=><Message key={item.id} item={item} deviceId={deviceId} threadId={threadId} onImage={onImage}/>)}
+    {final.map((item, index) => <Message key={item.id} item={item} branchPoint={turn.status === 'completed' && !turn.itemsTruncatedAfter && index === final.length - 1} deviceId={deviceId} threadId={threadId} onImage={onImage} />)}
   </View>;
 }
 
 export { FileChangesPanel } from './file-review';
+
+function TurnErrors({ errors }: { errors: NonNullable<HistoryTurn['errors']> }) {
+  const { c } = useTheme();
+  return <View accessibilityLiveRegion="polite" style={{ gap: 7, paddingVertical: 8 }}>
+    {errors.map((error, index) => {
+      const status = error.httpStatus ? `（HTTP ${error.httpStatus}）` : '';
+      let label: string;
+      if (error.willRetry) {
+        const attempt = error.attempt && error.maxAttempts ? ` ${error.attempt}/${error.maxAttempts}` : '';
+        label = `模型连接重试${attempt}${status}`;
+      } else if (error.httpStatus === 429 || error.kind === 'rateLimit') {
+        label = `模型服务请求过多${status}。${error.kind === 'retryLimit' ? '已达到重试上限。' : ''}请稍后继续。`;
+      } else {
+        const causes = {
+          connection: '模型服务连接失败', retryLimit: '模型服务连接失败，已达到重试上限',
+          usageLimit: '模型用量已达上限，请检查额度', overloaded: '模型服务繁忙，请稍后继续',
+          unauthorized: '模型服务认证失败，请检查电脑上的 Codex 登录或 API 凭据',
+          other: 'Codex 执行失败，请在电脑上查看 Codex 的错误详情',
+        };
+        label = `${causes[error.kind]}${status}。`;
+      }
+      const Icon = error.willRetry ? RotateCw : CircleAlert;
+      const color = error.willRetry ? c.muted : c.danger;
+      return <View key={index} style={{ flexDirection: 'row', gap: 7, alignItems: 'flex-start' }}>
+        <Icon size={15} color={color} style={{ marginTop: 2 }} />
+        <View style={{ flex: 1 }}>
+          <Text style={{ color, fontSize: 13, lineHeight: 19 }}>{label}</Text>
+          {!error.willRetry && !!error.requestId && <Text selectable style={{ color: c.muted, fontSize: 12, lineHeight: 18 }}>请求 ID {error.requestId}</Text>}
+        </View>
+      </View>;
+    })}
+  </View>;
+}
 
 export const TurnView = memo(function TurnView({ turn, active, deviceId, threadId, onImage, questionRequestIds, steps, agents, onInspectDetails }: { turn: HistoryTurn; active: boolean; deviceId: string; threadId: string; onImage: ImageViewer; questionRequestIds: string[]; steps?: {step: string; status: string}[]; agents?: RemoteSubAgent[]; onInspectDetails?: () => void }) {
   const { s } = useTheme();
@@ -175,6 +211,7 @@ export const TurnView = memo(function TurnView({ turn, active, deviceId, threadI
   const cost = turnCostLabel(turn.tokenUsage, useModelPricing());
   return <MessageTurnContext.Provider value={{turnId:turn.id,time:start?new Date(start).toISOString():''}}><View style={s.turn}>
     {buildActivityBlocks(turn, active).map(block => block.kind === 'message' ? <Message key={block.item.id} item={block.item} deviceId={deviceId} threadId={threadId} onImage={onImage} /> : <Activity key={block.id} block={block} turn={turn} deviceId={deviceId} threadId={threadId} onImage={onImage} questionRequestIds={questionRequestIds} steps={steps} agents={agents} onInspectDetails={onInspectDetails} />)}
+    {!!turn.errors?.length && <TurnErrors errors={turn.errors} />}
     {(turn.tokenUsage || running || end) && <View style={s.turnFooter}>
       {(turn.tokenUsage || running) && <View testID="turn-token-usage" style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
         {running && <TaskStatusDot running label="任务进行中" />}

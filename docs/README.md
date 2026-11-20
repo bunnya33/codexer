@@ -7,6 +7,7 @@
 | 文档 | 内容 |
 | --- | --- |
 | [服务器一键安装](server-install.md) | 本地发布包、源码、远程引导安装；端口、路径、升级、回滚 |
+| [服务器安装、管理与更新规范](server-operations-reference.zh-CN.md) | 供其他项目参考的发布包、systemd、管理菜单、更新与验收 |
 | [PC 连接器](pc-setup.md) | Windows 安装、账号登录、连接生命周期、设备设置、托盘、诊断 |
 | [macOS](mac.md) | 安装、菜单栏、Keychain、程序查找、平台验收 |
 | [移动与 Web 客户端](mobile.md) | React Native 共用结构、App 构建、浏览器入口、平台适配 |

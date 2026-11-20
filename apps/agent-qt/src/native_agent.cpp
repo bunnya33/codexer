@@ -11,6 +11,30 @@ QSqlQuery sql(QSqlDatabase &db, const QString &query,
     throw Error("journal-write-failed");
   return q;
 }
+Array Service::recordTurnErrors(const QString &threadId, const QString &turnId,
+                                const Array &incoming) {
+  if (!journal.isOpen() || turnId.isEmpty() || turnId == "unknown")
+    return incoming;
+  auto result = incoming;
+  try {
+    auto query = sql(journal, "SELECT events FROM turn_errors WHERE thread_id=? AND turn_id=?",
+                     {threadId, turnId});
+    const auto saved = query.next() ? parse(query.value(0).toByteArray()).toArray() : Array{};
+    query.finish();
+    result = mergeTurnErrors(saved, incoming);
+    if (result != saved) {
+      sql(journal, "INSERT OR REPLACE INTO turn_errors(thread_id,turn_id,events) VALUES(?,?,?)",
+          {threadId, turnId, QString::fromUtf8(json(result))});
+      if (saved.isEmpty())
+        sql(journal, "DELETE FROM turn_errors WHERE rowid IN "
+                     "(SELECT rowid FROM turn_errors ORDER BY rowid DESC LIMIT -1 OFFSET 1024)");
+    }
+  } catch (...) {
+    log("turn-error-record-failed");
+  }
+  return result;
+}
+
 void Service::openJournal() {
   if (journal.isOpen())
     return;
@@ -29,6 +53,8 @@ void Service::openJournal() {
   sql(journal, "CREATE TABLE IF NOT EXISTS queued_messages (id TEXT PRIMARY "
                "KEY, thread_id TEXT NOT NULL, text TEXT NOT NULL, images TEXT "
                "NOT NULL, created_at INTEGER NOT NULL, status TEXT NOT NULL)");
+  sql(journal, "CREATE TABLE IF NOT EXISTS turn_errors (thread_id TEXT NOT NULL, "
+               "turn_id TEXT NOT NULL, events TEXT NOT NULL, PRIMARY KEY(thread_id,turn_id))");
   auto columns = sql(journal, "PRAGMA table_info(queued_messages)");
   bool attachments = false;
   while (columns.next())
@@ -74,6 +100,7 @@ void Service::connectAgent() {
     if (e.code == "http-401") {
       pause();
       clearCredentials(false);
+      throw Error("session-invalid");
     }
     throw;
   }
@@ -84,6 +111,7 @@ void Service::connectAgent() {
                 {"interrupt", true},
                 {"continueTurn", true},
                 {"editMessage", true},
+                {"forkThread", true},
                 {"activeSettingsUpdate", true},
                 {"approvals", true},
                 {"userInput", true},

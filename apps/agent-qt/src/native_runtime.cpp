@@ -98,24 +98,10 @@ void Service::attachRpc(Rpc *value) {
       busyTurns.insert(tid);
       startUsage(id, tid, normalizeSettings(rawThreads.value(id))["model"].toString());
     }
-    if (method == "turn/completed") {
-      awaitingQueue.remove(id);
-      auto tid = p["turn"].toObject()["id"].toString();
-      busyTurns.remove(tid);
-      // Only retain completions that may race a start acknowledgement.
-      if (pendingStarts > 0)
-        completedTurns.insert(tid);
-      for (const auto &key : pendingRequests.keys()) {
-        auto params = pendingRequests[key]["params"].toObject();
-        if (params["turnId"] == tid && params["isBlocking"] != false)
-          pendingRequests.remove(key);
-      }
-      try {
-        finishUsage(id, tid);
-      } catch (...) {
-        log("token-usage-observation-failed");
-      }
-    }
+    if (method == "turn/completed")
+      finishHeadlessTurn(id, p["turn"].toObject()["id"].toString());
+    if (method == "error" && p["willRetry"] == false && owned.contains(id))
+      finishHeadlessTurn(id, turnId);
     if (method == "serverRequest/resolved")
       pendingRequests.remove(p["requestId"].toVariant().toString());
     if (method == "thread/settings/updated")
@@ -646,6 +632,30 @@ static void saveLiveItem(Array &items, const Object &source, bool completed) {
   }
 }
 
+void Service::finishHeadlessTurn(const QString &id, const QString &turnId) {
+  if (turnId.isEmpty())
+    return;
+  const auto active = snapshot["threads"].toObject()[id].toObject()["activeTurnId"].toString();
+  const auto live = headlessTurns.value(id);
+  const auto latest = live.isEmpty() ? Object{} : live.last().toObject();
+  if ((active.isEmpty() || active == turnId) &&
+      (latest["status"] != "inProgress" || latest["id"] == turnId))
+    awaitingQueue.remove(id);
+  busyTurns.remove(turnId);
+  if (pendingStarts > 0)
+    completedTurns.insert(turnId);
+  for (const auto &key : pendingRequests.keys()) {
+    const auto params = pendingRequests[key]["params"].toObject();
+    if (params["threadId"] == id && params["turnId"] == turnId && params["isBlocking"] != false)
+      pendingRequests.remove(key);
+  }
+  try {
+    finishUsage(id, turnId);
+  } catch (...) {
+    log("token-usage-observation-failed");
+  }
+}
+
 bool Service::acceptHeadlessUpdate(const QString &id, const QString &method,
                                    const Object &params) {
   if (!owned.contains(id) || desktopThreads.contains(id))
@@ -653,15 +663,23 @@ bool Service::acceptHeadlessUpdate(const QString &id, const QString &method,
   const bool starts = method == "turn/started", ends = method == "turn/completed";
   const bool delta = method == "item/agentMessage/delta";
   const bool completesItem = method == "item/completed";
-  if (!starts && !ends && !delta && !completesItem && method != "item/started")
+  const bool reportsError = method == "error" && params["willRetry"].isBool() && params["error"].isObject();
+  if (!starts && !ends && !delta && !completesItem && !reportsError && method != "item/started")
     return false;
   const auto prior = snapshot["threads"].toObject()[id].toObject();
-  if (prior.isEmpty())
-    return false;
   const auto update = params["turn"].toObject();
   const auto turnId = (starts || ends ? update["id"] : params["turnId"]).toString();
   if (turnId.isEmpty() || turnId.size() > 160 ||
       (ends && !terminalTurn(update["status"])))
+    return false;
+  auto errors = ends ? turnErrors(update) : Array{};
+  if (reportsError)
+    appendTurnError(errors, params["error"].toObject(), params["willRetry"].toBool());
+  if (!errors.isEmpty()) {
+    errors = recordTurnErrors(id, turnId, errors);
+    queueLiveUpdate(id);
+  }
+  if (prior.isEmpty())
     return false;
   auto turns = headlessTurns.value(id);
   const int index = indexOfId(turns, turnId);
@@ -677,7 +695,12 @@ bool Service::acceptHeadlessUpdate(const QString &id, const QString &method,
   auto turn = index >= 0 ? turns[index].toObject()
                          : Object{{"id", turnId}, {"status", "inProgress"}};
   auto items = turn["items"].toArray();
-  if (delta) {
+  if (!errors.isEmpty())
+    turn["_turnErrors"] = mergeTurnErrors(turn["_turnErrors"].toArray(), errors);
+  if (reportsError) {
+    if (hasFinalTurnError(errors))
+      turn["status"] = "failed";
+  } else if (delta) {
     const auto itemId = params["itemId"].toString();
     const int itemIndex = indexOfId(items, itemId);
     const auto item = itemIndex < 0
@@ -810,6 +833,9 @@ void Service::applyHeadlessTurns(const QString &id, Object &thread) {
         if (!base.contains(key) && preview.contains(key))
           base[key] = preview[key];
     }
+    const auto errors = mergeTurnErrors(base["errors"].toArray(), preview["errors"].toArray());
+    if (!errors.isEmpty())
+      base["errors"] = errors;
     base["items"] = visibleTurnItems(items, MaxLiveTurnItems);
     if (items.size() > MaxLiveTurnItems) {
       base["truncated"] = true;
@@ -1037,11 +1063,30 @@ void Service::updateThread(const QString &id, bool metadataOnly, bool enrich) {
   auto turns = thread["turns"].toArray();
   for (int i = 0; i < turns.size(); ++i) {
     auto turn = turns[i].toObject();
+    const auto errors = recordTurnErrors(id, turn["id"].toString(), turn["errors"].toArray());
+    if (!errors.isEmpty()) {
+      turn["errors"] = errors;
+      if (turn["status"] == "inProgress" && hasFinalTurnError(errors))
+        turn["status"] = "failed";
+    }
     observeFiles(id, turn);
     enrichUsage(id, turn);
     turns[i] = turn;
   }
   thread["turns"] = turns;
+  const auto latest = turns.isEmpty() ? Object{} : turns.last().toObject();
+  if (latest["status"] == "failed" && hasFinalTurnError(latest["errors"].toArray()) &&
+      (thread["status"] == "active" || thread["status"] == "systemError") &&
+      (thread["activeTurnId"].toString().isEmpty() || thread["activeTurnId"] == latest["id"])) {
+    thread["status"] = "idle";
+    thread["activeTurnId"] = QJsonValue::Null;
+    thread["activeFlags"] = Array{};
+    Array requests;
+    for (const auto &value : thread["requests"].toArray())
+      if (value.toObject()["turnId"] != latest["id"])
+        requests.append(value);
+    thread["requests"] = requests;
+  }
   Array queue;
   for (const auto &v : queued(id)) {
     auto q = v.toObject();
@@ -1362,6 +1407,12 @@ Object Service::history(const QString &id, QJsonValue cursor) {
                               [this](const QString &t, const Object &item) {
                                 return registerImages(t, item);
                               });
+    const auto errors = recordTurnErrors(id, turn["id"].toString(), turn["errors"].toArray());
+    if (!errors.isEmpty()) {
+      turn["errors"] = errors;
+      if (turn["status"] == "inProgress" && hasFinalTurnError(errors))
+        turn["status"] = "failed";
+    }
     const auto allChanges = turn.value("fileChanges");
     do {
       Array slice; for (int i = start; i < end; ++i) slice.append(items[i]);

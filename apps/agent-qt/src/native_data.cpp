@@ -214,7 +214,7 @@ QString asyncAnswer(const Object &request, const Object &answers) {
     throw Error("invalid-answer-set");
   return result;
 }
-static Array rawTurns(const Object &raw) {
+Array rawTurns(const Object &raw) {
   const auto container = raw["turnHistory"].toObject();
   if (container["kind"] != "canonical")
     return raw["turns"].toArray();
@@ -578,7 +578,7 @@ static Object normalizeItem(
       item["command"].toString().size() > (history ? 8192 : 4096);
   return out;
 }
-static QJsonValue turnIdentity(const Object &turn) {
+QJsonValue turnIdentity(const Object &turn) {
   for (const auto &key : {"turnId", "id"}) {
     auto value = turn[key];
     if (value.isString() && !value.toString().isEmpty() &&
@@ -605,6 +605,93 @@ Array visibleTurnItems(const Array &items, int limit) {
       visible.append(items[i]);
   return visible;
 }
+bool hasFinalTurnError(const Array &errors) {
+  return !errors.isEmpty() && errors.last().toObject()["willRetry"] == false;
+}
+
+Array mergeTurnErrors(const Array &recorded, const Array &incoming) {
+  if (incoming.isEmpty())
+    return recorded;
+  Array result = recorded;
+  auto final = hasFinalTurnError(result) ? result.takeAt(result.size() - 1) : QJsonValue{};
+  // The desktop snapshot may omit earlier notifications while it updates a turn.
+  for (const auto &value : incoming) {
+    if (value.toObject()["willRetry"] == false) {
+      final = merged(final.toObject(), value.toObject());
+    } else if (!result.contains(value)) {
+      result.append(value);
+    }
+  }
+  if (final.isObject())
+    result.append(final);
+  while (result.size() > 12)
+    result.removeFirst();
+  return result;
+}
+
+void appendTurnError(Array &errors, const Object &raw, bool willRetry) {
+  const auto info = raw["codexErrorInfo"].toVariant().isValid()
+                        ? raw["codexErrorInfo"] : raw["errorInfo"];
+  auto kind = info.toString();
+  int status = 0;
+  if (info.isObject()) {
+    const auto details = info.toObject();
+    for (const auto &key : {"httpConnectionFailed", "responseStreamConnectionFailed",
+                            "responseStreamDisconnected", "responseTooManyFailedAttempts"}) {
+      if (details[key].isObject()) {
+        kind = key;
+        status = details[key].toObject()["httpStatusCode"].toInt();
+        break;
+      }
+    }
+  }
+  const auto message = raw["message"].toString().left(2048);
+  static const QRegularExpression retry(R"(^\s*Reconnecting(?:\.{1,3}|\x{2026})?\s*(\d{1,3})\s*/\s*(\d{1,3})\b)", QRegularExpression::CaseInsensitiveOption);
+  static const QRegularExpression retryStatus(R"(\blast status:\s*([1-5]\d\d)\b)", QRegularExpression::CaseInsensitiveOption);
+  static const QRegularExpression requestId(R"(\brequest id:\s*([A-Za-z0-9_-]{8,128})(?![A-Za-z0-9_-]))", QRegularExpression::CaseInsensitiveOption);
+  if (!status)
+    status = retryStatus.match(message).captured(1).toInt();
+  QString category = "other";
+  if (kind == "responseTooManyFailedAttempts" || message.startsWith("exceeded retry limit", Qt::CaseInsensitive))
+    category = "retryLimit";
+  else if (kind == "usageLimitExceeded" || kind == "sessionBudgetExceeded")
+    category = "usageLimit";
+  else if (kind == "rateLimitExceeded" || status == 429)
+    category = "rateLimit";
+  else if (kind == "unauthorized" || status == 401)
+    category = "unauthorized";
+  else if (kind == "serverOverloaded" || status == 503)
+    category = "overloaded";
+  else if (willRetry || kind == "httpConnectionFailed" ||
+           kind == "responseStreamConnectionFailed" || kind == "responseStreamDisconnected")
+    category = "connection";
+  Object error{{"willRetry", willRetry}, {"kind", category}};
+  const auto progress = retry.match(message);
+  const int attempt = progress.captured(1).toInt(), maximum = progress.captured(2).toInt();
+  if (willRetry && attempt > 0 && maximum >= attempt) {
+    error["attempt"] = attempt;
+    error["maxAttempts"] = maximum;
+  }
+  if (status >= 100 && status <= 599)
+    error["httpStatus"] = status;
+  const auto request = requestId.match(message).captured(1);
+  if (!request.isEmpty())
+    error["requestId"] = request;
+  errors = mergeTurnErrors(errors, Array{error});
+}
+
+Array turnErrors(const Object &raw) {
+  auto errors = raw["_turnErrors"].toArray();
+  for (const auto &value : raw["items"].toArray()) {
+    const auto item = value.toObject();
+    if (item["type"] == "error" && item["willRetry"].isBool())
+      appendTurnError(errors, item, item["willRetry"].toBool());
+  }
+  if (raw["error"].isObject() && !hasFinalTurnError(errors))
+    appendTurnError(errors, raw["error"].toObject(), false);
+  return errors;
+}
+
 Object normalizeTurn(
     const Object &raw, bool history, const QString &threadId,
     const std::function<Array(const QString &, const Object &)> &images) {
@@ -616,6 +703,12 @@ Object normalizeTurn(
                 {"truncated", false}};
   timing(result, raw, true);
   auto source = raw["items"].toArray();
+  const auto errors = turnErrors(raw);
+  if (!errors.isEmpty()) {
+    result["errors"] = errors;
+    if (hasFinalTurnError(errors) && result["status"] == "inProgress")
+      result["status"] = "failed";
+  }
   Array items;
   QSet<QString> seen;
   QHash<QString, Object> persisted;
@@ -626,7 +719,7 @@ Object normalizeTurn(
   }
   for (const auto &v : source) {
     auto item = v.toObject();
-    if (item["type"] == "steered")
+    if (item["type"] == "steered" || item["type"] == "error")
       continue;
     if (item["type"] == "steeringUserMessage" &&
         QStringList{"pending", "accepted"}.contains(
@@ -802,14 +895,20 @@ Object normalizeThread(
   Array normalized, requests, flags;
   QJsonValue activeId(QJsonValue::Null);
   const auto agentMetadata = subAgentMetadata(raw);
-  for (const auto &value : turns) {
-    const auto turn = value.toObject();
+  for (int i = qMax(0, turns.size() - 2); i < turns.size(); ++i) {
+    const auto turn = normalizeTurn(turns[i].toObject(), false, raw["id"].toString(), images);
     if (turn["status"] == "inProgress")
-      activeId = turnIdentity(turn);
+      activeId = turnIdentity(turns[i].toObject());
+    normalized.append(turn);
   }
-  for (int i = qMax(0, turns.size() - 2); i < turns.size(); ++i)
-    normalized.append(normalizeTurn(turns[i].toObject(), false,
-                                    raw["id"].toString(), images));
+  const auto latest = normalized.isEmpty() ? Object{} : normalized.last().toObject();
+  const auto failedTurn = latest["status"] == "failed" && hasFinalTurnError(latest["errors"].toArray())
+                              ? latest["id"].toString() : QString{};
+  if (!failedTurn.isEmpty() && (status == "active" || status == "systemError")) {
+    status = "idle";
+    activeId = QJsonValue::Null;
+    runtime["activeFlags"] = Array{};
+  }
   const QMap<QString, QString> kinds{
       {"item/commandExecution/requestApproval", "commandApproval"},
       {"item/fileChange/requestApproval", "fileApproval"},
@@ -821,6 +920,8 @@ Object normalizeThread(
     if (r["completed"].toBool() || requests.size() >= 40)
       continue;
     auto p = r["params"].toObject();
+    if (!failedTurn.isEmpty() && p["turnId"] == failedTurn)
+      continue;
     auto kind = kinds.value(r["method"].toString(), "unsupported");
     Object details;
     for (auto key :
@@ -857,7 +958,8 @@ Object normalizeThread(
   }
   for (const auto &tv : turns) {
     const auto t = tv.toObject();
-    if (t["status"] != "inProgress" || turnIdentity(t).isNull())
+    if (t["status"] != "inProgress" || turnIdentity(t).isNull() ||
+        (!failedTurn.isEmpty() && turnIdentity(t) == failedTurn))
       continue;
     auto items = t["items"].toArray();
     QSet<QString> answered;
@@ -1220,7 +1322,7 @@ bool validCommand(const Object &command) {
   if (QStringList{"thread.watch", "thread.archive", "thread.delete"}.contains(
           type))
     return true;
-  if (type == "turn.continue")
+  if (type == "turn.continue" || type == "thread.fork")
     return p.size() == 3 && id(p["turnId"]);
   if (type == "turn.edit") {
     if (p.size() != 6 + int(p.contains("attachments"))) return false;

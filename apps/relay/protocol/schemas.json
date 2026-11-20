@@ -236,6 +236,31 @@
             "properties": {
               "type": {
                 "type": "string",
+                "const": "thread.fork"
+              },
+              "threadId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "turnId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              }
+            },
+            "required": [
+              "type",
+              "threadId",
+              "turnId"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
                 "const": "turn.edit"
               },
               "threadId": {
@@ -1673,6 +1698,9 @@
                       "editMessage": {
                         "type": "boolean"
                       },
+                      "forkThread": {
+                        "type": "boolean"
+                      },
                       "activeSettingsUpdate": {
                         "type": "boolean"
                       },
@@ -2136,6 +2164,53 @@
                           "status": {
                             "type": "string",
                             "maxLength": 80
+                          },
+                          "errors": {
+                            "maxItems": 12,
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "willRetry": {
+                                  "type": "boolean"
+                                },
+                                "attempt": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 999
+                                },
+                                "maxAttempts": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 999
+                                },
+                                "httpStatus": {
+                                  "type": "integer",
+                                  "minimum": 100,
+                                  "maximum": 599
+                                },
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "connection",
+                                    "retryLimit",
+                                    "rateLimit",
+                                    "usageLimit",
+                                    "overloaded",
+                                    "unauthorized",
+                                    "other"
+                                  ]
+                                },
+                                "requestId": {
+                                  "type": "string",
+                                  "pattern": "^[A-Za-z0-9_-]{8,128}$"
+                                }
+                              },
+                              "required": [
+                                "willRetry",
+                                "kind"
+                              ]
+                            }
                           },
                           "startedAtMs": {
                             "type": "integer",
@@ -3361,6 +3436,53 @@
                                 "status": {
                                   "type": "string",
                                   "maxLength": 80
+                                },
+                                "errors": {
+                                  "maxItems": 12,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "willRetry": {
+                                        "type": "boolean"
+                                      },
+                                      "attempt": {
+                                        "type": "integer",
+                                        "minimum": 1,
+                                        "maximum": 999
+                                      },
+                                      "maxAttempts": {
+                                        "type": "integer",
+                                        "minimum": 1,
+                                        "maximum": 999
+                                      },
+                                      "httpStatus": {
+                                        "type": "integer",
+                                        "minimum": 100,
+                                        "maximum": 599
+                                      },
+                                      "kind": {
+                                        "type": "string",
+                                        "enum": [
+                                          "connection",
+                                          "retryLimit",
+                                          "rateLimit",
+                                          "usageLimit",
+                                          "overloaded",
+                                          "unauthorized",
+                                          "other"
+                                        ]
+                                      },
+                                      "requestId": {
+                                        "type": "string",
+                                        "pattern": "^[A-Za-z0-9_-]{8,128}$"
+                                      }
+                                    },
+                                    "required": [
+                                      "willRetry",
+                                      "kind"
+                                    ]
+                                  }
                                 },
                                 "startedAtMs": {
                                   "type": "integer",
@@ -4737,6 +4859,53 @@
                           "type": "string",
                           "maxLength": 80
                         },
+                        "errors": {
+                          "maxItems": 12,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "willRetry": {
+                                "type": "boolean"
+                              },
+                              "attempt": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 999
+                              },
+                              "maxAttempts": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 999
+                              },
+                              "httpStatus": {
+                                "type": "integer",
+                                "minimum": 100,
+                                "maximum": 599
+                              },
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "connection",
+                                  "retryLimit",
+                                  "rateLimit",
+                                  "usageLimit",
+                                  "overloaded",
+                                  "unauthorized",
+                                  "other"
+                                ]
+                              },
+                              "requestId": {
+                                "type": "string",
+                                "pattern": "^[A-Za-z0-9_-]{8,128}$"
+                              }
+                            },
+                            "required": [
+                              "willRetry",
+                              "kind"
+                            ]
+                          }
+                        },
                         "startedAtMs": {
                           "type": "integer",
                           "minimum": 0,
@@ -5715,6 +5884,31 @@
                       "type",
                       "threadId"
                     ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "thread.fork"
+                      },
+                      "threadId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 160
+                      },
+                      "turnId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 160
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "threadId",
+                      "turnId"
+                    ],
+                    "additionalProperties": false
                   },
                   {
                     "type": "object",

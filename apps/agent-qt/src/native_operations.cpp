@@ -84,6 +84,8 @@ Object Service::execute(Object command) {
     return queue(command);
   if (type == "turn.edit")
     return editMessage(command);
+  if (type == "thread.fork")
+    return forkConversation(command);
   auto prepared = inputs(id, p["images"].toArray(), p["attachments"].toArray());
   if (generation != remoteGeneration || paused || !allowed)
     throw Error("remote-disconnected");
@@ -163,7 +165,11 @@ Object Service::executeTurn(Object command, const Array &prepared,
   if (type == "turn.continue") {
     const auto turns = thread["turns"].toArray();
     const auto last = turns.isEmpty() ? Object{} : turns.last().toObject();
-    if (last["id"] != turnId || last["status"] != "interrupted")
+    const auto errors = last["errors"].toArray();
+    const auto failure = hasFinalTurnError(errors) ? errors.last().toObject() : Object{};
+    const bool retryable = last["status"] == "failed" &&
+        QStringList{"connection", "retryLimit", "rateLimit", "overloaded"}.contains(failure["kind"].toString());
+    if (last["id"] != turnId || (last["status"] != "interrupted" && !retryable))
       throw Error("stale-continuation");
   }
   QString method;
@@ -564,8 +570,22 @@ Object Service::editMessage(const Object &command) {
     editedText = originalText;
     editedText.replace(offset, visibleText.size(), p["text"].toString());
   }
+  for (auto input : inputs(id, {}, p["attachments"].toArray())) retained.append(input);
+  checkCommand(command, generation);
+  return forkConversation(command, editedText, retained);
+}
+
+Object Service::forkConversation(const Object &command, std::optional<QString> editedText,
+                                 Array retained) {
+  const auto generation = remoteGeneration;
+  const auto payload = command["payload"].toObject();
+  const auto id = payload["threadId"].toString(), turnId = payload["turnId"].toString();
+  if (snapshot["threads"].toObject()[id].toObject()["status"] != "idle")
+    throw Error("thread-not-idle");
+  ensureRpc();
+  checkCommand(command, generation);
   auto metadata = rpc->call("thread/read", {{"threadId", id}, {"includeTurns", false}})["thread"].toObject();
-  if (metadata["id"] != id) throw Error("edit-message-unavailable");
+  if (metadata["id"] != id) throw Error(editedText ? "edit-message-unavailable" : "branch-source-unavailable");
   auto saved = savedContext(metadata);
   // Current owner settings take precedence over the last persisted turn.
   const auto latest = desktopThreads.contains(id)
@@ -586,10 +606,9 @@ Object Service::editMessage(const Object &command) {
   }
   const auto sandboxType = policy["type"].toString();
   if (!QStringList{"workspaceWrite", "readOnly", "dangerFullAccess"}.contains(sandboxType))
-    throw Error("edit-settings-unsupported");
+    throw Error(editedText ? "edit-settings-unsupported" : "branch-settings-unsupported");
   saved["sandbox"] = sandboxType == "workspaceWrite" ? "workspace-write" : sandboxType == "readOnly" ? "read-only" : "danger-full-access";
   saved["sandboxPolicy"] = policy;
-  for (auto input : inputs(id, {}, p["attachments"].toArray())) retained.append(input);
   Object request{{"threadId", id}, {"lastTurnId", turnId}, {"excludeTurns", true},
     {"cwd", saved["cwd"]}, {"model", saved["model"]}, {"modelProvider", saved["modelProvider"]},
     {"sandbox", saved["sandbox"]}, {"approvalPolicy", saved["approvalPolicy"]},
@@ -600,14 +619,28 @@ Object Service::editMessage(const Object &command) {
       {"network_access", policy["networkAccess"].toBool()},
       {"exclude_slash_tmp", policy["excludeSlashTmp"].toBool()},
       {"exclude_tmpdir_env_var", policy["excludeTmpdirEnvVar"].toBool()}}}};
+  if (!editedText)
+    request["deferGoalContinuation"] = true;
+  if (saved["runtimeWorkspaceRoots"].isArray())
+    request["runtimeWorkspaceRoots"] = saved["runtimeWorkspaceRoots"];
   ensureThreadSlot();
   checkCommand(command, generation);
   Object fork;
-  try { fork = rpc->call("thread/fork", request); }
-  catch (const Error &e) { if (e.uncertain) {refreshRequested=true;throw;} throw Error("edit-runtime-unsupported"); }
+  try {
+    fork = rpc->call("thread/fork", request);
+  } catch (const Error &error) {
+    if (error.uncertain) {
+      refreshRequested = true;
+      throw;
+    }
+    throw Error(editedText ? "edit-runtime-unsupported" : "branch-creation-rejected");
+  }
   auto source = fork["thread"].toObject();
   const auto forkId = source["id"].toString();
-  if (forkId.isEmpty() || forkId == id) throw Error("incompatible-fork-response", true);
+  if (forkId.isEmpty() || forkId == id) {
+    refreshRequested = true;
+    throw Error("incompatible-fork-response", true);
+  }
   // Register the fork before subsequent writes: an uncertain send stays visible
   // and cannot be mistaken for a failure that is safe to submit again.
   newThreads.insert(forkId); owned.insert(forkId); acquired[forkId] = now();
@@ -615,7 +648,8 @@ Object Service::editMessage(const Object &command) {
   context["sandboxPolicy"] = fork["sandbox"];
   effectiveSettings[forkId] = context;
   const auto original = findThread(catalog, id);
-  const auto title = original["title"].toString().left(900) + " · 编辑分支";
+  const auto title = editedText ? original["title"].toString().left(900) + " · 编辑分支"
+      : source["name"].toString(source["preview"].toString("新分支")).left(1000);
   source["title"] = title; source["projectId"] = original["projectId"];
   source["threadRuntimeStatus"] = Object{{"type", "idle"}};
   source["latestThreadSettings"] = context; source["turns"] = Array{};
@@ -645,18 +679,20 @@ Object Service::editMessage(const Object &command) {
            actualPolicy["excludeSlashTmp"].toBool() != policy["excludeSlashTmp"].toBool() ||
            actualPolicy["excludeTmpdirEnvVar"].toBool() != policy["excludeTmpdirEnvVar"].toBool())))
       throw Error("edit-settings-mismatch");
+    if (!editedText)
+      return {{"threadId", forkId}, {"sourceThreadId", id}};
     // Only the NEW fork is truncated. The source writer/history is untouched.
     rpc->call("thread/revert", {{"threadId",forkId},{"beforeTurnId",turnId}});
     rpc->call("thread/name/set", {{"threadId",forkId},{"name",title}});
     auto next = command;
-    next["payload"] = Object{{"type","turn.start"},{"threadId",forkId},{"text",editedText}};
+    next["payload"] = Object{{"type","turn.start"},{"threadId",forkId},{"text",*editedText}};
     auto result = executeTurn(next,retained,false);
     result["threadId"] = forkId; result["sourceThreadId"] = id;
     result["sent"] = true;
     return result;
   } catch (const Error &) {
     refreshRequested = true;
-    throw Error("edit-fork-created-check-catalog", true);
+    throw Error(editedText ? "edit-fork-created-check-catalog" : "branch-created-check-catalog", true);
   }
 }
 

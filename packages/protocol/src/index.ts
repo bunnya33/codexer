@@ -78,7 +78,16 @@ export const modelOptionSchema = z.object({
   defaultReasoningEffort: z.string().max(80),
 });
 export type ModelOption = z.infer<typeof modelOptionSchema>;
+const turnErrorSchema = z.object({
+  willRetry: z.boolean(),
+  attempt: z.int().min(1).max(999).optional(),
+  maxAttempts: z.int().min(1).max(999).optional(),
+  httpStatus: z.int().min(100).max(599).optional(),
+  kind: z.enum(['connection', 'retryLimit', 'rateLimit', 'usageLimit', 'overloaded', 'unauthorized', 'other']),
+  requestId: z.string().regex(/^[A-Za-z0-9_-]{8,128}$/).optional(),
+});
 const turnTimingFields = {
+  errors: z.array(turnErrorSchema).max(12).optional(),
   ...timingFields,
   tokenUsage: turnTokenUsageSchema.optional(),
   itemsTruncatedBefore: z.boolean().optional(),
@@ -224,7 +233,7 @@ export const snapshotSchema = z.object({
     kind: z.enum(["official-desktop-ipc", "official-app-server"]),
     connected: z.boolean(),
     experimental: z.literal(true),
-    capabilities: z.object({ observe: z.boolean(), startTurn: z.boolean(), interrupt: z.boolean(), continueTurn: z.boolean().optional(), editMessage: z.boolean().optional(), activeSettingsUpdate: z.boolean().optional(), approvals: z.boolean(), userInput: z.boolean(), modelUpdate: z.boolean().optional(), effortUpdate: z.boolean().optional(), collaborationModeUpdate: z.boolean().optional(), permissionsUpdate: z.boolean().optional(), mcpApprovals: z.boolean().optional(), images: z.boolean().optional(), maxImages: z.number().int().min(1).max(MAX_IMAGES).optional(), maxVideoBytes: z.number().int().min(1).max(MAX_VIDEO_BYTES).optional(), attachments: z.boolean().optional(), subAgents: z.boolean().optional(), runtimeRefresh: z.boolean().optional(), desktopRestart: z.boolean().optional(), projectFiles: z.boolean().optional() }),
+    capabilities: z.object({ observe: z.boolean(), startTurn: z.boolean(), interrupt: z.boolean(), continueTurn: z.boolean().optional(), editMessage: z.boolean().optional(), forkThread: z.boolean().optional(), activeSettingsUpdate: z.boolean().optional(), approvals: z.boolean(), userInput: z.boolean(), modelUpdate: z.boolean().optional(), effortUpdate: z.boolean().optional(), collaborationModeUpdate: z.boolean().optional(), permissionsUpdate: z.boolean().optional(), mcpApprovals: z.boolean().optional(), images: z.boolean().optional(), maxImages: z.number().int().min(1).max(MAX_IMAGES).optional(), maxVideoBytes: z.number().int().min(1).max(MAX_VIDEO_BYTES).optional(), attachments: z.boolean().optional(), subAgents: z.boolean().optional(), runtimeRefresh: z.boolean().optional(), desktopRestart: z.boolean().optional(), projectFiles: z.boolean().optional() }),
   }),
   threads: z.record(idSchema, threadSchema).refine(threads => Object.keys(threads).length <= MAX_SYNC_THREADS && Object.entries(threads).every(([id, thread]) => id === thread.id)),
 });
@@ -260,6 +269,7 @@ export const commandSchema = z.object({
     z.object({ type: z.literal("thread.archive"), threadId: idSchema }),
     z.object({ type: z.literal("thread.delete"), threadId: idSchema }),
     z.object({ type: z.literal("thread.watch"), threadId: idSchema }),
+    z.object({ type: z.literal('thread.fork'), threadId: idSchema, turnId: idSchema }).strict(),
     z.object({ type: z.literal('turn.edit'), threadId:idSchema, turnId:idSchema, itemId:idSchema, expectedText:z.string().max(32000), text:z.string().min(1).max(32000).refine(value=>value.trim().length>0,'empty-input'), attachments:z.array(attachmentIdSchema).max(MAX_ATTACHMENTS).optional() }).strict(),
     z.object({ type: z.literal("turn.start"), threadId: idSchema, text: z.string().max(32000), images: z.array(imageIdSchema).max(MAX_IMAGES).optional(), attachments: z.array(attachmentIdSchema).max(MAX_ATTACHMENTS).optional() }).refine(value => value.text.trim().length > 0 || Boolean(value.images?.length) || Boolean(value.attachments?.length), "empty-input"),
     z.object({ type: z.literal("turn.queue"), threadId: idSchema, text: z.string().max(32000), images: z.array(imageIdSchema).max(MAX_IMAGES).optional(), attachments: z.array(attachmentIdSchema).max(MAX_ATTACHMENTS).optional() }).refine(value => value.text.trim().length > 0 || Boolean(value.images?.length) || Boolean(value.attachments?.length), "empty-input"),
