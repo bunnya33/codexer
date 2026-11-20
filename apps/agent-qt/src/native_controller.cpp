@@ -434,7 +434,13 @@ Object Service::dispatch(const QString &method, Object value) {
     return {};
   }
   if (method == "updates.open") {
-    idle();
+    const bool portable = qEnvironmentVariableIsSet("PORTABLE_EXECUTABLE_FILE");
+    const auto confirmedPath = value["confirmedPath"].toString();
+    if (!confirmedPath.isEmpty() && confirmedPath != downloadedPath)
+      throw Error("update-verification-failed");
+    if (!portable && !downloadedPath.isEmpty() && confirmedPath.isEmpty() &&
+        active())
+      return {{"confirmPackage", downloadedPath}};
     auto release = updateState["release"].toObject();
     QFile package(downloadedPath);
     if (downloadedPath.isEmpty() || !package.open(QIODevice::ReadOnly) ||
@@ -447,10 +453,9 @@ Object Service::dispatch(const QString &method, Object value) {
         release["sha256"].toString())
       throw Error("update-verification-failed");
     package.close();
-    native(qEnvironmentVariableIsSet("PORTABLE_EXECUTABLE_FILE")
-               ? "showPackage"
-               : "openPackage",
-           {{"path", downloadedPath}});
+    if (!native(portable ? "showPackage" : "openPackage",
+                {{"path", downloadedPath}}).toBool())
+      throw Error("无法打开已下载的更新，请重试。");
     return {};
   }
   if (method == "shutdown") {

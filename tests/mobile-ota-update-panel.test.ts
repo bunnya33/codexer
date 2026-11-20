@@ -60,12 +60,19 @@ beforeAll(async () => {
   javascript = output.text;
 });
 
-async function fixture() {
+async function fixture(alreadyRunning = false) {
+  const manifest = {
+    id: "8e1a4833-9021-4149-8e82-4f685af8438c",
+    metadata: { relayUpdateUrl: "http://first.test:8899/v1/mobile-ota/manifest?relayVersion=0.3.71" },
+  };
   const updates = {
     isEnabled: true,
-    useUpdates: () => ({ isUpdatePending: false }),
-    checkForUpdateAsync: vi.fn(async () => ({ isAvailable: true })),
-    fetchUpdateAsync: vi.fn(async () => ({ isNew: true })),
+    useUpdates: () => alreadyRunning ? {
+      currentlyRunning: { updateId: manifest.id.toUpperCase() }, isUpdatePending: true,
+      downloadedUpdate: { updateId: manifest.id, manifest },
+    } : { isUpdatePending: false },
+    checkForUpdateAsync: vi.fn(async (): Promise<{ isAvailable: boolean; manifest?: typeof manifest }> => ({ isAvailable: true, manifest })),
+    fetchUpdateAsync: vi.fn(async () => ({ isNew: true, manifest })),
     reloadAsync: vi.fn(async () => {}),
     setUpdateRequestHeadersOverride: vi.fn(),
   };
@@ -147,6 +154,18 @@ async function fixture() {
     },
   };
 }
+
+it("clears the badge and download action when both Expo results refer to the running update", async () => {
+  const { dom, updates } = await fixture(true);
+  try {
+    await vi.waitFor(() => expect(dom.window.document.body.textContent).toContain("热更新已是最新"));
+    expect(dom.window.document.querySelector('[aria-label="有热更新"]')).toBeNull();
+    expect(dom.window.document.body.textContent).not.toMatch(/下载内容更新|应用已下载更新/);
+    expect(updates.fetchUpdateAsync).not.toHaveBeenCalled();
+  } finally {
+    dom.window.close();
+  }
+});
 
 it("keeps a downloaded update after dismissal and reloads only on confirmation", async () => {
   const { dom, click, updates, onAlert } = await fixture();

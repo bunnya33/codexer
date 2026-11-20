@@ -5,7 +5,7 @@ import { clientUpdateAvailable } from "../../../packages/shared/src/client-relea
 import type { ClientTarget } from "../../../packages/shared/src/client-release";
 import { relay } from "./relay";
 import { controlVersion } from "./build-info";
-import appConfig from "../app.json";
+import { installedAndroidBuild } from "./installed-android-build";
 import { downloadClientUpdate } from "./client-update-download";
 import type { ClientUpdatePhase } from "./client-update-state";
 const checker = new ClientUpdateChecker();
@@ -31,7 +31,7 @@ export function useClientUpdates() {
     available: clientUpdateAvailable(
       state.release,
       controlVersion,
-      appConfig.expo.android.versionCode,
+      installedAndroidBuild.buildNumber,
     ),
     version: controlVersion,
     check: () => checker.check(),
@@ -52,7 +52,7 @@ export function useClientUpdates() {
         await checker.check();
         if (abort.signal.aborted) throw new Error("下载已取消");
         const release = checker.getSnapshot().release;
-        if (!clientUpdateAvailable(release, controlVersion, appConfig.expo.android.versionCode))
+        if (!clientUpdateAvailable(release, controlVersion, installedAndroidBuild.buildNumber))
           throw new Error("没有可下载的新版本");
         return await downloadClientUpdate(
           relay.clientInstallerSource(release!.target, release!.id),

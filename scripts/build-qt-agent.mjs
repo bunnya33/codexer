@@ -62,7 +62,7 @@ await mkdir(join(stage, 'resources'), {recursive: true});
 const artifacts = await packageBuild({projectDir: join(root, 'apps/desktop'), prepackaged: stage, targets: Platform.WINDOWS.createTarget(['nsis', 'portable'], Arch.x64), publish: 'never', config: {
   appId: 'com.codexer.connector', productName: 'Codexer Agent', executableName: 'Codexer Agent', electronVersion: '44.5.1', npmRebuild: false,
   directories: {output: release}, win: {icon: join(resources, 'icon.ico'), signAndEditExecutable: false, signExecutable: false},
-  nsis: {oneClick: false, allowToChangeInstallationDirectory: true, deleteAppDataOnUninstall: false, artifactName: `Codexer-Agent-Qt-Setup-${version}-x64.exe`},
+  nsis: {oneClick: false, allowToChangeInstallationDirectory: true, deleteAppDataOnUninstall: false, include: join(app, 'installer/setup.nsh'), artifactName: `Codexer-Agent-Qt-Setup-${version}-x64.exe`},
   // This app-builder-lib implementation omits UNPACK_DIR_NAME for true, using a unique NSIS $PLUGINSDIR per launch.
   // A shared extraction directory lets a second launch remove DLLs used by the first application.
   portable: {artifactName: `Codexer-Agent-Qt-Portable-${version}-x64.exe`, unpackDirName: true},

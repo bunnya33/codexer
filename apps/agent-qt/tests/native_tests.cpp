@@ -2382,6 +2382,40 @@ private slots:
     QCOMPARE(rows.size(), 1);
     QCOMPARE(rows[0].toObject()["status"], QJsonValue("failed"));
   }
+  void catalogFollowsDesktopProjectAssignmentsWithoutChangingCwd() {
+    QTemporaryDir home;
+    QVERIFY(home.isValid());
+    agent->settings["codexHome"] = home.path();
+    const auto root = home.filePath("original");
+    const Array projects{
+        Object{{"id", "original"}, {"roots", Array{root}}},
+        Object{{"id", "destination"}, {"roots", Array{home.filePath("other")}}}};
+    const auto thread = Object{{"id", "thread-test"}, {"cwd", root}};
+    setFixture({{"threadList", Array{thread}}, {"projects", projects}});
+    const auto entry = [&] {
+      agent->refreshCatalog();
+      return agent->catalog["threads"].toArray().first().toObject();
+    };
+    QCOMPARE(entry()["projectId"], QJsonValue("original"));
+
+    const auto path = home.filePath(".codex-global-state.json");
+    save(path, json(Object{
+        {"thread-project-assignments",
+         Object{{"thread-test", Object{{"projectKind", "local"}, {"projectId", "legacy"}}}}},
+        {"app-server-project-id-by-legacy-project-id-by-host",
+         Object{{"local:" + home.path(), Object{{"legacy", "destination"}}}}}}));
+    const auto moved = entry();
+    QCOMPARE(moved["projectId"], QJsonValue("destination"));
+    QCOMPARE(moved["cwd"], QJsonValue(root));
+
+    auto explicitThread = thread;
+    explicitThread["projectId"] = "original";
+    setFixture({{"threadList", Array{explicitThread}}, {"projects", projects}});
+    QCOMPARE(entry()["projectId"], QJsonValue("original"));
+    save(path, json(Object{{"projectless-thread-ids", Array{"thread-test"}}}));
+    setFixture({{"threadList", Array{thread}}, {"projects", projects}});
+    QVERIFY(entry()["projectId"].isNull());
+  }
   void nativeProjectCreateAndDelete() {
     QTemporaryDir projects;
     QVERIFY(projects.isValid());

@@ -4,7 +4,6 @@ import { useClientUpdates } from "./client-updates";
 import { useTheme } from "./styles";
 import type { ClientUpdatePhase } from "./client-update-state";
 import { DownloadLibraryButton } from "./download-library";
-import { OtaUpdatePanel } from "./ota-update-panel";
 
 export function ClientUpdatePanel() {
   const { c } = useTheme();
@@ -16,7 +15,6 @@ export function ClientUpdatePanel() {
   return (
     <View style={{ gap: 14 }}>
       <Text style={{ color: c.text, fontSize: 15 }}>当前版本 {updates.version}</Text>
-      <OtaUpdatePanel />
       {Platform.OS === "ios" ? (
         <DownloadLibraryButton />
       ) : (
@@ -48,11 +46,11 @@ function InstallerUpdatePanel({ updates }: { updates: ReturnType<typeof useClien
         {updates.checking && <ActivityIndicator color={c.accent} />}
         <Text style={{ color: c.text, flex: 1 }}>
           {updates.available
-            ? `发现新版本 ${updates.release?.version}`
+            ? `发现新安装包 ${updates.release?.version}`
             : updates.error
               ? "暂时无法检查更新"
               : updates.checkedAt
-                ? "已是最新版本"
+                ? "安装包已是最新"
                 : "尚未检查更新"}
         </Text>
         <Pressable
@@ -131,7 +129,7 @@ function InstallerUpdatePanel({ updates }: { updates: ReturnType<typeof useClien
                     : `正在下载 ${Math.floor(progress * 100)}%`
               : note
                 ? "重试安装"
-                : "下载更新"}
+                : "下载安装包"}
           </Text>
         </Pressable>
       )}

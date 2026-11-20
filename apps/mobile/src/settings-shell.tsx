@@ -26,20 +26,23 @@ import {
   Search,
   Settings2,
   Sun,
+  Zap,
   X,
 } from "lucide-react-native";
 import { useTheme } from "./styles";
 import { screenAwakeAvailable } from './screen-awake';
 import { downloadLibraryAvailable } from './download-library';
+import { otaUpdatesSupported } from './ota-update-panel';
 
 export type SettingsSection =
-  "overview" | "appearance" | "screen" | "downloads" | "connection" | "updates" | "about";
+  "overview" | "appearance" | "screen" | "downloads" | "connection" | "updates" | "ota" | "about";
 const entries = [
   { id: "appearance", label: "外观", group: "应用设置", Icon: Palette },
   ...screenAwakeAvailable ? [{ id: 'screen', label: '屏幕常亮', group: '应用设置', Icon: Sun } as const] : [],
   { id: "connection", label: "服务器与设备", group: "连接", Icon: Monitor },
   { id: "weixin", label: "微信 ClawBot", group: "连接", Icon: MessageCircle },
-  { id: "updates", label: "更新与下载", group: "应用", Icon: Download },
+  ...otaUpdatesSupported ? [{ id: "ota", label: "热更新", group: "应用", Icon: Zap } as const] : [],
+  { id: "updates", label: Platform.OS === "android" ? "安装包更新" : Platform.OS === "ios" ? "下载与版本" : "更新与下载", group: "应用", Icon: Download },
   ...downloadLibraryAvailable ? [{ id: 'downloads', label: '下载列表', group: '应用', Icon: Download } as const] : [],
   { id: "about", label: "关于与版本", group: "应用", Icon: Info },
 ] as const;
@@ -57,12 +60,14 @@ export function SettingsShell({
   onClose,
   onWeixin,
   updateAvailable = false,
+  otaUpdateAvailable = false,
   children,
 }: {
   open: boolean;
   onClose: () => void;
   onWeixin: () => void;
   updateAvailable?: boolean;
+  otaUpdateAvailable?: boolean;
   children: (section: SettingsSection) => ReactNode;
 }) {
   const { c } = useTheme(),
@@ -141,11 +146,12 @@ export function SettingsShell({
   const row = (entry: (typeof entries)[number], last: boolean) => {
     const Icon = entry.Icon,
       active = selected === entry.id;
+    const hasUpdate = entry.id === "ota" ? otaUpdateAvailable : entry.id === "updates" && updateAvailable;
     return (
       <Pressable
         key={entry.id}
         accessibilityRole="button"
-        accessibilityLabel={entry.label}
+        accessibilityLabel={hasUpdate ? `${entry.label}，有新版本` : entry.label}
         accessibilityState={{ selected: wide && active }}
         onPress={() => navigate(entry.id)}
         style={{
@@ -162,9 +168,8 @@ export function SettingsShell({
       >
         <Icon size={19} color={c.text} />
         <Text style={{ flex: 1, color: c.text, fontSize: 14 }}>{entry.label}</Text>
-        {entry.id === "updates" && updateAvailable && (
+        {hasUpdate && (
           <View
-            accessibilityLabel="控制端有新版本"
             style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#eb373a" }}
           />
         )}

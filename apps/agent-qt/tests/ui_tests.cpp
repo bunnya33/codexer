@@ -258,6 +258,41 @@ private slots:
     button("updatesOpen")->click();
     QCOMPARE(commands.last().first, "updates.open");
   }
+  void busyUpdateOpensOnlyAfterConfirmation() {
+    page(1);
+    ui->applyUpdate({{"version", "0.2.18"},
+                     {"available", true},
+                     {"downloaded", true},
+                     {"release", QJsonObject{{"version", "0.2.19"},
+                                             {"target", "agent-windows-x64-setup"}}}});
+    const QString package = "C:/Test updates/Agent.exe";
+    ui->command = [this, package](QString method, QJsonObject value,
+                                  ConnectorUi::Done done) {
+      commands.append({method, value});
+      if (done)
+        done(value.isEmpty() ? QJsonObject{{"confirmPackage", package}}
+                             : QJsonObject{}, {});
+    };
+    button("updatesOpen")->click();
+    auto dialog = ui->findChild<QMessageBox *>();
+    QVERIFY(dialog);
+    QCOMPARE(dialog->text(), QString("当前有任务在进行，是否确定继续更新？"));
+    dialog->defaultButton()->click();
+    QCOMPARE(commands.size(), 1);
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    button("updatesOpen")->click();
+    dialog = ui->findChild<QMessageBox *>();
+    QVERIFY(dialog);
+    for (auto action : dialog->buttons()) {
+      if (dialog->buttonRole(action) == QMessageBox::AcceptRole) {
+        action->click();
+        break;
+      }
+    }
+    QCOMPARE(commands.size(), 3);
+    QCOMPARE(commands.last().first, "updates.open");
+    QCOMPARE(commands.last().second["confirmedPath"].toString(), package);
+  }
   void logsNewestFirstAndNoRebuildOnHeartbeat() {
     state["logs"] =
         QJsonArray{QJsonObject{{"at", 1000}, {"code", "console-ready"}},

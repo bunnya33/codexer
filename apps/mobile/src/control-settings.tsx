@@ -8,6 +8,7 @@ import { useTheme } from './styles';
 import { ThemePicker } from './theme-picker';
 import { AgentVersion } from './agent-version';
 import {ClientUpdatePanel} from './client-update-panel';
+import {OtaUpdatePanel} from './ota-update-panel';
 import {WindowClosePreference} from './client-platform-settings';
 import type {SettingsSection} from './settings-shell';
 import {RuntimeRefresh, type RuntimeRefreshDevice} from './runtime-refresh';
@@ -34,6 +35,7 @@ export function ControlSettings({ url, device, onWeixin, onLogout,section='all' 
     {show('downloads')&&<DownloadList />}
 
     {show('updates')&&<ClientUpdatePanel/>}
+    {show('ota')&&<OtaUpdatePanel/>}
     {show('connection')&&<View style={styles.group}><RuntimeRefresh device={device}/></View>}
     {show('connection','about')&&<>
     <Text style={styles.label}>连接</Text>

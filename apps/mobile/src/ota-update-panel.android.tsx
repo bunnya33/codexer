@@ -1,1 +1,1 @@
-export { OtaUpdatePanel, OtaUpdateProvider, useOtaUpdateAvailable } from "./ota-update-panel.mobile";
+export { OtaUpdatePanel, OtaUpdateProvider, otaUpdatesSupported, useOtaUpdateAvailable } from "./ota-update-panel.mobile";

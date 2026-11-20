@@ -86,6 +86,8 @@ void Service::attachRpc(Rpc *value) {
   });
   connect(value, &Rpc::notification, this, [this](QString method, Object p) {
     auto id = p["threadId"].toString(), turnId = p["turnId"].toString();
+    if (method == "thread/project/updated")
+      lastCatalog = 0;
     if (id.isEmpty())
       return;
     idleReads.remove(id);
@@ -234,7 +236,7 @@ void Service::refreshCatalog() {
   } catch (...) {
   }
   auto next = normalizeCatalog(credentials["deviceId"].toString(), projects,
-                               threads, models);
+                               threads, models, settings["codexHome"].toString());
   auto listed = next["threads"].toArray();
   QSet<QString> ids;
   for (const auto &v : listed)

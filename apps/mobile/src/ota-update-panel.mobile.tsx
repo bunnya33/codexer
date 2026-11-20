@@ -20,15 +20,16 @@ type Session = {
 type UpdateState = {
   phase: "idle" | "checking" | "downloading" | "prompt" | "restarting";
   available: boolean;
-  pending: string;
+  pending: { source: string; id: string } | null;
   ignoredSource: string;
   note: string;
   error: string;
 };
 const initialState: UpdateState = {
-  phase: "idle", available: false, pending: "", ignoredSource: "", note: "", error: "",
+  phase: "idle", available: false, pending: null, ignoredSource: "", note: "", error: "",
 };
 type PanelState = UpdateState & {
+  currentLabel: string;
   ready: boolean;
   operating: boolean;
   check: () => void;
@@ -37,6 +38,7 @@ type PanelState = UpdateState & {
 const PanelContext = createContext<PanelState | null>(null);
 const AvailableContext = createContext(false);
 export const useOtaUpdateAvailable = () => useContext(AvailableContext);
+export const otaUpdatesSupported = Updates.isEnabled;
 
 export function OtaUpdateProvider({ children }: { children: ReactNode }) {
   return Updates.isEnabled ? <EnabledUpdateProvider>{children}</EnabledUpdateProvider> : children;
@@ -60,11 +62,18 @@ function EnabledUpdateProvider({ children }: { children: ReactNode }) {
     }));
   };
 
+  const runningId = update.currentlyRunning?.updateId?.toLowerCase();
+  const runningManifest = update.currentlyRunning?.manifest;
+  const runningMetadata = runningManifest && "metadata" in runningManifest ? runningManifest.metadata : undefined;
+  const currentLabel = runningMetadata && "releaseLabel" in runningMetadata && typeof runningMetadata.releaseLabel === "string"
+    ? runningMetadata.releaseLabel : "";
   const manifest = update.downloadedUpdate?.manifest;
   const metadata = manifest && "metadata" in manifest ? manifest.metadata : undefined;
-  const downloaded = update.isUpdatePending && metadata && "relayUpdateUrl" in metadata
-    ? metadata.relayUpdateUrl : undefined;
-  const cachedSource = pending || (typeof downloaded === "string" ? downloaded : "");
+  const downloaded = update.isUpdatePending ? update.downloadedUpdate : undefined;
+  const source = metadata && "relayUpdateUrl" in metadata && typeof metadata.relayUpdateUrl === "string"
+    ? metadata.relayUpdateUrl : "";
+  const cached = pending ?? (downloaded?.updateId && source ? { source, id: downloaded.updateId } : null);
+  const cachedSource = cached && cached.id.toLowerCase() !== runningId ? cached.source : "";
   const ready = !!session && cachedSource !== ignoredSource &&
     cachedSource.startsWith(session.url + "/v1/mobile-ota/manifest?relayVersion=");
   const operating = phase !== "idle" || update.isChecking || update.isDownloading || update.isRestarting;
@@ -97,7 +106,7 @@ function EnabledUpdateProvider({ children }: { children: ReactNode }) {
         if (session.checkedSource !== source) publish({ available: false });
         if (ready && cachedSource !== source) {
           Updates.setUpdateRequestHeadersOverride(null);
-          publish({ pending: "", ignoredSource: cachedSource, available: false });
+          publish({ pending: null, ignoredSource: cachedSource, available: false });
         }
         if (!source) {
           session.checkedSource = "";
@@ -109,11 +118,13 @@ function EnabledUpdateProvider({ children }: { children: ReactNode }) {
         if (!stillConnected()) return;
         session.checkedSource = source;
         const downloadedForSource = ready && cachedSource === source;
+        const advertisedId = result.manifest?.id?.toLowerCase();
+        const available = result.isAvailable && !!advertisedId && advertisedId !== runningId;
         publish({
-          available: result.isAvailable,
+          available,
           error: "",
-          note: downloadedForSource ? "更新已下载，下次启动时生效" : result.isAvailable ?
-            "发现内容更新" : "当前服务器没有适配此安装包的内容更新",
+          note: downloadedForSource ? "更新已下载，下次启动时生效" : available ?
+            "发现内容更新" : "热更新已是最新",
         });
       } catch {
         if (manual) publish({ error: "暂时无法检查内容更新，请重试。" });
@@ -163,7 +174,7 @@ function EnabledUpdateProvider({ children }: { children: ReactNode }) {
         if (!source || source !== (ready ? cachedSource : session.checkedSource)) {
           Updates.setUpdateRequestHeadersOverride(null);
           publish({
-            ignoredSource: cachedSource, pending: "", available: false,
+            ignoredSource: cachedSource, pending: null, available: false,
             note: "服务器版本已变化，请重新检查内容更新",
           });
           return;
@@ -172,11 +183,12 @@ function EnabledUpdateProvider({ children }: { children: ReactNode }) {
         if (!ready) {
           const result = await Updates.fetchUpdateAsync();
           if (!stillConnected()) return;
-          if (!result.isNew) {
+          const id = result.manifest?.id;
+          if (!result.isNew || !id || id.toLowerCase() === runningId) {
             publish({ available: false, note: "当前没有可下载的内容更新" });
             return;
           }
-          publish({ available: false, pending: source, ignoredSource: "", note: "更新已下载，下次启动时生效" });
+          publish({ available: false, pending: { source, id }, ignoredSource: "", note: "更新已下载，下次启动时生效" });
         }
         publish({ phase: "prompt" });
         const restart = await promptRestart();
@@ -195,7 +207,7 @@ function EnabledUpdateProvider({ children }: { children: ReactNode }) {
 
   return (
     <AvailableContext.Provider value={!!session && (available || ready)}>
-      <PanelContext.Provider value={session ? { ...state, check, apply, operating, ready } : null}>
+      <PanelContext.Provider value={session ? { ...state, currentLabel, check, apply, operating, ready } : null}>
         {children}
       </PanelContext.Provider>
     </AvailableContext.Provider>
@@ -220,11 +232,11 @@ export function OtaUpdatePanel() {
   const { c } = useTheme();
   const state = useContext(PanelContext);
   if (!state) return null;
-  const { phase, available, ready, operating, check, apply, note, error } = state;
+  const { phase, available, ready, operating, check, apply, note, error, currentLabel } = state;
   return (
     <View style={{ gap: 8 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-        <Text style={{ color: c.text, flex: 1 }}>内容更新</Text>
+        <Text style={{ color: c.text, flex: 1 }}>{currentLabel ? `当前热更新 ${currentLabel}` : "安装包内置内容"}</Text>
         {operating && <ActivityIndicator color={c.accent} />}
         <Pressable
           accessibilityRole="button"

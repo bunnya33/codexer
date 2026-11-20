@@ -655,7 +655,7 @@ QWidget *ConnectorUi::settingsPage() {
   updateError = text({}, "muted", true);
   ul->addWidget(updateError);
   ul->addWidget(
-      text("下载不影响当前任务。安装前请等待本机任务完成，登录和设备配置保留。",
+      text("下载不影响当前任务。安装可能中断进行中的任务，登录和设备配置会保留。",
            "small", true));
   connect(updateCheck, &QPushButton::clicked, this,
           [this] { run("updates.check"); });
@@ -663,8 +663,26 @@ QWidget *ConnectorUi::settingsPage() {
           [this] { run("updates.download"); });
   connect(updateCancel, &QPushButton::clicked, this,
           [this] { run("updates.cancel"); });
-  connect(updateOpen, &QPushButton::clicked, this,
-          [this] { run("updates.open"); });
+  connect(updateOpen, &QPushButton::clicked, this, [this] {
+    run("updates.open", {}, [this](QJsonValue result, QString) {
+      const auto package = result.toObject()["confirmPackage"].toString();
+      if (package.isEmpty())
+        return;
+      auto box = new QMessageBox(QMessageBox::Warning, "更新 Codexer Agent",
+                                 "当前有任务在进行，是否确定继续更新？",
+                                 QMessageBox::NoButton, this);
+      box->setAttribute(Qt::WA_DeleteOnClose);
+      auto cancel = box->addButton("取消", QMessageBox::RejectRole);
+      auto accept = box->addButton("确定", QMessageBox::AcceptRole);
+      box->setDefaultButton(cancel);
+      box->setEscapeButton(cancel);
+      connect(box, &QMessageBox::finished, this, [this, box, accept, package] {
+        if (box->clickedButton() == accept)
+          run("updates.open", {{"confirmedPath", package}});
+      });
+      box->open();
+    });
+  });
   auto config = card(layout);
   auto configLayout = column(config, 24, 18);
   auto ch = new QWidget;

@@ -1025,11 +1025,34 @@ Object boundTurns(Object result, qint64 limit) {
   return result;
 }
 Object normalizeCatalog(const QString &device, const Array &rawProjects,
-                        const Array &rawThreads, const Array &models) {
+                        const Array &rawThreads, const Array &models,
+                        const QString &codexHome) {
   Array projects, threads;
-  QSet<QString> ids;
+  QSet<QString> ids, projectIds, projectless;
+  Object assignments, projectMapping;
+  if (!codexHome.isEmpty()) {
+    try {
+      const auto state = parse(read(QDir(codexHome).filePath(".codex-global-state.json"),
+                                    8 * 1024 * 1024)).toObject();
+      assignments = state["thread-project-assignments"].toObject();
+      const auto byHost = state["app-server-project-id-by-legacy-project-id-by-host"].toObject();
+      const auto homePath = canonical(codexHome);
+      for (auto it = byHost.constBegin(); it != byHost.constEnd(); ++it) {
+        if (it.key().startsWith("local:") && canonical(it.key().mid(6)) == homePath) {
+          projectMapping = it.value().toObject();
+          break;
+        }
+      }
+      for (const auto &id : state["projectless-thread-ids"].toArray())
+        if (id.isString())
+          projectless.insert(id.toString());
+    } catch (const Error &) {
+      // CLI-only homes and an in-flight Desktop state write can lack this file.
+    }
+  }
   for (const auto &v : rawProjects) {
     auto p = v.toObject();
+    projectIds.insert(p["id"].toString());
     Array roots;
     for (const auto &r : p["roots"].toArray()) {
       auto path = r.isString() ? r.toString() : r.toObject()["path"].toString();
@@ -1050,20 +1073,27 @@ Object normalizeCatalog(const QString &device, const Array &rawProjects,
       continue;
     ids.insert(id);
     QJsonValue projectId(QJsonValue::Null);
-    int longest = -1;
-    for (const auto &pv : projects) {
-      auto p = pv.toObject();
-      if (p["id"] == t["projectId"]) {
-        projectId = p["id"];
-        break;
-      }
-      for (const auto &r : p["roots"].toArray())
-        if (!t["cwd"].toString().isEmpty() &&
-            within(r.toString(), t["cwd"].toString()) &&
-            r.toString().size() > longest) {
-          longest = r.toString().size();
-          projectId = p["id"];
+    auto explicitId = t["projectId"].toString();
+    const auto desktopAssignment = assignments[id].toObject();
+    if (!projectIds.contains(explicitId) && desktopAssignment["projectKind"] == "local") {
+      const auto legacyId = desktopAssignment["projectId"].toString();
+      explicitId = projectMapping[legacyId].toString(legacyId);
+    }
+    const auto cwd = t["cwd"].toString();
+    if (!explicitId.isEmpty() && projectIds.contains(explicitId)) {
+      projectId = explicitId;
+    } else if (!projectless.contains(id) && !cwd.isEmpty()) {
+      int longest = -1;
+      for (const auto &pv : projects) {
+        const auto p = pv.toObject();
+        for (const auto &r : p["roots"].toArray()) {
+          const auto root = r.toString();
+          if (root.size() > longest && within(root, cwd)) {
+            longest = root.size();
+            projectId = p["id"];
+          }
         }
+      }
     }
     threads.append(
         Object{{"id", id},

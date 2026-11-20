@@ -71,7 +71,8 @@ Object usageMetadata(const Object &raw);
 Object subAgentMetadata(const Object &raw);
 Object boundTurns(Object result, qint64 limit = 256 * 1024);
 Object normalizeCatalog(const QString &device, const Array &projects,
-                        const Array &threads, const Array &models);
+                        const Array &threads, const Array &models,
+                        const QString &codexHome = {});
 Object applyPatch(Object source, const Array &patches);
 
 class Rpc : public QObject {

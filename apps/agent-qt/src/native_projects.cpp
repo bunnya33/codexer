@@ -161,7 +161,8 @@ Object Service::project(const Object &command) {
             t["cwd"].toString().size() > 4096)))
         throw Error("project-deletion-check-failed");
     }
-    return normalizeCatalog("project-delete", projects, threads, {});
+    return normalizeCatalog("project-delete", projects, threads, {},
+                            settings["codexHome"].toString());
   };
   auto fresh = deletionCatalog();
   auto selected = projectFrom(fresh, id);

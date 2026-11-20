@@ -10,6 +10,8 @@ beforeAll(async () => {
       contents: `import {createRoot} from 'react-dom/client';
       import {Platform} from 'react-native';
       import {ClientUpdatePanel} from './apps/mobile/src/client-update-panel';
+      import {installedAndroidBuild} from './apps/mobile/src/installed-android-build.android';
+      window.installedAndroidBuild = installedAndroidBuild;
       Platform.OS='android';createRoot(document.getElementById('root')).render(<ClientUpdatePanel/>);`,
       resolveDir: resolve("."),
       loader: "tsx",
@@ -32,9 +34,17 @@ beforeAll(async () => {
             path: "updates",
             namespace: "fixture",
           }));
-          bundler.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({
+          bundler.onResolve({ filter: /^expo-modules-core$/ }, () => ({
+            path: "native-version",
+            namespace: "fixture",
+          }));
+          bundler.onLoad({ filter: /.*/, namespace: "fixture" }, ({ path }) => ({
             loader: "js",
-            contents: `export function useClientUpdates(){return {version:'0.1.6',available:true,release:{version:'0.1.7'},check:async()=>{},download:(...args)=>window.downloadUpdate(...args)}}`,
+            contents: path === "native-version"
+              ? `export function requireOptionalNativeModule() {
+                return {manifest: JSON.stringify({version: "0.1.31", android: {versionCode: 35}})};
+              }`
+              : `export function useClientUpdates(){return {version:'0.1.6',available:true,release:{version:'0.1.7'},check:async()=>{},download:(...args)=>window.downloadUpdate(...args)}}`,
           }));
         },
       },
@@ -64,7 +74,7 @@ async function fixture() {
   dom.window.eval(javascript);
   const button = () =>
     [...dom.window.document.querySelectorAll<HTMLElement>('[role="button"]')].find(
-      (item) => item.textContent === "下载更新" || item.textContent === "重试安装",
+      (item) => item.textContent === "下载安装包" || item.textContent === "重试安装",
     )!;
   await vi.waitFor(() => expect(button()).toBeDefined());
   return {
@@ -76,6 +86,14 @@ async function fixture() {
     finish: (value: string) => finish(value),
   };
 }
+it("takes the installed APK version from the embedded config when the bundle version differs", async () => {
+  const { dom } = await fixture();
+  try {
+    expect(Reflect.get(dom.window, "installedAndroidBuild")).toEqual({ version: "0.1.31", buildNumber: 35 });
+  } finally {
+    dom.window.close();
+  }
+});
 it("shows verification and installer launch separately from download completion, then releases the busy state", async () => {
   const test = await fixture();
   const text = () => test.dom.window.document.body.textContent;

@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+export const otaUpdatesSupported = false;
+
 export function OtaUpdatePanel() {
   return null;
 }
