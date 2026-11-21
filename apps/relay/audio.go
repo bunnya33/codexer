@@ -33,6 +33,17 @@ func audioMIME(name string) string {
 	}[strings.ToLower(filepath.Ext(name))]
 }
 
+func videoMIME(name string) string {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".mp4", ".m4v":
+		return "video/mp4"
+	case ".mov":
+		return "video/quicktime"
+	default:
+		return ""
+	}
+}
+
 var audioRangePattern = regexp.MustCompile(`(?i)^bytes=(\d*)-(\d*)$`)
 
 // A player requests one range at a time. Multipart ranges are deliberately
@@ -68,7 +79,13 @@ func audioRange(value string, size int64) (start, end int64, partial, ok bool) {
 }
 
 func (s *Server) audioRoutes() {
-	s.route("POST /v1/devices/{deviceId}/threads/{threadId}/files/audio", "user", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
+	s.playbackRoutes("audio", audioMIME)
+	s.playbackRoutes("video", videoMIME)
+}
+
+func (s *Server) playbackRoutes(kind string, mimeFor func(string) string) {
+	base := "/v1/" + kind + "/"
+	s.route("POST /v1/devices/{deviceId}/threads/{threadId}/files/"+kind, "user", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
 		w.Header().Set("Cache-Control", "no-store")
 		b := body(r)
 		path, version := str(b["path"]), str(b["version"])
@@ -79,9 +96,9 @@ func (s *Server) audioRoutes() {
 		if info["version"] != version {
 			fail(409, "file-changed")
 		}
-		mime := audioMIME(str(info["name"]))
+		mime := mimeFor(str(info["name"]))
 		if mime == "" {
-			fail(400, "unsupported-audio")
+			fail(400, "unsupported-"+kind)
 		}
 		data := make([]byte, 32)
 		if _, e := rand.Read(data); e != nil {
@@ -104,20 +121,20 @@ func (s *Server) audioRoutes() {
 		if len(s.audio) >= 1000 || count >= 20 {
 			s.mu.Unlock()
 			cancel()
-			fail(429, "audio-busy")
+			fail(429, kind+"-busy")
 		}
 		s.audio[token] = v
 		s.mu.Unlock()
 		w.Header().Set("Cache-Control", "no-store")
-		return M{"path": "/v1/audio/" + token, "expiresAt": expires}
+		return M{"path": base + token, "expiresAt": expires}
 	})
-	s.route("DELETE /v1/audio/{token}", "member", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
+	s.route("DELETE "+base+"{token}", "member", func(w http.ResponseWriter, r *http.Request, p *Principal) any {
 		w.Header().Set("Cache-Control", "no-store")
 		s.mu.Lock()
 		v := s.audio[r.PathValue("token")]
-		if v == nil || v.Principal.Hash != p.Hash {
+		if v == nil || v.isVideo() != (kind == "video") || v.Principal.Hash != p.Hash {
 			s.mu.Unlock()
-			fail(404, "audio-not-found")
+			fail(404, kind+"-not-found")
 		}
 		delete(s.audio, r.PathValue("token"))
 		v.cancel()
@@ -125,10 +142,14 @@ func (s *Server) audioRoutes() {
 		return M{"ok": true}
 	})
 	// GET also handles HEAD; both validate the bound session on every request.
-	s.mux.HandleFunc("GET /v1/audio/{token}", s.audioHTTP)
+	s.mux.HandleFunc("GET "+base+"{token}", func(w http.ResponseWriter, r *http.Request) {
+		s.playbackHTTP(w, r, kind)
+	})
 }
 
-func (s *Server) audioHTTP(w http.ResponseWriter, r *http.Request) {
+func (v *AudioPlayback) isVideo() bool { return strings.HasPrefix(v.MIME, "video/") }
+
+func (s *Server) playbackHTTP(w http.ResponseWriter, r *http.Request, kind string) {
 	w.Header().Set("Cache-Control", "no-store")
 	token := r.PathValue("token")
 	if !hex64.MatchString(token) {
@@ -137,15 +158,15 @@ func (s *Server) audioHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	v := s.audio[token]
 	s.mu.Unlock()
-	if v == nil || v.Expires <= now() || v.ctx.Err() != nil {
-		fail(410, "audio-expired")
+	if v == nil || v.isVideo() != (kind == "video") || v.Expires <= now() || v.ctx.Err() != nil {
+		fail(410, kind+"-expired")
 	}
-	s.serveAudio(w, r, v)
+	s.serveMedia(w, r, v)
 }
 
 // Public shares use the same bounded, seekable stream as private playback.
 // An empty version binds the current file for this response only.
-func (s *Server) serveAudio(w http.ResponseWriter, r *http.Request, v *AudioPlayback) {
+func (s *Server) serveMedia(w http.ResponseWriter, r *http.Request, v *AudioPlayback) {
 	ctx, cancel := context.WithCancel(r.Context())
 	stop := context.AfterFunc(v.ctx, cancel)
 	defer stop()

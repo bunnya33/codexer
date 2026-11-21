@@ -63,9 +63,16 @@ export function fileAudioMime(name: string): string | null {
   return Object.hasOwn(types, extension) ? types[extension]! : null;
 }
 
-export function fileReaderKind(name: string): "image" | "audio" | "document" | "markdown" | "json" | "text" | "download" {
+export function fileVideoMime(name: string): string | null {
+  if (/\.(mp4|m4v)$/i.test(name)) return "video/mp4";
+  if (/\.mov$/i.test(name)) return "video/quicktime";
+  return null;
+}
+
+export function fileReaderKind(name: string): "image" | "audio" | "video" | "document" | "markdown" | "json" | "text" | "download" {
   if (fileImageMime(name)) return "image";
   if (fileAudioMime(name)) return "audio";
+  if (fileVideoMime(name)) return "video";
   if (fileDocumentKind(name)) return "document";
   return fileCodeFormat(name)?.kind ?? "download";
 }

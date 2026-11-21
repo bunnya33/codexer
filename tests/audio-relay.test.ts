@@ -13,7 +13,7 @@ it('streams and seeks cited audio through a real PC Agent, isolates capabilities
   const directory = await mkdtemp(join(tmpdir(), 'codexer-audio-relay-'));
   const desktop = new FakeDesktop(), store = await RelayStore.open(), account = await testAccount(store), other = await testAccount(store, 'Other');
   const app = await createRelay({ store });
-  const path = join(directory, '音乐 sample.WAV').replaceAll('\\', '/'), archive = join(directory, 'other.zip').replaceAll('\\', '/');
+  const path = join(directory, '音乐 sample.WAV').replaceAll('\\', '/'), video = join(directory, 'screen capture.MP4').replaceAll('\\', '/'), archive = join(directory, 'other.zip').replaceAll('\\', '/');
   const bytes = Buffer.alloc(FILE_CHUNK_BYTES * 10 + 51);
   for (let i = 0; i < bytes.length; i++) bytes[i] = i % 251;
   let agent: PcAgent | undefined, releaseRead: (() => void) | undefined;
@@ -25,9 +25,9 @@ it('streams and seeks cited audio through a real PC Agent, isolates capabilities
     return originalRead.call(this, thread, reference, offset, version);
   });
   try {
-    await writeFile(path, bytes); await writeFile(archive, 'archive');
+    await writeFile(path, bytes); await writeFile(video, bytes); await writeFile(archive, 'archive');
     const turns = desktop.state.turnHistory as { history: { entitiesByKey: Record<string, { items: unknown[] }> } };
-    turns.history.entitiesByKey['turn-key']!.items = [{ id: 'audio', type: 'agentMessage', text: `![播放音乐](<${path}>)\n[其他文件](<${archive}>)`, phase: 'final_answer' }];
+    turns.history.entitiesByKey['turn-key']!.items = [{ id: 'audio', type: 'agentMessage', text: `![播放音乐](<${path}>)\n[其他文件](<${archive}>)\n![播放视频](<${video}>)`, phase: 'final_answer' }];
     await desktop.start();
     const base = await app.listen({ port: 0 }), registered = await testAgent(store, account.id);
     const reader = {
@@ -46,6 +46,23 @@ it('streams and seeks cited audio through a real PC Agent, isolates capabilities
     expect((await create(account.headers, path, 'b'.repeat(64))).json().error).toBe('file-changed');
     const archiveInfo = (await app.inject({ url: endpoint + '/info?path=' + encodeURIComponent(archive), headers: account.headers })).json();
     expect((await create(account.headers, archive, archiveInfo.version)).json().error).toBe('unsupported-audio');
+    const videoInfo = (await app.inject({ url: endpoint + '/info?path=' + encodeURIComponent(video), headers: account.headers })).json();
+    const createVideo = (headers: Record<string, string>, filePath = video, version = videoInfo.version) =>
+      app.inject({ method: 'POST', url: endpoint + '/video', headers, payload: { path: filePath, version } });
+    expect((await createVideo(other.headers)).statusCode).toBe(404);
+    expect((await createVideo(account.headers, path, info.version)).json().error).toBe('unsupported-video');
+    expect((await create(account.headers, video, videoInfo.version)).json().error).toBe('unsupported-audio');
+    const videoStream = await createVideo(account.headers);
+    expect(videoStream.statusCode).toBe(200);
+    const videoPath = videoStream.json().path as string;
+    expect(videoPath).toMatch(/^\/v1\/video\/[a-f0-9]{64}$/);
+    const videoStart = FILE_CHUNK_BYTES - 10, videoEnd = FILE_CHUNK_BYTES + 20;
+    const videoRange = await app.inject({ url: videoPath, headers: { range: `bytes=${videoStart}-${videoEnd}` } });
+    expect(videoRange.statusCode).toBe(206);
+    expect(videoRange.headers['content-type']).toBe('video/mp4');
+    expect(videoRange.rawPayload).toEqual(bytes.subarray(videoStart, videoEnd + 1));
+    expect((await app.inject({ method: 'DELETE', url: videoPath, headers: account.headers })).statusCode).toBe(200);
+    expect((await app.inject({ url: videoPath })).json().error).toBe('video-expired');
     const created = await create(); expect(created.statusCode).toBe(200);
     const playback = created.json().path as string;
     const held: string[] = [];

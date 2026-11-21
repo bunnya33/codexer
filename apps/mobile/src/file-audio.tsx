@@ -2,24 +2,27 @@ import { useState } from 'react';
 import { PreviewShareDialog } from './preview-share-dialog';
 import { themedStyles } from './theme';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
-import { Music2 } from "lucide-react-native";
+import { Music2, Video } from "lucide-react-native";
+import type { MediaKind } from "../../../packages/client-shared/src/audio";
 import type { FileInfo } from "../../../packages/protocol/src/files";
 import { AudioPlayer } from "./audio-player";
-import { useAudioPlayback } from "./audio-playback";
+import { useMediaPlayback } from "./audio-playback";
 import { useTheme } from "./styles";
 
-export function FileAudio({ deviceId, threadId, path, info }: {
-  deviceId: string; threadId: string; path: string; info: FileInfo;
+export function FileMedia({ kind, deviceId, threadId, path, info }: {
+  kind: MediaKind; deviceId: string; threadId: string; path: string; info: FileInfo;
 }) {
   const { c } = useTheme();
   const as = useAsStyles();
   const scope = JSON.stringify([deviceId, threadId, path]);
   const [sharing, setSharing] = useState<string | null>(null);
-  const player = useAudioPlayback(deviceId, threadId, path, info);
+  const player = useMediaPlayback(kind, deviceId, threadId, path, info);
+  const label = kind === "video" ? "视频" : "音频";
+  const Icon = kind === "video" ? Video : Music2;
   return <View style={as.body}>
     <View style={as.card}>
-      <Music2 size={44} color={c.accent} />
-      <Text style={as.title}>音频播放器</Text>
+      <Icon size={44} color={c.accent} />
+      <Text style={as.title}>{label}播放器</Text>
       {player.error ? <>
         <Text accessibilityRole="alert" style={as.error}>{player.error}</Text>
         <Text style={as.hint}>也可以使用右上角的下载按钮，保存后播放。</Text>
@@ -27,15 +30,15 @@ export function FileAudio({ deviceId, threadId, path, info }: {
           <Text style={as.retryText}>重新加载</Text>
         </Pressable>
       </> : player.uri ? <>
-        <AudioPlayer key={player.uri} uri={player.uri} onError={player.fail} onEnded={player.stop} />
+        <AudioPlayer kind={kind} key={player.uri} uri={player.uri} onError={player.fail} onEnded={player.stop} />
         <Text style={as.hint}>点击播放，可拖动进度条跳转。</Text>
-      </> : player.phase === "loading" ? <ActivityIndicator color={c.accent} accessibilityLabel="正在准备音频" />
-        : <Pressable accessibilityRole="button" accessibilityLabel={`加载音频 ${info.name}`} onPress={player.start} style={as.retry}>
-          <Text style={as.retryText}>加载音频</Text>
+      </> : player.phase === "loading" ? <ActivityIndicator color={c.accent} accessibilityLabel={`正在准备${label}`} />
+        : <Pressable accessibilityRole="button" accessibilityLabel={`加载${label} ${info.name}`} onPress={player.start} style={as.retry}>
+          <Text style={as.retryText}>加载{label}</Text>
         </Pressable>}
-      <Pressable accessibilityRole="button" accessibilityLabel="分享音频" onPress={()=>setSharing(scope)} style={as.share}><Text style={as.shareText}>分享音频</Text></Pressable>
+      {kind === "audio" && <Pressable accessibilityRole="button" accessibilityLabel="分享音频" onPress={()=>setSharing(scope)} style={as.share}><Text style={as.shareText}>分享音频</Text></Pressable>}
     </View>
-    {sharing===scope&&<PreviewShareDialog reference={{kind:'audio',source:path,title:info.name}} deviceId={deviceId} threadId={threadId} onClose={()=>setSharing(null)}/>}
+    {kind === "audio" && sharing===scope&&<PreviewShareDialog reference={{kind:'audio',source:path,title:info.name}} deviceId={deviceId} threadId={threadId} onClose={()=>setSharing(null)}/>}
   </View>;
 }
 

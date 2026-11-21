@@ -18,7 +18,7 @@ import { FileLinkContext } from "./file-link-context";
 import { fileError, previewFile } from "./file-transfer";
 import { downloadFile } from "./file-download";
 import { FileImage } from "./file-image";
-import { FileAudio } from "./file-audio";
+import { FileMedia } from "./file-audio";
 import { FileDocument } from "./file-document";
 import type { FileSource } from "./file-transfer";
 import { FileTextPreview } from "./file-text-preview";
@@ -33,6 +33,7 @@ type OpenFile = {
   phase: "loading" | "preview" | "confirm" | "downloading" | "done" | "error";
   text?: string;
   imageSource?: FileSource;
+  mediaKind?: "audio" | "video";
   documentSource?: FileSource;
   message?: string;
   progress?: number;
@@ -83,28 +84,29 @@ export function FileViewerProvider({
         try {
           const info = await relay.fileInfo(deviceId, threadId, path, controller.signal);
           if (!current()) return;
-          if (fileReaderKind(info.name) === "image") {
+          const kind = fileReaderKind(info.name);
+          if (kind === "image") {
             setFile({ path, info, phase: "preview", imageSource: relay.fileSource(deviceId, threadId, path, info.version) });
             return;
           }
-          if (fileReaderKind(info.name) === "audio") {
-            setFile({ path, info, phase: "preview" });
+          if (kind === "audio" || kind === "video") {
+            setFile({ path, info, phase: "preview", mediaKind: kind });
             return;
           }
-          if (fileReaderKind(info.name) === "download" || info.size > filePreviewLimit(info)) {
+          if (kind === "download" || info.size > filePreviewLimit(info)) {
             setFile({
               path,
               info,
               phase: "confirm",
               message:
-                info.size > filePreviewLimit(info) && fileReaderKind(info.name) !== "download"
+                info.size > filePreviewLimit(info) && kind !== "download"
                   ? `${filePreviewLimitMessage(info)}是否下载此文件？`
                   : "是否下载此文件？",
             });
             return;
           }
           setFile({ path, info, phase: "loading" });
-          if (fileReaderKind(info.name) === 'document') {
+          if (kind === 'document') {
             setFile({ path, info, phase: 'preview', documentSource: relay.fileSource(deviceId, threadId, path, info.version) });
             return;
           }
@@ -195,8 +197,8 @@ export function FileViewerProvider({
             {!!copyMessage && <Text accessibilityLiveRegion="polite" style={[fs.meta,{paddingHorizontal:16,paddingBottom:8}]}>{copyMessage}</Text>}
             {file?.phase === 'preview' && file.documentSource ? <FileDocument key={file.path + file.info!.version} source={file.documentSource} info={file.info!} /> : file?.phase === "preview" && file.imageSource ? (
               <FileImage source={file.imageSource} info={file.info!} onClose={close} />
-            ) : file?.phase === "preview" && fileReaderKind(file.info!.name) === "audio" ? (
-              <FileAudio key={file.path + file.info!.version} deviceId={deviceId} threadId={threadId} path={file.path} info={file.info!} />
+            ) : file?.phase === "preview" && file.mediaKind ? (
+              <FileMedia kind={file.mediaKind} key={file.path + file.info!.version} deviceId={deviceId} threadId={threadId} path={file.path} info={file.info!} />
             ) : file?.phase === "preview" && file.text !== undefined ? <FileTextPreview key={file.path + file.info!.version} text={file.text} path={file.path} /> : <ScrollView style={fs.body} contentContainerStyle={fs.content}>
               {(file?.phase === "loading" || file?.phase === "downloading") && (
                 <View style={fs.status}>

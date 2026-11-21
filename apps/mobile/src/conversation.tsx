@@ -14,7 +14,7 @@ import { useTheme } from './styles';
 import { ShimmerLabel } from './shimmer';
 import { DrawerSwipeBlock } from './drawer-swipe-block';
 import { FileChangesPanel } from './file-review';
-import { localAudioPath, stripInlineImageReferences } from '../../../packages/client-shared/src/audio';
+import { localAudioPath, localVideoPath, splitMediaContent, stripInlineImageReferences } from '../../../packages/client-shared/src/audio';
 import { TurnEndTime, TurnTiming } from './turn-timing';
 import { recordedTurnTiming } from '../../../packages/client-shared/src/turn-timing';
 import { turnCostLabel } from '../../../packages/client-shared/src/project-usage';
@@ -31,7 +31,6 @@ import {MessageActionOverlays,MessageTurnContext,ReplyMoreButton,useMessageActio
 import {useFileLink} from './file-link-context';
 import {localFilePath} from '../../../packages/client-shared/src/file-links';
 import {splitPreviewContent} from '../../../packages/client-shared/src/previews';
-import {splitAudioContent} from '../../../packages/client-shared/src/audio';
 
 type ImageSource = { uri: string; headers?: Record<string, string> };
 type ImageViewer = (source: ImageSource, name: string) => void;
@@ -46,7 +45,7 @@ const Message = memo(function Message({ item, running = false, branchPoint = fal
   const { c, s } = useTheme();
   const role = messageRole(item);
   const [open, setOpen] = useState(false);
-  const images = (item.images ?? []).filter(image => !image.source || !localAudioPath(image.source));
+  const images = (item.images ?? []).filter(image => !image.source || (!localAudioPath(image.source) && !localVideoPath(image.source)));
   const imageSources = images.flatMap(image => image.source ? [image.source] : []);
   const presentation = role === 'user' ? userPresentation(item.text ?? '') : null;
   const body = presentation?.body ?? item.text ?? '';
@@ -56,7 +55,7 @@ const Message = memo(function Message({ item, running = false, branchPoint = fal
   const selectedDisplay=useRef(display);
   if(!actions.selecting)selectedDisplay.current=display;
   const onFile=useFileLink();
-  const parsedRuns=useMemo(()=>!display.trim()||parts?.length||splitPreviewContent(display).some(x=>x.kind!=='text')||splitAudioContent(display).some(x=>x.kind!=='text')||/\]\(<?(?:\/|[A-Za-z]:|file:)/i.test(display)?null:messageTextRuns(display),[display,parts]);
+  const parsedRuns=useMemo(()=>!display.trim()||parts?.length||splitPreviewContent(display).some(x=>x.kind!=='text')||splitMediaContent(display).some(x=>x.kind!=='text')||/\]\(<?(?:\/|[A-Za-z]:|file:)/i.test(display)?null:messageTextRuns(display),[display,parts]);
   const selectionRuns=useRef(parsedRuns);
   if(!actions.selecting)selectionRuns.current=parsedRuns;
   const runs=selectionRuns.current;

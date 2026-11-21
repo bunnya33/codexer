@@ -739,13 +739,22 @@ export class RelayClient {
     return { uri: remote.relayUrl + remote.path, headers: { Authorization: `Bearer ${this.token}` } };
   }
 
-  async openAudioSource(deviceId: string, threadId: string, path: string, version: string, signal: AbortSignal) {
+  async openMediaSource(kind: "audio" | "video", deviceId: string, threadId: string, path: string, version: string, signal: AbortSignal) {
     if (signal.aborted) throw new Error('file-cancelled');
     const base = this.view.url, session = this.token;
     // Let this metadata request finish so closing during creation can revoke
     // the returned playback capability instead of leaving it until expiry.
-    const result = await this.api<{ path: string; expiresAt: number }>(`/v1/devices/${encodeURIComponent(deviceId)}/threads/${encodeURIComponent(threadId)}/files/audio`, { path, version });
-    if (!/^\/v1\/audio\/[a-f0-9]{64}$/.test(result.path)) throw new Error('音频地址无效');
+    const endpoint = `/v1/devices/${encodeURIComponent(deviceId)}/threads/${encodeURIComponent(threadId)}/files/${kind}`;
+    const result = await this.api<{ path: string; expiresAt: number }>(endpoint, { path, version }).catch(error => {
+      if (kind === 'video' && error instanceof ApiError && [404, 405].includes(error.status) && ['HTTP 404', 'HTTP 405', 'not-found'].includes(error.message)) {
+        throw new Error('video-server-update-required');
+      }
+      throw error;
+    });
+    const prefix = `/v1/${kind}/`;
+    if (typeof result?.path !== 'string' || !result.path.startsWith(prefix) || !/^[a-f0-9]{64}$/.test(result.path.slice(prefix.length))) {
+      throw new Error(kind === 'video' ? '视频播放地址无效，请重新加载' : '音频地址无效');
+    }
     const uri = base + result.path;
     const release = async () => {
       await requestWithTimeout(signal => fetch(uri, { method: 'DELETE', headers: { authorization: `Bearer ${session}` }, signal }));

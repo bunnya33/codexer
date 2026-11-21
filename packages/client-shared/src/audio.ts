@@ -1,14 +1,22 @@
 import MarkdownIt from "markdown-it";
-import { fileAudioMime, fileName, localFilePath } from "./file-links.js";
+import { fileAudioMime, fileVideoMime, fileName, localFilePath } from "./file-links.js";
 
-export type AudioReference = { source: string; title: string };
+export type MediaReference = { source: string; title: string };
+export type AudioReference = MediaReference;
 export type AudioPart = { kind: "text"; text: string } | { kind: "audio"; audio: AudioReference };
+export type MediaKind = "audio" | "video";
+export type MediaPart = Extract<AudioPart, { kind: "text" }> | { kind: MediaKind; reference: MediaReference };
 const parser = new MarkdownIt({ html: false });
 parser.validateLink = () => true;
 
 export function localAudioPath(source: string): string | null {
   const path = localFilePath(source);
   return path && fileAudioMime(fileName(path)) ? path : null;
+}
+
+export function localVideoPath(source: string): string | null {
+  const path = localFilePath(source);
+  return path && fileVideoMime(fileName(path)) ? path : null;
 }
 
 /** Use Markdown's token boundaries so code, escaped tags and nested paths stay literal. */
@@ -60,13 +68,20 @@ export function markdownReferenceSuffix(source: string): string {
 }
 
 export function splitAudioContent(source: string, referenceSource = source): AudioPart[] {
-  const parts: AudioPart[] = [];
+  return splitMediaContent(source, referenceSource, false).map(part =>
+    part.kind === "text" ? part : { kind: "audio", audio: part.reference });
+}
+
+export function splitMediaContent(source: string, referenceSource = source, includeVideo = true): MediaPart[] {
+  const parts: MediaPart[] = [];
   let end = 0;
   for (const image of inlineImages(source, referenceSource)) {
-    const path = localAudioPath(image.source);
+    const video = includeVideo ? localVideoPath(image.source) : null;
+    const path = video ?? localAudioPath(image.source);
     if (!path) continue;
     if (image.start > end) parts.push({ kind: "text", text: source.slice(end, image.start) });
-    parts.push({ kind: "audio", audio: { source: path, title: image.title.slice(0, 160) || fileName(path) } });
+    const reference = { source: path, title: image.title.slice(0, 160) || fileName(path) };
+    parts.push({ kind: video ? "video" : "audio", reference });
     end = image.end;
   }
   if (end < source.length) parts.push({ kind: "text", text: source.slice(end) });
@@ -83,7 +98,7 @@ export function stripInlineImageReferences(source: string, references: string[])
   const registered = new Set(references);
   let text = "", end = 0;
   for (const image of inlineImages(source)) {
-    if (!registered.has(image.source) || localAudioPath(image.source)) continue;
+    if (!registered.has(image.source) || localAudioPath(image.source) || localVideoPath(image.source)) continue;
     text += source.slice(end, image.start);
     end = image.end;
   }
@@ -92,6 +107,14 @@ export function stripInlineImageReferences(source: string, references: string[])
 
 /** Only a trusted player shell is executed; filenames never become HTML. */
 export function nativeAudioDocument(uri: string): string {
+  return nativeMediaDocument(uri, "audio");
+}
+
+export function nativeMediaDocument(uri: string, kind: MediaKind): string {
   const escaped = uri.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("'", "&#39;");
-  return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; media-src ${escaped}; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><style>html,body{margin:0;background:white}audio{display:block;width:100%}</style></head><body><audio controls preload="metadata" src="${escaped}"></audio><script>var audio=document.querySelector('audio');audio.addEventListener('error',function(){window.ReactNativeWebView.postMessage('audio-error')});audio.addEventListener('ended',function(){window.ReactNativeWebView.postMessage('audio-ended')});</script></body></html>`;
+  const style = kind === "video"
+    ? "html,body{margin:0;height:100%;background:black}video{display:block;width:100%;height:100%;object-fit:contain}"
+    : "html,body{margin:0;background:white}audio{display:block;width:100%}";
+  const inline = kind === "video" ? " playsinline" : "";
+  return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; media-src ${escaped}; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><style>${style}</style></head><body><${kind} controls preload="metadata"${inline} src="${escaped}"></${kind}><script>var player=document.querySelector('${kind}');player.addEventListener('error',function(){window.ReactNativeWebView.postMessage('${kind}-error')});player.addEventListener('ended',function(){window.ReactNativeWebView.postMessage('${kind}-ended')});</script></body></html>`;
 }

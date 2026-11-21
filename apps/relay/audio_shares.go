@@ -33,7 +33,7 @@ func (s *Server) sharedAudio(w http.ResponseWriter, r *http.Request, download bo
 	r, p := s.sharedAudioRequest(r, row)
 	// Do not freeze an expiry in a context: extending the durable grant must
 	// leave listeners connected. Shared pending leases enforce the current expiry.
-	s.serveAudio(w, r, &AudioPlayback{Device: str(row["device_id"]), Thread: str(row["thread_id"]), Path: str(row["source"]), Principal: p, Download: download, ctx: s.ctx})
+	s.serveMedia(w, r, &AudioPlayback{Device: str(row["device_id"]), Thread: str(row["thread_id"]), Path: str(row["source"]), Principal: p, Download: download, ctx: s.ctx})
 }
 
 func (s *Server) sharedAudioPage(w http.ResponseWriter, r *http.Request, row M) string {

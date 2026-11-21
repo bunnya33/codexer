@@ -2,7 +2,7 @@ import { beforeAll, expect, it, vi } from 'vitest';
 import { build } from 'esbuild';
 import { JSDOM } from 'jsdom';
 import { resolve } from 'node:path';
-import { nativeAudioDocument } from '../packages/client-shared/src/audio';
+import { nativeAudioDocument, nativeMediaDocument } from '../packages/client-shared/src/audio';
 
 let javascript = '', css = '';
 beforeAll(async () => {
@@ -13,7 +13,7 @@ beforeAll(async () => {
   css = result.outputFiles!.find(file => file.path.endsWith('.css'))?.text ?? '';
 });
 
-async function fixture(delayedCreation = false, inline = false, options: { paths?: string[]; body?: string } = {}) {
+async function fixture(delayedCreation = false, inline = false, options: { paths?: string[]; body?: string; oldRelay?: boolean } = {}) {
   const requests: { path: string; method: string; body?: string; auth?: string }[] = [], paused: Element[] = [], reset: Element[] = [];
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
@@ -40,6 +40,11 @@ async function fixture(delayedCreation = false, inline = false, options: { paths
           return response({ id: 'public', path: '/share/' + 'c'.repeat(64), enabled: true, kind: b.kind, durationMinutes: b.durationMinutes, expiresAt: Date.now() + b.durationMinutes * 60000 });
         }
         if (url.pathname.endsWith('/files/info')) return response({ name: url.searchParams.get('path')!.split('/').at(-1), size: 4 * 1024 * 1024, version: 'a'.repeat(64) });
+        if (url.pathname.endsWith('/files/video')) {
+          if (options.oldRelay) return new Response('404 page not found', { status: 404 });
+          return response({ path: '/v1/video/' + 'b'.repeat(64), expiresAt: Date.now() + 60000 });
+        }
+        if (url.pathname.startsWith('/v1/video/') && method === 'DELETE') return response({ ok: true });
         if (url.pathname.endsWith('/files/audio')) { created++; if (delayedCreation) await gate; return response({ path: '/v1/audio/' + created.toString(16).padStart(64, '0'), expiresAt: Date.now() + 60000 }); }
         if (url.pathname.startsWith('/v1/audio/') && method === 'DELETE') return response({ ok: true });
         throw new Error('unexpected-request:' + url.pathname);
@@ -60,7 +65,8 @@ async function fixture(delayedCreation = false, inline = false, options: { paths
   const open = (index = 0) => (dom.window.document.querySelectorAll<HTMLElement>('[data-file-path]')[index]!).click();
   const closePlayer = () => dom.window.document.querySelector<HTMLElement>('[aria-label="关闭文件"]')!.click();
   const load = async (index = 0) => {
-    const label = '加载音频 ' + paths[index]!.split('/').at(-1);
+    const name = paths[index]!.split('/').at(-1)!;
+    const label = (/\.mp4$/i.test(name) ? '加载视频 ' : '加载音频 ') + name;
     await vi.waitFor(() => expect(dom.window.document.querySelector(`[aria-label="${label}"]`)).not.toBeNull());
     Array.from(dom.window.document.querySelectorAll<HTMLElement>(`[aria-label="${label}"]`)).at(-1)!.click();
   };
@@ -246,4 +252,50 @@ for (const inline of [true, false]) it(`shares audio from the ${inline ? 'inline
     await vi.waitFor(() => expect(f.dom.window.document.querySelector('[aria-label="关闭音频分享"]')).toBeNull());
     expect(f.requests.filter(request => request.path.endsWith('/preview-shares') && request.method === 'POST').length).toBe(1);
   } finally { f.close(); }
+});
+
+for (const inline of [false, true]) {
+  it(`opens ${inline ? 'embedded' : 'linked'} video with seekable controls and revokes playback on thread switch`, async () => {
+    const f = await fixture(false, inline, { paths: ['/fixture/shot.MP4'] });
+    const document = f.dom.window.document;
+    try {
+      expect(f.requests.some(request => request.path.endsWith('/files/video'))).toBe(false);
+      if (!inline) f.open();
+      await f.load();
+      await vi.waitFor(() => expect(document.querySelector('video')).not.toBeNull());
+      const video = document.querySelector('video')!;
+      expect(video.controls).toBe(true);
+      expect(video.autoplay).toBe(false);
+      expect(video.playsInline).toBe(true);
+      expect(video.src).toBe('http://audio.test/v1/video/' + 'b'.repeat(64));
+      expect(f.requests.find(request => request.path.endsWith('/files/video'))).toMatchObject({ method: 'POST', auth: 'Bearer fixture-session' });
+      expect(f.requests.some(request => request.path.endsWith('/files/content'))).toBe(false);
+      f.app.switchThread('other-thread');
+      await vi.waitFor(() => expect(f.requests.find(request => request.method === 'DELETE')?.path).toMatch(/^\/v1\/video\//));
+      expect(f.paused).toContain(video);
+    } finally { f.close(); }
+  });
+}
+
+it('explains that a legacy relay needs updating while leaving the video download entry available', async () => {
+  const f = await fixture(false, false, { paths: ['/fixture/shot.MP4'], oldRelay: true });
+  try {
+    f.open();
+    await f.load();
+    await vi.waitFor(() => expect(f.dom.window.document.querySelector('[role="alert"]')?.textContent).toContain('当前服务器尚不支持视频预览'));
+    expect(f.dom.window.document.querySelector('[aria-label="下载文件"]')).not.toBeNull();
+  } finally { f.close(); }
+});
+
+it('uses the closed native media document for inline video controls', () => {
+  const uri = 'http://relay.example/v1/video/' + 'b'.repeat(64);
+  const dom = new JSDOM(nativeMediaDocument(uri, 'video'));
+  try {
+    const video = dom.window.document.querySelector('video')!;
+    expect(video.src).toBe(uri);
+    expect(video.controls).toBe(true);
+    expect(video.autoplay).toBe(false);
+    expect(video.playsInline).toBe(true);
+    expect(dom.window.document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute('content')).toContain('media-src ' + uri);
+  } finally { dom.window.close(); }
 });

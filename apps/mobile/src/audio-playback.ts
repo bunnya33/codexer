@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AudioPlaybackCoordinator } from "../../../packages/client-shared/src/audio-playback";
+import type { MediaKind } from "../../../packages/client-shared/src/audio";
 import type { FileInfo } from "../../../packages/protocol/src/files";
 import { fileError } from "./file-transfer";
 import { relay } from "./relay";
@@ -7,8 +8,8 @@ import { relay } from "./relay";
 const playback = new AudioPlaybackCoordinator();
 type PlayerState = { scope: string; phase: "idle" | "loading" | "ready" | "error"; uri?: string; info?: FileInfo; error?: string };
 
-export function useAudioPlayback(deviceId: string, threadId: string, path: string, initialInfo?: FileInfo) {
-  const scope = JSON.stringify([deviceId, threadId, path, initialInfo?.version]);
+export function useMediaPlayback(kind: MediaKind, deviceId: string, threadId: string, path: string, initialInfo?: FileInfo) {
+  const scope = JSON.stringify([kind, deviceId, threadId, path, initialInfo?.version]);
   const [stored, setPlayer] = useState<PlayerState>({ scope, phase: "idle", info: initialInfo });
   const operation = useRef<{ scope: string; stop: () => Promise<void> } | undefined>(undefined);
   const player = stored.scope === scope ? stored : { scope, phase: "idle" as const, info: initialInfo };
@@ -22,7 +23,7 @@ export function useAudioPlayback(deviceId: string, threadId: string, path: strin
     let info = initialInfo;
     const lease = playback.start(async signal => {
       info = initialInfo ?? await relay.fileInfo(deviceId, threadId, path, signal);
-      return relay.openAudioSource(deviceId, threadId, path, info.version, signal);
+      return relay.openMediaSource(kind, deviceId, threadId, path, info.version, signal);
     }, {
       ready: source => setPlayer({ scope, phase: "ready", uri: source.uri, info }),
       error: error => setPlayer({ scope, phase: "error", error: fileError(error), info }),
@@ -34,7 +35,9 @@ export function useAudioPlayback(deviceId: string, threadId: string, path: strin
   const stop = () => { void operation.current?.stop(); };
   const fail = () => {
     stop();
-    setPlayer({ scope, phase: "error", info: player.info, error: "音频暂时无法播放，请重新加载；格式不支持时可使用消息中的下载链接。" });
+    setPlayer({ scope, phase: "error", info: player.info, error: kind === "video"
+      ? "视频播放失败，请重新加载。若当前设备不支持此编码，可下载后播放。"
+      : "音频暂时无法播放，请重新加载；格式不支持时可使用消息中的下载链接。" });
   };
   return { ...player, start, stop, fail };
 }
