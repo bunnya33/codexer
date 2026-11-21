@@ -413,6 +413,7 @@ private slots:
     agent->updateThread(id, false, false);
     const auto published = [&] { return agent->snapshot["threads"].toObject()[id].toObject(); };
     const auto errors = [&] { return published()["turns"].toArray().first().toObject()["errors"].toArray(); };
+    QVERIFY(!published()["turns"].toArray().first().toObject().contains("errors"));
     const auto report = [&](Object error, bool retry) {
       if (desktopOwned) {
         auto updated = turn;
@@ -444,10 +445,13 @@ private slots:
     QCOMPARE(errors().last().toObject()["httpStatus"], QJsonValue(429));
     QCOMPARE(errors().last().toObject()["requestId"], QJsonValue("req_429test"));
     QVERIFY(!agent->busyTurns.contains(turnId));
-    setFixture({{"turns", Array{turn}}});
+    const Object completed{{"id", "completed-turn"}, {"status", "completed"}, {"items", Array{}}};
+    setFixture({{"turns", Array{turn, completed}}});
     const auto history = agent->history(id, QJsonValue::Null)["turns"].toArray();
+    QCOMPARE(history.size(), 2);
     QCOMPARE(history.first().toObject()["errors"], QJsonValue(errors()));
     QCOMPARE(history.first().toObject()["status"], QJsonValue("failed"));
+    QVERIFY(!history.last().toObject().contains("errors"));
     if (!desktopOwned) {
       auto continuation = command("turn.continue");
       continuation["payload"] = Object{{"type", "turn.continue"}, {"threadId", id}, {"turnId", turnId}};
@@ -2102,6 +2106,11 @@ private slots:
     }
   }
   void relaySnapshotAndReconnect() {
+    const Object turn{{"id", "completed-turn"}, {"status", "completed"}, {"items", Array{}}};
+    auto source = raw();
+    source["turns"] = Array{turn};
+    agent->rawThreads["thread-test"] = source;
+    agent->updateThread("thread-test", false, false);
     QWebSocketServer server("Synthetic", QWebSocketServer::NonSecureMode);
     QVERIFY(server.listen(QHostAddress::LocalHost, 0));
     agent->credentials["relayUrl"] =
@@ -2117,6 +2126,10 @@ private slots:
     agent->connectRelay();
     QVERIFY(waitFor([&] { return !received.isEmpty(); }, 3000));
     QCOMPARE(received.first()["type"], QJsonValue("device.snapshot"));
+    const auto threads = received.first()["snapshot"].toObject()["threads"].toObject();
+    const auto turns = threads["thread-test"].toObject()["turns"].toArray();
+    QCOMPARE(turns.size(), 1);
+    QVERIFY(!turns.first().toObject().contains("errors"));
     peer->sendTextMessage(QString::fromUtf8(json(Object{
         {"type", "device.welcome"},
         {"features", Array{"files", "previews", "catalog", "attachments"}}})));
@@ -3417,6 +3430,7 @@ private slots:
       assertUpdate(1);
       QVERIFY(!events.isEmpty());
       QCOMPARE(events.last()["activeTurnId"], QJsonValue("live-turn"));
+      QVERIFY(!events.last()["turns"].toArray().last().toObject().contains("errors"));
       QCOMPARE(items(events.last()).size(), 1);
       QCOMPARE(items(events.last())[0].toObject()["clientMessageId"], QJsonValue("phone-send"));
       notify({delta("hello")});

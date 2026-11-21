@@ -833,7 +833,7 @@ void Service::applyHeadlessTurns(const QString &id, Object &thread) {
         if (!base.contains(key) && preview.contains(key))
           base[key] = preview[key];
     }
-    const auto errors = mergeTurnErrors(base["errors"].toArray(), preview["errors"].toArray());
+    const auto errors = mergeTurnErrors(base.value("errors").toArray(), preview.value("errors").toArray());
     if (!errors.isEmpty())
       base["errors"] = errors;
     base["items"] = visibleTurnItems(items, MaxLiveTurnItems);
@@ -1063,7 +1063,7 @@ void Service::updateThread(const QString &id, bool metadataOnly, bool enrich) {
   auto turns = thread["turns"].toArray();
   for (int i = 0; i < turns.size(); ++i) {
     auto turn = turns[i].toObject();
-    const auto errors = recordTurnErrors(id, turn["id"].toString(), turn["errors"].toArray());
+    const auto errors = recordTurnErrors(id, turn["id"].toString(), turn.value("errors").toArray());
     if (!errors.isEmpty()) {
       turn["errors"] = errors;
       if (turn["status"] == "inProgress" && hasFinalTurnError(errors))
@@ -1407,7 +1407,7 @@ Object Service::history(const QString &id, QJsonValue cursor) {
                               [this](const QString &t, const Object &item) {
                                 return registerImages(t, item);
                               });
-    const auto errors = recordTurnErrors(id, turn["id"].toString(), turn["errors"].toArray());
+    const auto errors = recordTurnErrors(id, turn["id"].toString(), turn.value("errors").toArray());
     if (!errors.isEmpty()) {
       turn["errors"] = errors;
       if (turn["status"] == "inProgress" && hasFinalTurnError(errors))

@@ -1,6 +1,6 @@
 {
   "name": "@codexer/desktop",
-  "version": "0.2.48",
+  "version": "0.2.49",
   "description": "Codexer Agent — native Qt desktop connector",
   "author": "Codexer contributors",
   "private": true,
