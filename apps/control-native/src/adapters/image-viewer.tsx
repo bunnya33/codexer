@@ -19,5 +19,5 @@ export function ImageViewerImage({preview,onClose:_onClose}:{preview:ImagePrevie
 }
 export function ImageViewer({preview,onClose,onNavigate}:{preview:ImageGallery|null;onClose:()=>void;onNavigate:(direction:ImageDirection)=>void}){
   const image=preview?.images[preview.index];
-  return <Modal visible={!!preview} transparent animationType="fade" onRequestClose={onClose}><View style={{flex:1,backgroundColor:'#101616'}}><ImageViewerHeader name={image?.name} onClose={onClose}/>{image&&<ImageViewerImage key={image.source.uri} preview={image} onClose={onClose}/>} {preview&&<ImageViewerNavigation gallery={preview} onNavigate={onNavigate}/>}</View></Modal>;
+  return <Modal visible={!!preview} transparent animationType="fade" onRequestClose={onClose}><View style={{flex:1,backgroundColor:'#101616'}}><ImageViewerHeader key={image?.source.uri} image={image} onClose={onClose}/>{image&&<ImageViewerImage key={image.source.uri} preview={image} onClose={onClose}/>} {preview&&<ImageViewerNavigation gallery={preview} onNavigate={onNavigate}/>}</View></Modal>;
 }

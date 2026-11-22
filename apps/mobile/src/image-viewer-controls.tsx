@@ -1,12 +1,44 @@
-import { Pressable, Text, View } from 'react-native';
-import { ChevronLeft, ChevronRight, X } from 'lucide-react-native';
-import type { ImageDirection, ImageGallery } from '../../../packages/client-shared/src/images';
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { ChevronLeft, ChevronRight, Download, X } from 'lucide-react-native';
+import type { ImageDirection, ImageGallery, ImagePreview } from '../../../packages/client-shared/src/images';
+import { saveConversationImage } from './image-download';
+import { imageSaveError } from './image-download-source';
 import { useTheme } from './styles';
 
-export function ImageViewerHeader({ name, onClose }: { name?: string; onClose: () => void }) {
+export function ImageViewerHeader({ image, onClose }: { image?: ImagePreview; onClose: () => void }) {
   const { s } = useTheme();
+  const pending = useRef<AbortController | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState('');
+  useEffect(() => () => { pending.current?.abort(); }, []);
+
+  const save = async () => {
+    if (!image?.source.headers || pending.current) return;
+    const controller = new AbortController();
+    pending.current = controller;
+    setSaving(true);
+    setFeedback('');
+    try {
+      const message = await saveConversationImage(image, controller.signal);
+      if (!controller.signal.aborted && message) setFeedback(message);
+    } catch (error) {
+      if (!controller.signal.aborted) setFeedback(imageSaveError(error));
+    } finally {
+      pending.current = null;
+      if (!controller.signal.aborted) setSaving(false);
+    }
+  };
+
   return <View style={s.viewerHeader}>
-    <Text style={s.viewerTitle} numberOfLines={1}>{name}</Text>
+    <View style={{ flex: 1, paddingRight: 8 }}>
+      <Text style={s.viewerTitle} numberOfLines={1}>{image?.name}</Text>
+      {!!feedback && <Text accessibilityLiveRegion="polite" style={s.viewerSaveFeedback}>{feedback}</Text>}
+    </View>
+    {image?.source.headers && <Pressable accessibilityRole="button" accessibilityLabel="保存图片"
+      accessibilityState={{ busy: saving, disabled: saving }} disabled={saving} onPress={() => void save()} style={s.viewerClose}>
+      {saving ? <ActivityIndicator color="#fff" size="small" /> : <Download size={22} color="#fff" />}
+    </Pressable>}
     <Pressable accessibilityRole="button" accessibilityLabel="关闭图片" onPress={onClose} style={s.viewerClose}><X size={22} color="#fff" /></Pressable>
   </View>;
 }

@@ -12,10 +12,14 @@ export async function downloadFile(
   const blob = await response.blob();
   if (signal.aborted) throw new Error("file-cancelled");
   if (blob.size !== info.size) throw new Error("invalid-file-response");
+  saveBrowserFile(blob, info.name);
+}
+
+export function saveBrowserFile(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = info.name;
+  link.download = name;
   document.body.appendChild(link);
   link.click();
   link.remove();

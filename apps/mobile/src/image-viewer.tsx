@@ -48,7 +48,7 @@ export function ImageViewer({ preview, onClose, onNavigate }: { preview: ImageGa
       <SafeAreaProvider style={s.viewer}>
         <SafeAreaView style={s.viewer} edges={['top', 'bottom']}>
           <StatusBar style="light" />
-          <ImageViewerHeader name={image?.name} onClose={onClose} />
+          <ImageViewerHeader key={image?.source.uri} image={image} onClose={onClose} />
           {image && <ImageViewerImage key={image.source.uri} preview={image} onClose={onClose} onNavigate={onNavigate} />}
           {preview && <ImageViewerNavigation gallery={preview} onNavigate={onNavigate} />}
         </SafeAreaView>
