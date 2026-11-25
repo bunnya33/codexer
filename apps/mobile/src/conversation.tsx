@@ -129,7 +129,6 @@ function Activity({ block, turn, deviceId, threadId, onImage, questionRequestIds
   const ended = ['completed', 'interrupted', 'failed'].includes(block.state);
   const [open, setOpen] = useState(!ended);
   const previousState = useRef(block.state);
-  const completed = block.state === 'completed';
   useEffect(() => {
     if (block.state !== previousState.current) {
       if (block.state === 'running') setOpen(true);
@@ -153,7 +152,6 @@ function Activity({ block, turn, deviceId, threadId, onImage, questionRequestIds
       if (messageRole(item) === 'assistant' && item.phase !== 'final_answer') return <View key={item.id} style={s.commentary}><Markdown replySelection>{item.text ?? ''}</Markdown></View>;
       return <Message key={item.id} item={item} deviceId={deviceId} threadId={threadId} onImage={onImage} />;
     })}
-    {completed && !!turn.fileChanges?.length && <FileChangesPanel changes={turn.fileChanges} compact={false} deviceId={deviceId} threadId={threadId} turnId={turn.id}/>}
   </View>;
   return <View style={s.activity}>
     <TurnTiming turn={turn} running={block.state === 'running'} />
@@ -161,7 +159,7 @@ function Activity({ block, turn, deviceId, threadId, onImage, questionRequestIds
       <View style={s.activityHead}>{block.state === 'running' ? <ActivityIndicator testID="processing-spinner" size="small" color={c.muted} accessibilityLabel="正在处理" /> : <View testID="activity-ended-check" accessible accessibilityLabel="任务已结束" style={{ width: 16, height: 16, alignItems: 'center', justifyContent: 'center' }}><Check size={16} strokeWidth={2.5} color={c.success} /></View>}<Text style={s.activityText}>{activityLabel(block, now)}</Text></View>
     </View>}
     <View style={s.line} />
-    {ended ? <Disclosure open={open}>{contents}{!process.length && !steps?.length && !turn.fileChanges?.length && <Text style={s.executionWaiting}>本轮没有额外的处理记录。</Text>}</Disclosure> : contents}
+    {ended ? <Disclosure open={open}>{contents}{!process.length && !steps?.length && <Text style={s.executionWaiting}>本轮没有额外的处理记录。</Text>}</Disclosure> : contents}
     {final.map((item, index) => <Message key={item.id} item={item} branchPoint={turn.status === 'completed' && !turn.itemsTruncatedAfter && index === final.length - 1} deviceId={deviceId} threadId={threadId} onImage={onImage} />)}
   </View>;
 }
@@ -211,6 +209,9 @@ export const TurnView = memo(function TurnView({ turn, active, deviceId, threadI
   return <MessageTurnContext.Provider value={{turnId:turn.id,time:start?new Date(start).toISOString():''}}><View style={s.turn}>
     {buildActivityBlocks(turn, active).map(block => block.kind === 'message' ? <Message key={block.item.id} item={block.item} deviceId={deviceId} threadId={threadId} onImage={onImage} /> : <Activity key={block.id} block={block} turn={turn} deviceId={deviceId} threadId={threadId} onImage={onImage} questionRequestIds={questionRequestIds} steps={steps} agents={agents} onInspectDetails={onInspectDetails} />)}
     {!!turn.errors?.length && <TurnErrors errors={turn.errors} />}
+    {!active && !!turn.fileChanges?.length && (
+      <FileChangesPanel changes={turn.fileChanges} compact={false} deviceId={deviceId} threadId={threadId} turnId={turn.id} />
+    )}
     {(turn.tokenUsage || running || end) && <View style={s.turnFooter}>
       {(turn.tokenUsage || running) && <View testID="turn-token-usage" style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
         {running && <TaskStatusDot running label="任务进行中" />}

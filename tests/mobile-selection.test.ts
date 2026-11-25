@@ -1998,7 +1998,17 @@ it.each([undefined,'file-changed'])('reads versioned source from the real change
   const fileCalls: {url:string;signal?:AbortSignal|null}[]=[];
   const test=await fixture({review:{turns:[reviewTurn()],fileCalls,fileError}});
   try {
-    await reviewReady(test);await test.click('1 个文件已更改，查看差异');await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[aria-label="src/示例.ts，查看差异"]')).not.toBeNull());await test.click('src/示例.ts，查看差异');
+    const doc = test.dom.window.document;
+    const summaryLabel = '1 个文件已更改，查看差异';
+    await vi.waitFor(() => expect(doc.querySelector('[data-testid="work-disclosure-review-turn"]')?.getAttribute('aria-expanded')).toBe('false'));
+    const summary = doc.querySelector(`[aria-label="${summaryLabel}"]`);
+    expect(summary?.textContent).toContain('已编辑 1 个文件');
+    expect(summary?.textContent).toContain('+1');
+    expect(summary?.textContent).toContain('-1');
+    expect(summary?.closest('[aria-hidden="true"]')).toBeNull();
+    await test.click(summaryLabel);
+    await vi.waitFor(() => expect(doc.querySelector('[aria-label="src/示例.ts，查看差异"]')).not.toBeNull());
+    await test.click('src/示例.ts，查看差异');
     await vi.waitFor(()=>expect(test.dom.window.document.querySelector('[data-testid="expanded-file-diff"]')).not.toBeNull());
     expect(test.dom.window.document.querySelector('[data-testid="expanded-file-diff"]')?.textContent).toContain('+new');
     expect(test.dom.window.document.querySelectorAll('.codexer-diff-gutter')).toHaveLength(10);
