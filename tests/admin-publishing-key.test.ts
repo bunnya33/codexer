@@ -95,6 +95,11 @@ it("generates a code once, copies on HTTP without Clipboard API, and clears it o
     await wait(() => expect(doc.body.textContent).toContain("暂无发布授权"));
     button("生成发布授权码").click();
     await wait(() => expect(doc.querySelector('[role="dialog"]')).not.toBeNull());
+    const diagnostics = [...doc.querySelectorAll("label")].find((label) =>
+      label.textContent?.includes("查看脱敏诊断日志（只读）"),
+    )?.querySelector("input");
+    expect(diagnostics?.checked).toBe(false);
+    diagnostics!.click();
     const name = doc.querySelector(
       '[role="dialog"] input:not([type="checkbox"])',
     ) as HTMLInputElement;
@@ -113,6 +118,7 @@ it("generates a code once, copies on HTTP without Clipboard API, and clears it o
     expect(requests.find((r) => r.path.endsWith("/keys"))?.body).toMatchObject({
       name: "Release PC",
       expiresInDays: 90,
+      scopes: ["server:read", "server:write", "clients:read", "clients:write", "diagnostics:read"],
     });
     expect(dom.window.localStorage.length).toBe(1);
     expect(dom.window.sessionStorage.length).toBe(0);

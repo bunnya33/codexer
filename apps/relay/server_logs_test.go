@@ -70,6 +70,69 @@ func TestServerLogsAdminAccessFiltersAndPaging(t *testing.T) {
 	}
 }
 
+func TestAuthorizedDiagnosticsScopeAndRedaction(t *testing.T) {
+	f := newPublishingFixture(t, "")
+	const endpoint = "/v1/publish/diagnostics/logs"
+	grant := f.key([]any{"diagnostics:read"})
+	code := str(grant["code"])
+	oldCode := str(f.key([]any{"server:read", "server:write", "clients:read", "clients:write"})["code"])
+	for _, test := range []struct {
+		token  string
+		status int
+	}{{"", 401}, {f.user, 403}, {oldCode, 403}} {
+		if status, result := f.call("GET", endpoint, test.token, nil); status != test.status {
+			t.Fatal(status, result)
+		}
+	}
+	connection, device, thread := uuid(), uuid(), uuid()
+	f.server.logs.add(serverLogEntry{
+		Level: "warn", Category: "protocol", Code: "invalid-message", Source: "device",
+		Route: "GET /internal/path", SQLState: "22001",
+		Issues:     []logIssue{{Path: "/snapshot/threads/*/turns/0/errors", Rule: "type"}},
+		logContext: logContext{ConnectionID: connection, DeviceID: device, ThreadID: thread, MessageType: "device.snapshot"},
+	})
+	f.server.logs.add(serverLogEntry{
+		Level: "warn", Category: "connection", Code: "invalid-message", CloseCode: 1008,
+		logContext: logContext{ConnectionID: connection, DeviceID: device, ThreadID: thread},
+	})
+	f.server.logs.add(serverLogEntry{Level: "warn", Category: "connection", Code: "transport-error"})
+	logs := logEntries(f.server.logs)
+	query := fmt.Sprintf("?connectionId=%s&deviceId=%s&since=%d&until=%d&limit=1", connection, device, logs[0].At, logs[1].At)
+	status, page := f.call("GET", endpoint+query, code, nil)
+	entries := list(page["entries"])
+	if status != 200 || len(entries) != 1 || num(obj(entries[0])["closeCode"]) != 1008 || obj(entries[0])["connectionId"] != connection {
+		t.Fatal(status, page)
+	}
+	cursor := num(page["nextCursor"])
+	if cursor != logs[1].ID {
+		t.Fatal(page)
+	}
+	status, page = f.call("GET", endpoint+query+fmt.Sprintf("&before=%d", cursor), code, nil)
+	entries = list(page["entries"])
+	if status != 200 || len(entries) != 1 || obj(entries[0])["messageType"] != "device.snapshot" || !strings.Contains(js(entries[0]), "/snapshot/threads/*/turns/0/errors") {
+		t.Fatal(status, page)
+	}
+	for _, private := range []string{thread, "threadId", "sqlState", "/internal/path", "\"route\"", "server-logs.jsonl", code} {
+		if strings.Contains(js(page), private) {
+			t.Fatal("unexpected field in delegated logs")
+		}
+	}
+	for _, path := range []string{"/v1/admin/system/logs", "/v1/admin/system/version", "/v1/admin/client-releases", "/v1/admin/publishing", "/v1/me"} {
+		if status, result := f.call("GET", path, code, nil); status != 403 {
+			t.Fatal(path, status, result)
+		}
+	}
+	if status, result := f.call("GET", endpoint+"?since=2&until=1", code, nil); status != 400 || result["error"] != "invalid-log-filter" {
+		t.Fatal(status, result)
+	}
+	if status, result := f.call("DELETE", "/v1/admin/publishing/"+str(grant["grantId"]), f.admin, nil); status != 200 {
+		t.Fatal(status, result)
+	}
+	if status, result := f.call("GET", endpoint, code, nil); status != 401 {
+		t.Fatal(status, result)
+	}
+}
+
 func TestServerLogsRotationReloadConcurrencyAndFallback(t *testing.T) {
 	directory := t.TempDir()
 	l := newServerLogs(directory)

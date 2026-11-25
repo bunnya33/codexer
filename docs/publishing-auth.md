@@ -28,6 +28,8 @@
 
 发布凭据可读取服务器版本、上传服务器包和重启对应任务，也可读取客户端安装包与手机热更新目录并上传归档。管理账号、会话、设备命令、更新器设置、Git 构建、删除安装包、下架热更新和管理授权继续使用对应的登录会话。上传在完整接收后、原子发布前再次检查凭据，撤销和管理员密码变更与最终发布通过全局排他锁互斥。
 
+`GET /v1/publish/diagnostics/logs` 接受含 `diagnostics:read` 的授权，返回 `entries`、`nextCursor` 和 `capturedAt`，响应带 `Cache-Control: no-store`。支持 `level`、`category`、`code`、`deviceId`、`connectionId`、`limit` 和 `before`，以及用 Unix 毫秒表示的时间边界 `since` 和 `until`。管理员在原有的服务器日志页面查看完整结构化记录。该权限默认关闭，可独立签发和撤销。
+
 新增表为 publish_requests、publish_grants、publish_tokens、publish_audit，使用两类数据库均支持的增量建表，不更改旧列；回滚程序保留这些新表。请求只保留十分钟，按来源最多十个、全局最多一千个待交换记录；现有 HTTP 来源限流继续适用。凭据签发时清理过期 token。授权和变更操作写独立审计，保留最近一万条，后台显示最近二百条；不会记录 Authorization、verifier、deviceCode 或刷新令牌。
 
 ## 传输与撤销

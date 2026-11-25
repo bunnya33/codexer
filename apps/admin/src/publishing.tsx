@@ -135,7 +135,7 @@ export function PublishingPanel() {
               <KeyRound size={20} />
               发布授权
             </h2>
-            <p className="muted">生成授权码供本地工具上传更新，明文仅显示一次。撤销后立即失效。</p>
+            <p className="muted">生成授权码供本地工具发布更新或查看脱敏诊断日志。明文仅显示一次，撤销后立即失效。</p>
           </div>
           <div className="actions">
             <button className="primary" onClick={() => setCreating(true)}>

@@ -3,13 +3,7 @@ import { mkdir, open, rename, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 import { readSecret, writeSecret } from "./secrets.js";
 import { DeployClient, DeployError, deployUrl } from "./server-deploy.js";
-
-export const PUBLISH_SCOPES = [
-  "server:read",
-  "server:write",
-  "clients:read",
-  "clients:write",
-] as const;
+import { defaultPublishingScopes, publishingScopeNames } from "./publishing.js";
 export type DevicePublishingCredential = {
   format: "publishing-v1";
   url: string;
@@ -45,7 +39,7 @@ export function validPublishingCredential(value: unknown): value is PublishingCr
     [v.expiresAt, v.grantExpiresAt].every(Number.isSafeInteger) &&
     Array.isArray(v.scopes) &&
     v.scopes.length > 0 &&
-    v.scopes.every((s) => PUBLISH_SCOPES.includes(s as (typeof PUBLISH_SCOPES)[number]))
+    v.scopes.every((s) => typeof s === "string" && Object.hasOwn(publishingScopeNames, s))
   );
 }
 function tokenCredential(url: string, value: TokenReply) {
@@ -85,7 +79,7 @@ export async function importPublishingCode(
 export async function beginPublishingLogin(
   url: string,
   name: string,
-  scopes: readonly string[] = PUBLISH_SCOPES,
+  scopes: readonly string[] = defaultPublishingScopes,
 ) {
   url = deployUrl(url, true);
   const verifier = randomBytes(32).toString("base64url"),

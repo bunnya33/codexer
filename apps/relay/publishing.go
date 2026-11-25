@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -27,6 +28,7 @@ const publishGrantMs int64 = 90 * 24 * 60 * 60 * 1000
 
 var publishProof = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
 var publishUserCode = regexp.MustCompile(`^[A-F0-9]{4}-[A-F0-9]{4}$`)
+var allowedPublishScopes = []string{"server:read", "server:write", "clients:read", "clients:write", "diagnostics:read"}
 
 func loopbackHost(hostport string) bool {
 	host := hostport
@@ -75,19 +77,19 @@ func (s *Server) publishTransport(r *http.Request) string {
 
 func publishScopes(v any) string {
 	raw, ok := v.([]any)
-	if !ok || len(raw) == 0 || len(raw) > 4 {
+	if !ok || len(raw) == 0 || len(raw) > len(allowedPublishScopes) {
 		fail(400, "invalid-publishing-scopes")
 	}
 	selected := map[string]bool{}
 	for _, x := range raw {
 		k, ok := x.(string)
-		if !ok || !(k == "server:read" || k == "server:write" || k == "clients:read" || k == "clients:write") || selected[k] {
+		if !ok || !slices.Contains(allowedPublishScopes, k) || selected[k] {
 			fail(400, "invalid-publishing-scopes")
 		}
 		selected[k] = true
 	}
 	out := []string{}
-	for _, k := range []string{"server:read", "server:write", "clients:read", "clients:write"} {
+	for _, k := range allowedPublishScopes {
 		if selected[k] {
 			out = append(out, k)
 		}

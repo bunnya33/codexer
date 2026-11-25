@@ -22,7 +22,7 @@ const cleanup: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
   for (const f of cleanup.splice(0).reverse()) await f();
 });
-async function fixture() {
+async function fixture(scopes = ["clients:read"]) {
   let url = "",
     challenge = "",
     polls = 0,
@@ -76,7 +76,7 @@ async function fixture() {
       return ["Bearer " + access, "Bearer " + key].includes(req.headers.authorization ?? "")
         ? json(200, {
             grantId: "test-grant",
-            scopes: ["clients:read"],
+            scopes,
             username: "admin",
             expiresAt: Date.now() + 86400000,
             grantExpiresAt: Date.now() + 86400000,
@@ -84,6 +84,9 @@ async function fixture() {
         : json(401, { error: "unauthorized" });
     if (req.url === "/v1/admin/client-releases" && req.headers.authorization === "Bearer " + key)
       return json(200, { releases: {}, packages: [] });
+    if (req.url?.startsWith("/v1/publish/diagnostics/logs?") &&
+        req.headers.authorization === "Bearer " + key && scopes.includes("diagnostics:read"))
+      return json(200, { entries: [{ id: 7, closeCode: 1008 }], nextCursor: null, capturedAt: Date.now() });
     json(404, { error: "not-found" });
   });
   await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
@@ -196,6 +199,12 @@ it.skipIf(process.platform !== "win32")(
       { env, windowsHide: true },
     );
     expect(JSON.parse(clients.stdout)).toMatchObject({ packages: [] });
+    await expect(promisify(execFile)(
+      process.execPath,
+      ["node_modules/tsx/dist/cli.mjs", "scripts/server-deploy.ts", "logs"],
+      { env, windowsHide: true },
+    )).rejects.toMatchObject({ stdout: expect.stringContaining("diagnostics-scope-required") });
+    expect(remote.calls.some((path) => path.startsWith("/v1/publish/diagnostics/logs"))).toBe(false);
     expect(remote.counts().refreshes).toBe(0);
     const { client, identity } = await loadPublishingClient(join(dir, "default.secret"));
     await client.assertAdmin();
@@ -206,6 +215,26 @@ it.skipIf(process.platform !== "win32")(
   },
   25000,
 );
+it.skipIf(process.platform !== "win32")("queries diagnostics using a standalone read-only profile", async () => {
+  const remote = await fixture(["diagnostics:read"]);
+  const dir = await mkdtemp(join(tmpdir(), "codexer-diagnostics-cli-"));
+  cleanup.push(() => rm(dir, { recursive: true, force: true }));
+  await savePublishingCredential(join(dir, "diagnostics.secret"), await importPublishingCode(remote.url, remote.key));
+  const { stdout } = await promisify(execFile)(
+    process.execPath,
+    [
+      "node_modules/tsx/dist/cli.mjs", "scripts/server-deploy.ts", "logs", "--profile", "diagnostics",
+      "--code", "invalid-message", "--since", "2026-11-25T08:00:00+08:00", "--limit", "10",
+    ],
+    { env: { ...process.env, CODEXER_DEPLOY_HOME: dir }, windowsHide: true },
+  );
+  expect(JSON.parse(stdout)).toMatchObject({ entries: [{ id: 7, closeCode: 1008 }] });
+  const request = remote.calls.find((path) => path.startsWith("/v1/publish/diagnostics/logs?"))!;
+  expect(Object.fromEntries(new URL(request, remote.url).searchParams)).toEqual({
+    since: String(Date.parse("2026-11-25T00:00:00Z")), code: "invalid-message", limit: "10",
+  });
+  expect(stdout).not.toContain(remote.key);
+}, 25000);
 it("cancels authorization without requesting an administrator password", async () => {
   const remote = await fixture(),
     login = await beginPublishingLogin(remote.url, "PC"),

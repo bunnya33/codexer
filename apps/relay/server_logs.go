@@ -162,46 +162,73 @@ func (l *serverLogs) writeFailed() {
 }
 func (s *Server) logRoutes() {
 	s.route("GET /v1/admin/system/logs", "admin", func(w http.ResponseWriter, r *http.Request, _ *Principal) any {
-		w.Header().Set("Cache-Control", "no-store")
-		q := r.URL.Query()
-		limit := 100
-		if raw := q.Get("limit"); raw != "" {
-			v, e := strconv.Atoi(raw)
-			if e != nil || v < 1 || v > 200 {
-				fail(400, "invalid-log-filter")
-			}
-			limit = v
-		}
-		before := int64(0)
-		if raw := q.Get("before"); raw != "" {
-			v, e := strconv.ParseInt(raw, 10, 64)
-			if e != nil || v < 1 {
-				fail(400, "invalid-log-filter")
-			}
-			before = v
-		}
-		level, category, device, code := q.Get("level"), q.Get("category"), q.Get("deviceId"), q.Get("code")
-		if level != "" && level != "info" && level != "warn" && level != "error" || category != "" && category != "connection" && category != "protocol" && category != "storage" && category != "http" && category != "background" || len(device) > 160 || len(code) > 100 {
+		return s.logs.query(w, r, false)
+	})
+	s.route("GET /v1/publish/diagnostics/logs", "publish:diagnostics:read", func(w http.ResponseWriter, r *http.Request, _ *Principal) any {
+		return s.logs.query(w, r, true)
+	})
+}
+
+func logQueryNumber(value string) int64 {
+	if value == "" {
+		return 0
+	}
+	number, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || number < 1 {
+		fail(400, "invalid-log-filter")
+	}
+	return number
+}
+
+func (l *serverLogs) query(w http.ResponseWriter, r *http.Request, delegated bool) M {
+	w.Header().Set("Cache-Control", "no-store")
+	q := r.URL.Query()
+	limit := 100
+	if raw := q.Get("limit"); raw != "" {
+		v, e := strconv.Atoi(raw)
+		if e != nil || v < 1 || v > 200 {
 			fail(400, "invalid-log-filter")
 		}
-		l := s.logs
-		l.mu.Lock()
-		defer l.mu.Unlock()
-		entries := []serverLogEntry{}
-		var next any
-		for i := len(l.entries) - 1; i >= 0; i-- {
-			entry := l.entries[i]
-			if before > 0 && entry.ID >= before || level != "" && entry.Level != level || category != "" && entry.Category != category || device != "" && entry.DeviceID != device || code != "" && !strings.Contains(entry.Code, code) {
-				continue
-			}
-			if len(entries) == limit {
-				next = entries[len(entries)-1].ID
-				break
-			}
-			entries = append(entries, entry)
+		limit = v
+	}
+	before := logQueryNumber(q.Get("before"))
+	since, until := logQueryNumber(q.Get("since")), logQueryNumber(q.Get("until"))
+	if since > 0 && until > 0 && since > until {
+		fail(400, "invalid-log-filter")
+	}
+	level, category, device, code := q.Get("level"), q.Get("category"), q.Get("deviceId"), q.Get("code")
+	connection := q.Get("connectionId")
+	if level != "" && level != "info" && level != "warn" && level != "error" || category != "" && category != "connection" && category != "protocol" && category != "storage" && category != "http" && category != "background" || len(device) > 160 || len(code) > 100 {
+		fail(400, "invalid-log-filter")
+	}
+	if connection != "" && !uuidPattern.MatchString(connection) {
+		fail(400, "invalid-log-filter")
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	entries := []serverLogEntry{}
+	var next any
+	for i := len(l.entries) - 1; i >= 0; i-- {
+		entry := l.entries[i]
+		if before > 0 && entry.ID >= before || since > 0 && entry.At < since || until > 0 && entry.At > until {
+			continue
 		}
-		return M{"entries": entries, "nextCursor": next, "retained": len(l.entries), "capacity": serverLogCapacity, "persistent": l.persistent, "file": "server-logs.jsonl", "maxFileBytes": l.maxBytes, "fileCount": 2, "capturedAt": now()}
-	})
+		if level != "" && entry.Level != level || category != "" && entry.Category != category || device != "" && entry.DeviceID != device || connection != "" && entry.ConnectionID != connection || code != "" && !strings.Contains(entry.Code, code) {
+			continue
+		}
+		if len(entries) == limit {
+			next = entries[len(entries)-1].ID
+			break
+		}
+		if delegated {
+			entry.ThreadID, entry.Route, entry.SQLState = "", "", ""
+		}
+		entries = append(entries, entry)
+	}
+	if delegated {
+		return M{"entries": entries, "nextCursor": next, "capturedAt": now()}
+	}
+	return M{"entries": entries, "nextCursor": next, "retained": len(l.entries), "capacity": serverLogCapacity, "persistent": l.persistent, "file": "server-logs.jsonl", "maxFileBytes": l.maxBytes, "fileCount": 2, "capturedAt": now()}
 }
 
 var loggedVersion = regexp.MustCompile(`^\d{1,4}\.\d{1,4}\.\d{1,4}(?:-[a-zA-Z0-9.-]{1,30})?$`)

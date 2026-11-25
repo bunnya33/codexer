@@ -21,6 +21,7 @@ npm run server:deploy -- login --url http://codexer.example.com:8899
 | `server:write` | 上传服务器包；重启由上传生成的确切任务，不执行 Git 构建或更改更新设置 |
 | `clients:read` | 读取客户端安装包、手机热更新和兼容 Agent 更新目录 |
 | `clients:write` | 上传客户端安装包和已签名的手机热更新归档 |
+| `diagnostics:read` | 查看脱敏的 Relay 诊断日志及断线详情 |
 
 发布凭据不能管理账号、读取控制会话、调用远程 PC 命令或管理其它发布授权。权限授权也不等于每次操作的用户指令：只要求“发个服务器更新”时仅发布 Release；明确要求“更新到服务器”时才准备、重启并核验。上传客户端安装包不会自动替换所有设备上的应用，保留原来的客户端更新确认。
 
@@ -29,6 +30,19 @@ npm run server:deploy -- login --url http://codexer.example.com:8899
 当前本机 CLI 的加密存储支持 **Windows DPAPI / CurrentUser**，位置为 `%LOCALAPPDATA%/Codexer/server-deploy/default.secret`；不回退为明文文件。换 Windows 用户或电脑需要重新网页授权。可发布 macOS 安装包不代表本机工具已完成 macOS/Linux 凭据存储支持。`CODEXER_DEPLOY_HOME` 可指定本机配置目录；多服务器使用不同的 `--profile 名称`，后续命令保持相同 profile。
 
 旧工具保存的完整管理员会话不作为新发布授权使用。运行新 login 成功后覆盖本机旧凭据；旧服务器会话不再续期，按原登录策略过期。旧本地密码登录页已移除。Node >=22.13 和仓库开发依赖仅用于运行本地工具，服务器不安装 Node。
+
+## 查看脱敏诊断日志
+
+在支持此功能的 Relay 后台打开「发布授权 → 生成发布授权码」，单独勾选「查看脱敏诊断日志（只读）」，取消其他权限。已有授权保持原权限。可用单独的本机配置保存日志授权。
+
+```powershell
+npm run server:deploy -- login --url http://codexer.example.com:8899 --profile diagnostics
+npm run server:deploy -- logs --profile diagnostics --code invalid-message --since 2026-11-25T08:00:00+08:00
+```
+
+按时间倒序返回 JSON。可使用 `--until`、`--level`、`--category`、`--device-id` 和 `--connection-id` 缩小范围。每页默认 100 条，`--limit` 支持 1–200 条。按原筛选条件传入 `--before <nextCursor>` 读取上一页更早的记录。时间使用带时区的 ISO 格式。
+
+日志保留设备 ID 和连接 ID，可将字段校验失败与 WebSocket 关闭配对。返回协议字段路径、校验规则、消息类型、关闭码和字节数等结构化信息。消息正文、凭据、会话 ID、HTTP 路由、数据库错误码和日志文件信息均不进入此响应。
 
 ## HTTP、HTTPS 与首次升级
 

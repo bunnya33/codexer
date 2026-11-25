@@ -1,12 +1,12 @@
 import { useRef, useState } from "react";
 import { createPublishingKey } from "./api";
 import { Modal } from "./modal";
-import { publishingScopeNames } from "../../../packages/shared/src/publishing";
+import { defaultPublishingScopes, publishingScopeNames } from "../../../packages/shared/src/publishing";
 import type { PublishingKey } from "../../../packages/shared/src/publishing";
 
 export function PublishingKeyDialog({ close }: { close: () => void }) {
   const [name, setName] = useState("");
-  const [scopes, setScopes] = useState(Object.keys(publishingScopeNames));
+  const [scopes, setScopes] = useState(defaultPublishingScopes);
   const [days, setDays] = useState(90);
   const [key, setKey] = useState<PublishingKey | null>(null);
   const [error, setError] = useState("");
@@ -105,7 +105,7 @@ export function PublishingKeyDialog({ close }: { close: () => void }) {
             />
           </label>
           <fieldset disabled={busy}>
-            <legend>发布权限</legend>
+            <legend>授权权限</legend>
             {Object.entries(publishingScopeNames).map(([scope, title]) => (
               <label key={scope} className="publishing-scope">
                 <input
@@ -130,7 +130,7 @@ export function PublishingKeyDialog({ close }: { close: () => void }) {
             </select>
           </label>
           <p className="muted">
-            可用于 HTTP 或 HTTPS 服务器地址。授权码可重复用于发布，有效期内可随时撤销。
+            可用于 HTTP 或 HTTPS 服务器地址。授权码在有效期内可重复使用，管理员可随时撤销。
           </p>
           {error && (
             <p className="error" role="alert">

@@ -1,9 +1,15 @@
+export const diagnosticsReadScope = "diagnostics:read";
+
 export const publishingScopeNames: Record<string, string> = {
   "server:read": "查看服务器版本和更新状态",
   "server:write": "上传服务器包并安装更新（会重启服务器）",
   "clients:read": "查看客户端安装包和热更新",
   "clients:write": "发布客户端安装包和手机热更新",
+  [diagnosticsReadScope]: "查看脱敏诊断日志（只读）",
 };
+export const defaultPublishingScopes = Object.keys(publishingScopeNames).filter(
+  (scope) => scope !== diagnosticsReadScope,
+);
 export type PublishRequest = {
   code: string;
   name: string;
